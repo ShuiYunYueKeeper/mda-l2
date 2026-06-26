@@ -1,0 +1,43 @@
+{
+  "name": "mda",
+  "version": "1.0.0",
+  "description": "Markdown 批注管理工具 — CLI (mda-cli) + GUI (mda)",
+  "main": "dist/gui/main.js",
+  "bin": {
+    "mda": "dist/gui/main.js",
+    "mda-cli": "dist/cli/main.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "cli": "node dist/cli/main.js",
+    "gui": "electron dist/gui/main.js",
+    "start": "electron dist/gui/main.js",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "coverage": "jest --coverage && echo 报告在 coverage/lcov-report/index.html"
+  },
+  "keywords": ["markdown", "annotation", "comment", "review"],
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.1.0",
+    "markdown-it": "^14.1.0",
+    "uuid": "^10.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/uuid": "^10.0.0",
+    "c8": "^10.1.2",
+    "electron": "^31.1.0",
+    "jest": "^29.7.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ts-jest": "^29.2.3",
+    "typescript": "^5.5.3"
+  }
+}
