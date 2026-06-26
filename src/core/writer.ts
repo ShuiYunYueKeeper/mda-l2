@@ -1,4 +1,4 @@
-import * as fs from 'fs/promises';
+﻿import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import {
@@ -32,6 +32,13 @@ async function atomicWrite(filePath: string, content: string): Promise<void> {
     }
     throw new Error(`写入失败: ${(err as Error).message}`);
   }
+}
+
+// ---------- 换行风格 ----------
+
+// 保留源文件原有换行风格：只要出现过 CRLF 就按 CRLF 回写，否则 LF。
+function detectEol(text: string): '\r\n' | '\n' {
+  return text.includes('\r\n') ? '\r\n' : '\n';
 }
 
 // ---------- 空行压缩 ----------
@@ -94,6 +101,7 @@ export async function addAnnotation(
   input: AnnotationInput,
 ): Promise<Annotation> {
   const rawText = await fs.readFile(filePath, 'utf-8');
+  const eol = detectEol(rawText);
   const lines = rawText.split(/\r?\n/);
   const { paragraphs, annotations } = parseAnnotations(rawText);
 
@@ -121,7 +129,7 @@ export async function addAnnotation(
   const insertIdx = insertAt; // 0-based index to splice
   lines.splice(insertIdx, 0, annoLine);
 
-  const newText = lines.join('\n');
+  const newText = lines.join(eol);
 
   // 验证：source protection
   // 注意：插入一行后所有后续行的索引偏移了 +1
@@ -142,6 +150,7 @@ export async function editAnnotation(
   patch: AnnotationPatch,
 ): Promise<Annotation> {
   const rawText = await fs.readFile(filePath, 'utf-8');
+  const eol = detectEol(rawText);
   const { annotations } = parseAnnotations(rawText);
   const lines = rawText.split(/\r?\n/);
 
@@ -166,8 +175,7 @@ export async function editAnnotation(
   const newAnnoLine = `[comment]: <> (@anno ${JSON.stringify(updated)})`;
   lines[annoLineIdx] = newAnnoLine;
 
-  const newText = lines.join('\n');
-  const changedLines = new Set<number>([annoLineIdx + 1]);
+  const newText = lines.join(eol);
 
   // 检查源文件保护：只修改了批注行本身
   if (!verifySourceProtection(rawText, newText)) {
@@ -182,6 +190,7 @@ export async function editAnnotation(
 
 export async function removeAnnotation(filePath: string, id: string): Promise<void> {
   const rawText = await fs.readFile(filePath, 'utf-8');
+  const eol = detectEol(rawText);
   const lines = rawText.split(/\r?\n/);
   const { annotations } = parseAnnotations(rawText);
 
@@ -199,7 +208,7 @@ export async function removeAnnotation(filePath: string, id: string): Promise<vo
   lines.splice(annoLineIdx, 1);
   compressEmptyLinesAfterRemove(lines, annoLineIdx);
 
-  const newText = lines.join('\n');
+  const newText = lines.join(eol);
 
   // 源文件保护验证
   if (!verifySourceProtection(rawText, newText)) {
