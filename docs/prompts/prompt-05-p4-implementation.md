@@ -98,6 +98,29 @@ AI 动作（P4 修复迭代，遵循六步循环）：
 
 ---
 
+## Prompt 6: GUI 运行验证 + sandbox 修复
+
+```
+用户: 先把GUI跑起来 → md文档没有渲染
+```
+
+AI 动作：
+
+- `npm run build` 后启动 Electron，发现预览区与批注列表全空。
+- **诊断**：临时为主进程加 `console-message`/`preload-error` 转发，定位到
+  `preload-error: module not found: markdown-it` —— preload 运行在 sandbox
+  模式，沙箱内 `require` 无法加载第三方模块，导致 `window.mdaAPI` 为 undefined，
+  渲染进程 `Cannot read properties of undefined (reading 'onFileOpened')`。
+- **修复**：BrowserWindow `webPreferences.sandbox = false`（保留
+  `contextIsolation: true`）。重启后日志干净、demo.md 正常渲染、6 条批注全部显示。
+- 移除临时诊断代码。
+
+> 复盘：这是 GUI 自实现以来首次真机运行，sandbox 是新版 Electron 默认值，
+> 此前未验证导致缺陷潜伏。该问题也再次印证 review 遗留项 #6（GUI 依赖第三方模块
+> 的根因）——后续若将 @mda/core 打包进 preload，可一并消除对运行时 require 的依赖。
+
+---
+
 ## 实现统计
 
 | 指标 | 数值 |
@@ -106,5 +129,5 @@ AI 动作（P4 修复迭代，遵循六步循环）：
 | 测试文件 | 4 个 |
 | 测试用例 | 61 个（全部通过） |
 | 代码覆盖率 | Statements 87.07% / Lines 90.3% |
-| git commits | 9+ 个 |
-| AI 协作轮次 | 19+ 轮 |
+| git commits | 11+ 个 |
+| AI 协作轮次 | 21+ 轮 |
