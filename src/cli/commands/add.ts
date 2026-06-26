@@ -1,4 +1,5 @@
-import { addAnnotation } from '../../core/writer';
+﻿import { addAnnotation } from '../../core/writer';
+import { ANNOTATION_LEVELS, isAnnotationLevel } from '../../core/model';
 
 interface AddOptions {
   tags?: string;
@@ -17,6 +18,12 @@ export async function addCommand(
     process.exit(1);
   }
 
+  const level = opts.level ?? 'info';
+  if (!isAnnotationLevel(level)) {
+    process.stderr.write(`错误: 无效级别 "${level}"，可选: ${ANNOTATION_LEVELS.join(', ')}\n`);
+    process.exit(1);
+  }
+
   const tags = opts.tags
     ? opts.tags.split(',').map(t => t.trim()).filter(Boolean)
     : undefined;
@@ -25,7 +32,7 @@ export async function addCommand(
     const anno = await addAnnotation(file, lineNum, {
       content,
       tags,
-      level: (opts.level ?? 'info') as 'critical' | 'major' | 'minor' | 'info',
+      level,
     });
     process.stdout.write(anno.id + '\n');
   } catch (err) {
