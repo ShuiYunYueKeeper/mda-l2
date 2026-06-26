@@ -8,14 +8,15 @@
     "mda-cli": "dist/cli/main.js"
   },
   "scripts": {
-    "build": "tsc",
-    "build:watch": "tsc --watch",
+    "build:ts": "tsc",
+    "build:gui": "node scripts/copy-gui.js",
+    "build": "npm run build:ts && npm run build:gui",
     "cli": "node dist/cli/main.js",
     "gui": "electron dist/gui/main.js",
     "start": "electron dist/gui/main.js",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
-    "coverage": "jest --coverage && echo 报告在 coverage/lcov-report/index.html"
+    "coverage": "jest --coverage"
   },
   "keywords": ["markdown", "annotation", "comment", "review"],
   "license": "MIT",
