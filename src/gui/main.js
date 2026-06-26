@@ -15,6 +15,9 @@ function createWindow(initialFile) {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // preload 需 require('markdown-it')，沙箱下无法加载第三方模块，
+      // 故关闭 sandbox；contextIsolation 仍开启以隔离渲染进程。
+      sandbox: false,
     },
   });
 
