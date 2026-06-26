@@ -1,5 +1,16 @@
-export type AnnotationLevel = 'critical' | 'major' | 'minor' | 'info';
+﻿export type AnnotationLevel = 'critical' | 'major' | 'minor' | 'info';
 export type AnnotationStatus = 'open' | 'resolved' | 'wontfix';
+
+export const ANNOTATION_LEVELS: AnnotationLevel[] = ['critical', 'major', 'minor', 'info'];
+export const ANNOTATION_STATUSES: AnnotationStatus[] = ['open', 'resolved', 'wontfix'];
+
+export function isAnnotationLevel(v: unknown): v is AnnotationLevel {
+  return typeof v === 'string' && (ANNOTATION_LEVELS as string[]).includes(v);
+}
+
+export function isAnnotationStatus(v: unknown): v is AnnotationStatus {
+  return typeof v === 'string' && (ANNOTATION_STATUSES as string[]).includes(v);
+}
 
 export interface Annotation {
   id: string;

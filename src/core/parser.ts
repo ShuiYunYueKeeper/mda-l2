@@ -1,4 +1,10 @@
-import { Annotation, AnnotationLevel, AnnotationStatus, Paragraph, ScanResult } from './model';
+﻿import {
+  Annotation,
+  Paragraph,
+  ScanResult,
+  isAnnotationLevel,
+  isAnnotationStatus,
+} from './model';
 
 const ANNO_REGEX = /^\[comment\]:\s*<>\s*\(@anno\s+(\{.+?\})\)\s*$/;
 
@@ -8,10 +14,8 @@ function isAnnotation(obj: unknown): obj is Annotation {
   if (typeof a.id !== 'string') return false;
   if (typeof a.content !== 'string') return false;
   if (!Array.isArray(a.tags) || a.tags.some(t => typeof t !== 'string')) return false;
-  const validLevels: AnnotationLevel[] = ['critical', 'major', 'minor', 'info'];
-  if (!validLevels.includes(a.level as AnnotationLevel)) return false;
-  const validStatuses: AnnotationStatus[] = ['open', 'resolved', 'wontfix'];
-  if (!validStatuses.includes(a.status as AnnotationStatus)) return false;
+  if (!isAnnotationLevel(a.level)) return false;
+  if (!isAnnotationStatus(a.status)) return false;
   if (typeof a.created_at !== 'string') return false;
   return true;
 }
