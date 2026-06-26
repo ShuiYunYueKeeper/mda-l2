@@ -1,4 +1,10 @@
 import { editAnnotation } from '../../core/writer';
+import {
+  ANNOTATION_LEVELS,
+  ANNOTATION_STATUSES,
+  isAnnotationLevel,
+  isAnnotationStatus,
+} from '../../core/model';
 
 interface EditOptions {
   content?: string;
@@ -17,6 +23,15 @@ export async function editCommand(
     process.exit(1);
   }
 
+  if (opts.level !== undefined && !isAnnotationLevel(opts.level)) {
+    process.stderr.write(`错误: 无效级别 "${opts.level}"，可选: ${ANNOTATION_LEVELS.join(', ')}\n`);
+    process.exit(1);
+  }
+  if (opts.status !== undefined && !isAnnotationStatus(opts.status)) {
+    process.stderr.write(`错误: 无效状态 "${opts.status}"，可选: ${ANNOTATION_STATUSES.join(', ')}\n`);
+    process.exit(1);
+  }
+
   const tags = opts.tags
     ? opts.tags.split(',').map(t => t.trim()).filter(Boolean)
     : undefined;
@@ -25,8 +40,8 @@ export async function editCommand(
     const anno = await editAnnotation(file, id, {
       content: opts.content,
       tags,
-      level: opts.level as 'critical' | 'major' | 'minor' | 'info' | undefined,
-      status: opts.status as 'open' | 'resolved' | 'wontfix' | undefined,
+      level: isAnnotationLevel(opts.level) ? opts.level : undefined,
+      status: isAnnotationStatus(opts.status) ? opts.status : undefined,
     });
     process.stdout.write(JSON.stringify(anno) + '\n');
   } catch (err) {
