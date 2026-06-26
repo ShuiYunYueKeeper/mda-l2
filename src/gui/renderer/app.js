@@ -1,4 +1,4 @@
-// MDA Renderer — Markdown 批注管理工具 GUI
+﻿// MDA Renderer — Markdown 批注管理工具 GUI
 // 通过 preload 获取 markdown-it 渲染 + 文件 I/O
 
 (function () {
@@ -63,6 +63,28 @@
     document.getElementById('btn-add').addEventListener('click', function () {
       showEditDialog('add', null, cursorLine);
     });
+
+    // 预览区点击：Ctrl/Cmd+点击打开外链；普通点击定位段落行号
+    previewPaneEl.addEventListener('click', function (e) {
+      var a = e.target.closest('a');
+      if (a && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        var href = a.getAttribute('href');
+        if (href) api.openExternal(href);
+        return;
+      }
+      var block = e.target.closest('[data-line]');
+      if (block) {
+        cursorLine = parseInt(block.getAttribute('data-line'), 10) || null;
+        highlightCursorBlock(block);
+      }
+    });
+  }
+
+  function highlightCursorBlock(block) {
+    var prev = previewEl.querySelector('.mda-cursor-block');
+    if (prev) prev.classList.remove('mda-cursor-block');
+    if (block) block.classList.add('mda-cursor-block');
   }
 
   // ---- 文件操作 ----
@@ -172,9 +194,6 @@
 
       // 图片 fallback (MutationObserver 兜底)
       setupImageFallback();
-
-      // Ctrl+点击链接
-      setupLinkHandler();
     } else {
       previewEl.innerHTML = '<p style="color:#e74c3c">渲染错误: ' + escHtml(result.error) + '</p>';
     }
@@ -196,25 +215,6 @@
       })(imgs[i]);
     }
   }
-
-  function setupLinkHandler() {
-    // 事件委托已在 previewPaneEl 上设置（见下方）
-  }
-
-  // Ctrl+点击链接
-  previewPaneEl && previewPaneEl.addEventListener('click', function (e) {
-    var a = e.target.closest('a');
-    if (a && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      var href = a.getAttribute('href');
-      if (href) api.openExternal(href);
-    }
-    // 记录点击段落行号
-    if (!a && !e.target.closest('button')) {
-      // 简单记录
-      cursorLine = null;
-    }
-  });
 
   // ---- 批注面板 ----
   function buildTagFilters() {
@@ -408,7 +408,8 @@
   }
 
   function writeBack(lines) {
-    var newContent = lines.join('\n');
+    var eol = markdownContent.indexOf('\r\n') !== -1 ? '\r\n' : '\n';
+    var newContent = lines.join(eol);
     api.writeFile(currentFilePath, newContent).then(function (r) {
       if (r.success) {
         markdownContent = newContent;
