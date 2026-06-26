@@ -1,9 +1,24 @@
-const { contextBridge, ipcRenderer } = require('electron');
+﻿const { contextBridge, ipcRenderer } = require('electron');
 const MarkdownIt = require('markdown-it');
 
 // 创建 markdown-it 实例 (CommonMark preset + GFM 表格)
 const md = new MarkdownIt('commonmark', { html: false, linkify: false, typographer: false });
 md.enable('table');
+
+// 在块级元素上注入源码行号 (data-line, 1-based)，供 GUI 点击定位段落
+function injectLineNumbers(tokens, idx, options, env, slf) {
+  const token = tokens[idx];
+  if (token.map && token.level === 0) {
+    token.attrSet('data-line', String(token.map[0] + 1));
+  }
+  return slf.renderToken(tokens, idx, options);
+}
+md.renderer.rules.paragraph_open = injectLineNumbers;
+md.renderer.rules.heading_open = injectLineNumbers;
+md.renderer.rules.blockquote_open = injectLineNumbers;
+md.renderer.rules.bullet_list_open = injectLineNumbers;
+md.renderer.rules.ordered_list_open = injectLineNumbers;
+md.renderer.rules.table_open = injectLineNumbers;
 
 // 自定义图片 renderer — alt fallback
 const defaultImageRender = md.renderer.rules.image;
