@@ -1,4 +1,4 @@
-import * as fs from 'fs/promises';
+﻿import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { parseAnnotations } from '../../src/core/parser';
@@ -117,6 +117,45 @@ describe('空行压缩 (E25)', () => {
     const content = await readFile(f);
     // 段落 A\n\n段落 B — 上方无空行所以不压缩（原有一个空行保留）
     expect(content).toContain('段落 B。');
+  });
+});
+
+// ---- 换行风格保留 (#7) ----
+
+describe('换行风格保留', () => {
+  test('CRLF 文件 add 后仍为 CRLF', async () => {
+    const f = tmpFile('crlf.md');
+    await writeFile(f, '# Title\r\n\r\n正文段落。\r\n');
+
+    await addAnnotation(f, 3, { content: 'note' });
+
+    const content = await readFile(f);
+    expect(content).toContain('\r\n');
+    expect(content).not.toMatch(/[^\r]\n/); // 不存在裸 LF
+  });
+
+  test('LF 文件 add 后仍为 LF', async () => {
+    const f = tmpFile('lf.md');
+    await writeFile(f, '# Title\n\n正文段落。\n');
+
+    await addAnnotation(f, 3, { content: 'note' });
+
+    const content = await readFile(f);
+    expect(content).not.toContain('\r\n');
+  });
+
+  test('CRLF 文件 remove 后仍为 CRLF', async () => {
+    const f = tmpFile('crlf2.md');
+    await writeFile(f, makeText([
+      makeAnnoLine({ id: 'a1', content: 'x' }),
+      '正文。',
+    ]).replace(/\n/g, '\r\n') + '\r\n');
+
+    await removeAnnotation(f, 'a1');
+
+    const content = await readFile(f);
+    expect(content).toContain('正文。');
+    expect(content).not.toMatch(/[^\r]\n/);
   });
 });
 
