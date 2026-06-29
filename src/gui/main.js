@@ -79,7 +79,8 @@ function createWindow(initialFile) {
   });
 
   ipcMain.handle('show-item-in-folder', async (_event, filePath) => {
-    if (filePath) shell.showItemInFolder(path.normalize(filePath));
+    // showItemInFolder 需要绝对路径；命令行相对路径要相对 cwd 解析
+    if (filePath) shell.showItemInFolder(path.resolve(filePath));
   });
 
   ipcMain.handle('copy-clipboard', async (_event, text) => {
@@ -110,7 +111,10 @@ function createWindow(initialFile) {
 }
 
 app.whenReady().then(() => {
-  const initialFile = process.argv.find(a => a.endsWith('.md') && !a.startsWith('-'));
+  const argFile = process.argv.find(a => a.endsWith('.md') && !a.startsWith('-'));
+  // 命令行可能传相对路径（如 tests/samples/x.md），统一解析为绝对路径，
+  // 否则渲染层拿到的相对路径会让"打开文件所在目录"等依赖绝对路径的操作失效。
+  const initialFile = argFile ? path.resolve(argFile) : undefined;
   createWindow(initialFile);
 });
 

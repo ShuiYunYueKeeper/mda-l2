@@ -171,13 +171,173 @@ AI 动作：
 
 ---
 
+## Prompt 9: 交付截图整合（Phase F）
+
+```
+用户: 请注意我已经补全了截图@docs/screenshots
+```
+
+AI 动作：
+
+- 读取 `docs/screenshots/`（`1.png`~`4.png` + `operation_demo.gif`），逐张确认与需求对应：
+  1.png 完整窗口（含标题栏）/ 2.png 四级别色条+段落高亮 / 3.png 标签筛选后 /
+  4.png 添加批注弹窗（印证失焦修复）/ operation_demo.gif 操作录屏。
+- README 新增「界面截图与演示」一节，以表格嵌入四图 + GIF。
+- 提交 `docs: 补充 GUI 界面截图与操作演示 GIF 并写入 README`（仅 6 文件，避免误带产物）。
+
+---
+
+## Prompt 10: 放宽派生物入库与 GUI 编辑限制
+
+```
+用户: 先不提交构建产物（待稳定后再提交），@AGENTS.md:218-219 这里需要更改，
+后续可能会迭代编辑或其他功能，另外@.cursor/workflow.md 和@.claude/workflow.md
+更新文档时也许考虑AGENTS.md
+```
+
+AI 动作：
+
+- 回退此前误入库的 `dist/`、`coverage/` 提交，恢复 `.gitignore` 忽略规则。
+- AGENTS.md 第 8 节：原「不得提交派生物」改为「派生物默认不入库（待稳定后再视交付决定）」；
+  删除「不实现 Markdown 编辑器」硬性禁止（后续可能迭代编辑功能）。
+- 两份 workflow（`.claude` + `.cursor`）的 Step 5「文档」新增「同步 AGENTS.md」项。
+
+---
+
+## Prompt 11: GUI 迭代三大功能（P0/P1/P2）
+
+```
+用户: 提交，并继续迭代功能和修复bug，依次处理以下功能
+P0：我增加了几个测试文档@tests/samples ，点击 @tests/samples/test-basic.md:31
+相对链接后，界面变成白色，且此时重新加载或者打开其他文档也仍然是白色
+P1：支持拖拽打开md文档，文件菜单支持"打开文件所在目录"；
+P2：支持代码语法高亮显示:
+    1) 代码块左侧显示代码行数;
+    2) 代码块支持右键菜单和快捷键，拷贝(Ctrl+c)、拷贝全部(ctrl+a)，注意拷贝时不能拷贝行号；
+    3) 代码块右上角支持拷贝全部的悬浮按钮
+```
+
+AI 动作：
+
+- **P0（白屏）根因**：预览区 `<a>` 普通点击触发浏览器默认导航，渲染进程跳离
+  `index.html` → 白屏且不可恢复。改为链接点击一律 `preventDefault`，外链走系统浏览器、
+  相对 `.md` 在应用内打开；main 增 `will-navigate` + `setWindowOpenHandler` 兜底。
+- **P1**：window 监听 `dragover/drop`（同时阻止拖入文件导致的导航白屏），拖入
+  `.md/.markdown/.txt` 即打开；文件菜单新增「打开文件所在目录」(`Ctrl+Shift+O`)，
+  经 `shell.showItemInFolder` 实现。
+- **P2**：preload 用 highlight.js 经 `md.set({highlight})` 注入语法高亮（仅 GUI）；
+  app.js 后处理代码块 → 独立行号槽（`user-select:none` 保证复制不含行号）+ 右上角悬浮
+  「复制」按钮 + 右键菜单 + 快捷键（`Ctrl+C` 拷贝选区 / `Ctrl+A` 全选）。
+- 新增依赖 `highlight.js@^11.9`；`npm run build` + 61 测试通过；Electron 实机启动无报错。
+
+---
+
+## Prompt 12: 右键菜单只弹一次 + 补充快捷键提示
+
+```
+用户: 大部分功能已实现，但仍存在bug，右键菜单只出现一次，再次点击右键，菜单不出现，
+另外需要右键菜单也需补充（快捷键命令）
+```
+
+AI 动作：
+
+- **根因**：旧实现用 `{once:true}` 在 document 注册关闭监听，残留的 `contextmenu`
+  once-监听会在下一次右键同一事件里把刚建好的新菜单立即移除。
+- **改法**：关闭监听改为**捕获阶段**注册并保存引用，`removeCodeContextMenu` 成对反注册
+  （click/contextmenu/window blur）；菜单内部点击放行交由菜单自身处理。
+- 菜单项补充快捷键提示（`拷贝 Ctrl+C` / `拷贝全部 Ctrl+A`，按平台显示 `⌘`）。
+
+---
+
+## Prompt 13: GUI 人工测试硬约束 + Markdown 排版优化
+
+```
+用户: 以上已修复。完善工作流，涉及到gui的修改，必须由人工测试没问题后才能继续后面的流程。
+文档整体渲染效果似乎并不理想，如标题、表格、列表等渲染都不太好，可参照图右边的效果（仅供参考）。
+```
+
+AI 动作：
+
+- 两份 workflow 的 Step 4「验证」新增**硬性约束**：凡涉及 `src/gui/**` 的改动，
+  自动化测试与 `npm run build` 通过 ≠ 验证完成，必须启动 GUI 让用户实机确认；
+  用户明确回复「测试通过」前不提交、不推进下一步。
+- index.html 增加 GitHub 风格 Markdown 排版（作用域 `#preview-content`）：标题分级与
+  h1/h2 底部分隔线、列表缩进、表格边框/表头底色/斑马纹/横向滚动、引用左竖条、水平线等。
+
+---
+
+## Prompt 14: 首行标题不渲染 + 含括号批注泄漏
+
+```
+用户: 标题还是不对，一级标题没有渲染，二级标题看起来像一级标题，
+@tests/samples/my_sample.md:15 这条批注显示到原文中了。
+```
+
+AI 动作（核心渲染层，CLI/GUI 共用）：
+
+- **bug1**：测试文件带 UTF-8 BOM，首行变成 `\uFEFF# 标题` → markdown-it 不识别为标题。
+  渲染/解析前去除起始 BOM。
+- **bug2**：批注内容含括号 `n(n-1)/2` 破坏 `[comment]: <> (...)` 链接引用定义语法 →
+  整行作为正文渲染泄漏。改为渲染前把批注行**清空为空行**（保留行数 → `data-line` 不变），
+  使不可见性对任意内容都成立。
+- 新增 2 条回归测试（BOM 标题、含括号批注不可见），63 测试通过。
+
+---
+
+## Prompt 15: 围栏代码块内批注样例不应识别
+
+```
+用户: @tests/samples/my_sample.md:26-32 代码块里的批注不应该被识别为真是批注
+```
+
+AI 动作：
+
+- 新增共享 `buildCodeFenceMask(lines)`：标记 ```` ``` ````/`~~~` 围栏内（含定界行）的行。
+- parser 与 renderer 共用该遮罩：围栏内的 `@anno` 样例**不识别为批注、也不被清空**，
+  按字面在代码块中显示；三处行为一致。
+- 新增 3 条回归测试（围栏内 ``` 与 ~~~ 不识别、围栏内批注原样渲染），66 测试通过。
+
+---
+
+## Prompt 16: 交付提交（含产物 + 测试 + 提示词文档）
+
+```
+用户: 以上已全部通过验证。继续后续流程，注意本次提交需要包含产物以及新增的测试文件，
+以及完整的提示词文档（无需read它）@docs/prompts/cursor_workflow_progress_and_recommenda.md
+```
+
+AI 动作：
+
+- 同步 AGENTS.md（依赖增 highlight.js、入库策略改为 `dist/` 随版本入库、链接导航禁令、
+  渲染预处理与围栏感知隐性规范）与 README（技术栈 + GUI 功能段）。
+- `.gitignore` 放行 `dist/`（作为可执行交付物入库；`coverage/`、`node_modules/` 仍忽略）。
+- 单次提交纳入：产物 `dist/`、`tests/samples/`（5 样例）、回归测试、完整提示词文档
+  `cursor_workflow_progress_and_recommenda.md`（共 66 文件）。
+
+---
+
+## Prompt 17: 命令行相对路径打开目录失效
+
+```
+用户: 还有一个bug，使用命令行打开文档，如果是相对路径的话
+（如npm run gui -- tests/samples/test-basic.md），将点击打开文件所在目录不生效
+```
+
+AI 动作：
+
+- **根因**：命令行传入相对路径，`shell.showItemInFolder` 需绝对路径。
+- **改法**：main 启动时用 `path.resolve()` 将初始文件解析为绝对路径再交渲染层
+  （`currentFilePath` 全程绝对）；`show-item-in-folder` 处理器亦 `path.resolve` 兜底。
+
+---
+
 ## 实现统计
 
 | 指标 | 数值 |
 |------|------|
 | 源码文件 | 14 个 |
 | 测试文件 | 4 个 |
-| 测试用例 | 61 个（全部通过） |
-| 代码覆盖率 | Statements 87.07% / Lines 90.3% |
-| git commits | 16+ 个 |
-| AI 协作轮次 | 25+ 轮 |
+| 测试用例 | 66 个（全部通过） |
+| 代码覆盖率 | Statements 87%+ / Lines 90%+ |
+| git commits | 22+ 个 |
+| AI 协作轮次 | 34+ 轮 |
