@@ -1,4 +1,4 @@
-# MDA — Markdown 批注管理工具
+﻿# MDA — Markdown 批注管理工具
 
 通过 Markdown 标准注释语法在 `.md` 文件中嵌入结构化批注，提供 **CLI** (`mda-cli`) 和 **GUI** (`mda`) 两种使用方式。
 
@@ -22,7 +22,7 @@ mda-l2/
 │   │       └── remove.ts      # 删除批注
 │   ├── gui/
 │   │   ├── main.js            # Electron 主进程
-│   │   ├── preload.js         # contextBridge + markdown-it
+│   │   ├── preload.js         # contextBridge，复用 @mda/core（解析/渲染/读写）
 │   │   └── renderer/
 │   │       ├── index.html     # HTML shell
 │   │       └── app.js         # 渲染进程 (纯 JS)
