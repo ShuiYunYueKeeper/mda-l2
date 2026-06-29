@@ -43,6 +43,7 @@ mda-l2/
 │   ├── screenshots/           # GUI 截图 + 录屏
 │   └── templates/             # 阶段模板
 ├── demo.md                    # 演示用 Markdown 文件
+├── AGENTS.md                  # AI 协作指南（架构/接口/规范/禁止事项/隐性规范）
 ├── package.json
 ├── tsconfig.json
 ├── jest.config.js
@@ -146,4 +147,10 @@ npm run coverage
 - **lcov** — `coverage/lcov.info`（可导入 IDE）
 - **html** — `coverage/lcov-report/index.html`（浏览器查看）
 
-当前覆盖率：**Statements 87.93% / Lines 93.18% / Functions 95%**（50 个测试用例全部通过）。
+当前覆盖率：**Statements 87.07% / Lines 90.3% / Functions 94.87%**（61 个测试用例全部通过，含 core 单元测试与 CLI 集成测试）。
+
+## 开发约定
+
+参与本项目开发（含 AI 协作）前，请阅读 [`AGENTS.md`](AGENTS.md)，其中定义了架构分层、核心
+接口、编码规范、**禁止事项**（如源文件保护、CLI stdout 纯净、GUI 禁用原生 alert/confirm 等）
+与项目沉淀的隐性规范。
