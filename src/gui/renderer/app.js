@@ -72,6 +72,11 @@
       if (block) {
         cursorLine = parseInt(block.getAttribute('data-line'), 10) || null;
         highlightCursorBlock(block);
+        // 点击带批注的段落 → 面板定位到对应批注
+        var p = findParagraphForLine(cursorLine);
+        if (p && p.annotations && p.annotations.length) {
+          selectAnnotation(p.annotations[0].id, false);
+        }
       }
     });
   }
@@ -82,11 +87,73 @@
     if (block) block.classList.add('mda-cursor-block');
   }
 
+  // ---- 段落 ↔ 批注 ↔ DOM 映射 ----
+
+  // 取一组批注中级别最高者（用于段落色条颜色）
+  function mostSevere(annos) {
+    var best = annos[0];
+    for (var i = 1; i < annos.length; i++) {
+      if ((LEVEL_ORDER[annos[i].level] || 0) > (LEVEL_ORDER[best.level] || 0)) best = annos[i];
+    }
+    return best;
+  }
+
+  // 段落首行行号 → 预览区块级元素（preload 注入的 data-line 即段落 startLine）
+  function paragraphElement(p) {
+    return p ? previewEl.querySelector('[data-line="' + p.startLine + '"]') : null;
+  }
+
+  function findParagraphForLine(line) {
+    for (var i = 0; i < paragraphs.length; i++) {
+      if (paragraphs[i].startLine <= line && line <= paragraphs[i].endLine) return paragraphs[i];
+    }
+    return null;
+  }
+
+  function findParagraphByAnnotationId(id) {
+    for (var i = 0; i < paragraphs.length; i++) {
+      var as = paragraphs[i].annotations || [];
+      for (var j = 0; j < as.length; j++) {
+        if (as[j].id === id) return paragraphs[i];
+      }
+    }
+    return null;
+  }
+
+  // 给含批注的段落加左侧级别色条
+  function decorateParagraphs() {
+    for (var i = 0; i < paragraphs.length; i++) {
+      var p = paragraphs[i];
+      if (!p.annotations || !p.annotations.length) continue;
+      var el = paragraphElement(p);
+      if (!el) continue;
+      el.classList.add('mda-anno-block');
+      el.style.borderLeft = '4px solid ' + LEVEL_COLORS[mostSevere(p.annotations).level];
+      el.style.paddingLeft = '10px';
+      el.style.cursor = 'pointer';
+    }
+  }
+
+  // 选中批注：刷新面板高亮 + 滚动面板到该项；可选滚动预览到对应段落
+  function selectAnnotation(id, scrollPreview) {
+    selectedAnnotationId = id;
+    renderPanel();
+    var item = annoListEl.querySelector('[data-anno-id="' + id + '"]');
+    if (item) item.scrollIntoView({ block: 'nearest' });
+    if (scrollPreview) {
+      var el = paragraphElement(findParagraphByAnnotationId(id));
+      if (el) {
+        el.scrollIntoView({ block: 'center' });
+        highlightCursorBlock(el);
+      }
+    }
+  }
+
   // ---- 文件操作 ----
   async function openFile(filePath) {
     var result = await api.readFile(filePath);
     if (!result.success) {
-      alert('无法打开文件: ' + result.error);
+      uiAlert('无法打开文件: ' + result.error);
       return;
     }
     currentFilePath = filePath;
@@ -130,6 +197,9 @@
 
       // 图片 fallback (MutationObserver 兜底)
       setupImageFallback();
+
+      // 给含批注的段落加左侧级别色条
+      decorateParagraphs();
     } else {
       previewEl.innerHTML = '<p style="color:#e74c3c">渲染错误: ' + escHtml(result.error) + '</p>';
     }
@@ -290,8 +360,8 @@
     for (var j = 0; j < items.length; j++) {
       items[j].addEventListener('click', function (e) {
         if (e.target.closest('button')) return; // 按钮由下方处理
-        selectedAnnotationId = this.dataset.annoId;
-        renderPanel();
+        // 点击批注 → 选中并滚动预览到对应段落
+        selectAnnotation(this.dataset.annoId, true);
       });
     }
 
@@ -319,15 +389,17 @@
   }
 
   function deleteAnnotation(id) {
-    if (!confirm('确认删除此批注？')) return;
-    // 复用 core writer（原子写入 + 源文件保护 + 空行压缩），写后从磁盘重载
-    api.removeAnnotation(currentFilePath, id).then(function (r) {
-      if (r.success) {
-        if (selectedAnnotationId === id) selectedAnnotationId = null;
-        reloadFile();
-      } else {
-        alert('删除失败: ' + r.error);
-      }
+    uiConfirm('确认删除此批注？').then(function (yes) {
+      if (!yes) return;
+      // 复用 core writer（原子写入 + 源文件保护 + 空行压缩），写后从磁盘重载
+      api.removeAnnotation(currentFilePath, id).then(function (r) {
+        if (r.success) {
+          if (selectedAnnotationId === id) selectedAnnotationId = null;
+          reloadFile();
+        } else {
+          uiAlert('删除失败: ' + r.error);
+        }
+      });
     });
   }
 
@@ -337,6 +409,35 @@
     }
     return null;
   }
+
+  // ---- DOM 弹窗（替代原生 confirm/alert，避免 Electron 原生模态导致输入框失焦） ----
+  function uiModal(message, withCancel) {
+    return new Promise(function (resolve) {
+      var overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);display:flex;justify-content:center;align-items:center;z-index:2000';
+      var btns = withCancel
+        ? '<button id="ui-cancel" style="padding:8px 20px;margin-right:8px;cursor:pointer;border:1px solid #ccc;border-radius:4px;background:#fff;font-size:13px">取消</button>'
+        : '';
+      overlay.innerHTML =
+        '<div style="background:#fff;border-radius:8px;padding:24px;min-width:280px;max-width:420px;box-shadow:0 4px 16px rgba(0,0,0,0.2)">' +
+          '<div style="font-size:14px;margin-bottom:20px;line-height:1.6">' + escHtml(message) + '</div>' +
+          '<div style="text-align:right">' + btns +
+            '<button id="ui-ok" style="padding:8px 20px;cursor:pointer;background:#1a73e8;color:#fff;border:none;border-radius:4px;font-size:13px">确定</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      function close(val) { overlay.remove(); resolve(val); }
+      overlay.querySelector('#ui-ok').addEventListener('click', function () { close(true); });
+      var cancelBtn = overlay.querySelector('#ui-cancel');
+      if (cancelBtn) cancelBtn.addEventListener('click', function () { close(false); });
+      overlay.addEventListener('click', function (e) { if (e.target === overlay) close(false); });
+      var ok = overlay.querySelector('#ui-ok');
+      if (ok) ok.focus();
+    });
+  }
+
+  function uiConfirm(message) { return uiModal(message, true); }
+  function uiAlert(message) { return uiModal(message, false); }
 
   // ---- 编辑/添加弹窗 ----
   function showEditDialog(mode, anno, defaultLine) {
@@ -397,13 +498,13 @@
     document.getElementById('ed-cancel').addEventListener('click', function () { overlay.remove(); });
     document.getElementById('ed-save').addEventListener('click', function () {
       var content = document.getElementById('ed-content').value.trim();
-      if (!content) { alert('请输入批注内容'); return; }
+      if (!content) { uiAlert('请输入批注内容'); return; }
       var tags = document.getElementById('ed-tags').value.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
       var level = document.getElementById('ed-level').value;
 
       if (isAdd) {
         var line = parseInt(document.getElementById('ed-line').value, 10);
-        if (isNaN(line) || line < 1) { alert('请输入有效行号'); return; }
+        if (isNaN(line) || line < 1) { uiAlert('请输入有效行号'); return; }
         doAdd(line, content, tags, level);
       } else {
         var status = document.getElementById('ed-status').value;
@@ -415,6 +516,12 @@
     overlay.addEventListener('click', function (e) {
       if (e.target === overlay) overlay.remove();
     });
+
+    // 打开后聚焦内容框（rAF 确保元素已渲染并可获得焦点）
+    requestAnimationFrame(function () {
+      var first = document.getElementById(isAdd ? 'ed-line' : 'ed-content');
+      if (first) first.focus();
+    });
   }
 
   function doAdd(line, content, tags, level) {
@@ -424,7 +531,7 @@
         if (r.success) {
           reloadFile();
         } else {
-          alert('添加失败: ' + r.error);
+          uiAlert('添加失败: ' + r.error);
         }
       });
   }
@@ -435,7 +542,7 @@
         if (r.success) {
           reloadFile();
         } else {
-          alert('编辑失败: ' + r.error);
+          uiAlert('编辑失败: ' + r.error);
         }
       });
   }
