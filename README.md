@@ -170,7 +170,7 @@ npm run coverage
 - **lcov** — `coverage/lcov.info`（可导入 IDE）
 - **html** — `coverage/lcov-report/index.html`（浏览器查看）
 
-当前覆盖率：**Statements 87.07% / Lines 90.3% / Functions 94.87%**（61 个测试用例全部通过，含 core 单元测试与 CLI 集成测试）。
+当前覆盖率：**Statements 87.96% / Lines 90.99% / Functions 95.23%**（66 个测试用例全部通过，含 core 单元测试与 CLI 集成测试）。
 
 ## 开发约定
 
