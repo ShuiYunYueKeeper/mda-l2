@@ -1,4 +1,4 @@
-# AI 协作记录 — P4 实现
+﻿# AI 协作记录 — P4 实现
 
 ---
 
@@ -121,6 +121,36 @@ AI 动作：
 
 ---
 
+## Prompt 7: GUI/core 去重（消除双份实现，遗留 #6）
+
+```
+用户: 推进遗留 #6
+```
+
+AI 动作（遵循六步循环）：
+
+- **审查**：确认 tsconfig 为 `module: commonjs`、`outDir: dist`，故 preload
+  （`dist/gui/preload.js`）可直接 `require('../core')` 加载编译产物，markdown-it
+  亦能由 Node 解析（sandbox 已关闭）。
+- **实施**（方案 A：preload 复用 core，而非打包）：
+  - preload 改为 `require('../core')`，markdown-it 实例直接用 `core.createMarkdownIt()`
+    （复用 CommonMark + GFM + 图片 fallback），仅叠加 GUI 专用的 `data-line` 注入。
+  - 经 contextBridge 暴露 `parseAnnotations / renderMarkdown / addAnnotation /
+    editAnnotation / removeAnnotation`。
+  - app.js 删除自有的 `parseAnnotations`、`isAnnotation`、`generateUUID`、
+    `findParagraph`、`writeBack` 及手工行拼接，增删改改调 `api.*` 后从磁盘重载。
+  - main.js 移除独立的 `write-file` IPC——写操作统一走 core writer
+    （原子写入 + 源文件保护 + 换行保留），顺带修复 GUI 此前写回缺少源文件保护的问题。
+  - 附带修复：打开文件时同步更新窗口标题。
+- **验证**：`npm run build` + 61 测试全过；以 `node -e` 直接加载 `dist/core`
+  （preload 实际路径）跑通 render / add / edit / remove 闭环（批注数 6→6）；
+  Electron 实机启动无 preload/渲染错误。
+
+> 收益：GUI 不再有与 core 平行的 parser/writer/renderer 实现，单一真相；
+> 且 GUI 写操作自动获得源文件保护与原子写入保证。
+
+---
+
 ## 实现统计
 
 | 指标 | 数值 |
@@ -129,5 +159,5 @@ AI 动作：
 | 测试文件 | 4 个 |
 | 测试用例 | 61 个（全部通过） |
 | 代码覆盖率 | Statements 87.07% / Lines 90.3% |
-| git commits | 11+ 个 |
-| AI 协作轮次 | 21+ 轮 |
+| git commits | 13+ 个 |
+| AI 协作轮次 | 23+ 轮 |
