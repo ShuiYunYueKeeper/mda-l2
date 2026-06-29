@@ -8,7 +8,6 @@
   var paragraphs = [];
   var selectedAnnotationId = null;
   var cursorLine = null;
-  var markdownContent = '';
   var htmlContent = '';
 
   var filterStatus = { open: true, resolved: true, wontfix: true };
@@ -21,10 +20,6 @@
   // DOM 元素
   var previewEl, annoListEl, statusFiltersEl, levelFiltersEl, tagFiltersEl, tagFiltersRow;
   var previewPaneEl;
-
-  var ANNO_REGEX = /^\[comment\]:\s*<>\s*\(@anno\s+(\{.+?\})\)\s*$/;
-  var VALID_LEVELS = ['critical', 'major', 'minor', 'info'];
-  var VALID_STATUSES = ['open', 'resolved', 'wontfix'];
 
   // ---- 初始化 ----
   function init() {
@@ -95,7 +90,7 @@
       return;
     }
     currentFilePath = filePath;
-    markdownContent = result.content;
+    setTitle(filePath);
     parseAndRender(result.content, filePath);
   }
 
@@ -113,7 +108,8 @@
   }
 
   function parseAndRender(text, filePath) {
-    var parsed = parseAnnotations(text);
+    // 复用 @mda/core 的解析器（经 preload 暴露），不再在 GUI 重复实现
+    var parsed = api.parseAnnotations(text);
     annotations = parsed.annotations;
     paragraphs = parsed.paragraphs;
     // 设置 file 字段
@@ -123,66 +119,6 @@
     buildTagFilters();
     renderMarkdownContent(text);
     renderPanel();
-  }
-
-  // ---- 批注解析 ----
-  function parseAnnotations(text) {
-    var lines = text.split(/\r?\n/);
-    var annotations = [];
-    var paragraphs = [];
-    var buffer = [];
-    var state = 'blank';
-    var currentParagraph = null;
-
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i];
-      var annoMatch = line.match(ANNO_REGEX);
-      var isEmpty = line.trim() === '';
-
-      if (annoMatch) {
-        try {
-          var anno = JSON.parse(annoMatch[1]);
-          if (isAnnotation(anno)) {
-            anno.line = i + 1;
-            annotations.push(anno);
-            buffer.push({ lineNumber: i + 1, annotation: anno });
-          }
-        } catch (e) { /* skip bad JSON */ }
-      } else if (isEmpty) {
-        if (state === 'paragraph' && currentParagraph) {
-          currentParagraph.endLine = i;
-          paragraphs.push(currentParagraph);
-          currentParagraph = null;
-        }
-        state = 'blank';
-      } else {
-        if (state === 'blank') {
-          currentParagraph = { startLine: i + 1, endLine: i + 1, text: line, annotations: [] };
-          state = 'paragraph';
-        } else if (currentParagraph) {
-          currentParagraph.endLine = i + 1;
-          currentParagraph.text += '\n' + line;
-        }
-        if (currentParagraph) {
-          for (var b = 0; b < buffer.length; b++) {
-            currentParagraph.annotations.push(buffer[b].annotation);
-          }
-          buffer.length = 0;
-        }
-      }
-    }
-    if (currentParagraph) paragraphs.push(currentParagraph);
-    return { annotations: annotations, paragraphs: paragraphs };
-  }
-
-  function isAnnotation(obj) {
-    return typeof obj === 'object' && obj !== null &&
-      typeof obj.id === 'string' &&
-      typeof obj.content === 'string' &&
-      Array.isArray(obj.tags) && obj.tags.every(function (t) { return typeof t === 'string'; }) &&
-      VALID_LEVELS.indexOf(obj.level) !== -1 &&
-      VALID_STATUSES.indexOf(obj.status) !== -1 &&
-      typeof obj.created_at === 'string';
   }
 
   // ---- Markdown 渲染 ----
@@ -384,20 +320,15 @@
 
   function deleteAnnotation(id) {
     if (!confirm('确认删除此批注？')) return;
-    var anno = findAnno(id);
-    if (!anno) return;
-
-    var lines = markdownContent.split(/\r?\n/);
-    var idx = (anno.line || 0) - 1;
-    if (idx >= 0 && idx < lines.length && lines[idx].match(ANNO_REGEX)) {
-      lines.splice(idx, 1);
-      // 空行压缩
-      if (idx > 0 && idx < lines.length && lines[idx - 1].trim() === '' && lines[idx].trim() === '') {
-        lines.splice(idx, 1);
+    // 复用 core writer（原子写入 + 源文件保护 + 空行压缩），写后从磁盘重载
+    api.removeAnnotation(currentFilePath, id).then(function (r) {
+      if (r.success) {
+        if (selectedAnnotationId === id) selectedAnnotationId = null;
+        reloadFile();
+      } else {
+        alert('删除失败: ' + r.error);
       }
-    }
-
-    writeBack(lines);
+    });
   }
 
   function findAnno(id) {
@@ -405,19 +336,6 @@
       if (annotations[i].id === id) return annotations[i];
     }
     return null;
-  }
-
-  function writeBack(lines) {
-    var eol = markdownContent.indexOf('\r\n') !== -1 ? '\r\n' : '\n';
-    var newContent = lines.join(eol);
-    api.writeFile(currentFilePath, newContent).then(function (r) {
-      if (r.success) {
-        markdownContent = newContent;
-        parseAndRender(newContent, currentFilePath);
-      } else {
-        alert('写回失败: ' + r.error);
-      }
-    });
   }
 
   // ---- 编辑/添加弹窗 ----
@@ -500,60 +418,26 @@
   }
 
   function doAdd(line, content, tags, level) {
-    var lines = markdownContent.split(/\r?\n/);
-    var para = findParagraph(line);
-    if (!para) { alert('未找到第 ' + line + ' 行所属的段落'); return; }
-
-    var anno = {
-      id: generateUUID(),
-      content: content,
-      tags: tags,
-      level: level,
-      status: 'open',
-      created_at: new Date().toISOString()
-    };
-    var annoLine = '[comment]: <> (@anno ' + JSON.stringify(anno) + ')';
-    var insertIdx = para.startLine - 1; // 0-based, 段落首行上方
-    lines.splice(insertIdx, 0, annoLine);
-
-    writeBack(lines);
+    // 复用 core writer：段落查找、UUID、批注行构造、原子写入、源文件保护均在 core 完成
+    api.addAnnotation(currentFilePath, line, { content: content, tags: tags, level: level })
+      .then(function (r) {
+        if (r.success) {
+          reloadFile();
+        } else {
+          alert('添加失败: ' + r.error);
+        }
+      });
   }
 
   function doEdit(id, content, tags, level, status) {
-    var lines = markdownContent.split(/\r?\n/);
-    var anno = findAnno(id);
-    if (!anno) { alert('未找到批注'); return; }
-
-    var idx = (anno.line || 0) - 1;
-    var updated = {
-      id: anno.id,
-      content: content,
-      tags: tags,
-      level: level,
-      status: status,
-      created_at: anno.created_at
-    };
-    var newLine = '[comment]: <> (@anno ' + JSON.stringify(updated) + ')';
-    if (idx >= 0 && idx < lines.length && lines[idx].match(ANNO_REGEX)) {
-      lines[idx] = newLine;
-      writeBack(lines);
-    } else {
-      alert('批注行位置异常');
-    }
-  }
-
-  function findParagraph(line) {
-    for (var i = 0; i < paragraphs.length; i++) {
-      if (paragraphs[i].startLine <= line && line <= paragraphs[i].endLine) return paragraphs[i];
-    }
-    return null;
-  }
-
-  function generateUUID() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      var r = Math.random() * 16 | 0;
-      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-    });
+    api.editAnnotation(currentFilePath, id, { content: content, tags: tags, level: level, status: status })
+      .then(function (r) {
+        if (r.success) {
+          reloadFile();
+        } else {
+          alert('编辑失败: ' + r.error);
+        }
+      });
   }
 
   function escHtml(s) {
