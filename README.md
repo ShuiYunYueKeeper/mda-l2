@@ -108,6 +108,20 @@ npm run gui
 npm run gui -- demo.md
 ```
 
+## 界面截图与演示
+
+| 完整窗口（含标题栏） | 四级别色条 + 段落高亮 |
+|----------------------|------------------------|
+| ![完整窗口](docs/screenshots/1.png) | ![四级别色条](docs/screenshots/2.png) |
+
+| 标签筛选后 | 添加批注弹窗 |
+|------------|--------------|
+| ![筛选](docs/screenshots/3.png) | ![添加批注](docs/screenshots/4.png) |
+
+操作演示（点击段落↔批注双向定位、编辑、删除）：
+
+![操作演示](docs/screenshots/operation_demo.gif)
+
 ## 批注语法
 
 批注通过 Markdown 标准注释语法嵌入，渲染后完全不可见：
