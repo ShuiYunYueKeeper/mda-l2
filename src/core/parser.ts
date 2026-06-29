@@ -8,6 +8,35 @@
 
 const ANNO_REGEX = /^\[comment\]:\s*<>\s*\(@anno\s+(\{.+?\})\)\s*$/;
 
+/**
+ * 计算围栏代码块遮罩：mask[i] === true 表示第 i 行处于 ```/~~~ 围栏代码块内
+ * （含围栏定界行本身）。围栏内的内容是字面文本，不得被识别为批注，也不得在
+ * 渲染时被清空。CLI/GUI/渲染共用此判定，保证三处行为一致。
+ */
+export function buildCodeFenceMask(lines: string[]): boolean[] {
+  const mask = new Array<boolean>(lines.length).fill(false);
+  let fenceChar: string | null = null;
+  let fenceLen = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const open = lines[i].match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fenceChar === null) {
+      if (open) {
+        fenceChar = open[1][0];
+        fenceLen = open[1].length;
+        mask[i] = true;
+      }
+    } else {
+      mask[i] = true;
+      const close = lines[i].match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+      if (close && close[1][0] === fenceChar && close[1].length >= fenceLen) {
+        fenceChar = null;
+        fenceLen = 0;
+      }
+    }
+  }
+  return mask;
+}
+
 function isAnnotation(obj: unknown): obj is Annotation {
   if (typeof obj !== 'object' || obj === null) return false;
   const a = obj as Record<string, unknown>;
@@ -21,7 +50,9 @@ function isAnnotation(obj: unknown): obj is Annotation {
 }
 
 export function parseAnnotations(text: string): ScanResult {
-  const lines = text.split(/\r?\n/);
+  // 去掉文件起始 BOM，避免首行文本携带 \uFEFF（不影响行号，BOM 仍在第 1 行）
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  const fenceMask = buildCodeFenceMask(lines);
   const annotations: Annotation[] = [];
   const paragraphs: Paragraph[] = [];
   const buffer: Array<{ lineNumber: number; raw: string; annotation: Annotation }> = [];
@@ -30,7 +61,8 @@ export function parseAnnotations(text: string): ScanResult {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const annoMatch = line.match(ANNO_REGEX);
+    // 围栏代码块内的“批注样例”是字面文本，不识别为真实批注
+    const annoMatch = fenceMask[i] ? null : line.match(ANNO_REGEX);
     const isEmpty = line.trim() === '';
 
     if (annoMatch) {

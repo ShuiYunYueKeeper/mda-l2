@@ -1,5 +1,6 @@
-import MarkdownIt from 'markdown-it';
+﻿import MarkdownIt from 'markdown-it';
 import { AnnotationLevel } from './model';
+import { ANNO_REGEX, buildCodeFenceMask } from './parser';
 
 const LEVEL_COLORS: Record<AnnotationLevel, string> = {
   critical: '#e74c3c',
@@ -38,8 +39,22 @@ export function createMarkdownIt(): MarkdownIt {
   return md;
 }
 
+// 渲染前预处理：
+// 1) 去掉文件起始的 UTF-8 BOM，否则首行 `# 标题` 会被当作普通段落（BOM 抢占行首）。
+// 2) 将批注行整体清空为空行（保留行数 → GUI 的 data-line 行号映射不变），
+//    从而保证“批注不可见”对任意内容都成立 —— 含括号等字符的批注若依赖
+//    markdown-it 的链接引用定义来隐藏会失效（标题括号内不允许未转义括号）。
+function preprocessForRender(text: string): string {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  const fenceMask = buildCodeFenceMask(lines);
+  // 仅清空“围栏外”的批注行；围栏内的批注样例属于代码内容，须原样保留显示
+  return lines
+    .map((line, i) => (!fenceMask[i] && ANNO_REGEX.test(line) ? '' : line))
+    .join('\n');
+}
+
 export function renderMarkdown(md: MarkdownIt, text: string): string {
-  return md.render(text);
+  return md.render(preprocessForRender(text));
 }
 
 export { LEVEL_COLORS };

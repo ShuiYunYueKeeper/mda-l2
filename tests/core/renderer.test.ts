@@ -1,4 +1,4 @@
-import { createMarkdownIt, renderMarkdown } from '../../src/core/renderer';
+﻿import { createMarkdownIt, renderMarkdown } from '../../src/core/renderer';
 
 describe('批注不可见性验证', () => {
   const md = createMarkdownIt();
@@ -51,6 +51,33 @@ describe('批注不可见性验证', () => {
     expect(html).toContain('段落 A');
     expect(html).toContain('段落 B');
     expect(html).toContain('段落 C');
+  });
+
+  test('批注内容含括号时仍不可见（不破坏渲染）', () => {
+    // n(n-1)/2 中的括号会破坏 markdown-it 链接引用定义语法，
+    // 必须由“清空批注行”策略兜底，保证不泄漏到渲染输出。
+    const input = `[comment]: <> (@anno {"id":"x","content":"沟通开销公式 n(n-1)/2","tags":["formula"],"level":"major","status":"open","created_at":"2026-01-01T00:00:00Z"})
+正文段落。`;
+    const html = renderMarkdown(md, input);
+
+    expect(html).not.toContain('@anno');
+    expect(html).not.toContain('沟通开销');
+    expect(html).not.toContain('n(n-1)/2');
+    expect(html).toContain('正文段落');
+  });
+
+  test('文件起始 BOM 不影响首个标题渲染', () => {
+    const html = renderMarkdown(md, '\uFEFF# 一级标题\n## 二级标题');
+    expect(html).toContain('<h1>一级标题</h1>');
+    expect(html).toContain('<h2>二级标题</h2>');
+  });
+
+  test('代码块内的批注样例原样保留显示（不被清空）', () => {
+    const input = '```markdown\n[comment]: <> (@anno {"id":"x","content":"示例","tags":[],"level":"info","status":"open","created_at":"2026-01-01T00:00:00Z"})\n```';
+    const html = renderMarkdown(md, input);
+    // 围栏内属于代码字面内容，应保留（HTML 转义后仍可见 @anno 文本）
+    expect(html).toContain('@anno');
+    expect(html).toContain('<pre>');
   });
 
   test('批注 JSON 含 HTML 标签时 content 中的文本不出现在渲染输出中', () => {
