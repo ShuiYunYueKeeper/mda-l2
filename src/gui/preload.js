@@ -1,44 +1,34 @@
 ﻿const { contextBridge, ipcRenderer } = require('electron');
-const MarkdownIt = require('markdown-it');
+// 复用编译后的 @mda/core（dist/core），消除 GUI 与核心库的重复实现。
+// 需 sandbox: false 才能在 preload 中 require 第三方/本地模块。
+const core = require('../core');
 
-// 创建 markdown-it 实例 (CommonMark preset + GFM 表格)
-const md = new MarkdownIt('commonmark', { html: false, linkify: false, typographer: false });
-md.enable('table');
+// markdown-it 实例直接复用 core 的配置（CommonMark + GFM + 图片 fallback），
+// 仅在此叠加 GUI 专用的源码行号注入（data-line），供点击定位段落使用。
+const md = core.createMarkdownIt();
 
-// 在块级元素上注入源码行号 (data-line, 1-based)，供 GUI 点击定位段落
-function injectLineNumbers(tokens, idx, options, env, slf) {
+function injectLineNumbers(tokens, idx, options, slf) {
   const token = tokens[idx];
   if (token.map && token.level === 0) {
     token.attrSet('data-line', String(token.map[0] + 1));
   }
   return slf.renderToken(tokens, idx, options);
 }
-md.renderer.rules.paragraph_open = injectLineNumbers;
-md.renderer.rules.heading_open = injectLineNumbers;
-md.renderer.rules.blockquote_open = injectLineNumbers;
-md.renderer.rules.bullet_list_open = injectLineNumbers;
-md.renderer.rules.ordered_list_open = injectLineNumbers;
-md.renderer.rules.table_open = injectLineNumbers;
-
-// 自定义图片 renderer — alt fallback
-const defaultImageRender = md.renderer.rules.image;
-md.renderer.rules.image = function (tokens, idx, options, env, self) {
-  const token = tokens[idx];
-  const src = token.attrGet('src') || '';
-  const alt = token.content || '图片';
-  const esc = function (s) {
-    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+['paragraph_open', 'heading_open', 'blockquote_open', 'bullet_list_open', 'ordered_list_open', 'table_open'].forEach(function (rule) {
+  md.renderer.rules[rule] = function (tokens, idx, options, env, slf) {
+    return injectLineNumbers(tokens, idx, options, slf);
   };
-  return '<span class="md-image-wrapper">'
-    + '<img src="' + esc(src) + '" alt="' + esc(alt) + '"'
-    + ' onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline\'" loading="lazy" />'
-    + '<span class="md-image-alt" style="display:none">[图片: ' + esc(alt) + ']</span>'
-    + '</span>';
-};
+});
+
+function ok(value) {
+  return { success: true, value: value };
+}
+function fail(err) {
+  return { success: false, error: (err && err.message) || String(err) };
+}
 
 contextBridge.exposeInMainWorld('mdaAPI', {
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
-  writeFile: (filePath, content) => ipcRenderer.invoke('write-file', { filePath, content }),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   setTitle: (title) => ipcRenderer.invoke('set-title', title),
   onFileOpened: (callback) => {
@@ -47,11 +37,20 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   onReload: (callback) => {
     ipcRenderer.on('reload', () => callback());
   },
+
+  // ---- 复用 @mda/core ----
+  parseAnnotations: (text) => core.parseAnnotations(text),
   renderMarkdown: (text) => {
     try {
-      return { success: true, html: md.render(text) };
+      return { success: true, html: core.renderMarkdown(md, text) };
     } catch (err) {
-      return { success: false, error: err.message };
+      return fail(err);
     }
   },
+  addAnnotation: (filePath, line, input) =>
+    core.addAnnotation(filePath, line, input).then(ok, fail),
+  editAnnotation: (filePath, id, patch) =>
+    core.editAnnotation(filePath, id, patch).then(ok, fail),
+  removeAnnotation: (filePath, id) =>
+    core.removeAnnotation(filePath, id).then(() => ok(null), fail),
 });

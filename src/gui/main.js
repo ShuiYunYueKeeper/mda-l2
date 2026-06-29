@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, Menu, ipcMain, shell } = require('electron');
+﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -15,8 +15,8 @@ function createWindow(initialFile) {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      // preload 需 require('markdown-it')，沙箱下无法加载第三方模块，
-      // 故关闭 sandbox；contextIsolation 仍开启以隔离渲染进程。
+      // preload 需 require('../core')（及其依赖 markdown-it），沙箱下无法加载
+      // 本地/第三方模块，故关闭 sandbox；contextIsolation 仍开启以隔离渲染进程。
       sandbox: false,
     },
   });
@@ -64,19 +64,8 @@ function createWindow(initialFile) {
     }
   });
 
-  ipcMain.handle('write-file', async (_event, { filePath, content }) => {
-    try {
-      const dir = path.dirname(filePath);
-      const base = path.basename(filePath);
-      const tmpName = '.' + base + '.' + require('crypto').randomUUID() + '.tmp';
-      const tmpPath = path.join(dir, tmpName);
-      fs.writeFileSync(tmpPath, content, 'utf-8');
-      fs.renameSync(tmpPath, filePath);
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
+  // 写操作（增/删/改批注）统一走 @mda/core 的 writer（原子写入 + 源文件保护
+  // + 换行风格保留），由 preload 直接调用，不再需要独立的 write-file 通道。
 
   ipcMain.handle('open-external', async (_event, url) => {
     await shell.openExternal(url);
