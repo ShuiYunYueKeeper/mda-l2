@@ -31,6 +31,7 @@ mda-cli scan doc.md --format json
 [comment]: <> (@anno {"id":"c5","content":"表格示例缺少 mermaid 类型的演示，但题目不要求 Mermaid 支持","tags":["docs"],"level":"info","status":"resolved","created_at":"2026-06-24T13:00:00+08:00"})
 ### 支持的批注字段
 
+[comment]: <> (@anno {"id":"5c6dc759-a795-43f8-864c-44dbb91e0364","content":"表格增加边框","tags":["功能优化"],"level":"info","status":"open","created_at":"2026-06-29T02:23:34.232Z"})
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | id | UUID | 是 | 唯一标识 |
