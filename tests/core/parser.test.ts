@@ -1,4 +1,4 @@
-import { parseAnnotations, findParagraphByLine } from '../../src/core/parser';
+﻿import { parseAnnotations, findParagraphByLine } from '../../src/core/parser';
 import { Annotation, Paragraph } from '../../src/core/model';
 
 // ---- 辅助函数 ----
@@ -251,6 +251,33 @@ describe('parser — 边界测试 E1-E25', () => {
 
   test('E25: 删除后空行压缩 — parser 不负责压缩，由 writer 处理', () => {
     // 由 writer 单元测试覆盖
+  });
+});
+
+describe('围栏代码块内的批注样例不识别为真实批注', () => {
+  test('``` 代码块内的 @anno 行被忽略', () => {
+    const text = makeText([
+      '# 标题',
+      '',
+      makeAnnoLine({ id: 'real-0001', content: '真实批注' }),
+      '正文段落。',
+      '',
+      '```markdown',
+      makeAnnoLine({ id: 'fake-0002', content: '代码块示例，不应识别' }),
+      '```',
+    ]);
+    const result = parseAnnotations(text);
+    expect(result.annotations).toHaveLength(1);
+    expect(result.annotations[0].id).toBe('real-0001');
+  });
+
+  test('~~~ 围栏同样生效', () => {
+    const text = makeText([
+      '~~~',
+      makeAnnoLine({ id: 'fake-0003', content: 'x' }),
+      '~~~',
+    ]);
+    expect(parseAnnotations(text).annotations).toHaveLength(0);
   });
 });
 

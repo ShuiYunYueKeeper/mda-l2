@@ -18,10 +18,16 @@
     "test:watch": "jest --watch",
     "coverage": "jest --coverage"
   },
-  "keywords": ["markdown", "annotation", "comment", "review"],
+  "keywords": [
+    "markdown",
+    "annotation",
+    "comment",
+    "review"
+  ],
   "license": "MIT",
   "dependencies": {
     "commander": "^12.1.0",
+    "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.0",
     "uuid": "^10.0.0",
     "zod": "^3.23.8"
