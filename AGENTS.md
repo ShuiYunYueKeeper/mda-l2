@@ -215,8 +215,7 @@ npm test               # jest（含覆盖率）
 7. **GUI 禁用原生 `alert`/`confirm`/`prompt`**：Electron 原生模态会导致渲染进程输入框失焦（最小化恢复才好）；统一用 DOM 版 `uiAlert`/`uiConfirm`。
 8. **不得削弱安全配置**：保持 `contextIsolation: true`、`nodeIntegration: false`；`sandbox: false` 仅为让 preload `require('../core')`，不得进一步放开（如开启 nodeIntegration）。
 9. **不得写入非法枚举**：`level`/`status` 越过枚举校验会让批注无法被解析而静默丢失。
-10. **不得提交派生物**：`dist/`、`node_modules/`、`coverage/` 不入库。
-11. **不实现 Markdown 编辑器**：GUI 仅预览 + 批注管理，不做正文编辑。
+10. **派生物默认不入库**：`node_modules/` 始终不入库；`dist/`、`coverage/` 暂不入库，待项目稳定后再视发布/交付需要决定是否提交（届时同步更新 `.gitignore`）。
 
 ---
 
