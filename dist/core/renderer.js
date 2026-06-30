@@ -3,18 +3,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.LEVEL_COLORS = void 0;
+exports.LEVEL_SEVERITY = exports.LEVEL_COLORS = void 0;
 exports.createMarkdownIt = createMarkdownIt;
 exports.renderMarkdown = renderMarkdown;
 const markdown_it_1 = __importDefault(require("markdown-it"));
 const parser_1 = require("./parser");
-const LEVEL_COLORS = {
-    critical: '#e74c3c',
-    major: '#e67e22',
-    minor: '#f1c40f',
-    info: '#95a5a6',
-};
+const annotation_schema_json_1 = __importDefault(require("../config/annotation-schema.json"));
+// 级别配色 / 严重度优先级来源于外置配置（src/config/annotation-schema.json）
+const LEVEL_COLORS = annotation_schema_json_1.default.levelColors;
 exports.LEVEL_COLORS = LEVEL_COLORS;
+const LEVEL_SEVERITY = annotation_schema_json_1.default.levelSeverity;
+exports.LEVEL_SEVERITY = LEVEL_SEVERITY;
 function escapeAttr(s) {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
