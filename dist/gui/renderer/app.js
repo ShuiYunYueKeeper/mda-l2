@@ -14,8 +14,10 @@
   var filterLevel = { critical: true, major: true, minor: true, info: true };
   var filterTags = {};
 
-  var LEVEL_COLORS = { critical: '#e74c3c', major: '#e67e22', minor: '#f1c40f', info: '#95a5a6' };
-  var LEVEL_ORDER = { critical: 3, major: 2, minor: 1, info: 0 };
+  // 配色/严重度优先级统一取自 core 暴露的外置配置（src/config/annotation-schema.json），
+  // 保留字面量作为兜底，避免 preload 未注入时崩溃。
+  var LEVEL_COLORS = (api && api.levelColors) || { critical: '#e74c3c', major: '#e67e22', minor: '#f1c40f', info: '#95a5a6' };
+  var LEVEL_ORDER = (api && api.levelSeverity) || { critical: 3, major: 2, minor: 1, info: 0 };
 
   // DOM 元素
   var previewEl, annoListEl, statusFiltersEl, levelFiltersEl, tagFiltersEl, tagFiltersRow;

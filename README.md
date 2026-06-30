@@ -13,6 +13,8 @@ mda-l2/
 │   │   ├── writer.ts          # 批注写入器 (原子写入 + 空行压缩 + 源文件保护)
 │   │   ├── renderer.ts        # Markdown 渲染器 (CommonMark 0.31 + GFM 表格)
 │   │   └── index.ts           # barrel export
+│   ├── config/
+│   │   └── annotation-schema.json # 可配置规则（枚举/正则/级别配色/严重度）
 │   ├── cli/
 │   │   ├── main.ts            # CLI 入口 (commander)
 │   │   └── commands/          # 子命令实现
@@ -41,8 +43,11 @@ mda-l2/
 │   ├── P3-implementation-plan.md # 实现步骤
 │   ├── prompts/               # AI 协作记录
 │   ├── screenshots/           # GUI 截图 + 录屏
+│   ├── few-shot-examples.md   # Few-shot 正反例（易错点 ✅/❌ 对照）
 │   └── templates/             # 阶段模板
+├── samples/                   # 独立演示样本（CLI/GUI 直接体验）
 ├── demo.md                    # 演示用 Markdown 文件
+├── quality.md                 # 质量保障说明（测试/覆盖率/审核点/Review）
 ├── AGENTS.md                  # AI 协作指南（架构/接口/规范/禁止事项/隐性规范）
 ├── package.json
 ├── tsconfig.json
@@ -170,7 +175,32 @@ npm run coverage
 - **lcov** — `coverage/lcov.info`（可导入 IDE）
 - **html** — `coverage/lcov-report/index.html`（浏览器查看）
 
-当前覆盖率：**Statements 87.96% / Lines 90.99% / Functions 95.23%**（66 个测试用例全部通过，含 core 单元测试与 CLI 集成测试）。
+当前覆盖率：**Statements 88.13% / Lines 91.1% / Functions 95.23%**（70 个测试用例全部通过，含 core 单元测试、配置一致性测试与 CLI 集成测试）。
+
+## 规则配置
+
+批注的**枚举值、识别正则、级别配色与严重度**统一外置到 [`src/config/annotation-schema.json`](src/config/annotation-schema.json)，
+作为单一可配置真相；`@mda/core` 与 GUI 均从中派生（GUI 经 preload 暴露 `levelColors`/`levelSeverity`）。
+
+扩展方式（示例）：
+
+```jsonc
+{
+  "levels": ["critical", "major", "minor", "info"],      // 调整级别枚举
+  "statuses": ["open", "resolved", "wontfix"],           // 调整状态枚举
+  "levelColors": { "critical": "#e74c3c", "...": "..." }, // 调整级别配色
+  "annotationPattern": "^\\[comment\\]:\\s*<>\\s*\\(@anno\\s+(\\{.+?\\})\\)\\s*$"
+}
+```
+
+> 修改后执行 `npm run build`（配置会被复制到 `dist/config/`）。注意：`levels`/`statuses` 同时受
+> `model.ts` 的 TS 字面联合类型约束，新增枚举值需同步该类型。
+
+## 质量与协作资产
+
+- [`quality.md`](quality.md) — 测试体系、覆盖率、数据校验、源文件安全、人工审核点、Code Review 痕迹。
+- [`docs/few-shot-examples.md`](docs/few-shot-examples.md) — 易错点的 ✅ 正确 / ❌ 错误 成对示例。
+- [`samples/`](samples/) — 独立演示样本，可直接用 CLI/GUI 体验。
 
 ## 开发约定
 

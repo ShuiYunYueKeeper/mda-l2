@@ -1,13 +1,11 @@
 ﻿import MarkdownIt from 'markdown-it';
 import { AnnotationLevel } from './model';
 import { ANNO_REGEX, buildCodeFenceMask } from './parser';
+import schema from '../config/annotation-schema.json';
 
-const LEVEL_COLORS: Record<AnnotationLevel, string> = {
-  critical: '#e74c3c',
-  major: '#e67e22',
-  minor: '#f1c40f',
-  info: '#95a5a6',
-};
+// 级别配色 / 严重度优先级来源于外置配置（src/config/annotation-schema.json）
+const LEVEL_COLORS = schema.levelColors as Record<AnnotationLevel, string>;
+const LEVEL_SEVERITY = schema.levelSeverity as Record<AnnotationLevel, number>;
 
 function escapeAttr(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -57,4 +55,4 @@ export function renderMarkdown(md: MarkdownIt, text: string): string {
   return md.render(preprocessForRender(text));
 }
 
-export { LEVEL_COLORS };
+export { LEVEL_COLORS, LEVEL_SEVERITY };

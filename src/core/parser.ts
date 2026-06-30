@@ -5,8 +5,10 @@
   isAnnotationLevel,
   isAnnotationStatus,
 } from './model';
+import schema from '../config/annotation-schema.json';
 
-const ANNO_REGEX = /^\[comment\]:\s*<>\s*\(@anno\s+(\{.+?\})\)\s*$/;
+// 批注识别正则来源于外置配置（src/config/annotation-schema.json）的 annotationPattern
+const ANNO_REGEX = new RegExp(schema.annotationPattern);
 
 /**
  * 计算围栏代码块遮罩：mask[i] === true 表示第 i 行处于 ```/~~~ 围栏代码块内

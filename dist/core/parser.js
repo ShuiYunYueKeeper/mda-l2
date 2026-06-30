@@ -1,4 +1,7 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ANNO_REGEX = void 0;
 exports.buildCodeFenceMask = buildCodeFenceMask;
@@ -6,7 +9,9 @@ exports.parseAnnotations = parseAnnotations;
 exports.findAnnotationByLine = findAnnotationByLine;
 exports.findParagraphByLine = findParagraphByLine;
 const model_1 = require("./model");
-const ANNO_REGEX = /^\[comment\]:\s*<>\s*\(@anno\s+(\{.+?\})\)\s*$/;
+const annotation_schema_json_1 = __importDefault(require("../config/annotation-schema.json"));
+// 批注识别正则来源于外置配置（src/config/annotation-schema.json）的 annotationPattern
+const ANNO_REGEX = new RegExp(annotation_schema_json_1.default.annotationPattern);
 exports.ANNO_REGEX = ANNO_REGEX;
 /**
  * 计算围栏代码块遮罩：mask[i] === true 表示第 i 行处于 ```/~~~ 围栏代码块内

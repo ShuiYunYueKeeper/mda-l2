@@ -244,6 +244,7 @@ npm test               # jest（含覆盖率）
 | 关注点 | 文件 |
 |--------|------|
 | 类型/枚举 | `src/core/model.ts` |
+| 可配置规则（枚举/正则/色条） | `src/config/annotation-schema.json` |
 | 解析/归属算法 | `src/core/parser.ts` |
 | 写入/保护/原子性 | `src/core/writer.ts` |
 | 渲染/不可见性 | `src/core/renderer.ts` |
@@ -251,4 +252,5 @@ npm test               # jest（含覆盖率）
 | GUI 主进程/桥接/界面 | `src/gui/main.js` / `preload.js` / `renderer/app.js` |
 | 设计文档 | `docs/P0..P3-*.md` |
 | AI 协作记录 | `docs/prompts/*.md` |
+| Few-shot 正反例 | `docs/few-shot-examples.md` |
 | 测试 | `tests/core/*.test.ts`、`tests/cli/*.test.ts` |

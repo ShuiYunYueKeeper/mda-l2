@@ -67,6 +67,10 @@ contextBridge.exposeInMainWorld('mdaAPI', {
     ipcRenderer.on('menu-show-in-folder', () => callback());
   },
 
+  // 级别配色 / 严重度优先级（来源于 src/config/annotation-schema.json，经 core 暴露）
+  levelColors: core.LEVEL_COLORS,
+  levelSeverity: core.LEVEL_SEVERITY,
+
   // ---- 复用 @mda/core ----
   parseAnnotations: (text) => core.parseAnnotations(text),
   renderMarkdown: (text) => {

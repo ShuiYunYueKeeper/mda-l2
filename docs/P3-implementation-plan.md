@@ -1,4 +1,4 @@
-# 实施计划 — Markdown 批注管理工具（MDA）
+﻿# 实施计划 — Markdown 批注管理工具（MDA）
 
 ---
 
@@ -261,6 +261,30 @@ graph TD
 | T25: AI 协作记录 | T24 | 否 | `docs/prompts/` | 1. prompt-01-p0-requirements.md：P0 需求分析阶段的完整对话 prompt 2. prompt-02-p1-architecture.md：P1 架构设计阶段的完整对话 prompt 3. prompt-03-p2-detailed-design.md：P2 详细设计阶段的完整对话 prompt 4. prompt-04-p3-implementation.md：P3 实现步骤阶段的完整对话 prompt 5. prompt-05-p4-implementation.md：P4 实现阶段的完整对话 prompt |
 
 **总改动预估**：约 2,400 行源码 + 650 行测试 + 200 行配置/文档，涉及 ~30 个文件
+
+---
+
+## 执行主体分工（AI 独立 / 需人工确认）
+
+> 将散落在工作流与协作记录中的人/机分工显式化到任务级。
+> - **AI 独立**：AI 可自动产出并以「自动化测试 + `tsc`/`build` 通过」自证，阶段末交用户确认即可。
+> - **需人工确认**：存在自动化无法覆盖的判断（GUI 实机交互、视觉/排版、截图录屏、设计取舍），
+>   必须由人工实机验证或提供素材后方可推进（与 `workflow.md` Step 4 的 GUI 硬约束一致）。
+
+| 任务 | 执行主体 | 说明 / 人工介入原因 |
+|------|----------|---------------------|
+| T0.1–T0.2 脚手架 | AI 独立 | 目录/配置生成，`build` 即可自证 |
+| T1 model / T4 renderer | AI 独立 | 纯逻辑 + 单元测试守护 |
+| T2 parser / T3 writer | AI 独立 | E1–E25 + writer 测试守护（源文件保护、原子写入） |
+| T5 barrel / T6 CLI 入口 | AI 独立 | 编译 + 集成测试自证 |
+| T7–T10 CLI 子命令 | AI 独立 | CLI 集成测试（stdout/exit code）自证 |
+| T11–T17 GUI（Electron/preview/panel/dialog/IPC） | **需人工确认** | GUI 无自动化测试；渲染、双向定位、拖拽、原生模态失焦、代码块交互等只有实机能暴露 |
+| T18–T21 测试 | AI 独立 | 测试本身即自证；用例评审可由人工抽查 |
+| T22 README / T25 prompts | AI 独立（人工抽查） | 文档产出，准确性由用户确认 |
+| T23 demo.md | AI 独立 | 文本产物 |
+| T24 截图 + 录屏 | **需人工确认** | 需人工实机操作截屏/录屏，AI 无法产出 |
+
+> 经验法则：**凡涉及 `src/gui/**` 的改动一律归入「需人工确认」**，提交与推进前必须人工实机验证。
 
 ---
 
