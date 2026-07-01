@@ -43,6 +43,43 @@ function fail(err) {
   return { success: false, error: (err && err.message) || String(err) };
 }
 
+// “疑似批注行”识别（宽松）：只要出现 `<> (@anno` 这一批注专属标记即视为批注意图，
+// 允许 `[comment]` 的方括号缺失、JSON 残缺等编辑中/被改坏的情况。用于：
+//   1) 预览渲染前把这些行清空 → 残缺/被改坏的批注不会泄漏到预览；
+//   2) 保存前校验 → 疑似批注但不符合严格格式的行给出提示。
+// 围栏代码块内的批注样例是字面文本，一律排除。
+const ANNO_ISH = /^\s{0,3}\[?\s*comment\s*\]?\s*:\s*<>\s*\(\s*@anno\b/;
+
+// GUI 预览容错隐藏：core 的严格正则要求批注行含完整 JSON 且以 `)` 结尾，
+// 用户在源码栏编辑时一旦改坏格式，该行既无法被解析为批注、又会泄漏到预览。
+// 这里在渲染前把“围栏外、疑似批注”的任意行清空（保留行数不变），使残缺/正在
+// 编辑/被改坏的批注行都不会出现在预览中。围栏内的批注样例仍原样保留。
+function hideLooseAnnotations(text) {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  const mask = core.buildCodeFenceMask(lines);
+  return lines.map((l, i) => (!mask[i] && ANNO_ISH.test(l) ? '' : l)).join('\n');
+}
+
+// 检测“疑似批注但格式不正确”的行号（1-based）。规则：围栏外、命中 ANNO_ISH，
+// 但不满足严格批注（正则不匹配 / JSON 解析失败）。用于保存前提示用户。
+function findMalformedAnnotations(text) {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/);
+  const mask = core.buildCodeFenceMask(lines);
+  const bad = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (mask[i]) continue;
+    const line = lines[i];
+    if (!ANNO_ISH.test(line)) continue;
+    const m = line.match(core.ANNO_REGEX);
+    let valid = false;
+    if (m) {
+      try { JSON.parse(m[1]); valid = true; } catch (e) { valid = false; }
+    }
+    if (!valid) bad.push(i + 1);
+  }
+  return bad;
+}
+
 contextBridge.exposeInMainWorld('mdaAPI', {
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
@@ -66,6 +103,18 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   onMenuShowInFolder: (callback) => {
     ipcRenderer.on('menu-show-in-folder', () => callback());
   },
+  onMenuToggleTheme: (callback) => {
+    ipcRenderer.on('menu-toggle-theme', () => callback());
+  },
+  onMenuToggleEdit: (callback) => {
+    ipcRenderer.on('menu-toggle-edit', () => callback());
+  },
+  onMenuTogglePanel: (callback) => {
+    ipcRenderer.on('menu-toggle-panel', () => callback());
+  },
+  onMenuSave: (callback) => {
+    ipcRenderer.on('menu-save', () => callback());
+  },
 
   // 级别配色 / 严重度优先级（来源于 src/config/annotation-schema.json，经 core 暴露）
   levelColors: core.LEVEL_COLORS,
@@ -75,7 +124,7 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   parseAnnotations: (text) => core.parseAnnotations(text),
   renderMarkdown: (text) => {
     try {
-      return { success: true, html: core.renderMarkdown(md, text) };
+      return { success: true, html: core.renderMarkdown(md, hideLooseAnnotations(text)) };
     } catch (err) {
       return fail(err);
     }
@@ -86,4 +135,11 @@ contextBridge.exposeInMainWorld('mdaAPI', {
     core.editAnnotation(filePath, id, patch).then(ok, fail),
   removeAnnotation: (filePath, id) =>
     core.removeAnnotation(filePath, id).then(() => ok(null), fail),
+
+  // 整篇源码保存（编辑模式用）：走 core 原子写入 + 保留原换行风格
+  saveFile: (filePath, content) =>
+    core.writeRawFile(filePath, content).then(() => ok(null), fail),
+
+  // 保存前校验：返回疑似批注但格式不正确的行号数组（供渲染层提示用户）
+  findMalformedAnnotations: (text) => findMalformedAnnotations(text),
 });

@@ -1,98 +1,121 @@
 ﻿// MDA Renderer — Markdown 批注管理工具 GUI
-// 通过 preload 获取 markdown-it 渲染 + 文件 I/O
+// 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
   var api = window.mdaAPI;
   var currentFilePath = null;
+  var currentText = '';           // 当前文件磁盘内容（编辑模式下预览的兜底源）
   var annotations = [];
   var paragraphs = [];
   var selectedAnnotationId = null;
   var cursorLine = null;
   var htmlContent = '';
 
+  var editorVisible = false;      // 左侧源码编辑栏是否展开
+  var panelVisible = true;        // 右侧批注栏是否展开（默认展开）
+  var dirty = false;              // 编辑器内容是否有未保存修改
+  var previewTimer = null;        // 实时预览防抖
+
   var filterStatus = { open: true, resolved: true, wontfix: true };
   var filterLevel = { critical: true, major: true, minor: true, info: true };
   var filterTags = {};
 
-  // 配色/严重度优先级统一取自 core 暴露的外置配置（src/config/annotation-schema.json），
-  // 保留字面量作为兜底，避免 preload 未注入时崩溃。
   var LEVEL_COLORS = (api && api.levelColors) || { critical: '#e74c3c', major: '#e67e22', minor: '#f1c40f', info: '#95a5a6' };
   var LEVEL_ORDER = (api && api.levelSeverity) || { critical: 3, major: 2, minor: 1, info: 0 };
 
   // DOM 元素
   var previewEl, annoListEl, statusFiltersEl, levelFiltersEl, tagFiltersEl, tagFiltersRow;
-  var previewPaneEl;
+  var previewPaneEl, editorPaneEl, editorEl, panelPaneEl;
+  var tbEditBtn, tbPanelBtn, tbFileNameEl, addBtn;
+
+  var MOD_KEY = (navigator.platform || '').toLowerCase().indexOf('mac') >= 0 ? '\u2318' : 'Ctrl+';
 
   // ---- 初始化 ----
   function init() {
     buildLayout();
-    api.onFileOpened(function (filePath) { openFile(filePath); });
-    api.onReload(function () { if (currentFilePath) openFile(currentFilePath); });
+    initTheme();
+    initMermaid();
+
+    api.onFileOpened(function (filePath) { requestOpen(filePath); });
+    api.onReload(function () { if (currentFilePath) requestOpen(currentFilePath); });
     api.onMenuShowInFolder(function () {
-      if (currentFilePath) {
-        api.showItemInFolder(currentFilePath);
-      } else {
-        uiAlert('请先打开一个文件');
-      }
+      if (currentFilePath) api.showItemInFolder(currentFilePath);
+      else uiAlert('请先打开一个文件');
     });
+    api.onMenuToggleTheme(function () { toggleTheme(); });
+    api.onMenuToggleEdit(function () { toggleEditor(); });
+    api.onMenuTogglePanel(function () { togglePanel(); });
+    api.onMenuSave(function () { saveFile(); });
+
     setupDragAndDrop();
-    setTitle(null);
-  }
-
-  // ---- 拖拽打开（同时兜底阻止拖入文件导致渲染进程导航白屏）----
-  function setupDragAndDrop() {
-    window.addEventListener('dragover', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-    });
-    window.addEventListener('drop', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      var files = e.dataTransfer && e.dataTransfer.files;
-      if (!files || !files.length) return;
-      var p = files[0].path;
-      if (!p) return;
-      if (/\.(md|markdown|txt)$/i.test(p)) {
-        openFile(p);
-      } else {
-        uiAlert('仅支持打开 .md / .markdown / .txt 文件');
+    // 兜底：Ctrl+S 保存（菜单快捷键之外再拦一层）
+    window.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && (e.key || '').toLowerCase() === 's') {
+        e.preventDefault();
+        saveFile();
       }
     });
+
+    setTitle(null);
+    updateToolbar();
   }
 
+  // ---- 布局 ----
   function buildLayout() {
     var root = document.getElementById('root');
     root.innerHTML =
-      '<div id="preview-pane" style="flex:7;overflow:auto;padding:16px;border-right:1px solid #ddd">' +
-        '<div id="preview-content" style="max-width:800px;margin:0 auto;line-height:1.7"></div>' +
+      '<div class="toolbar">' +
+        '<button id="tb-edit" class="tool-btn" title="编辑栏 (Ctrl+E)">编辑</button>' +
+        '<button id="tb-panel" class="tool-btn" title="批注栏 (Ctrl+B)">批注</button>' +
+        '<span class="spacer"></span>' +
+        '<span id="tb-filename" class="file-name"></span>' +
       '</div>' +
-      '<div id="panel-pane" style="flex:3;display:flex;flex-direction:column;overflow:hidden;min-width:280px;background:#fafafa">' +
-        '<div style="padding:8px;border-bottom:1px solid #ddd;background:#fff">' +
-          '<button id="btn-add" style="width:100%;padding:8px;cursor:pointer;background:#1a73e8;color:#fff;border:none;border-radius:4px;font-size:14px" disabled>+ 添加批注</button>' +
+      '<div id="content-row">' +
+        '<div id="editor-pane"><textarea id="editor" class="mda-editor" spellcheck="false" placeholder="在此编辑 Markdown 源码…"></textarea></div>' +
+        '<div id="preview-pane"><div id="preview-content"></div></div>' +
+        '<div id="panel-pane">' +
+          '<div class="panel-head">' +
+            '<button id="btn-add" class="btn-primary" disabled>+ 添加批注</button>' +
+          '</div>' +
+          '<div class="filter-box">' +
+            '<div style="margin-bottom:4px"><b>状态</b> <span id="status-filters"></span></div>' +
+            '<div style="margin-bottom:4px"><b>级别</b> <span id="level-filters"></span></div>' +
+            '<div id="tag-filters-row" style="display:none"><b>标签</b> <span id="tag-filters"></span></div>' +
+          '</div>' +
+          '<div id="anno-list"></div>' +
         '</div>' +
-        '<div style="padding:8px;border-bottom:1px solid #eee;font-size:12px;background:#fff">' +
-          '<div style="margin-bottom:4px"><b>状态</b> <span id="status-filters"></span></div>' +
-          '<div style="margin-bottom:4px"><b>级别</b> <span id="level-filters"></span></div>' +
-          '<div id="tag-filters-row" style="display:none"><b>标签</b> <span id="tag-filters"></span></div>' +
-        '</div>' +
-        '<div id="anno-list" style="flex:1;overflow:auto"></div>' +
       '</div>';
 
     previewEl = document.getElementById('preview-content');
     previewPaneEl = document.getElementById('preview-pane');
+    editorPaneEl = document.getElementById('editor-pane');
+    editorEl = document.getElementById('editor');
+    panelPaneEl = document.getElementById('panel-pane');
     statusFiltersEl = document.getElementById('status-filters');
     levelFiltersEl = document.getElementById('level-filters');
     tagFiltersEl = document.getElementById('tag-filters');
     tagFiltersRow = document.getElementById('tag-filters-row');
     annoListEl = document.getElementById('anno-list');
+    tbEditBtn = document.getElementById('tb-edit');
+    tbPanelBtn = document.getElementById('tb-panel');
+    tbFileNameEl = document.getElementById('tb-filename');
+    addBtn = document.getElementById('btn-add');
 
-    document.getElementById('btn-add').addEventListener('click', function () {
-      showEditDialog('add', null, cursorLine);
+    addBtn.addEventListener('click', function () { showEditDialog('add', null, cursorLine); });
+    tbEditBtn.addEventListener('click', function () { toggleEditor(); });
+    tbPanelBtn.addEventListener('click', function () { togglePanel(); });
+
+    // 编辑器输入 → 标记 dirty + 防抖实时预览
+    editorEl.addEventListener('input', function () {
+      dirty = true;
+      updateToolbar();
+      if (previewTimer) clearTimeout(previewTimer);
+      previewTimer = setTimeout(function () {
+        parseAndRender(editorEl.value, currentFilePath);
+      }, 250);
     });
 
-    // 预览区点击：链接一律拦截默认导航（否则渲染进程会跳离 index.html 白屏）；
-    // 外链走系统浏览器，相对 .md 链接在应用内打开，其余本地路径交系统处理。
+    // 预览区点击：链接拦截默认导航；段落点击定位批注
     previewPaneEl.addEventListener('click', function (e) {
       var a = e.target.closest('a');
       if (a) {
@@ -104,7 +127,6 @@
       if (block) {
         cursorLine = parseInt(block.getAttribute('data-line'), 10) || null;
         highlightCursorBlock(block);
-        // 点击带批注的段落 → 面板定位到对应批注
         var p = findParagraphForLine(cursorLine);
         if (p && p.annotations && p.annotations.length) {
           selectAnnotation(p.annotations[0].id, false);
@@ -113,26 +135,193 @@
     });
   }
 
-  // 处理预览区链接点击（已 preventDefault）
+  // ---- 主题（深色模式）----
+  function isDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+
+  function initTheme() {
+    var saved = null;
+    try { saved = localStorage.getItem('mda-theme'); } catch (e) { /* ignore */ }
+    if (saved === 'dark' || saved === 'light') {
+      applyTheme(saved);
+    } else {
+      var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      applyTheme(prefersDark ? 'dark' : 'light');
+      // 未手动设置时跟随系统变化
+      if (window.matchMedia) {
+        try {
+          window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (ev) {
+            var pref = null;
+            try { pref = localStorage.getItem('mda-theme'); } catch (e) { /* ignore */ }
+            if (pref !== 'dark' && pref !== 'light') {
+              applyTheme(ev.matches ? 'dark' : 'light');
+              rerenderPreview();
+            }
+          });
+        } catch (e) { /* 旧版无 addEventListener */ }
+      }
+    }
+  }
+
+  function toggleTheme() {
+    var next = isDark() ? 'light' : 'dark';
+    applyTheme(next);
+    try { localStorage.setItem('mda-theme', next); } catch (e) { /* ignore */ }
+    rerenderPreview(); // 让 mermaid 跟随主题重绘
+  }
+
+  function rerenderPreview() {
+    if (currentFilePath) parseAndRender(getPreviewSource(), currentFilePath);
+  }
+
+  // 预览源：有未保存编辑时以编辑器缓冲为准，否则用磁盘内容
+  function getPreviewSource() {
+    return dirty ? editorEl.value : currentText;
+  }
+
+  // ---- mermaid ----
+  function getMermaid() {
+    if (window.mermaid) return window.mermaid;
+    var ns = window.__esbuild_esm_mermaid_nm && window.__esbuild_esm_mermaid_nm.mermaid;
+    if (ns) return ns.default || ns;
+    return null;
+  }
+
+  function initMermaid() {
+    var m = getMermaid();
+    if (m) {
+      try { m.initialize({ startOnLoad: false, theme: isDark() ? 'dark' : 'default', securityLevel: 'strict' }); } catch (e) { /* ignore */ }
+    }
+  }
+
+  async function renderMermaidBlocks() {
+    var blocks = previewEl.querySelectorAll('pre > code.language-mermaid');
+    if (!blocks.length) return;
+    var m = getMermaid();
+    for (var i = 0; i < blocks.length; i++) {
+      var code = blocks[i];
+      var pre = code.parentNode;
+      var holder = document.createElement('div');
+      if (!m) {
+        holder.className = 'mda-mermaid-error';
+        holder.textContent = '流程图渲染失败: mermaid 未加载';
+        pre.parentNode.replaceChild(holder, pre);
+        continue;
+      }
+      holder.className = 'mda-mermaid';
+      pre.parentNode.replaceChild(holder, pre);
+      var src = code.textContent.replace(/\n$/, '');
+      var id = 'mmd-' + Date.now() + '-' + i;
+      try {
+        try { m.initialize({ startOnLoad: false, theme: isDark() ? 'dark' : 'default', securityLevel: 'strict' }); } catch (e) { /* ignore */ }
+        var out = await m.render(id, src);
+        holder.innerHTML = out.svg;
+        if (out.bindFunctions) out.bindFunctions(holder);
+      } catch (err) {
+        holder.className = 'mda-mermaid-error';
+        holder.textContent = '流程图渲染失败: ' + ((err && err.message) ? err.message : String(err));
+      }
+    }
+  }
+
+  // ---- 编辑栏 / 批注栏（两侧独立开关，可同时展开：源码 | 预览 | 批注）----
+  function toggleEditor() {
+    if (!currentFilePath) { uiAlert('请先打开一个文件'); return; }
+    editorVisible = !editorVisible;
+    if (editorVisible) {
+      if (!dirty) editorEl.value = currentText; // 无脏改动时同步磁盘内容
+      editorPaneEl.classList.add('visible');
+      requestAnimationFrame(function () { editorEl.focus(); });
+    } else {
+      editorPaneEl.classList.remove('visible');
+    }
+    updateToolbar();
+  }
+
+  function togglePanel() {
+    panelVisible = !panelVisible;
+    panelPaneEl.classList.toggle('hidden', !panelVisible);
+    updateToolbar();
+  }
+
+  function saveFile() {
+    if (!currentFilePath || !dirty) return;
+    var content = editorEl.value;
+    // 保存前校验：疑似批注但格式不正确 → 提示用户（这类行无法被识别为批注）
+    var bad = (api.findMalformedAnnotations && api.findMalformedAnnotations(content)) || [];
+    var proceed = bad.length
+      ? uiConfirm('第 ' + bad.join('、') + ' 行的批注格式不正确，将无法被识别为批注。仍要保存吗？')
+      : Promise.resolve(true);
+    proceed.then(function (yes) {
+      if (!yes) return;
+      api.saveFile(currentFilePath, content).then(function (r) {
+        if (r.success) {
+          dirty = false;
+          currentText = content;
+          updateToolbar();
+          openFile(currentFilePath); // 重载磁盘内容（EOL 归一 + 批注面板同步）
+        } else {
+          uiAlert('保存失败: ' + r.error);
+        }
+      });
+    });
+  }
+
+  function guardDiscard() {
+    if (!dirty) return Promise.resolve(true);
+    return uiConfirm('有未保存的修改，确定放弃吗？');
+  }
+
+  function requestOpen(filePath) {
+    guardDiscard().then(function (yes) { if (yes) openFile(filePath); });
+  }
+
+  function updateToolbar() {
+    if (tbEditBtn) {
+      tbEditBtn.classList.toggle('active', editorVisible);
+      tbEditBtn.disabled = !currentFilePath;
+    }
+    if (tbPanelBtn) tbPanelBtn.classList.toggle('active', panelVisible);
+    if (tbFileNameEl) {
+      var name = currentFilePath ? currentFilePath.replace(/\\/g, '/').split('/').pop() : '';
+      tbFileNameEl.innerHTML = name ? (escHtml(name) + (dirty ? '<span class="dirty-dot">●</span>' : '')) : '';
+    }
+    if (addBtn) addBtn.disabled = !currentFilePath || dirty;
+  }
+
+  // ---- 拖拽打开 ----
+  function setupDragAndDrop() {
+    window.addEventListener('dragover', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    });
+    window.addEventListener('drop', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      var files = e.dataTransfer && e.dataTransfer.files;
+      if (!files || !files.length) return;
+      var p = files[0].path;
+      if (!p) return;
+      if (/\.(md|markdown|txt)$/i.test(p)) requestOpen(p);
+      else uiAlert('仅支持打开 .md / .markdown / .txt 文件');
+    });
+  }
+
+  // ---- 预览区链接 ----
   function handleLinkClick(href) {
     if (!href) return;
-    // 纯锚点：滚动到目标，不导航
     if (href.charAt(0) === '#') return;
-    // 外链 / 协议链接：交系统浏览器
-    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
-      api.openExternal(href);
-      return;
-    }
-    // 相对/本地路径：去掉 query 与 hash
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) { api.openExternal(href); return; }
     var clean = href.split('#')[0].split('?')[0];
-    try { clean = decodeURIComponent(clean); } catch (e) { /* 保持原值 */ }
+    try { clean = decodeURIComponent(clean); } catch (e) { /* keep */ }
     if (!clean) return;
     if (/\.(md|markdown|txt)$/i.test(clean)) {
       var target = currentFilePath ? api.resolvePath(currentFilePath, clean) : clean;
-      if (target) openFile(target);
+      if (target) requestOpen(target);
       return;
     }
-    // 其它本地文件：交系统默认程序打开
     var resolved = currentFilePath ? api.resolvePath(currentFilePath, clean) : clean;
     if (resolved) api.openExternal('file://' + resolved.replace(/\\/g, '/'));
   }
@@ -144,8 +333,6 @@
   }
 
   // ---- 段落 ↔ 批注 ↔ DOM 映射 ----
-
-  // 取一组批注中级别最高者（用于段落色条颜色）
   function mostSevere(annos) {
     var best = annos[0];
     for (var i = 1; i < annos.length; i++) {
@@ -154,7 +341,6 @@
     return best;
   }
 
-  // 段落首行行号 → 预览区块级元素（preload 注入的 data-line 即段落 startLine）
   function paragraphElement(p) {
     return p ? previewEl.querySelector('[data-line="' + p.startLine + '"]') : null;
   }
@@ -176,7 +362,6 @@
     return null;
   }
 
-  // 给含批注的段落加左侧级别色条
   function decorateParagraphs() {
     for (var i = 0; i < paragraphs.length; i++) {
       var p = paragraphs[i];
@@ -190,7 +375,6 @@
     }
   }
 
-  // 选中批注：刷新面板高亮 + 滚动面板到该项；可选滚动预览到对应段落
   function selectAnnotation(id, scrollPreview) {
     selectedAnnotationId = id;
     renderPanel();
@@ -198,23 +382,21 @@
     if (item) item.scrollIntoView({ block: 'nearest' });
     if (scrollPreview) {
       var el = paragraphElement(findParagraphByAnnotationId(id));
-      if (el) {
-        el.scrollIntoView({ block: 'center' });
-        highlightCursorBlock(el);
-      }
+      if (el) { el.scrollIntoView({ block: 'center' }); highlightCursorBlock(el); }
     }
   }
 
   // ---- 文件操作 ----
   async function openFile(filePath) {
     var result = await api.readFile(filePath);
-    if (!result.success) {
-      uiAlert('无法打开文件: ' + result.error);
-      return;
-    }
+    if (!result.success) { uiAlert('无法打开文件: ' + result.error); return; }
     currentFilePath = filePath;
+    currentText = result.content;
+    dirty = false;
+    editorEl.value = result.content;
     setTitle(filePath);
     parseAndRender(result.content, filePath);
+    updateToolbar();
   }
 
   function setTitle(filePath) {
@@ -226,16 +408,12 @@
     }
   }
 
-  function reloadFile() {
-    if (currentFilePath) openFile(currentFilePath);
-  }
+  function reloadFile() { if (currentFilePath) openFile(currentFilePath); }
 
   function parseAndRender(text, filePath) {
-    // 复用 @mda/core 的解析器（经 preload 暴露），不再在 GUI 重复实现
     var parsed = api.parseAnnotations(text);
     annotations = parsed.annotations;
     paragraphs = parsed.paragraphs;
-    // 设置 file 字段
     for (var i = 0; i < annotations.length; i++) {
       annotations[i].file = filePath || currentFilePath;
     }
@@ -247,20 +425,35 @@
   // ---- Markdown 渲染 ----
   function renderMarkdownContent(text) {
     var result = api.renderMarkdown(text);
-    if (result.success) {
-      htmlContent = result.html;
-      previewEl.innerHTML = htmlContent;
+    if (!result.success) {
+      previewEl.innerHTML = '<p style="color:var(--danger)">渲染错误: ' + escHtml(result.error) + '</p>';
+      return;
+    }
+    htmlContent = result.html;
+    previewEl.innerHTML = htmlContent;
 
-      // 图片 fallback (MutationObserver 兜底)
-      setupImageFallback();
-
-      // 代码块增强：行号 + 复制按钮 + 右键菜单/快捷键（高亮已在 preload 完成）
-      enhanceCodeBlocks();
-
-      // 给含批注的段落加左侧级别色条
+    resolveImages();       // 相对/本地图片 → 绝对 file:// URL
+    setupImageFallback();
+    renderMermaidBlocks().then(function () {
+      enhanceCodeBlocks(); // mermaid 块已被替换，剩余代码块加行号/复制/菜单
       decorateParagraphs();
-    } else {
-      previewEl.innerHTML = '<p style="color:#e74c3c">渲染错误: ' + escHtml(result.error) + '</p>';
+    });
+  }
+
+  // ---- 图片：相对/本地路径 → 绝对 file:// ----
+  function resolveImages() {
+    var imgs = previewEl.querySelectorAll('img');
+    for (var i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      var src = img.getAttribute('src') || '';
+      if (!src) continue;
+      if (/^(https?:|data:|file:)/i.test(src)) continue;
+      var base = currentFilePath;
+      if (!base) continue;
+      var abs = api.resolvePath(base, src);
+      if (abs) {
+        img.setAttribute('src', 'file:///' + abs.replace(/\\/g, '/').replace(/^\/+/, ''));
+      }
     }
   }
 
@@ -273,15 +466,13 @@
         img.addEventListener('error', function () {
           img.style.display = 'none';
           var next = img.nextElementSibling;
-          if (next && next.classList.contains('md-image-alt')) {
-            next.style.display = 'inline';
-          }
+          if (next && next.classList.contains('md-image-alt')) next.style.display = 'inline';
         });
       })(imgs[i]);
     }
   }
 
-  // ---- 代码块增强（行号 / 复制 / 右键菜单 / 快捷键）----
+  // ---- 代码块增强 ----
   function enhanceCodeBlocks() {
     var pres = previewEl.querySelectorAll('pre');
     for (var i = 0; i < pres.length; i++) {
@@ -294,11 +485,9 @@
   }
 
   function enhanceOneCodeBlock(pre, code) {
-    // 复制源 = 纯文本（不含行号、不含高亮标签），去掉末尾多余换行
     var rawText = code.textContent.replace(/\n$/, '');
     var lineCount = rawText.split('\n').length;
 
-    // 行号槽：white-space:pre 保证逐行；user-select:none 保证复制时不含行号
     var nums = [];
     for (var n = 1; n <= lineCount; n++) nums.push(n);
     var gutter = document.createElement('div');
@@ -318,7 +507,6 @@
     copyBtn.type = 'button';
     copyBtn.textContent = '复制';
 
-    // 用增强结构替换原 <pre>
     pre.classList.add('mda-code-pre');
     pre.parentNode.insertBefore(container, pre);
     scroll.appendChild(pre);
@@ -326,24 +514,17 @@
     container.appendChild(gutter);
     container.appendChild(scroll);
 
-    copyBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      copyCode(rawText, copyBtn);
-    });
-
+    copyBtn.addEventListener('click', function (e) { e.stopPropagation(); copyCode(rawText, copyBtn); });
     container.addEventListener('contextmenu', function (e) {
       e.preventDefault();
       showCodeContextMenu(e.clientX, e.clientY, code, rawText, copyBtn);
     });
-
     container.addEventListener('keydown', function (e) {
       var ctrl = e.ctrlKey || e.metaKey;
       if (!ctrl) return;
       var key = (e.key || '').toLowerCase();
-      if (key === 'a') {
-        e.preventDefault();
-        selectCodeContents(code);
-      } else if (key === 'c') {
+      if (key === 'a') { e.preventDefault(); selectCodeContents(code); }
+      else if (key === 'c') {
         e.preventDefault();
         var sel = window.getSelection ? String(window.getSelection()) : '';
         copyCode(sel || rawText, copyBtn);
@@ -368,15 +549,12 @@
     }
   }
 
-  // 关闭右键菜单的全局监听引用（用于可靠地反注册，避免“只弹一次”的 bug）
   var codeMenuDismiss = null;
-  var MOD_KEY = (navigator.platform || '').toLowerCase().indexOf('mac') >= 0 ? '\u2318' : 'Ctrl+';
 
   function removeCodeContextMenu() {
     var m = document.getElementById('mda-code-menu');
     if (m) m.remove();
     if (codeMenuDismiss) {
-      // 用 capture 注册，需同样用 capture 反注册
       document.removeEventListener('click', codeMenuDismiss, true);
       document.removeEventListener('contextmenu', codeMenuDismiss, true);
       window.removeEventListener('blur', codeMenuDismiss);
@@ -385,7 +563,6 @@
   }
 
   function showCodeContextMenu(x, y, code, rawText, btn) {
-    // 先彻底清理上一份菜单及其监听，再创建新菜单
     removeCodeContextMenu();
     var menu = document.createElement('div');
     menu.id = 'mda-code-menu';
@@ -409,9 +586,6 @@
       removeCodeContextMenu();
     });
 
-    // 捕获阶段拦截：再次右键时先关闭旧菜单（并反注册自身），随后目标的
-    // contextmenu 冒泡处理才重建新菜单 → 解决“菜单只弹一次”的问题。
-    // 菜单内部的点击放行，交由菜单自身的 click 处理（执行拷贝）。
     codeMenuDismiss = function (ev) {
       if (ev.type === 'click' && menu.contains(ev.target)) return;
       removeCodeContextMenu();
@@ -428,23 +602,16 @@
     var allTags = {};
     for (var i = 0; i < annotations.length; i++) {
       var tags = annotations[i].tags || [];
-      for (var t = 0; t < tags.length; t++) {
-        allTags[tags[t]] = true;
-      }
+      for (var t = 0; t < tags.length; t++) allTags[tags[t]] = true;
     }
     filterTags = {};
     var keys = Object.keys(allTags).sort();
-    for (var k = 0; k < keys.length; k++) {
-      filterTags[keys[k]] = true;
-    }
+    for (var k = 0; k < keys.length; k++) filterTags[keys[k]] = true;
   }
 
   function renderTagFilterUI() {
     var keys = Object.keys(filterTags).sort();
-    if (keys.length === 0) {
-      tagFiltersRow.style.display = 'none';
-      return;
-    }
+    if (keys.length === 0) { tagFiltersRow.style.display = 'none'; return; }
     tagFiltersRow.style.display = '';
     var html = '';
     for (var k = 0; k < keys.length; k++) {
@@ -453,14 +620,9 @@
         '<input type="checkbox" ' + c + ' data-tag="' + escHtml(keys[k]) + '">' + escHtml(keys[k]) + '</label>';
     }
     tagFiltersEl.innerHTML = html;
-
-    // 绑定事件
     var cbs = tagFiltersEl.querySelectorAll('input[type=checkbox]');
     for (var c = 0; c < cbs.length; c++) {
-      cbs[c].addEventListener('change', function () {
-        filterTags[this.dataset.tag] = this.checked;
-        renderPanel();
-      });
+      cbs[c].addEventListener('change', function () { filterTags[this.dataset.tag] = this.checked; renderPanel(); });
     }
   }
 
@@ -474,10 +636,7 @@
     statusFiltersEl.innerHTML = html;
     var cbs = statusFiltersEl.querySelectorAll('input');
     for (var c = 0; c < cbs.length; c++) {
-      cbs[c].addEventListener('change', function () {
-        filterStatus[this.dataset.status] = this.checked;
-        renderPanel();
-      });
+      cbs[c].addEventListener('change', function () { filterStatus[this.dataset.status] = this.checked; renderPanel(); });
     }
   }
 
@@ -492,10 +651,7 @@
     levelFiltersEl.innerHTML = html;
     var cbs = levelFiltersEl.querySelectorAll('input');
     for (var c = 0; c < cbs.length; c++) {
-      cbs[c].addEventListener('change', function () {
-        filterLevel[this.dataset.level] = this.checked;
-        renderPanel();
-      });
+      cbs[c].addEventListener('change', function () { filterLevel[this.dataset.level] = this.checked; renderPanel(); });
     }
   }
 
@@ -505,9 +661,7 @@
       if (!filterLevel[a.level]) return false;
       if (a.tags.length > 0 && Object.keys(filterTags).length > 0) {
         var hasTag = false;
-        for (var t = 0; t < a.tags.length; t++) {
-          if (filterTags[a.tags[t]]) { hasTag = true; break; }
-        }
+        for (var t = 0; t < a.tags.length; t++) { if (filterTags[a.tags[t]]) { hasTag = true; break; } }
         if (!hasTag) return false;
       }
       return true;
@@ -524,106 +678,89 @@
 
     for (var i = 0; i < filtered.length; i++) {
       var a = filtered[i];
-      var selected = a.id === selectedAnnotationId;
-      var bg = selected ? '#e8f0fe' : (i % 2 === 0 ? '#fff' : '#fafafa');
+      var selCls = a.id === selectedAnnotationId ? ' selected' : '';
       var content = (a.content || '').length > 50 ? a.content.slice(0, 50) + '…' : (a.content || '');
 
-      html += '<div style="padding:10px 8px;border-bottom:1px solid #eee;background:' + bg + ';cursor:pointer"' +
-        ' data-anno-id="' + escHtml(a.id) + '">' +
-        '<div style="font-size:11px;color:#888;margin-bottom:4px">' +
+      html += '<div class="anno-item' + selCls + '" data-anno-id="' + escHtml(a.id) + '">' +
+        '<div class="anno-meta">' +
         '<span style="border-left:3px solid ' + LEVEL_COLORS[a.level] + ';padding-left:4px;margin-right:8px"></span>' +
         '行' + (a.line || '?') + ' · ' +
         '<span style="color:' + LEVEL_COLORS[a.level] + ';font-weight:bold">' + a.level + '</span> · ' +
-        '<span>' + a.status + '</span> · ' +
-        (a.created_at || '').slice(0, 10) +
+        '<span>' + a.status + '</span> · ' + (a.created_at || '').slice(0, 10) +
         '</div>' +
-        '<div style="margin-bottom:6px;font-size:13px">' + escHtml(content) + '</div>' +
-        '<div style="margin-bottom:6px">' +
-        (a.tags || []).map(function (t) {
-          return '<span style="background:#e8e8e8;border-radius:3px;padding:2px 6px;font-size:11px;margin-right:4px">' + escHtml(t) + '</span>';
-        }).join('') +
+        '<div class="anno-content">' + escHtml(content) + '</div>' +
+        '<div class="anno-tags">' +
+        (a.tags || []).map(function (t) { return '<span class="anno-tag">' + escHtml(t) + '</span>'; }).join('') +
         '</div>' +
-        '<div style="text-align:right">' +
-        '<button class="btn-edit" data-id="' + escHtml(a.id) + '" style="font-size:11px;padding:3px 8px;cursor:pointer;border:1px solid #ccc;border-radius:3px;background:#fff;margin-right:4px">编辑</button>' +
-        '<button class="btn-del" data-id="' + escHtml(a.id) + '" style="font-size:11px;padding:3px 8px;cursor:pointer;border:1px solid #e74c3c;border-radius:3px;background:#fff;color:#e74c3c">删除</button>' +
+        '<div class="anno-actions">' +
+        '<button class="btn-mini btn-edit" data-id="' + escHtml(a.id) + '">编辑</button>' +
+        '<button class="btn-mini danger btn-del" data-id="' + escHtml(a.id) + '">删除</button>' +
         '</div></div>';
     }
 
-    if (filtered.length === 0) {
-      html = '<div style="padding:24px;color:#999;text-align:center;font-size:13px">无批注</div>';
-    }
+    if (filtered.length === 0) html = '<div class="anno-empty">无批注</div>';
 
     annoListEl.innerHTML = html;
-    document.getElementById('btn-add').disabled = !currentFilePath;
+    if (addBtn) addBtn.disabled = !currentFilePath || dirty;
 
-    // 绑定事件
     var items = annoListEl.querySelectorAll('[data-anno-id]');
     for (var j = 0; j < items.length; j++) {
       items[j].addEventListener('click', function (e) {
-        if (e.target.closest('button')) return; // 按钮由下方处理
-        // 点击批注 → 选中并滚动预览到对应段落
+        if (e.target.closest('button')) return;
         selectAnnotation(this.dataset.annoId, true);
       });
     }
-
     var edits = annoListEl.querySelectorAll('.btn-edit');
     for (var e = 0; e < edits.length; e++) {
-      edits[e].addEventListener('click', function (e) {
-        e.stopPropagation();
-        editAnnotation(this.dataset.id);
-      });
+      edits[e].addEventListener('click', function (e) { e.stopPropagation(); editAnnotation(this.dataset.id); });
     }
-
     var dels = annoListEl.querySelectorAll('.btn-del');
     for (var d = 0; d < dels.length; d++) {
-      dels[d].addEventListener('click', function (e) {
-        e.stopPropagation();
-        deleteAnnotation(this.dataset.id);
-      });
+      dels[d].addEventListener('click', function (e) { e.stopPropagation(); deleteAnnotation(this.dataset.id); });
     }
   }
 
+  function ensureNotDirty() {
+    if (dirty) { uiAlert('存在未保存的编辑，请先保存或撤销后再操作批注'); return false; }
+    return true;
+  }
+
   function editAnnotation(id) {
+    if (!ensureNotDirty()) return;
     var anno = findAnno(id);
     if (!anno) return;
     showEditDialog('edit', anno, null);
   }
 
   function deleteAnnotation(id) {
+    if (!ensureNotDirty()) return;
     uiConfirm('确认删除此批注？').then(function (yes) {
       if (!yes) return;
-      // 复用 core writer（原子写入 + 源文件保护 + 空行压缩），写后从磁盘重载
       api.removeAnnotation(currentFilePath, id).then(function (r) {
         if (r.success) {
           if (selectedAnnotationId === id) selectedAnnotationId = null;
           reloadFile();
-        } else {
-          uiAlert('删除失败: ' + r.error);
-        }
+        } else { uiAlert('删除失败: ' + r.error); }
       });
     });
   }
 
   function findAnno(id) {
-    for (var i = 0; i < annotations.length; i++) {
-      if (annotations[i].id === id) return annotations[i];
-    }
+    for (var i = 0; i < annotations.length; i++) { if (annotations[i].id === id) return annotations[i]; }
     return null;
   }
 
-  // ---- DOM 弹窗（替代原生 confirm/alert，避免 Electron 原生模态导致输入框失焦） ----
+  // ---- DOM 弹窗 ----
   function uiModal(message, withCancel) {
     return new Promise(function (resolve) {
       var overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);display:flex;justify-content:center;align-items:center;z-index:2000';
-      var btns = withCancel
-        ? '<button id="ui-cancel" style="padding:8px 20px;margin-right:8px;cursor:pointer;border:1px solid #ccc;border-radius:4px;background:#fff;font-size:13px">取消</button>'
-        : '';
+      overlay.className = 'modal-overlay';
+      var btns = withCancel ? '<button id="ui-cancel" class="btn-ghost">取消</button>' : '';
       overlay.innerHTML =
-        '<div style="background:#fff;border-radius:8px;padding:24px;min-width:280px;max-width:420px;box-shadow:0 4px 16px rgba(0,0,0,0.2)">' +
+        '<div class="modal-box" style="min-width:280px;max-width:420px">' +
           '<div style="font-size:14px;margin-bottom:20px;line-height:1.6">' + escHtml(message) + '</div>' +
-          '<div style="text-align:right">' + btns +
-            '<button id="ui-ok" style="padding:8px 20px;cursor:pointer;background:#1a73e8;color:#fff;border:none;border-radius:4px;font-size:13px">确定</button>' +
+          '<div class="modal-actions">' + btns +
+            '<button id="ui-ok" class="btn-ok">确定</button>' +
           '</div>' +
         '</div>';
       document.body.appendChild(overlay);
@@ -640,8 +777,9 @@
   function uiConfirm(message) { return uiModal(message, true); }
   function uiAlert(message) { return uiModal(message, false); }
 
-  // ---- 编辑/添加弹窗 ----
+  // ---- 编辑/添加批注弹窗 ----
   function showEditDialog(mode, anno, defaultLine) {
+    if (!ensureNotDirty()) return;
     var existing = document.getElementById('edit-dialog');
     if (existing) existing.remove();
 
@@ -650,25 +788,23 @@
 
     var overlay = document.createElement('div');
     overlay.id = 'edit-dialog';
-    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);display:flex;justify-content:center;align-items:center;z-index:1000';
+    overlay.className = 'modal-overlay';
 
-    var formHtml =
-      '<div style="background:#fff;border-radius:8px;padding:24px;width:440px;box-shadow:0 4px 16px rgba(0,0,0,0.2)">' +
-      '<h3 style="margin:0 0 16px;font-size:16px">' + title + '</h3>';
+    var formHtml = '<div class="modal-box" style="width:440px"><h3>' + title + '</h3>';
 
     if (isAdd) {
-      formHtml += '<div style="margin-bottom:12px"><label style="font-size:12px;color:#555">行号</label><br>' +
-        '<input id="ed-line" type="number" min="1" value="' + (defaultLine || '') + '" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;margin-top:4px"></div>';
+      formHtml += '<div class="modal-field"><label>行号</label>' +
+        '<input id="ed-line" type="number" min="1" value="' + (defaultLine || '') + '"></div>';
     }
 
     formHtml +=
-      '<div style="margin-bottom:12px"><label style="font-size:12px;color:#555">内容</label><br>' +
-        '<textarea id="ed-content" rows="3" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;margin-top:4px;resize:vertical">' + (anno ? escHtml(anno.content) : '') + '</textarea></div>' +
-      '<div style="margin-bottom:12px"><label style="font-size:12px;color:#555">标签（逗号分隔）</label><br>' +
-        '<input id="ed-tags" value="' + (anno ? (anno.tags || []).join(', ') : '') + '" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;margin-top:4px"></div>' +
-      '<div style="display:flex;gap:12px;margin-bottom:12px">' +
-        '<div style="flex:1"><label style="font-size:12px;color:#555">级别</label><br>' +
-          '<select id="ed-level" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;margin-top:4px">' +
+      '<div class="modal-field"><label>内容</label>' +
+        '<textarea id="ed-content" rows="3">' + (anno ? escHtml(anno.content) : '') + '</textarea></div>' +
+      '<div class="modal-field"><label>标签（逗号分隔）</label>' +
+        '<input id="ed-tags" value="' + (anno ? (anno.tags || []).join(', ') : '') + '"></div>' +
+      '<div style="display:flex;gap:12px" class="modal-field">' +
+        '<div style="flex:1"><label>级别</label>' +
+          '<select id="ed-level">' +
           '<option value="info"' + (anno && anno.level === 'info' ? ' selected' : '') + '>info</option>' +
           '<option value="minor"' + (anno && anno.level === 'minor' ? ' selected' : '') + '>minor</option>' +
           '<option value="major"' + (anno && anno.level === 'major' ? ' selected' : '') + '>major</option>' +
@@ -677,8 +813,8 @@
 
     if (!isAdd) {
       formHtml +=
-        '<div style="flex:1"><label style="font-size:12px;color:#555">状态</label><br>' +
-          '<select id="ed-status" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px;margin-top:4px">' +
+        '<div style="flex:1"><label>状态</label>' +
+          '<select id="ed-status">' +
           '<option value="open"' + (anno && anno.status === 'open' ? ' selected' : '') + '>open</option>' +
           '<option value="resolved"' + (anno && anno.status === 'resolved' ? ' selected' : '') + '>resolved</option>' +
           '<option value="wontfix"' + (anno && anno.status === 'wontfix' ? ' selected' : '') + '>wontfix</option>' +
@@ -686,11 +822,10 @@
     }
 
     formHtml += '</div>';
-
     formHtml +=
-      '<div style="text-align:right;margin-top:16px">' +
-      '<button id="ed-cancel" style="padding:8px 20px;margin-right:8px;cursor:pointer;border:1px solid #ccc;border-radius:4px;background:#fff;font-size:13px">取消</button>' +
-      '<button id="ed-save" style="padding:8px 20px;cursor:pointer;background:#1a73e8;color:#fff;border:none;border-radius:4px;font-size:13px">保存</button>' +
+      '<div class="modal-actions">' +
+      '<button id="ed-cancel" class="btn-ghost">取消</button>' +
+      '<button id="ed-save" class="btn-ok">保存</button>' +
       '</div></div>';
 
     overlay.innerHTML = formHtml;
@@ -702,7 +837,6 @@
       if (!content) { uiAlert('请输入批注内容'); return; }
       var tags = document.getElementById('ed-tags').value.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
       var level = document.getElementById('ed-level').value;
-
       if (isAdd) {
         var line = parseInt(document.getElementById('ed-line').value, 10);
         if (isNaN(line) || line < 1) { uiAlert('请输入有效行号'); return; }
@@ -714,11 +848,7 @@
       overlay.remove();
     });
 
-    overlay.addEventListener('click', function (e) {
-      if (e.target === overlay) overlay.remove();
-    });
-
-    // 打开后聚焦内容框（rAF 确保元素已渲染并可获得焦点）
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
     requestAnimationFrame(function () {
       var first = document.getElementById(isAdd ? 'ed-line' : 'ed-content');
       if (first) first.focus();
@@ -726,32 +856,18 @@
   }
 
   function doAdd(line, content, tags, level) {
-    // 复用 core writer：段落查找、UUID、批注行构造、原子写入、源文件保护均在 core 完成
     api.addAnnotation(currentFilePath, line, { content: content, tags: tags, level: level })
-      .then(function (r) {
-        if (r.success) {
-          reloadFile();
-        } else {
-          uiAlert('添加失败: ' + r.error);
-        }
-      });
+      .then(function (r) { if (r.success) reloadFile(); else uiAlert('添加失败: ' + r.error); });
   }
 
   function doEdit(id, content, tags, level, status) {
     api.editAnnotation(currentFilePath, id, { content: content, tags: tags, level: level, status: status })
-      .then(function (r) {
-        if (r.success) {
-          reloadFile();
-        } else {
-          uiAlert('编辑失败: ' + r.error);
-        }
-      });
+      .then(function (r) { if (r.success) reloadFile(); else uiAlert('编辑失败: ' + r.error); });
   }
 
   function escHtml(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  // 启动
   init();
 })();

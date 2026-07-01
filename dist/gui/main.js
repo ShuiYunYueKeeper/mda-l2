@@ -48,6 +48,13 @@ function createWindow(initialFile) {
           },
         },
         {
+          label: '保存',
+          accelerator: 'CmdOrCtrl+S',
+          click: () => {
+            mainWindow.webContents.send('menu-save');
+          },
+        },
+        {
           label: '重新加载',
           accelerator: 'CmdOrCtrl+R',
           click: () => {
@@ -56,6 +63,32 @@ function createWindow(initialFile) {
         },
         { type: 'separator' },
         { role: 'quit' },
+      ],
+    },
+    {
+      label: '视图',
+      submenu: [
+        {
+          label: '编辑栏',
+          accelerator: 'CmdOrCtrl+E',
+          click: () => {
+            mainWindow.webContents.send('menu-toggle-edit');
+          },
+        },
+        {
+          label: '批注栏',
+          accelerator: 'CmdOrCtrl+B',
+          click: () => {
+            mainWindow.webContents.send('menu-toggle-panel');
+          },
+        },
+        {
+          label: '切换深色模式',
+          accelerator: 'CmdOrCtrl+Shift+D',
+          click: () => {
+            mainWindow.webContents.send('menu-toggle-theme');
+          },
+        },
       ],
     },
   ];

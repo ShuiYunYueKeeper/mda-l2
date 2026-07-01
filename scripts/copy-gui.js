@@ -21,3 +21,18 @@ for (const [src, dst] of files) {
   fs.copyFileSync(srcPath, dstPath);
   console.log('  copied: ' + dst);
 }
+
+// mermaid 离线单文件 UMD（自包含，供 index.html 本地引入渲染流程图）。
+// 直接从 node_modules 复制，避免把 3MB 产物放进 src。
+try {
+  const mermaidSrc = path.join(
+    path.dirname(require.resolve('mermaid/package.json')),
+    'dist',
+    'mermaid.min.js',
+  );
+  const mermaidDst = path.join(__dirname, '..', 'dist', 'gui', 'renderer', 'mermaid.min.js');
+  fs.copyFileSync(mermaidSrc, mermaidDst);
+  console.log('  copied: dist/gui/renderer/mermaid.min.js');
+} catch (e) {
+  console.warn('  [warn] 未找到 mermaid，流程图渲染将不可用：' + e.message);
+}

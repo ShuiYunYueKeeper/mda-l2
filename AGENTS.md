@@ -126,6 +126,8 @@ editAnnotation(filePath, id, patch): Promise<Annotation>
 removeAnnotation(filePath, id): Promise<void>
 createMarkdownIt(): MarkdownIt
 renderMarkdown(md: MarkdownIt, text: string): string
+writeRawFile(filePath, content): Promise<void>   // 整篇写回（GUI 源码编辑保存）
+buildCodeFenceMask(lines: string[]): boolean[]    // 围栏遮罩，parser/renderer/GUI 共用
 ```
 
 ### 5.3 批注行语法（唯一合法形态）
@@ -151,13 +153,18 @@ renderMarkdown(md: MarkdownIt, text: string): string
 
 ```
 readFile(filePath) -> {success, content, filePath} | {success:false,error}
-openExternal(url) / setTitle(title)
-onFileOpened(cb) / onReload(cb)
+openExternal(url) / setTitle(title) / showItemInFolder(filePath) / copyToClipboard(text)
+resolvePath(baseFile, href) -> absPath        // 相对当前文件目录解析（相对链接/图片用）
+onFileOpened(cb) / onReload(cb) / onMenuShowInFolder(cb)
+onMenuToggleTheme(cb) / onMenuToggleEdit(cb) / onMenuTogglePanel(cb) / onMenuSave(cb)
+levelColors / levelSeverity                    // 来自 annotation-schema.json
 parseAnnotations(text) -> ScanResult
-renderMarkdown(text) -> {success, html} | {success:false,error}
+renderMarkdown(text) -> {success, html} | {success:false,error}   // 内部先容错隐藏疑似批注行
 addAnnotation(filePath, line, input) -> {success, value:Annotation} | {success:false,error}
 editAnnotation(filePath, id, patch) -> {success, value} | {success:false,error}
 removeAnnotation(filePath, id) -> {success} | {success:false,error}
+saveFile(filePath, content) -> {success} | {success:false,error}  // 整篇写回 writeRawFile
+findMalformedAnnotations(text) -> number[]     // 疑似批注但格式不正确的行号（保存前提示用）
 ```
 渲染层只能通过该桥与外界交互；新增能力一律在 preload 暴露，禁止把 `fs`/`require` 直接交给渲染层。
 
@@ -187,6 +194,7 @@ removeAnnotation(filePath, id) -> {success} | {success:false,error}
 | CLI | commander | ^12.1 |
 | 渲染 | markdown-it（CommonMark 0.31 + GFM 表格） | ^14.1 |
 | 代码高亮 | highlight.js（**仅 GUI**，在 preload 经 `md.set({highlight})` 注入） | ^11.9 |
+| 流程图 | mermaid（**仅 GUI**，离线 UMD 由 `copy-gui` 拷入 `dist/gui/renderer/mermaid.min.js`，`index.html` 本地引入） | ^11 |
 | GUI | Electron | ^31.1 |
 | 校验 | zod（依赖已声明，当前以枚举守卫为主） | ^3.23 |
 | 测试 | jest + ts-jest（内置 coverage） | ^29.7 |
@@ -231,6 +239,8 @@ npm test               # jest（含覆盖率）
 4. **【渲染】不可见性是硬指标**：渲染输出的 HTML 中不得出现 `@anno` 或任何批注字段值；`renderer.test.ts` 用「去批注后渲染等价」断言守护，改渲染时勿破坏。
 4b. **【渲染】渲染前预处理**：`renderMarkdown` 先 `preprocessForRender` —— ① 去掉起始 BOM（否则首行 `# 标题` 被 BOM 抢占行首而当成普通段落）；② 用 `buildCodeFenceMask` 把**围栏外**的批注行清空为空行（保留行数 → `data-line` 不变）。不能依赖 markdown-it 的链接引用定义来隐藏批注：内容含括号（如 `n(n-1)/2`）会破坏该语法导致批注泄漏。
 4c. **【解析/渲染】围栏感知**：`buildCodeFenceMask` 为 parser 与 renderer 共用；```` ``` ````/`~~~` 围栏内的 `@anno` 样例是字面文本，**不识别为批注、也不清空**，三处行为必须一致。
+4d. **【GUI 渲染】疑似批注容错隐藏**：GUI 源码编辑时批注可能被改坏（如缺 `]`、坏 JSON），此时严格正则不匹配 → 既不入面板又会泄漏进预览。preload 用**宽松识别** `ANNO_ISH`（只认 `<> (@anno` 标记，容忍方括号缺失/JSON 残缺，围栏外）在渲染前清空这些行，保证坏批注不泄漏；同一识别用于 `findMalformedAnnotations`，**保存时**对「疑似批注但不满足严格格式」的行号弹窗提示。此为 GUI 层能力，不改 core 严格解析。
+4e. **【写入安全】整篇写回**：GUI 源码编辑保存走 `writeRawFile`（原子写入 + `detectEol` 保留原换行风格），是对正文的**全量编辑**，**不做**源文件保护校验（区别于批注增删改）。存在未保存编辑（dirty）时，GUI 禁用批注增删改，避免 core 基于旧磁盘内容写入后重载丢失编辑。
 5. **【GUI·Electron】data-line 映射**：preload 仅对 `level===0` 的块级 token 注入 `data-line = map[0]+1`，其值等于段落 `startLine`，GUI 据此做「段落↔批注」双向定位与色条。
 6. **【GUI·Electron】运行前提**：preload `require('../core')` 需 `sandbox:false`；GUI 运行前必须 `npm run build`（否则 `dist/core` 不存在）。
 7. **【数据校验】枚举守卫**：add/edit/scan 入口用 `isAnnotationLevel/isAnnotationStatus` 校验，非法值报错退出而非落盘。

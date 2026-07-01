@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.addAnnotation = addAnnotation;
 exports.editAnnotation = editAnnotation;
+exports.writeRawFile = writeRawFile;
 exports.removeAnnotation = removeAnnotation;
 const fs = __importStar(require("fs/promises"));
 const path = __importStar(require("path"));
@@ -178,6 +179,21 @@ async function editAnnotation(filePath, id, patch) {
     await atomicWrite(filePath, newText);
     updated.line = annoLineIdx + 1;
     return updated;
+}
+// 整篇写回（GUI 源码编辑保存用）。区别于批注增删改：这是用户对文档正文的
+// 全量编辑，不做源文件保护校验，但保留源文件原有换行风格（避免编辑器统一为
+// LF 而污染 CRLF 文件）；文件不存在时默认 LF。仍走原子写入。
+async function writeRawFile(filePath, content) {
+    let eol = '\n';
+    try {
+        const existing = await fs.readFile(filePath, 'utf-8');
+        eol = detectEol(existing);
+    }
+    catch {
+        // 新文件：默认 LF
+    }
+    const normalized = content.replace(/\r\n/g, '\n').replace(/\n/g, eol);
+    await atomicWrite(filePath, normalized);
 }
 async function removeAnnotation(filePath, id) {
     const rawText = await fs.readFile(filePath, 'utf-8');
