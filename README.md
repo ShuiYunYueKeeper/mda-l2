@@ -131,6 +131,8 @@ npm run gui -- demo.md
 
 ## 界面截图与演示
 
+### 基础功能（已入库）
+
 | 完整窗口（含标题栏） | 四级别色条 + 段落高亮 |
 |----------------------|------------------------|
 | ![完整窗口](docs/screenshots/1.png) | ![四级别色条](docs/screenshots/2.png) |
@@ -142,6 +144,19 @@ npm run gui -- demo.md
 操作演示（点击段落↔批注双向定位、编辑、删除）：
 
 ![操作演示](docs/screenshots/operation_demo.gif)
+
+### 新增 GUI 能力（待补截图）
+
+三栏布局、深色模式、源码编辑高亮、流程图渲染、图片/流程图缩放等能力已实现并通过人工验证，
+**截图尚未入库**。待补清单与拍摄指引见 [`docs/screenshots/README.md`](docs/screenshots/README.md)。
+
+| 能力 | 建议素材 |
+|------|----------|
+| 三栏布局（编辑｜预览｜批注） | `docs/screenshots/5-three-pane.png` |
+| 深色模式 | `docs/screenshots/6-dark-mode.png` |
+| 源码编辑（高亮+行号） | `docs/screenshots/7-editor-highlight.png` |
+| 流程图渲染 | `docs/screenshots/8-mermaid.png` |
+| 缩放遮罩 | `docs/screenshots/9-zoom-overlay.png` |
 
 ## 批注语法
 
@@ -206,7 +221,7 @@ npm run coverage
 ## 质量与协作资产
 
 - [`quality.md`](quality.md) — 测试体系、覆盖率、数据校验、源文件安全、人工审核点、Code Review 痕迹。
-- [`docs/few-shot-examples.md`](docs/few-shot-examples.md) — 易错点的 ✅ 正确 / ❌ 错误 成对示例。
+- [`docs/few-shot-examples.md`](docs/few-shot-examples.md) — 易错点的 ✅ 正确 / ❌ 错误 成对示例（含 GUI：dirty/坏批注/编辑器对齐/缩放遮罩）。
 - [`samples/`](samples/) — 独立演示样本，可直接用 CLI/GUI 体验。
 
 ## 开发约定

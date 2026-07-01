@@ -163,3 +163,111 @@ stderr: 警告: 第 12 行批注 JSON 解析失败
 stdout: 正在扫描...           # ❌ 非数据文本污染 stdout，破坏管道/解析
 stdout: [ {...} ]
 ```
+
+---
+
+## 7. 编辑态与批注写操作冲突（GUI）
+
+**规则**：存在未保存编辑（dirty）时，**禁止**批注增删改；须先 `Ctrl+S` 保存或放弃编辑。
+批注写操作走 core writer 读**磁盘**内容，若编辑器有未保存改动，写入后重载会**丢失编辑**。
+
+### ✅ 正确
+
+- 用户在编辑栏修改正文 → 文件名旁出现 dirty 标记 →「+ 添加批注」禁用，点批注编辑/删除时提示「请先保存」。
+- 用户 `Ctrl+S` 保存成功 → dirty 清除 → 批注操作恢复可用。
+
+### ❌ 错误
+
+- ❌ dirty 时仍允许 `addAnnotation`：core 基于旧磁盘内容插入批注行，随后 `reloadFile` 覆盖编辑器缓冲 → **用户编辑丢失**。
+- ❌ 无提示静默失败：用户不知道为何批注按钮变灰。
+
+---
+
+## 8. 坏批注行：严格解析 vs 宽松隐藏（GUI `ANNO_ISH`）
+
+**规则**：
+- **core 严格解析**（`ANNO_REGEX`）：只认完整 `[comment]: <> (@anno {合法JSON})` 行。
+- **GUI 预览宽松隐藏**（`ANNO_ISH`）：围栏外、含 `<> (@anno` 标记的行一律清空，容忍缺 `]`、坏 JSON、编辑中状态。
+- **保存前校验**（`findMalformedAnnotations`）：命中 `ANNO_ISH` 但不满足严格格式的行号 → 弹窗提示。
+
+### ✅ 正确
+
+用户故意删掉 `[comment]` 的一个 `]`：
+
+```markdown
+[comment: <> (@anno {"id":"a",...})
+# 标题
+```
+
+- 预览：**不显示**该行（`ANNO_ISH` 清空）。
+- 面板：「无批注」（严格正则不匹配）。
+- 保存：弹窗「第 1 行批注格式不正确…仍要保存吗？」
+
+### ❌ 错误
+
+- ❌ 仅用严格 `ANNO_REGEX` 做预览隐藏：缺 `]` 的坏行不匹配 → **泄漏进预览**（用户可见 `@anno` JSON）。
+- ❌ 保存时不校验：坏批注落盘，后续 CLI/GUI 均无法识别为批注。
+
+### ✅ 正确：围栏内样例不受影响
+
+````markdown
+```markdown
+[comment: <> (@anno {"broken"  # 围栏内是字面文本
+```
+````
+
+期望：预览代码块内**原样显示**；`findMalformedAnnotations` **不**报该行。
+
+---
+
+## 9. 源码编辑器高亮层对齐（GUI）
+
+**规则**：编辑栏为「透明 `textarea` + `pre` 高亮层 + 行号槽」三层结构；**同字体/字号/行高/padding/`white-space:pre`/`tab-size`**；
+`textarea` 为唯一可交互滚动层，`scroll` 事件须同步高亮层与行号槽的 `scrollTop/scrollLeft`。
+
+### ✅ 正确
+
+```javascript
+editorEl.addEventListener('scroll', function () {
+  highlightPre.scrollTop = editorEl.scrollTop;
+  highlightPre.scrollLeft = editorEl.scrollLeft;
+  gutterEl.scrollTop = editorEl.scrollTop;
+});
+// 输入时 refreshEditorDecorations() 更新高亮 HTML 与行号文本
+```
+
+### ❌ 错误
+
+- ❌ 高亮层与 textarea 字号/行高不一致 → 滚动后光标与着色**错位**。
+- ❌ 高亮层可滚动、textarea 不可滚动（或反之）→ 两层内容**脱节**。
+- ❌ 忘记在 `openFile` / 展开编辑栏时调用 `refreshEditorDecorations()` → 行号与高亮空白。
+
+---
+
+## 10. 图片/流程图缩放遮罩（GUI）
+
+**规则**：
+- 舞台元素**禁止** `will-change: transform`（会先栅格化再缩放 → 放大模糊，SVG 亦然）。
+- 缩放钳制 **0.3×–8×**；平移钳制内容中心留在视口内。
+- `+/-` 按钮须 `stopPropagation`，**仅内容本身双击**才复位（避免连点按钮触发 `dblclick` 误复位）。
+- 工具栏按钮用深色实底，避免白底图片遮挡。
+
+### ✅ 正确
+
+```css
+.mda-zoom-stage { transform-origin: center center; cursor: grab; }
+/* 不加 will-change: transform */
+```
+
+```javascript
+bar.addEventListener('click', function (e) { e.stopPropagation(); zoom(...); });
+bar.addEventListener('dblclick', function (e) { e.stopPropagation(); });
+stage.addEventListener('dblclick', function (e) { e.stopPropagation(); reset(); });
+```
+
+### ❌ 错误
+
+- ❌ `.mda-zoom-stage { will-change: transform; }` → 流程图/图片放大后**全糊**。
+- ❌ 遮罩层 `dblclick` 监听在任意子元素上复位 → 连点 `−` 两次触发复位。
+- ❌ 半透明白色按钮浮在白图上 → **看不见** +/- 控制。
+- ❌ 无平移边界 → 内容被拖到视口外**找不回来**。
