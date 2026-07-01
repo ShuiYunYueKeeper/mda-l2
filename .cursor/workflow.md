@@ -87,12 +87,34 @@ P0-需求分析 → P1-架构设计 → P2-详细设计 → P3-实现步骤 → 
 更新相关文档，保持代码与文档同步。
 
 **P0-P3**：产出即为文档本身，用户确认后即完成。
-**P4**：
-- `README.md`：如有接口/配置/使用方式变更
-- `AGENTS.md`：如有架构/接口/约定/禁止事项/隐性规范变更，同步更新协作指南（含禁止事项与关键文件索引）
-- `docs/`：如架构/设计有调整（更新 P1/P2）
-- `tests/`：测试用例覆盖新增功能
-- `docs/prompts/`：记录本轮 AI 协作的 prompt（L2 要求 ≥3 轮）
+
+**P4 — 通用清单**（按改动范围勾选，无关项跳过）：
+
+| 文档 | 何时更新 |
+|------|----------|
+| `README.md` | 接口/配置/使用方式/GUI 功能变更；覆盖率或测试数变化 |
+| `AGENTS.md` | 架构/接口/禁止事项/隐性规范/关键文件索引变更 |
+| `quality.md` | 测试数、覆盖率、人工审核点、校验链路变更 |
+| `docs/few-shot-examples.md` | 新增易错点或 GUI 交互陷阱需沉淀 ✅/❌ 正反例 |
+| `docs/prompts/` | 每轮 AI 协作 prompt 与动作记录（L2 要求 ≥3 轮） |
+| `docs/P1–P2` | 架构/设计有调整时 |
+| `tests/` | 核心逻辑变更须同步用例 |
+| `samples/` | 新增演示场景时 |
+
+**P4 — GUI 改动附加清单**（`src/gui/**` 有变更时**必须**执行）：
+
+1. **协作指南**：`AGENTS.md` 同步新 API（preload 桥接）、隐性规范（如 4d–4g）。
+2. **质量专章**：`quality.md` §5 人工审核点 — 补充本次 GUI 交互的实机验证要点。
+3. **Few-shot**：若出现可复现陷阱（如坏批注泄漏、缩放模糊、dirty 冲突），在 `docs/few-shot-examples.md` 增 ✅/❌ 成对示例。
+4. **截图 / 录屏（须提示用户）**：
+   - 对照 `docs/screenshots/README.md`「待补充素材」表，列出本次变更涉及的**建议文件名 + 拍摄要点**；
+   - **在 Step 5 向用户明确发出补充请求**（AI 不能代替实机截图/录屏）；
+   - 用户补充素材后，更新 `README.md`「界面截图与演示」引用（可单独 `docs:` commit）。
+5. **覆盖率**：`npm test` 后同步 README / `quality.md` 中的测试数与覆盖率。
+
+> **【硬性约束】GUI 截图/录屏不由 AI 伪造**
+> 凡 GUI 功能变更且用户已确认实机通过，Step 5 结束前须输出「待补截图清单」并等待用户补充；
+> 不得用占位图冒充、不得跳过提示。素材入库前 README 可标注「待补」并链到 `docs/screenshots/README.md`。
 
 ### Step 5.5 — 提交（Commit）
 
@@ -190,8 +212,8 @@ P0-需求分析 → P1-架构设计 → P2-详细设计 → P3-实现步骤 → 
 | 1 审查 | 读 P2/P3 中当前任务的详细设计/伪代码/接口；`git status` + `git log` 确认干净 |
 | 2 实施 | 编写代码，严格遵循 P2 规格；非平凡改动先确认方案 |
 | 3 自查 | `tsc --noEmit`；`git diff` review；对照 P2 伪代码逐段检查 |
-| 4 验证 | `npm test` 全部通过；手动 CLI 验证核心路径；边界/异常不崩溃 |
-| 5 文档 | 更新 README；同步 AGENTS.md（如约定/接口/禁止事项变更）；记录 `docs/prompts/` |
+| 4 验证 | `npm test` 全部通过；手动 CLI 验证核心路径；边界/异常不崩溃；**GUI 改动须用户实机确认** |
+| 5 文档 | 按 Step 5 通用清单 + GUI 附加清单更新；**GUI 改动须提示用户补截图/录屏**；记录 `docs/prompts/` |
 | 5.5 commit | `P4: 实现 {模块名} (Phase {字母})` |
 | 6 下一步 | 标记任务完成，启动下一个任务（按 DAG 依赖顺序） |
 
@@ -203,7 +225,7 @@ Phase B: @mda/core — model → parser → writer → renderer → barrel
 Phase C: CLI — 入口 → scan → add → edit → remove
 Phase D: GUI — Electron main → preload → renderer app
 Phase E: 测试 — parser(25边界) → writer(原子性+压缩) → renderer(不可见性)
-Phase F: 交付 — README → demo.md → screenshots+video → AI协作记录
+Phase F: 交付 — README → demo.md → screenshots+video（见 docs/screenshots/README.md）→ AI协作记录
 ```
 
 ### P4 关键原则
@@ -262,4 +284,4 @@ Phase F: 交付 — README → demo.md → screenshots+video → AI协作记录
 | AI 协作记录 | P4 Phase F | `docs/prompts/` |
 | 测试代码 | P4 Phase E | `tests/` |
 | README | P4 Phase F | `README.md` |
-| GUI 截图 | P4 Phase F | `docs/screenshots/` |
+| GUI 截图 | P4 Phase F | `docs/screenshots/`（清单与待补指引见 `docs/screenshots/README.md`） |

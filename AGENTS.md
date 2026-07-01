@@ -266,4 +266,6 @@ npm test               # jest（含覆盖率）
 | 设计文档 | `docs/P0..P3-*.md` |
 | AI 协作记录 | `docs/prompts/*.md` |
 | Few-shot 正反例 | `docs/few-shot-examples.md` |
+| 质量保障说明 | `quality.md` |
+| GUI 截图清单 | `docs/screenshots/README.md` |
 | 测试 | `tests/core/*.test.ts`、`tests/cli/*.test.ts` |

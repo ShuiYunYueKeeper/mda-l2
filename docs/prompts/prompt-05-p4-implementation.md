@@ -396,6 +396,24 @@ AI 动作（定位根因后逐条修）：
 
 ---
 
+## Prompt 22: 按 L2 第 3 次评估建议同步文档 + 完善工作流
+
+```
+用户: @L2-evaluation-report.md 按照评分建议，更新或补充相关文件，同时完善工作流的文档更新流程，
+涉及到gui的改动，需要提示我补充相关截图或录屏
+```
+
+AI 动作：
+
+- **quality.md（Q3）**：测试数 70→73，覆盖率精确值，`writeRawFile` 与 GUI 校验链路；
+  §5 补充编辑器对齐、坏批注容错、缩放遮罩、分栏拖拽、深色/mermaid 等人工审核点。
+- **few-shot（A4）**：新增 §7–§10（dirty+批注冲突、ANNO_ISH vs 严格正则、编辑器 scroll 同步、缩放遮罩陷阱）。
+- **截图交付**：新建 `docs/screenshots/README.md` 待补清单；README 标注「待补截图」并链到清单。
+- **工作流**：`.cursor/workflow.md` / `.claude/workflow.md` Step 5 扩展为通用清单 + GUI 附加清单，
+  硬性约束「GUI 截图/录屏须提示用户补充、AI 不得伪造」。
+
+---
+
 ## 实现统计
 
 | 指标 | 数值 |
@@ -404,5 +422,5 @@ AI 动作（定位根因后逐条修）：
 | 测试文件 | 5 个 |
 | 测试用例 | 73 个（全部通过） |
 | 代码覆盖率 | Statements 88.36% / Lines 91.29% / Functions 95.34% |
-| git commits | 25+ 个 |
-| AI 协作轮次 | 41+ 轮 |
+| git commits | 26+ 个 |
+| AI 协作轮次 | 42+ 轮 |
