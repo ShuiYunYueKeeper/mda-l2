@@ -142,4 +142,15 @@ contextBridge.exposeInMainWorld('mdaAPI', {
 
   // 保存前校验：返回疑似批注但格式不正确的行号数组（供渲染层提示用户）
   findMalformedAnnotations: (text) => findMalformedAnnotations(text),
+
+  // 源码编辑器语法高亮：把 Markdown 源码高亮为 HTML（hljs），供编辑栏高亮层使用。
+  // 失败时回退为 HTML 转义的纯文本，保证不抛错、不注入未转义内容。
+  highlightSource: (code) => {
+    try {
+      return hljs.highlight(code, { language: 'markdown', ignoreIllegals: true }).value;
+    } catch (e) {
+      return String(code)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+  },
 });

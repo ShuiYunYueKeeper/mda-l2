@@ -26,6 +26,7 @@
   // DOM 元素
   var previewEl, annoListEl, statusFiltersEl, levelFiltersEl, tagFiltersEl, tagFiltersRow;
   var previewPaneEl, editorPaneEl, editorEl, panelPaneEl;
+  var srcGutterEl, srcHighlightEl, splitLeftEl, splitRightEl;
   var tbEditBtn, tbPanelBtn, tbFileNameEl, addBtn;
 
   var MOD_KEY = (navigator.platform || '').toLowerCase().indexOf('mac') >= 0 ? '\u2318' : 'Ctrl+';
@@ -71,8 +72,18 @@
         '<span id="tb-filename" class="file-name"></span>' +
       '</div>' +
       '<div id="content-row">' +
-        '<div id="editor-pane"><textarea id="editor" class="mda-editor" spellcheck="false" placeholder="在此编辑 Markdown 源码…"></textarea></div>' +
+        '<div id="editor-pane">' +
+          '<div class="mda-src-editor">' +
+            '<div id="src-gutter" class="src-gutter"></div>' +
+            '<div class="src-scroll">' +
+              '<pre id="src-highlight" class="src-highlight" aria-hidden="true"><code class="language-markdown"></code></pre>' +
+              '<textarea id="editor" class="src-input" spellcheck="false" wrap="off" placeholder="在此编辑 Markdown 源码…"></textarea>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div id="split-left" class="mda-splitter hidden"></div>' +
         '<div id="preview-pane"><div id="preview-content"></div></div>' +
+        '<div id="split-right" class="mda-splitter"></div>' +
         '<div id="panel-pane">' +
           '<div class="panel-head">' +
             '<button id="btn-add" class="btn-primary" disabled>+ 添加批注</button>' +
@@ -90,6 +101,10 @@
     previewPaneEl = document.getElementById('preview-pane');
     editorPaneEl = document.getElementById('editor-pane');
     editorEl = document.getElementById('editor');
+    srcGutterEl = document.getElementById('src-gutter');
+    srcHighlightEl = document.querySelector('#src-highlight code');
+    splitLeftEl = document.getElementById('split-left');
+    splitRightEl = document.getElementById('split-right');
     panelPaneEl = document.getElementById('panel-pane');
     statusFiltersEl = document.getElementById('status-filters');
     levelFiltersEl = document.getElementById('level-filters');
@@ -105,15 +120,26 @@
     tbEditBtn.addEventListener('click', function () { toggleEditor(); });
     tbPanelBtn.addEventListener('click', function () { togglePanel(); });
 
-    // 编辑器输入 → 标记 dirty + 防抖实时预览
+    // 编辑器输入 → 标记 dirty + 刷新高亮/行号 + 防抖实时预览
     editorEl.addEventListener('input', function () {
       dirty = true;
       updateToolbar();
+      refreshEditorDecorations();
       if (previewTimer) clearTimeout(previewTimer);
       previewTimer = setTimeout(function () {
         parseAndRender(editorEl.value, currentFilePath);
       }, 250);
     });
+    // 滚动同步：textarea 为可交互滚动层，高亮层与行号槽跟随
+    editorEl.addEventListener('scroll', function () {
+      var hp = srcHighlightEl.parentNode; // <pre>
+      hp.scrollTop = editorEl.scrollTop;
+      hp.scrollLeft = editorEl.scrollLeft;
+      srcGutterEl.scrollTop = editorEl.scrollTop;
+    });
+
+    setupSplitter(splitLeftEl, editorPaneEl, 'left');
+    setupSplitter(splitRightEl, panelPaneEl, 'right');
 
     // 预览区点击：链接拦截默认导航；段落点击定位批注
     previewPaneEl.addEventListener('click', function (e) {
@@ -220,6 +246,10 @@
         var out = await m.render(id, src);
         holder.innerHTML = out.svg;
         if (out.bindFunctions) out.bindFunctions(holder);
+        holder.addEventListener('click', function () {
+          var svg = this.querySelector('svg');
+          if (svg) openZoom(svg.cloneNode(true));
+        });
       } catch (err) {
         holder.className = 'mda-mermaid-error';
         holder.textContent = '流程图渲染失败: ' + ((err && err.message) ? err.message : String(err));
@@ -234,9 +264,12 @@
     if (editorVisible) {
       if (!dirty) editorEl.value = currentText; // 无脏改动时同步磁盘内容
       editorPaneEl.classList.add('visible');
+      splitLeftEl.classList.remove('hidden');
+      refreshEditorDecorations();
       requestAnimationFrame(function () { editorEl.focus(); });
     } else {
       editorPaneEl.classList.remove('visible');
+      splitLeftEl.classList.add('hidden');
     }
     updateToolbar();
   }
@@ -244,7 +277,126 @@
   function togglePanel() {
     panelVisible = !panelVisible;
     panelPaneEl.classList.toggle('hidden', !panelVisible);
+    splitRightEl.classList.toggle('hidden', !panelVisible);
     updateToolbar();
+  }
+
+  // 刷新编辑器语法高亮层与行号槽（与 textarea 内容对齐）
+  function refreshEditorDecorations() {
+    var text = editorEl.value;
+    if (srcHighlightEl) {
+      srcHighlightEl.innerHTML = (api.highlightSource ? api.highlightSource(text) : escHtml(text));
+    }
+    if (srcGutterEl) {
+      var n = text.split('\n').length;
+      var nums = new Array(n);
+      for (var i = 0; i < n; i++) nums[i] = i + 1;
+      srcGutterEl.textContent = nums.join('\n');
+    }
+    // 同步一次滚动位置（内容变化后保持对齐）
+    var hp = srcHighlightEl ? srcHighlightEl.parentNode : null;
+    if (hp) { hp.scrollTop = editorEl.scrollTop; hp.scrollLeft = editorEl.scrollLeft; }
+    if (srcGutterEl) srcGutterEl.scrollTop = editorEl.scrollTop;
+  }
+
+  // 分栏默认宽度（用于双击复位）
+  var PANE_DEFAULT = { editor: 380, panel: 320 };
+
+  // 分栏拖拽调宽：side='left' 调左侧（编辑栏）宽度；side='right' 调右侧（批注栏）宽度；
+  // 双击手柄 → 复位到默认宽度。
+  function setupSplitter(splitter, paneEl, side) {
+    var defW = side === 'left' ? PANE_DEFAULT.editor : PANE_DEFAULT.panel;
+    splitter.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      var startX = e.clientX;
+      var startW = paneEl.getBoundingClientRect().width;
+      function move(ev) {
+        var dx = ev.clientX - startX;
+        var w = side === 'left' ? startW + dx : startW - dx;
+        w = Math.max(220, Math.min(w, window.innerWidth * 0.7));
+        paneEl.style.flex = '0 0 ' + w + 'px';
+      }
+      function up() {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', up);
+        document.body.style.cursor = '';
+      }
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+      document.body.style.cursor = 'col-resize';
+    });
+    splitter.addEventListener('dblclick', function () {
+      paneEl.style.flex = '0 0 ' + defW + 'px';
+    });
+    splitter.title = '拖动调整宽度，双击复位';
+  }
+
+  // ---- 缩放遮罩（图片 / 流程图共用）----
+  function openZoom(node) {
+    var ov = document.createElement('div');
+    ov.className = 'mda-zoom';
+    var stage = document.createElement('div');
+    stage.className = 'mda-zoom-stage';
+    stage.appendChild(node);
+    var bar = document.createElement('div');
+    bar.className = 'mda-zoom-bar';
+    bar.innerHTML = '<button data-z="in" title="放大">+</button>' +
+      '<button data-z="out" title="缩小">\u2212</button>' +
+      '<button data-z="reset" title="复位">\u21ba</button>' +
+      '<button data-z="close" title="关闭">\u2715</button>';
+    ov.appendChild(bar);
+    ov.appendChild(stage);
+    document.body.appendChild(ov);
+
+    var MIN_SCALE = 0.3, MAX_SCALE = 8;
+    var scale = 1, tx = 0, ty = 0;
+    // 平移边界：保证内容中心始终留在视口内，避免被拖到不可见区域
+    function clampPan() {
+      var maxX = window.innerWidth / 2;
+      var maxY = window.innerHeight / 2;
+      tx = Math.max(-maxX, Math.min(maxX, tx));
+      ty = Math.max(-maxY, Math.min(maxY, ty));
+    }
+    function apply() { clampPan(); stage.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')'; }
+    function zoom(factor) { scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor)); apply(); }
+    function reset() { scale = 1; tx = 0; ty = 0; apply(); }
+
+    ov.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      zoom(e.deltaY < 0 ? 1.12 : 1 / 1.12);
+    }, { passive: false });
+
+    var dragging = false, sx = 0, sy = 0;
+    stage.addEventListener('mousedown', function (e) { dragging = true; sx = e.clientX - tx; sy = e.clientY - ty; e.preventDefault(); });
+    function onMove(e) { if (!dragging) return; tx = e.clientX - sx; ty = e.clientY - sy; apply(); }
+    function onUp() { dragging = false; }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+
+    function close() {
+      ov.remove();
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.removeEventListener('keydown', onKey);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    document.addEventListener('keydown', onKey);
+
+    ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+    // 仅在内容本身双击才复位（避免连点 +/- 按钮误触发复位）
+    stage.addEventListener('dblclick', function (e) { e.stopPropagation(); reset(); });
+    bar.addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      e.stopPropagation();
+      var z = b.getAttribute('data-z');
+      if (z === 'in') zoom(1.2);
+      else if (z === 'out') zoom(1 / 1.2);
+      else if (z === 'reset') reset();
+      else close();
+    });
+    // 吞掉工具栏上的双击，避免冒泡触发其它复位逻辑
+    bar.addEventListener('dblclick', function (e) { e.stopPropagation(); });
   }
 
   function saveFile() {
@@ -394,6 +546,7 @@
     currentText = result.content;
     dirty = false;
     editorEl.value = result.content;
+    refreshEditorDecorations();
     setTitle(filePath);
     parseAndRender(result.content, filePath);
     updateToolbar();
@@ -440,19 +593,24 @@
     });
   }
 
-  // ---- 图片：相对/本地路径 → 绝对 file:// ----
+  // ---- 图片：相对/本地路径 → 绝对 file://，并绑定点击放大 ----
   function resolveImages() {
     var imgs = previewEl.querySelectorAll('img');
     for (var i = 0; i < imgs.length; i++) {
       var img = imgs[i];
       var src = img.getAttribute('src') || '';
-      if (!src) continue;
-      if (/^(https?:|data:|file:)/i.test(src)) continue;
-      var base = currentFilePath;
-      if (!base) continue;
-      var abs = api.resolvePath(base, src);
-      if (abs) {
-        img.setAttribute('src', 'file:///' + abs.replace(/\\/g, '/').replace(/^\/+/, ''));
+      if (src && !/^(https?:|data:|file:)/i.test(src) && currentFilePath) {
+        var abs = api.resolvePath(currentFilePath, src);
+        if (abs) img.setAttribute('src', 'file:///' + abs.replace(/\\/g, '/').replace(/^\/+/, ''));
+      }
+      if (!img.dataset.zoomReady) {
+        img.dataset.zoomReady = '1';
+        img.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var z = new Image();
+          z.src = this.src;
+          openZoom(z);
+        });
       }
     }
   }
