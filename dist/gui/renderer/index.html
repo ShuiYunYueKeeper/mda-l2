@@ -87,28 +87,59 @@
     .toolbar .file-name { font-size: 12px; color: var(--text-muted); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .dirty-dot { color: var(--danger); font-weight: bold; margin-left: 2px; }
 
-    /* ================= 主体三栏 ================= */
+    /* ================= 主体三栏（编辑 | 预览 | 批注，宽度可拖拽）================= */
     #content-row { display: flex; flex: 1 1 auto; overflow: hidden; }
-    #editor-pane { flex: 3; display: none; border-right: 1px solid var(--border); overflow: hidden; }
+    #editor-pane { flex: 0 0 380px; display: none; overflow: hidden; }
     #editor-pane.visible { display: flex; }
-    .mda-editor {
-      flex: 1;
-      width: 100%;
-      resize: none;
-      border: none;
-      outline: none;
-      padding: 16px;
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
-      font-size: 13px;
-      line-height: 1.6;
-      tab-size: 2;
-    }
-    #preview-pane { flex: 5; overflow: auto; padding: 16px; border-right: 1px solid var(--border); background: var(--bg); }
+    #preview-pane { flex: 1 1 auto; min-width: 200px; overflow: auto; padding: 16px; background: var(--bg); }
     #preview-content { max-width: 800px; margin: 0 auto; line-height: 1.7; }
-    #panel-pane { flex: 3; display: flex; flex-direction: column; overflow: hidden; min-width: 280px; background: var(--bg-secondary); }
+    #panel-pane { flex: 0 0 320px; display: flex; flex-direction: column; overflow: hidden; min-width: 240px; background: var(--bg-secondary); }
     #panel-pane.hidden { display: none; }
+
+    /* 分栏拖拽手柄 */
+    .mda-splitter { flex: 0 0 5px; cursor: col-resize; background: var(--border-light); }
+    .mda-splitter:hover { background: var(--accent); }
+    .mda-splitter.hidden { display: none; }
+
+    /* ================= 源码编辑器（textarea 叠加高亮层 + 行号槽）================= */
+    .mda-src-editor { flex: 1; display: flex; overflow: hidden; background: var(--bg); border-right: 1px solid var(--border); }
+    .src-gutter {
+      flex: 0 0 auto; width: 3.4em; padding: 12px 8px 12px 0; text-align: right;
+      color: var(--gutter-text); background: var(--gutter-bg); border-right: 1px solid var(--border);
+      font-family: 'Cascadia Code', Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.6;
+      white-space: pre; overflow: hidden; user-select: none; -webkit-user-select: none;
+    }
+    .src-scroll { position: relative; flex: 1; overflow: hidden; }
+    .src-highlight, .src-input {
+      margin: 0; border: 0; padding: 12px;
+      font-family: 'Cascadia Code', Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.6;
+      white-space: pre; tab-size: 2; word-wrap: normal; letter-spacing: 0;
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; box-sizing: border-box;
+    }
+    .src-highlight { pointer-events: none; z-index: 1; color: var(--text); background: transparent; overflow: hidden; }
+    .src-highlight code { font: inherit; white-space: pre; display: block; background: transparent; padding: 0; }
+    .src-input {
+      z-index: 2; resize: none; overflow: auto; background: transparent; color: transparent;
+      caret-color: var(--text); outline: none;
+    }
+    .src-input::selection { background: rgba(56,139,253,0.35); }
+
+    /* ================= 缩放遮罩（图片 / 流程图）================= */
+    .mda-zoom {
+      position: fixed; inset: 0; z-index: 4000; background: rgba(0,0,0,0.8);
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+    }
+    .mda-zoom-stage { transform-origin: center center; cursor: grab; }
+    .mda-zoom-stage:active { cursor: grabbing; }
+    .mda-zoom-stage img, .mda-zoom-stage svg { max-width: 90vw; max-height: 90vh; display: block; background: #fff; border-radius: 4px; }
+    .mda-zoom-bar { position: fixed; top: 14px; right: 16px; display: flex; gap: 6px; z-index: 4002; }
+    .mda-zoom-bar button {
+      width: 34px; height: 34px; font-size: 18px; line-height: 1; cursor: pointer;
+      color: #fff; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.45); border-radius: 6px;
+    }
+    .mda-zoom-bar button:hover { background: rgba(0,0,0,0.82); border-color: #fff; }
+    #preview-content img { cursor: zoom-in; }
+    .mda-mermaid { cursor: zoom-in; }
 
     .md-image-alt { display: inline-block; padding: 4px 8px; border: 1px dashed var(--img-alt-border); color: var(--text-muted); font-style: italic; font-size: 0.9em; border-radius: 4px; }
     [data-line] { cursor: pointer; }
