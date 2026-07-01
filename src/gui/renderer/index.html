@@ -6,166 +6,243 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:;" />
   <title>MDA</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; }
-    #root { display: flex; height: 100vh; width: 100vw; }
-    .md-image-alt { display: inline-block; padding: 4px 8px; border: 1px dashed #ccc; color: #999; font-style: italic; font-size: 0.9em; border-radius: 4px; }
-    [data-line] { cursor: pointer; }
-    .mda-cursor-block { background: #fff8e1; box-shadow: -4px 0 0 #1a73e8; border-radius: 2px; }
-
-    /* ---- Markdown 正文排版（GitHub 风格）---- */
-    #preview-content {
-      color: #24292f;
-      font-size: 16px;
-      word-wrap: break-word;
+    /* ================= 主题变量 ================= */
+    :root {
+      --bg: #ffffff;
+      --bg-secondary: #fafafa;
+      --bg-tertiary: #f6f8fa;
+      --text: #24292f;
+      --text-muted: #6a737d;
+      --border: #d0d7de;
+      --border-light: #eaecef;
+      --accent: #1a73e8;
+      --link: #0969da;
+      --code-bg: #f6f8fa;
+      --gutter-bg: #eef1f4;
+      --gutter-text: #9aa0a6;
+      --menu-bg: #ffffff;
+      --table-alt: #f6f8fa;
+      --img-alt-border: #ccc;
+      --danger: #e74c3c;
+      --tag-bg: #e8e8e8;
+      --sel-bg: #e8f0fe;
     }
-    #preview-content h1,
-    #preview-content h2,
-    #preview-content h3,
-    #preview-content h4,
-    #preview-content h5,
-    #preview-content h6 {
-      margin: 24px 0 16px;
-      font-weight: 600;
-      line-height: 1.25;
+    [data-theme="dark"] {
+      --bg: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-tertiary: #161b22;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --border: #30363d;
+      --border-light: #21262d;
+      --accent: #388bfd;
+      --link: #58a6ff;
+      --code-bg: #161b22;
+      --gutter-bg: #0d1117;
+      --gutter-text: #6e7681;
+      --menu-bg: #161b22;
+      --table-alt: #161b22;
+      --img-alt-border: #30363d;
+      --danger: #f85149;
+      --tag-bg: #30363d;
+      --sel-bg: #1f2a3d;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+    }
+    #root { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+
+    /* ================= 顶部工具栏 ================= */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      flex: 0 0 auto;
+    }
+    .tool-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+    }
+    .tool-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .tool-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .tool-btn:disabled { opacity: .45; cursor: not-allowed; }
+    .tool-btn:disabled:hover { color: var(--text); border-color: var(--border); }
+    .toolbar .spacer { flex: 1; }
+    .toolbar .file-name { font-size: 12px; color: var(--text-muted); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dirty-dot { color: var(--danger); font-weight: bold; margin-left: 2px; }
+
+    /* ================= 主体三栏 ================= */
+    #content-row { display: flex; flex: 1 1 auto; overflow: hidden; }
+    #editor-pane { flex: 3; display: none; border-right: 1px solid var(--border); overflow: hidden; }
+    #editor-pane.visible { display: flex; }
+    .mda-editor {
+      flex: 1;
+      width: 100%;
+      resize: none;
+      border: none;
+      outline: none;
+      padding: 16px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      tab-size: 2;
+    }
+    #preview-pane { flex: 5; overflow: auto; padding: 16px; border-right: 1px solid var(--border); background: var(--bg); }
+    #preview-content { max-width: 800px; margin: 0 auto; line-height: 1.7; }
+    #panel-pane { flex: 3; display: flex; flex-direction: column; overflow: hidden; min-width: 280px; background: var(--bg-secondary); }
+    #panel-pane.hidden { display: none; }
+
+    .md-image-alt { display: inline-block; padding: 4px 8px; border: 1px dashed var(--img-alt-border); color: var(--text-muted); font-style: italic; font-size: 0.9em; border-radius: 4px; }
+    [data-line] { cursor: pointer; }
+    .mda-cursor-block { background: color-mix(in srgb, var(--accent) 12%, transparent); box-shadow: -4px 0 0 var(--accent); border-radius: 2px; }
+
+    /* ================= Markdown 正文排版 ================= */
+    #preview-content { color: var(--text); font-size: 16px; word-wrap: break-word; }
+    #preview-content h1, #preview-content h2, #preview-content h3,
+    #preview-content h4, #preview-content h5, #preview-content h6 {
+      margin: 24px 0 16px; font-weight: 600; line-height: 1.25;
     }
     #preview-content h1:first-child,
     #preview-content h2:first-child,
     #preview-content h3:first-child { margin-top: 0; }
-    #preview-content h1 { font-size: 1.9em; padding-bottom: .3em; border-bottom: 1px solid #eaecef; }
-    #preview-content h2 { font-size: 1.5em; padding-bottom: .3em; border-bottom: 1px solid #eaecef; }
+    #preview-content h1 { font-size: 1.9em; padding-bottom: .3em; border-bottom: 1px solid var(--border-light); }
+    #preview-content h2 { font-size: 1.5em; padding-bottom: .3em; border-bottom: 1px solid var(--border-light); }
     #preview-content h3 { font-size: 1.25em; }
     #preview-content h4 { font-size: 1em; }
     #preview-content h5 { font-size: .9em; }
-    #preview-content h6 { font-size: .85em; color: #6a737d; }
+    #preview-content h6 { font-size: .85em; color: var(--text-muted); }
     #preview-content p { margin: 0 0 16px; }
-    #preview-content ul,
-    #preview-content ol { margin: 0 0 16px; padding-left: 2em; }
+    #preview-content ul, #preview-content ol { margin: 0 0 16px; padding-left: 2em; }
     #preview-content li { margin: .25em 0; }
-    #preview-content li > ul,
-    #preview-content li > ol { margin: .25em 0; }
+    #preview-content li > ul, #preview-content li > ol { margin: .25em 0; }
     #preview-content blockquote {
-      margin: 0 0 16px;
-      padding: 0 1em;
-      color: #6a737d;
-      border-left: .25em solid #dfe2e5;
+      margin: 0 0 16px; padding: 0 1em; color: var(--text-muted);
+      border-left: .25em solid var(--border);
     }
     #preview-content blockquote > :last-child { margin-bottom: 0; }
-    #preview-content hr { height: 1px; margin: 24px 0; background: #e1e4e8; border: 0; }
-    #preview-content a { color: #0969da; text-decoration: none; }
+    #preview-content hr { height: 1px; margin: 24px 0; background: var(--border-light); border: 0; }
+    #preview-content a { color: var(--link); text-decoration: none; }
     #preview-content a:hover { text-decoration: underline; }
     #preview-content strong { font-weight: 600; }
     #preview-content img { max-width: 100%; }
     #preview-content table {
-      display: block;
-      width: max-content;
-      max-width: 100%;
-      margin: 0 0 16px;
-      overflow: auto;
-      border-collapse: collapse;
+      display: block; width: max-content; max-width: 100%; margin: 0 0 16px;
+      overflow: auto; border-collapse: collapse;
     }
-    #preview-content table th,
-    #preview-content table td {
-      padding: 6px 13px;
-      border: 1px solid #d0d7de;
-    }
-    #preview-content table th { font-weight: 600; background: #f6f8fa; }
-    #preview-content table tr:nth-child(2n) td { background: #f6f8fa; }
+    #preview-content table th, #preview-content table td { padding: 6px 13px; border: 1px solid var(--border); }
+    #preview-content table th { font-weight: 600; background: var(--bg-tertiary); }
+    #preview-content table tr:nth-child(2n) td { background: var(--table-alt); }
 
-    /* ---- 代码块增强 ---- */
+    /* ================= 流程图 (mermaid) ================= */
+    .mda-mermaid { margin: 12px 0; text-align: center; overflow-x: auto; }
+    .mda-mermaid svg { max-width: 100%; height: auto; }
+    .mda-mermaid-error {
+      margin: 12px 0; padding: 10px 12px; border: 1px solid var(--danger);
+      border-radius: 6px; color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent);
+      font-size: 13px; white-space: pre-wrap;
+    }
+
+    /* ================= 代码块增强 ================= */
     .mda-code {
-      position: relative;
-      margin: 12px 0;
-      border: 1px solid #e1e4e8;
-      border-radius: 6px;
-      background: #f6f8fa;
-      overflow: hidden;
-      outline: none;
+      position: relative; margin: 12px 0; border: 1px solid var(--border);
+      border-radius: 6px; background: var(--code-bg); overflow: hidden; outline: none;
     }
-    .mda-code:focus-within { box-shadow: 0 0 0 2px rgba(26,115,232,0.35); }
+    .mda-code:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
     .mda-code-copy {
-      position: absolute;
-      top: 6px;
-      right: 6px;
-      z-index: 2;
-      padding: 3px 10px;
-      font-size: 12px;
-      cursor: pointer;
-      color: #444;
-      background: rgba(255,255,255,0.9);
-      border: 1px solid #d0d7de;
-      border-radius: 4px;
-      opacity: 0;
-      transition: opacity .12s;
+      position: absolute; top: 6px; right: 6px; z-index: 2; padding: 3px 10px;
+      font-size: 12px; cursor: pointer; color: var(--text); background: var(--bg);
+      border: 1px solid var(--border); border-radius: 4px; opacity: 0; transition: opacity .12s;
     }
-    .mda-code:hover .mda-code-copy,
-    .mda-code:focus-within .mda-code-copy { opacity: 1; }
-    .mda-code-copy:hover { background: #fff; border-color: #1a73e8; color: #1a73e8; }
+    .mda-code:hover .mda-code-copy, .mda-code:focus-within .mda-code-copy { opacity: 1; }
+    .mda-code-copy:hover { border-color: var(--accent); color: var(--accent); }
     .mda-code .mda-code-gutter {
-      position: absolute;
-      left: 0; top: 0; bottom: 0;
-      width: 3.2em;
-      padding: 12px 8px 12px 0;
-      text-align: right;
-      white-space: pre;
-      user-select: none;
-      -webkit-user-select: none;
-      color: #9aa0a6;
-      background: #eef1f4;
-      border-right: 1px solid #e1e4e8;
-      font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
-      font-size: 13px;
-      line-height: 1.5;
+      position: absolute; left: 0; top: 0; bottom: 0; width: 3.2em; padding: 12px 8px 12px 0;
+      text-align: right; white-space: pre; user-select: none; -webkit-user-select: none;
+      color: var(--gutter-text); background: var(--gutter-bg); border-right: 1px solid var(--border);
+      font-family: 'Cascadia Code', Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.5;
       pointer-events: none;
     }
-    .mda-code .mda-code-scroll {
-      margin-left: 3.2em;
-      overflow-x: auto;
-    }
-    .mda-code pre.mda-code-pre {
-      margin: 0;
-      padding: 12px;
-      background: transparent;
-      border: none;
-    }
+    .mda-code .mda-code-scroll { margin-left: 3.2em; overflow-x: auto; }
+    .mda-code pre.mda-code-pre { margin: 0; padding: 12px; background: transparent; border: none; }
     .mda-code pre.mda-code-pre code {
-      display: block;
-      white-space: pre;
+      display: block; white-space: pre; color: var(--text);
       font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
-      font-size: 13px;
-      line-height: 1.5;
-      background: transparent;
-      padding: 0;
+      font-size: 13px; line-height: 1.5; background: transparent; padding: 0;
     }
-    /* 行内代码与普通 pre（无 mda-code 包裹的情况）兜底 */
-    code { font-family: 'Cascadia Code', Consolas, 'Courier New', monospace; background: #f0f1f2; padding: 1px 4px; border-radius: 3px; font-size: 0.92em; }
+    code { font-family: 'Cascadia Code', Consolas, 'Courier New', monospace; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 3px; font-size: 0.92em; }
     pre code { background: transparent; padding: 0; }
 
-    /* ---- 右键菜单 ---- */
+    /* ================= 右键菜单 ================= */
     .mda-context-menu {
-      position: fixed;
-      z-index: 3000;
-      min-width: 120px;
-      background: #fff;
-      border: 1px solid #d0d7de;
-      border-radius: 6px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-      padding: 4px 0;
-      font-size: 13px;
+      position: fixed; z-index: 3000; min-width: 120px; background: var(--menu-bg);
+      border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      padding: 4px 0; font-size: 13px;
     }
     .mda-context-menu .mda-menu-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 24px;
-      padding: 7px 16px;
-      cursor: pointer;
+      display: flex; align-items: center; justify-content: space-between; gap: 24px;
+      padding: 7px 16px; cursor: pointer; color: var(--text);
     }
-    .mda-context-menu .mda-menu-item:hover { background: #1a73e8; color: #fff; }
-    .mda-context-menu .mda-menu-key { color: #999; font-size: 12px; }
+    .mda-context-menu .mda-menu-item:hover { background: var(--accent); color: #fff; }
+    .mda-context-menu .mda-menu-key { color: var(--text-muted); font-size: 12px; }
     .mda-context-menu .mda-menu-item:hover .mda-menu-key { color: #e0e8ff; }
 
-    /* ---- highlight.js 精简主题（GitHub Light）---- */
+    /* ================= 批注面板 ================= */
+    .panel-head { padding: 8px; border-bottom: 1px solid var(--border); background: var(--bg); }
+    .btn-primary {
+      width: 100%; padding: 8px; cursor: pointer; background: var(--accent); color: #fff;
+      border: none; border-radius: 4px; font-size: 14px;
+    }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .filter-box { padding: 8px; border-bottom: 1px solid var(--border-light); font-size: 12px; background: var(--bg); }
+    .filter-box b { color: var(--text); }
+    .filter-box label { color: var(--text); }
+    #anno-list { flex: 1; overflow: auto; }
+    .anno-item { padding: 10px 8px; border-bottom: 1px solid var(--border-light); cursor: pointer; background: var(--bg); }
+    .anno-item:nth-child(2n) { background: var(--bg-secondary); }
+    .anno-item.selected { background: var(--sel-bg); }
+    .anno-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+    .anno-content { margin-bottom: 6px; font-size: 13px; color: var(--text); }
+    .anno-tags { margin-bottom: 6px; }
+    .anno-tag { background: var(--tag-bg); border-radius: 3px; padding: 2px 6px; font-size: 11px; margin-right: 4px; color: var(--text); }
+    .anno-actions { text-align: right; }
+    .btn-mini { font-size: 11px; padding: 3px 8px; cursor: pointer; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--text); margin-right: 4px; }
+    .btn-mini.danger { border-color: var(--danger); color: var(--danger); }
+    .anno-empty { padding: 24px; color: var(--text-muted); text-align: center; font-size: 13px; }
+
+    /* ================= 弹窗 ================= */
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.45); display: flex; justify-content: center; align-items: center; z-index: 2000; }
+    .modal-box { background: var(--bg); color: var(--text); border-radius: 8px; padding: 24px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); }
+    .modal-box h3 { margin: 0 0 16px; font-size: 16px; }
+    .modal-box label { font-size: 12px; color: var(--text-muted); }
+    .modal-box input, .modal-box textarea, .modal-box select {
+      width: 100%; padding: 8px; margin-top: 4px; border: 1px solid var(--border);
+      border-radius: 4px; background: var(--bg); color: var(--text); font-size: 13px;
+    }
+    .modal-box textarea { resize: vertical; }
+    .modal-field { margin-bottom: 12px; }
+    .modal-actions { text-align: right; margin-top: 16px; }
+    .btn-ghost { padding: 8px 20px; margin-right: 8px; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font-size: 13px; }
+    .btn-ok { padding: 8px 20px; cursor: pointer; background: var(--accent); color: #fff; border: none; border-radius: 4px; font-size: 13px; }
+
+    /* ================= highlight.js 主题（亮/暗） ================= */
     .hljs-comment, .hljs-quote { color: #6a737d; font-style: italic; }
     .hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-name, .hljs-tag { color: #d73a49; }
     .hljs-string, .hljs-doctag, .hljs-template-tag, .hljs-template-variable, .hljs-regexp, .hljs-addition { color: #032f62; }
@@ -175,10 +252,20 @@
     .hljs-emphasis { font-style: italic; }
     .hljs-strong { font-weight: bold; }
     .hljs-deletion { color: #b31d28; background: #ffeef0; }
+
+    [data-theme="dark"] .hljs-comment, [data-theme="dark"] .hljs-quote { color: #8b949e; }
+    [data-theme="dark"] .hljs-keyword, [data-theme="dark"] .hljs-selector-tag, [data-theme="dark"] .hljs-built_in, [data-theme="dark"] .hljs-name, [data-theme="dark"] .hljs-tag { color: #ff7b72; }
+    [data-theme="dark"] .hljs-string, [data-theme="dark"] .hljs-doctag, [data-theme="dark"] .hljs-template-tag, [data-theme="dark"] .hljs-template-variable, [data-theme="dark"] .hljs-regexp, [data-theme="dark"] .hljs-addition { color: #a5d6ff; }
+    [data-theme="dark"] .hljs-title, [data-theme="dark"] .hljs-title.class_, [data-theme="dark"] .hljs-title.function_, [data-theme="dark"] .hljs-section, [data-theme="dark"] .hljs-selector-id { color: #d2a8ff; }
+    [data-theme="dark"] .hljs-number, [data-theme="dark"] .hljs-literal, [data-theme="dark"] .hljs-variable, [data-theme="dark"] .hljs-attr, [data-theme="dark"] .hljs-attribute, [data-theme="dark"] .hljs-meta { color: #79c0ff; }
+    [data-theme="dark"] .hljs-type, [data-theme="dark"] .hljs-class .hljs-title, [data-theme="dark"] .hljs-symbol, [data-theme="dark"] .hljs-bullet, [data-theme="dark"] .hljs-link { color: #ffa657; }
+    [data-theme="dark"] .hljs-deletion { color: #ffdcd7; background: #67060c; }
   </style>
 </head>
 <body>
   <div id="root"></div>
+  <!-- mermaid 离线 UMD（copy-gui 从 node_modules 拷贝） -->
+  <script src="./mermaid.min.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

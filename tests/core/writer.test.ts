@@ -2,7 +2,7 @@
 import * as path from 'path';
 import * as os from 'os';
 import { parseAnnotations } from '../../src/core/parser';
-import { addAnnotation, editAnnotation, removeAnnotation } from '../../src/core/writer';
+import { addAnnotation, editAnnotation, removeAnnotation, writeRawFile } from '../../src/core/writer';
 import { Annotation } from '../../src/core/model';
 
 const tmpDir = path.join(os.tmpdir(), 'mda-writer-test-' + Date.now());
@@ -156,6 +156,46 @@ describe('换行风格保留', () => {
     const content = await readFile(f);
     expect(content).toContain('正文。');
     expect(content).not.toMatch(/[^\r]\n/);
+  });
+});
+
+// ---- 整篇写回（编辑保存）----
+
+describe('writeRawFile 整篇保存', () => {
+  test('写回全部内容（原子写入）', async () => {
+    const f = tmpFile('raw.md');
+    await writeFile(f, '# 旧\n\n旧正文。\n');
+
+    await writeRawFile(f, '# 新\n\n新正文段落。\n');
+
+    const content = await readFile(f);
+    expect(content).toContain('# 新');
+    expect(content).toContain('新正文段落。');
+    expect(content).not.toContain('旧正文');
+  });
+
+  test('保留 CRLF 换行风格（编辑器 LF 输入 → 回写 CRLF）', async () => {
+    const f = tmpFile('crlf.md');
+    await writeFile(f, '# 标题\r\n\r\n正文。\r\n');
+
+    // 编辑器传入的是 LF 内容
+    await writeRawFile(f, '# 标题\n\n改后正文。\n');
+
+    const content = await readFile(f);
+    expect(content).toContain('改后正文。');
+    // 不应出现裸 LF（即所有换行均为 CRLF）
+    expect(content).not.toMatch(/[^\r]\n/);
+  });
+
+  test('LF 文件保持 LF', async () => {
+    const f = tmpFile('lf.md');
+    await writeFile(f, '# 标题\n\n正文。\n');
+
+    await writeRawFile(f, '# 标题\n\n新正文。\n');
+
+    const content = await readFile(f);
+    expect(content).not.toContain('\r\n');
+    expect(content).toContain('新正文。');
   });
 });
 

@@ -188,6 +188,21 @@ export async function editAnnotation(
   return updated;
 }
 
+// 整篇写回（GUI 源码编辑保存用）。区别于批注增删改：这是用户对文档正文的
+// 全量编辑，不做源文件保护校验，但保留源文件原有换行风格（避免编辑器统一为
+// LF 而污染 CRLF 文件）；文件不存在时默认 LF。仍走原子写入。
+export async function writeRawFile(filePath: string, content: string): Promise<void> {
+  let eol: '\r\n' | '\n' = '\n';
+  try {
+    const existing = await fs.readFile(filePath, 'utf-8');
+    eol = detectEol(existing);
+  } catch {
+    // 新文件：默认 LF
+  }
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\n/g, eol);
+  await atomicWrite(filePath, normalized);
+}
+
 export async function removeAnnotation(filePath: string, id: string): Promise<void> {
   const rawText = await fs.readFile(filePath, 'utf-8');
   const eol = detectEol(rawText);
