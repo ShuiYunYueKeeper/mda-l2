@@ -1,4 +1,4 @@
-# MDA 开发工作流 — 阶段化开发流程
+﻿# MDA 开发工作流 — 阶段化开发流程
 
 > 适用于：L2 命题任务 / 需求明确的项目开发
 > 状态：已验证（MDA Markdown 批注管理工具）
@@ -225,7 +225,7 @@ Phase B: @mda/core — model → parser → writer → renderer → barrel
 Phase C: CLI — 入口 → scan → add → edit → remove
 Phase D: GUI — Electron main → preload → renderer app
 Phase E: 测试 — parser(25边界) → writer(原子性+压缩) → renderer(不可见性)
-Phase F: 交付 — README → demo.md → screenshots+video（见 docs/screenshots/README.md）→ AI协作记录
+Phase F: 交付 — README → samples/demo.md → screenshots+video（见 docs/screenshots/README.md）→ AI协作记录
 ```
 
 ### P4 关键原则

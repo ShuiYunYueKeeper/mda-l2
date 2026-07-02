@@ -28,7 +28,7 @@ sequenceDiagram
     participant DC as DocumentController
     participant MR as MermaidRenderer
 
-    User->>MW: 打开 ac2-mermaid.md
+    User->>MW: 打开 mermaid.md
     MW->>DC: openFile(path)
     DC->>MR: renderAsync(blockId, source)
     alt 渲染成功
