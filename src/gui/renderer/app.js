@@ -424,7 +424,12 @@
           currentText = content;
           setDirtyState(false);
           if (typeof onSuccess === 'function') onSuccess();
-          else openFile(currentFilePath);
+          else {
+            // 保存后仅刷新预览与批注面板，不重新 openFile（避免滚动位置回到开头）
+            parseAndRender(content, currentFilePath);
+            refreshEditorDecorations();
+            updateToolbar();
+          }
         } else {
           uiAlert('保存失败: ' + r.error);
         }
@@ -451,7 +456,10 @@
   }
 
   function requestOpen(filePath) {
-    guardDiscard().then(function (yes) { if (yes) openFile(filePath); });
+    guardDiscard().then(function (yes) {
+      // 仅切换到不同文件时回到文档开头；同文件重载（如 Ctrl+R）保留滚动位置
+      if (yes) openFile(filePath, { scrollToTop: filePath !== currentFilePath });
+    });
   }
 
   function updateToolbar() {
@@ -562,21 +570,51 @@
   }
 
   // ---- 文件操作 ----
-  async function openFile(filePath) {
+  async function openFile(filePath, opts) {
+    opts = opts || {};
+    var scrollToTop = !!opts.scrollToTop;
+    var savedScroll = null;
+    if (!scrollToTop && editorEl) {
+      savedScroll = {
+        editorTop: editorEl.scrollTop,
+        editorLeft: editorEl.scrollLeft,
+        gutterTop: srcGutterEl ? srcGutterEl.scrollTop : 0,
+        previewTop: previewPaneEl ? previewPaneEl.scrollTop : 0,
+        selStart: editorEl.selectionStart,
+        selEnd: editorEl.selectionEnd,
+      };
+    }
     var result = await api.readFile(filePath);
     if (!result.success) { uiAlert('无法打开文件: ' + result.error); return; }
     currentFilePath = filePath;
     currentText = result.content;
     setDirtyState(false);
     editorEl.value = result.content;
-    editorEl.selectionStart = editorEl.selectionEnd = 0; // 光标置于开头，避免 focus 时滚到末尾
+    if (scrollToTop) {
+      editorEl.selectionStart = editorEl.selectionEnd = 0;
+    } else if (savedScroll) {
+      var len = result.content.length;
+      editorEl.selectionStart = Math.min(savedScroll.selStart, len);
+      editorEl.selectionEnd = Math.min(savedScroll.selEnd, len);
+    }
     refreshEditorDecorations();
     setTitle(filePath);
     parseAndRender(result.content, filePath);
     updateToolbar();
-    // 新开文档：编辑区与预览区都回到文档开头（隐藏→显示、focus 抢滚等时序问题，下一帧再重置一次兜底）
-    resetScrollTop();
-    requestAnimationFrame(resetScrollTop);
+    if (scrollToTop) {
+      resetScrollTop();
+      requestAnimationFrame(resetScrollTop);
+    } else if (savedScroll) {
+      editorEl.scrollTop = savedScroll.editorTop;
+      editorEl.scrollLeft = savedScroll.editorLeft;
+      if (srcGutterEl) srcGutterEl.scrollTop = savedScroll.gutterTop;
+      if (srcHighlightEl) {
+        var hp = srcHighlightEl.parentNode;
+        hp.scrollTop = savedScroll.editorTop;
+        hp.scrollLeft = savedScroll.editorLeft;
+      }
+      if (previewPaneEl) previewPaneEl.scrollTop = savedScroll.previewTop;
+    }
   }
 
   // 编辑区（textarea/高亮层/行号槽）与预览区滚动位置归零
@@ -596,7 +634,7 @@
     }
   }
 
-  function reloadFile() { if (currentFilePath) openFile(currentFilePath); }
+  function reloadFile() { if (currentFilePath) openFile(currentFilePath, { scrollToTop: false }); }
 
   function parseAndRender(text, filePath) {
     var parsed = api.parseAnnotations(text);
