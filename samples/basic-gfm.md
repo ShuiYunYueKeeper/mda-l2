@@ -28,7 +28,7 @@ def hello():
 
 ## 链接与引用
 
-访问 [Qt 官网](https://www.qt.io/) 或 [相对链接](./test-basic.md)。
+访问 [Qt 官网](https://www.qt.io/) 或 [相对链接](./basic-gfm.md)。
 
 > 这是一段引用文字，用于测试 blockquote 样式。
 

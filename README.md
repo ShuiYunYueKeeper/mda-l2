@@ -45,8 +45,7 @@ mda-l2/
 │   ├── screenshots/           # GUI 截图 + 录屏
 │   ├── few-shot-examples.md   # Few-shot 正反例（易错点 ✅/❌ 对照）
 │   └── templates/             # 阶段模板
-├── samples/                   # 独立演示样本（CLI/GUI 直接体验，含 all-features.md 综合演示）
-├── demo.md                    # 演示用 Markdown 文件
+├── samples/                   # 演示与验收样本（CLI/GUI 体验、人工验收、录屏演示）
 ├── quality.md                 # 质量保障说明（测试/覆盖率/审核点/Review）
 ├── AGENTS.md                  # AI 协作指南（架构/接口/规范/禁止事项/隐性规范）
 ├── package.json
@@ -90,19 +89,19 @@ npm run build
 
 ```bash
 # 扫描批注（表格输出）
-npm run cli -- scan demo.md
+npm run cli -- scan samples/demo.md
 
 # 扫描批注（JSON 输出）
-npm run cli -- scan demo.md --format json
+npm run cli -- scan samples/demo.md --format json
 
 # 添加批注
-npm run cli -- add demo.md 12 "这里是批注内容" --tags bug --level major
+npm run cli -- add samples/demo.md 12 "这里是批注内容" --tags bug --level major
 
 # 编辑批注
-npm run cli -- edit demo.md <批注ID> --status resolved
+npm run cli -- edit samples/demo.md <批注ID> --status resolved
 
 # 删除批注
-npm run cli -- remove demo.md <批注ID>
+npm run cli -- remove samples/demo.md <批注ID>
 ```
 
 **GUI 模式：**
@@ -112,7 +111,7 @@ npm run cli -- remove demo.md <批注ID>
 npm run gui
 
 # 直接打开指定文件
-npm run gui -- demo.md
+npm run gui -- samples/demo.md
 ```
 
 ### GUI 功能
@@ -222,7 +221,7 @@ npm run coverage
 
 - [`quality.md`](quality.md) — 测试体系、覆盖率、数据校验、源文件安全、人工审核点、Code Review 痕迹。
 - [`docs/few-shot-examples.md`](docs/few-shot-examples.md) — 易错点的 ✅ 正确 / ❌ 错误 成对示例（含 GUI：dirty/坏批注/编辑器对齐/缩放遮罩）。
-- [`samples/`](samples/) — 独立演示样本，可直接用 CLI/GUI 体验。
+- [`samples/`](samples/) — 演示与验收样本，可直接用 CLI/GUI 体验。
 
 ## 开发约定
 
