@@ -3,8 +3,12 @@ const path = require('path');
 const fs = require('fs');
 
 let mainWindow = null;
+let rendererDirty = false;  // 渲染进程同步的「未保存编辑」标记
+let allowClose = false;     // 用户已确认放弃或保存成功后允许关闭
 
 function createWindow(initialFile) {
+  allowClose = false;
+  rendererDirty = false;
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 750,
@@ -89,6 +93,14 @@ function createWindow(initialFile) {
             mainWindow.webContents.send('menu-toggle-theme');
           },
         },
+        { type: 'separator' },
+        {
+          label: '开发者工具',
+          accelerator: 'F12',
+          click: () => {
+            mainWindow.webContents.toggleDevTools();
+          },
+        },
       ],
     },
   ];
@@ -122,6 +134,27 @@ function createWindow(initialFile) {
 
   ipcMain.handle('set-title', async (_event, title) => {
     if (mainWindow) mainWindow.setTitle(title);
+  });
+
+  // 渲染进程同步 dirty 状态；关闭窗口时若有未保存编辑则拦截并交渲染层弹窗（不用原生 dialog）
+  ipcMain.on('set-dirty', (_event, dirty) => {
+    rendererDirty = !!dirty;
+  });
+  ipcMain.on('confirm-close', () => {
+    allowClose = true;
+    if (mainWindow) mainWindow.close();
+  });
+
+  mainWindow.on('close', (e) => {
+    if (!allowClose && rendererDirty) {
+      e.preventDefault();
+      mainWindow.webContents.send('app-close-request');
+    }
+  });
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    allowClose = false;
+    rendererDirty = false;
   });
 
   // 防御性兜底：禁止渲染进程因链接点击 / 文件拖拽而离开 index.html（否则白屏且无法恢复）。

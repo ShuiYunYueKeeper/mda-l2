@@ -1,4 +1,4 @@
-﻿const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 // 复用编译后的 @mda/core（dist/core），消除 GUI 与核心库的重复实现。
 // 需 sandbox: false 才能在 preload 中 require 第三方/本地模块。
@@ -115,6 +115,11 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   onMenuSave: (callback) => {
     ipcRenderer.on('menu-save', () => callback());
   },
+  onAppCloseRequest: (callback) => {
+    ipcRenderer.on('app-close-request', () => callback());
+  },
+  setDirty: (dirty) => ipcRenderer.send('set-dirty', !!dirty),
+  confirmClose: () => ipcRenderer.send('confirm-close'),
 
   // 级别配色 / 严重度优先级（来源于 src/config/annotation-schema.json，经 core 暴露）
   levelColors: core.LEVEL_COLORS,
@@ -143,14 +148,109 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   // 保存前校验：返回疑似批注但格式不正确的行号数组（供渲染层提示用户）
   findMalformedAnnotations: (text) => findMalformedAnnotations(text),
 
-  // 源码编辑器语法高亮：把 Markdown 源码高亮为 HTML（hljs），供编辑栏高亮层使用。
-  // 失败时回退为 HTML 转义的纯文本，保证不抛错、不注入未转义内容。
+  // 源码编辑器语法高亮：自定义 Markdown 行级着色（标题整行含 CJK 全覆盖，`#` 暗色），
+  // 围栏内代码块仍用 hljs；失败时回退为转义纯文本。
   highlightSource: (code) => {
     try {
-      return hljs.highlight(code, { language: 'markdown', ignoreIllegals: true }).value;
+      return highlightMarkdownSource(code);
     } catch (e) {
-      return String(code)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return escHtml(code);
     }
   },
 });
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// 编辑器专用 Markdown 高亮（不依赖 hljs markdown 语法，避免标题中英文混排只亮一半）
+function highlightMarkdownSource(text) {
+  // 不删 BOM：textarea 的 value 保留 BOM，高亮层必须与之严格 1:1（否则字符偏移错开一位→光标错位）。
+  // BOM 零宽不影响可见宽度；仅在 highlightMdLine 里对行首 BOM 单独剥离用于正则识别、再原样拼回。
+  const lines = text.split(/\r?\n/);
+  const fenceMask = core.buildCodeFenceMask(lines);
+  const out = [];
+  let fenceLang = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!fenceMask[i]) {
+      fenceLang = '';
+      out.push(highlightMdLine(line));
+      continue;
+    }
+    const open = line.match(/^ {0,3}(`{3,}|~{3,})(\S*)/);
+    if (open) {
+      fenceLang = (open[2] || '').trim();
+      out.push('<span class="mda-hl-mark">' + escHtml(line) + '</span>');
+      continue;
+    }
+    if (/^ {0,3}(`{3,}|~{3,})\s*$/.test(line)) {
+      out.push('<span class="mda-hl-mark">' + escHtml(line) + '</span>');
+      fenceLang = '';
+      continue;
+    }
+    if (fenceLang && hljs.getLanguage(fenceLang)) {
+      try {
+        out.push(hljs.highlight(line, { language: fenceLang, ignoreIllegals: true }).value);
+      } catch (e) {
+        out.push('<span class="mda-hl-code">' + escHtml(line) + '</span>');
+      }
+    } else {
+      out.push('<span class="mda-hl-code">' + escHtml(line) + '</span>');
+    }
+  }
+  return out.join('\n');
+}
+
+function highlightMdLine(line) {
+  // 行首 BOM 单独剥离用于正则识别，最后原样拼回，保证输出字符数与源码行一致
+  let bom = '';
+  if (line.charCodeAt(0) === 0xFEFF) { bom = '\uFEFF'; line = line.slice(1); }
+  return bom + highlightMdLineBody(line);
+}
+
+function highlightMdLineBody(line) {
+  // ATX 标题：# 暗色，标题正文整行高亮（含中文/符号）
+  const hm = line.match(/^( {0,3})(#{1,6})(\s+)(.*)$/);
+  if (hm) {
+    return escHtml(hm[1]) +
+      '<span class="mda-hl-mark">' + escHtml(hm[2]) + '</span>' +
+      escHtml(hm[3]) +
+      '<span class="mda-hl-heading">' + highlightMdInline(hm[4]) + '</span>';
+  }
+  // 批注行（宽松识别）整体暗色
+  if (/^\s{0,3}\[?\s*comment\s*\]?\s*:\s*<>\s*\(\s*@anno\b/.test(line)) {
+    return '<span class="mda-hl-mark">' + escHtml(line) + '</span>';
+  }
+  // 引用 >
+  const bq = line.match(/^( {0,3})(>+)( ?)(.*)$/);
+  if (bq) {
+    return escHtml(bq[1]) +
+      '<span class="mda-hl-mark">' + escHtml(bq[2]) + '</span>' +
+      escHtml(bq[3]) +
+      '<span class="mda-hl-quote">' + highlightMdInline(bq[4]) + '</span>';
+  }
+  // 列表 - * 1.
+  const lm = line.match(/^( {0,3})([-*+]|\d+\.)( +)(.*)$/);
+  if (lm) {
+    return escHtml(lm[1]) +
+      '<span class="mda-hl-mark">' + escHtml(lm[2]) + '</span>' +
+      escHtml(lm[3]) +
+      highlightMdInline(lm[4]);
+  }
+  // 水平线
+  if (/^ {0,3}(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+    return '<span class="mda-hl-mark">' + escHtml(line) + '</span>';
+  }
+  return highlightMdInline(line);
+}
+
+function highlightMdInline(line) {
+  const escaped = escHtml(line);
+  return escaped
+    .replace(/(`[^`]*`)/g, '<span class="mda-hl-code">$1</span>')
+    .replace(/(\*\*[^*]+\*\*)/g, '<span class="mda-hl-strong">$1</span>')
+    .replace(/(\[[^\]]*\]\([^)]*\))/g, '<span class="mda-hl-link">$1</span>');
+}
