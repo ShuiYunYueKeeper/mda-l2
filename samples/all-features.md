@@ -46,11 +46,11 @@ flowchart LR
 进入编辑模式（工具栏「编辑」或 `Ctrl+E`），修改本段文字并 `Ctrl+S` 保存，观察预览实时更新。
 
 ```js
-function greet(name) {
-  return `Hello, ${name}!`;
+function greet(name1) {
+  return `Hello, ${name1}!`;
 }
 ```
 
 ---
 
-*演示结束。*
+*演示结束！！！*

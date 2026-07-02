@@ -30,7 +30,7 @@
 
 - [x] 标题与段落
 - [x] 列表与表格
-- [ ] 待后续版本：编辑功能
+- [x] 编辑功能
 
 ## 代码块
 
@@ -57,8 +57,8 @@ def fib(n: int) -> int:
 ## 链接
 
 - 外部链接：[Qt 官网](https://www.qt.io/)
-- 本地相对链接：[本目录 README 占位](./ac1-basic.md)
-- 本地图片：![相对路径图片](./relative.png)
+- 本地相对链接：[本目录 README 占位](./README.md)
+- 本地图片：![相对路径图片](./assets/demo.png)
 
 ## 表格
 
