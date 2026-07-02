@@ -106,18 +106,45 @@
     .src-gutter {
       flex: 0 0 auto; width: 3.4em; padding: 12px 8px 12px 0; text-align: right;
       color: var(--gutter-text); background: var(--gutter-bg); border-right: 1px solid var(--border);
-      font-family: 'Cascadia Code', Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.6;
+      font-family: 'Cascadia Code', Consolas, 'Courier New', 'Microsoft YaHei', monospace; font-size: 13px; line-height: 21px;
       white-space: pre; overflow: hidden; user-select: none; -webkit-user-select: none;
+      font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0;
     }
     .src-scroll { position: relative; flex: 1; overflow: hidden; }
     .src-highlight, .src-input {
       margin: 0; border: 0; padding: 12px;
-      font-family: 'Cascadia Code', Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.6;
+      /* 显式指定中文回退字体：textarea 与高亮层若各自挑不同 CJK 回退字体，每个汉字差一点点、
+         几个字后光标就明显偏移（点行首正常、点行尾偏）。两层锁定同一中文字体即可对齐。 */
+      /* 行高必须用整数像素：1.6*13=20.8px 非整数，textarea 与 <code> 逐行取整方式不同，
+         滚到几百行会累积成几十像素的纵向错位（越往下越乱）。整数 px 使两层每行严格等高。 */
+      font-family: 'Cascadia Code', Consolas, 'Courier New', 'Microsoft YaHei', monospace; font-size: 13px; line-height: 21px;
       white-space: pre; tab-size: 2; word-wrap: normal; letter-spacing: 0;
+      /* 关闭连字：整行被拆成多个 span 后，跨 span 的连字会在高亮层断开而 textarea 不断开，
+         两层字符宽度不一致导致光标错位。两层必须一致关闭。 */
+      font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0;
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; box-sizing: border-box;
     }
     .src-highlight { pointer-events: none; z-index: 1; color: var(--text); background: transparent; overflow: hidden; }
+    /* textarea 因横向滚动条(~17px)+末行预留，可滚动范围恒比高亮层多几十像素，滚到底部时高亮层被钳住→纵向错位。
+       给高亮层加足够的底/右内边距，使其可滚动范围 ≥ textarea，同步时不再被钳住（padding 是末行之后的空白，不影响字符位置）。 */
+    .src-highlight { padding-bottom: 60px; padding-right: 60px; }
     .src-highlight code { font: inherit; white-space: pre; display: block; background: transparent; padding: 0; }
+    /* 围栏内 hljs 默认主题会加真实 font-weight/font-style → 改字宽导致光标错位；
+       在高亮层统一归一为常规，字宽完全由 textarea 决定，再由下方 mda-hl 类按需覆盖颜色/斜体/模拟加粗。 */
+    .src-highlight code, .src-highlight code * { font-weight: normal; font-style: normal; }
+    /* 编辑器 Markdown 高亮：颜色 + 样式。
+       加粗禁用真实 font-weight（会改变字宽 → textarea 光标错位），改用 text-shadow 横向描边模拟加粗，
+       布局中性；斜体的 font-style 不改字宽，可保留。 */
+    .src-highlight .mda-hl-mark { color: var(--gutter-text); }
+    .src-highlight .mda-hl-heading { color: #6f42c1; text-shadow: 0.4px 0 0 currentColor; }
+    .src-highlight .mda-hl-quote { color: var(--text-muted); font-style: italic; }
+    .src-highlight .mda-hl-code { color: #032f62; }
+    .src-highlight .mda-hl-strong { color: #0550ae; text-shadow: 0.4px 0 0 currentColor; }
+    .src-highlight .mda-hl-link { color: #0969da; }
+    [data-theme="dark"] .src-highlight .mda-hl-heading { color: #d2a8ff; }
+    [data-theme="dark"] .src-highlight .mda-hl-code { color: #a5d6ff; }
+    [data-theme="dark"] .src-highlight .mda-hl-strong { color: #79c0ff; }
+    [data-theme="dark"] .src-highlight .mda-hl-link { color: #58a6ff; }
     .src-input {
       z-index: 2; resize: none; overflow: auto; background: transparent; color: transparent;
       caret-color: var(--text); outline: none;

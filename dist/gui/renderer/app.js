@@ -15,6 +15,7 @@
   var panelVisible = true;        // 右侧批注栏是否展开（默认展开）
   var dirty = false;              // 编辑器内容是否有未保存修改
   var previewTimer = null;        // 实时预览防抖
+  var closePromptOpen = false;    // 防止重复弹出关闭确认框
 
   var filterStatus = { open: true, resolved: true, wontfix: true };
   var filterLevel = { critical: true, major: true, minor: true, info: true };
@@ -47,6 +48,7 @@
     api.onMenuToggleEdit(function () { toggleEditor(); });
     api.onMenuTogglePanel(function () { togglePanel(); });
     api.onMenuSave(function () { saveFile(); });
+    api.onAppCloseRequest(function () { handleAppCloseRequest(); });
 
     setupDragAndDrop();
     // 兜底：Ctrl+S 保存（菜单快捷键之外再拦一层）
@@ -120,10 +122,9 @@
     tbEditBtn.addEventListener('click', function () { toggleEditor(); });
     tbPanelBtn.addEventListener('click', function () { togglePanel(); });
 
-    // 编辑器输入 → 标记 dirty + 刷新高亮/行号 + 防抖实时预览
+    // 编辑器输入 → 按与磁盘内容是否一致决定 dirty（Ctrl+Z 撤回原点后自动取消标脏）
     editorEl.addEventListener('input', function () {
-      dirty = true;
-      updateToolbar();
+      setDirtyState(editorEl.value !== currentText);
       refreshEditorDecorations();
       if (previewTimer) clearTimeout(previewTimer);
       previewTimer = setTimeout(function () {
@@ -399,10 +400,19 @@
     bar.addEventListener('dblclick', function (e) { e.stopPropagation(); });
   }
 
-  function saveFile() {
-    if (!currentFilePath || !dirty) return;
+  function setDirtyState(val) {
+    if (dirty === val) return;
+    dirty = val;
+    if (api.setDirty) api.setDirty(val);
+    updateToolbar();
+  }
+
+  function saveFile(onSuccess) {
+    if (!currentFilePath || !dirty) {
+      if (typeof onSuccess === 'function') onSuccess();
+      return;
+    }
     var content = editorEl.value;
-    // 保存前校验：疑似批注但格式不正确 → 提示用户（这类行无法被识别为批注）
     var bad = (api.findMalformedAnnotations && api.findMalformedAnnotations(content)) || [];
     var proceed = bad.length
       ? uiConfirm('第 ' + bad.join('、') + ' 行的批注格式不正确，将无法被识别为批注。仍要保存吗？')
@@ -411,14 +421,27 @@
       if (!yes) return;
       api.saveFile(currentFilePath, content).then(function (r) {
         if (r.success) {
-          dirty = false;
           currentText = content;
-          updateToolbar();
-          openFile(currentFilePath); // 重载磁盘内容（EOL 归一 + 批注面板同步）
+          setDirtyState(false);
+          if (typeof onSuccess === 'function') onSuccess();
+          else openFile(currentFilePath);
         } else {
           uiAlert('保存失败: ' + r.error);
         }
       });
+    });
+  }
+
+  function handleAppCloseRequest() {
+    if (!dirty) { api.confirmClose(); return; }
+    if (closePromptOpen) return;
+    closePromptOpen = true;
+    uiCloseConfirm().then(function (choice) {
+      closePromptOpen = false;
+      if (choice === 'cancel') return;
+      if (choice === 'discard') { api.confirmClose(); return; }
+      // 保存后关闭
+      saveFile(function () { api.confirmClose(); });
     });
   }
 
@@ -544,12 +567,24 @@
     if (!result.success) { uiAlert('无法打开文件: ' + result.error); return; }
     currentFilePath = filePath;
     currentText = result.content;
-    dirty = false;
+    setDirtyState(false);
     editorEl.value = result.content;
+    editorEl.selectionStart = editorEl.selectionEnd = 0; // 光标置于开头，避免 focus 时滚到末尾
     refreshEditorDecorations();
     setTitle(filePath);
     parseAndRender(result.content, filePath);
     updateToolbar();
+    // 新开文档：编辑区与预览区都回到文档开头（隐藏→显示、focus 抢滚等时序问题，下一帧再重置一次兜底）
+    resetScrollTop();
+    requestAnimationFrame(resetScrollTop);
+  }
+
+  // 编辑区（textarea/高亮层/行号槽）与预览区滚动位置归零
+  function resetScrollTop() {
+    if (editorEl) { editorEl.scrollTop = 0; editorEl.scrollLeft = 0; }
+    if (srcHighlightEl) { var hp = srcHighlightEl.parentNode; hp.scrollTop = 0; hp.scrollLeft = 0; }
+    if (srcGutterEl) srcGutterEl.scrollTop = 0;
+    if (previewPaneEl) previewPaneEl.scrollTop = 0;
   }
 
   function setTitle(filePath) {
@@ -934,6 +969,29 @@
 
   function uiConfirm(message) { return uiModal(message, true); }
   function uiAlert(message) { return uiModal(message, false); }
+
+  // 关闭应用前三选一：保存 / 不保存 / 取消（DOM 弹窗，不用原生 dialog）
+  function uiCloseConfirm() {
+    return new Promise(function (resolve) {
+      var overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML =
+        '<div class="modal-box" style="min-width:320px">' +
+          '<div style="font-size:14px;margin-bottom:20px;line-height:1.6">有未保存的修改，是否在关闭前保存？</div>' +
+          '<div class="modal-actions" style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">' +
+            '<button id="ui-discard" class="btn-ghost">不保存</button>' +
+            '<button id="ui-cancel" class="btn-ghost">取消</button>' +
+            '<button id="ui-save" class="btn-ok">保存</button>' +
+          '</div></div>';
+      document.body.appendChild(overlay);
+      function close(val) { overlay.remove(); resolve(val); }
+      overlay.querySelector('#ui-save').addEventListener('click', function () { close('save'); });
+      overlay.querySelector('#ui-discard').addEventListener('click', function () { close('discard'); });
+      overlay.querySelector('#ui-cancel').addEventListener('click', function () { close('cancel'); });
+      overlay.addEventListener('click', function (e) { if (e.target === overlay) close('cancel'); });
+      overlay.querySelector('#ui-save').focus();
+    });
+  }
 
   // ---- 编辑/添加批注弹窗 ----
   function showEditDialog(mode, anno, defaultLine) {
