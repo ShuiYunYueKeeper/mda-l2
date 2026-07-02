@@ -144,18 +144,19 @@ npm run gui -- samples/demo.md
 
 ![操作演示](docs/screenshots/operation_demo.gif)
 
-### 新增 GUI 能力（待补截图）
+### 新增 GUI 能力
 
-三栏布局、深色模式、源码编辑高亮、流程图渲染、图片/流程图缩放等能力已实现并通过人工验证，
-**截图尚未入库**。待补清单与拍摄指引见 [`docs/screenshots/README.md`](docs/screenshots/README.md)。
+| 三栏布局（编辑｜预览｜批注） | 深色模式 |
+|------------------------------|----------|
+| ![三栏布局](docs/screenshots/5-three-pane.png) | ![深色模式](docs/screenshots/6-dark-mode.png) |
 
-| 能力 | 建议素材 |
-|------|----------|
-| 三栏布局（编辑｜预览｜批注） | `docs/screenshots/5-three-pane.png` |
-| 深色模式 | `docs/screenshots/6-dark-mode.png` |
-| 源码编辑（高亮+行号） | `docs/screenshots/7-editor-highlight.png` |
-| 流程图渲染 | `docs/screenshots/8-mermaid.png` |
-| 缩放遮罩 | `docs/screenshots/9-zoom-overlay.png` |
+| 源码编辑（高亮+行号） | 流程图与图片渲染 |
+|----------------------|------------------|
+| ![源码编辑](docs/screenshots/7-editor-highlight.png) | ![流程图与图片](docs/screenshots/8-mermaid_picture.png) |
+
+缩放遮罩（点击图片或流程图放大，支持滚轮缩放与拖拽平移）：
+
+![缩放遮罩](docs/screenshots/9-zoom-overlay.png)
 
 ## 批注语法
 
