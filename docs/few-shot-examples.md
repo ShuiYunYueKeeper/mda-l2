@@ -271,3 +271,24 @@ stage.addEventListener('dblclick', function (e) { e.stopPropagation(); reset(); 
 - ❌ 遮罩层 `dblclick` 监听在任意子元素上复位 → 连点 `−` 两次触发复位。
 - ❌ 半透明白色按钮浮在白图上 → **看不见** +/- 控制。
 - ❌ 无平移边界 → 内容被拖到视口外**找不回来**。
+
+---
+
+## 11. 复制预览到公众号（GUI 剪贴板）
+
+**规则**：
+- 仅支持微信公众号富文本；**不提供**知乎复制路径。
+- 富文本剪贴板只用 `clipboard.write({ html, text })`；**禁止**随后 `writeBuffer` 覆盖 HTML。
+- 复制过程**禁止**滚动预览或临时 overlay 重渲染 mermaid。
+
+### ✅ 正确
+
+```javascript
+clipboard.write({ text, html });
+// 视口内 capturePageRect，否则 SVG→PNG；不滚动预览
+```
+
+### ❌ 错误
+
+- ❌ `clipboard.writeBuffer('CF_HDROP', …)` 覆盖 HTML → 公众号粘贴空白。
+- ❌ 复制前改 `scrollTop` 或 overlay 重渲染 → 界面闪烁。

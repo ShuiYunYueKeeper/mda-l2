@@ -260,7 +260,7 @@ Phase F: 交付 — README → samples/demo.md → screenshots+video（见 docs/
 | `docs` | 文档变更 | `docs: 更新 README 添加覆盖率统计说明` |
 | `chore` | 构建/配置/工具 | `chore: 配置 jest 覆盖率报告输出格式` |
 
-每阶段提交均以 `Co-Authored-By: Claude <noreply@anthropic.com>` 结尾。
+每阶段提交均以 `Co-Authored-By: CurSor <noreply@cursor.com>` 结尾。
 
 ---
 

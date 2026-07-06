@@ -1,4 +1,4 @@
-﻿# MDA — Markdown 批注管理工具
+# MDA — Markdown 批注管理工具
 
 通过 Markdown 标准注释语法在 `.md` 文件中嵌入结构化批注，提供 **CLI** (`mda-cli`) 和 **GUI** (`mda`) 两种使用方式。
 
@@ -37,6 +37,7 @@ mda-l2/
 │   │   └── renderer.test.ts   # 批注不可见性验证 + CommonMark 语法覆盖
 │   └── cli/                   # CLI 集成测试
 ├── docs/
+│   ├── README.md              # 文档总索引
 │   ├── P0-requirements.md     # 需求分析
 │   ├── P1-architecture.md     # 架构设计
 │   ├── P2-detailed-design.md  # 详细设计
@@ -114,6 +115,56 @@ npm run gui
 npm run gui -- samples/demo.md
 ```
 
+## 打包与分发
+
+将 **GUI** 打成安装包分发给他人（无需对方安装 Node.js）。项目使用 [electron-builder](https://www.electron-builder.io/)，产物输出到 `release/` 目录。
+
+### 环境要求
+
+- 已执行 `npm install`
+- **Windows `.exe`**：在 Windows 上运行 `npm run dist:win`
+- **macOS `.dmg`**：须在 **macOS** 上运行 `npm run dist:mac`（或使用 macOS CI）
+- **Linux `.AppImage` / `.deb`**：在 Linux 上运行 `npm run dist:linux`
+
+### 打包命令
+
+```bash
+npm run build          # 先编译（打包脚本会自动执行，也可手动预检）
+
+npm run dist:win       # Windows：NSIS 安装包 + portable 便携版
+npm run dist:mac       # macOS：.dmg + .zip
+npm run dist:linux     # Linux：AppImage + deb
+npm run dist           # 当前平台默认目标
+```
+
+| 平台 | 典型产物（`release/` 下） |
+|------|---------------------------|
+| Windows | `MDA-1.0.0-win-x64.exe`（NSIS 安装程序）、`MDA-1.0.0-portable-win-x64.exe`（便携版） |
+| macOS | `MDA-1.0.0-mac-x64.dmg`、`MDA-1.0.0-mac-arm64.dmg` 等 |
+| Linux | `MDA-1.0.0-linux-x86_64.AppImage`、`mda_1.0.0_amd64.deb` |
+
+安装后可通过开始菜单 / 应用程序启动；支持关联 `.md` / `.markdown` 文件。命令行传入文件路径亦可直接打开，例如：
+
+```bash
+# Windows（安装后示例路径因安装位置而异）
+"C:\Program Files\MDA\MDA.exe" D:\docs\readme.md
+```
+
+### 仅 CLI（开发者 / 脚本集成）
+
+打包安装包**仅含 GUI**。若对方需要 `mda-cli` 命令行：
+
+```bash
+npm install -g .    # 全局安装后使用 mda-cli
+# 或源码方式：npm run build && npm run cli -- scan <file>
+```
+
+### 签名与首次打开提示
+
+- **Windows**：未签名时 SmartScreen 可能提示「未知发布者」，属正常现象；正式对外分发建议代码签名。
+- **macOS**：未公证时首次打开需右键「打开」；正式分发需 Apple 开发者账号 + 公证。
+- **Linux**：AppImage 需 `chmod +x` 后执行；deb 用 `sudo dpkg -i` 安装。
+
 ### GUI 功能
 
 - **三栏布局**：工具栏「编辑」「批注」两个独立开关，中间预览常驻；两者可同时展开为 **源码 ｜ 预览 ｜ 批注** 三栏平铺。栏间可拖拽调宽，**双击手柄复位**默认宽度。
@@ -124,8 +175,9 @@ npm run gui -- samples/demo.md
 - **流程图渲染**：` ```mermaid ` 代码块渲染为图形（flowchart/sequence/class/state 等），离线打包无需联网；解析失败降级为错误提示。
 - **批注管理**：增 / 删 / 改 / 筛选（按状态、级别、标签），写操作复用 core writer（原子写入 + 源文件保护）。
 - **段落 ↔ 批注双向定位**：含批注段落显示级别色条，点击段落定位批注、点击批注滚动到段落。
-- **拖拽打开**：将 `.md` / `.markdown` / `.txt` 拖入窗口即可打开；文件菜单提供「打开文件所在目录」（`Ctrl+Shift+O`）。
+- **拖拽打开**：将 `.md` / `.markdown` / `.txt` / `.mdc` 拖入窗口即可打开；文件菜单提供「打开文件所在目录」（`Ctrl+Shift+O`）。
 - **代码块增强**：语法高亮 + 行号、右上角悬浮「复制」按钮、右键菜单与快捷键（`Ctrl+C` 拷贝选区 / `Ctrl+A` 全选）；复制内容不含行号。
+- **复制预览（微信公众号）**：菜单或 `Ctrl+Shift+C`，将预览转为带内联样式的富文本（本地图与 Mermaid 内嵌 base64 PNG），可直接粘贴到公众号编辑器；复制过程不滚动、不改布局。
 - **稳健渲染**：自动忽略文件起始 BOM；批注行渲染时清空（不可见性对含括号等任意内容成立，并容忍编辑中/被改坏的残缺批注行不泄漏）；围栏代码块内的批注样例按字面显示、不计入面板。
 
 ## 界面截图与演示
@@ -197,7 +249,7 @@ npm run coverage
 - **lcov** — `coverage/lcov.info`（可导入 IDE）
 - **html** — `coverage/lcov-report/index.html`（浏览器查看）
 
-当前覆盖率：**Statements 88.36% / Lines 91.29% / Functions 95.34%**（73 个测试用例全部通过，含 core 单元测试、配置一致性测试、整篇写回 EOL 保留测试与 CLI 集成测试）。
+当前覆盖率：**Statements 88.13% / Lines 91.85% / Functions 95.65%**（79 个测试用例全部通过，含 core 单元测试、配置一致性测试、整篇写回 EOL 保留测试与 CLI 集成测试）。
 
 ## 规则配置
 
@@ -211,15 +263,18 @@ npm run coverage
   "levels": ["critical", "major", "minor", "info"],      // 调整级别枚举
   "statuses": ["open", "resolved", "wontfix"],           // 调整状态枚举
   "levelColors": { "critical": "#e74c3c", "...": "..." }, // 调整级别配色
-  "annotationPattern": "^\\[comment\\]:\\s*<>\\s*\\(@anno\\s+(\\{.+?\\})\\)\\s*$"
+  "annotationPattern": "^\\[comment\\]:\\s*<>\\s*\\(@anno\\s+(\\{.+?\\})\\)\\s*$",
+  "fileExtensions": ["md", "markdown", "txt", "mdc"]   // GUI 打开/拖拽与 scan -r 识别的扩展名
 }
 ```
 
 > 修改后执行 `npm run build`（配置会被复制到 `dist/config/`）。注意：`levels`/`statuses` 同时受
-> `model.ts` 的 TS 字面联合类型约束，新增枚举值需同步该类型。
+> `model.ts` 的 TS 字面联合类型约束，新增枚举值需同步该类型。`fileExtensions` 由 core 暴露
+> `MARKDOWN_FILE_EXTENSIONS` / `isMarkdownPath`，GUI preload 同步暴露给渲染层。
 
 ## 质量与协作资产
 
+- [`docs/README.md`](docs/README.md) — 文档总索引（阶段交付与协作资产）。
 - [`quality.md`](quality.md) — 测试体系、覆盖率、数据校验、源文件安全、人工审核点、Code Review 痕迹。
 - [`docs/few-shot-examples.md`](docs/few-shot-examples.md) — 易错点的 ✅ 正确 / ❌ 错误 成对示例（含 GUI：dirty/坏批注/编辑器对齐/缩放遮罩）。
 - [`samples/`](samples/) — 演示与验收样本，可直接用 CLI/GUI 体验。

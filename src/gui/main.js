@@ -2,6 +2,18 @@
 const path = require('path');
 const fs = require('fs');
 
+// Electron 31.x / Chromium 在 Windows 上偶发 PartitionAlloc dangling raw_ptr 致命崩溃（框架层问题）。
+// 须在 app.ready 之前关闭该检查，否则进程会直接 FATAL 退出。
+app.commandLine.appendSwitch('disable-features', 'PartitionAllocBackupRefPtr,PartitionAllocDanglingPtr');
+
+const schema = require(path.join(__dirname, '..', 'config', 'annotation-schema.json'));
+const MD_EXTENSIONS = schema.fileExtensions || ['md', 'markdown', 'txt', 'mdc'];
+
+function isMarkdownPath(filePath) {
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  return MD_EXTENSIONS.includes(ext);
+}
+
 let mainWindow = null;
 let rendererDirty = false;  // 渲染进程同步的「未保存编辑」标记
 let allowClose = false;     // 用户已确认放弃或保存成功后允许关闭
@@ -36,7 +48,7 @@ function createWindow(initialFile) {
           click: async () => {
             const result = await dialog.showOpenDialog(mainWindow, {
               title: '打开 Markdown 文件',
-              filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
+              filters: [{ name: 'Markdown', extensions: MD_EXTENSIONS }],
               properties: ['openFile'],
             });
             if (!result.canceled && result.filePaths.length > 0) {
@@ -63,6 +75,14 @@ function createWindow(initialFile) {
           accelerator: 'CmdOrCtrl+R',
           click: () => {
             mainWindow.webContents.send('reload');
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '复制预览（微信公众号）',
+          accelerator: 'CmdOrCtrl+Shift+C',
+          click: () => {
+            mainWindow.webContents.send('menu-copy-article');
           },
         },
         { type: 'separator' },
@@ -103,6 +123,18 @@ function createWindow(initialFile) {
         },
       ],
     },
+    {
+      label: '帮助',
+      submenu: [
+        {
+          label: '功能与快捷键',
+          accelerator: 'F1',
+          click: () => {
+            mainWindow.webContents.send('menu-show-help');
+          },
+        },
+      ],
+    },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 
@@ -130,6 +162,49 @@ function createWindow(initialFile) {
 
   ipcMain.handle('copy-clipboard', async (_event, text) => {
     clipboard.writeText(text == null ? '' : String(text));
+  });
+
+  // 富文本剪贴板（微信公众号粘贴用）：html + 纯文本
+  ipcMain.handle('copy-clipboard-html', async (_event, payload) => {
+    const html = payload && payload.html != null ? String(payload.html) : '';
+    const text = payload && payload.text != null ? String(payload.text) : '';
+    clipboard.write({ text, html });
+    return { success: true };
+  });
+
+  // 将本地图片读为 data URL（复制预览时内嵌图片，避免 file:// 粘贴失效）
+  ipcMain.handle('read-file-data-url', async (_event, filePath) => {
+    try {
+      if (!filePath) return { success: false, error: '路径为空' };
+      const abs = path.resolve(filePath);
+      const buf = fs.readFileSync(abs);
+      const ext = path.extname(abs).toLowerCase();
+      const mime = {
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.bmp': 'image/bmp',
+      }[ext] || 'application/octet-stream';
+      return { success: true, dataUrl: `data:${mime};base64,${buf.toString('base64')}` };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // 将预览区内指定矩形截图为 PNG data URL（复制 Mermaid 时用）
+  ipcMain.handle('capture-page-rect', async (event, rect) => {
+    try {
+      if (!rect || rect.width <= 0 || rect.height <= 0) {
+        return { success: false, error: '截图区域无效' };
+      }
+      const image = await event.sender.capturePage({
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      });
+      return { success: true, dataUrl: image.toDataURL() };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   });
 
   ipcMain.handle('set-title', async (_event, title) => {
@@ -176,13 +251,27 @@ function createWindow(initialFile) {
   }
 }
 
-app.whenReady().then(() => {
-  const argFile = process.argv.find(a => a.endsWith('.md') && !a.startsWith('-'));
-  // 命令行可能传相对路径（如 samples/demo.md），统一解析为绝对路径，
-  // 否则渲染层拿到的相对路径会让"打开文件所在目录"等依赖绝对路径的操作失效。
-  const initialFile = argFile ? path.resolve(argFile) : undefined;
-  createWindow(initialFile);
-});
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    const argFile = argv.find((a) => !a.startsWith('-') && isMarkdownPath(a));
+    if (argFile) {
+      mainWindow.webContents.send('file-opened', path.resolve(argFile));
+    }
+  });
+
+  app.whenReady().then(() => {
+    const argFile = process.argv.find((a) => !a.startsWith('-') && isMarkdownPath(a));
+    // 命令行可能传相对路径（如 samples/demo.md），统一解析为绝对路径
+    const initialFile = argFile ? path.resolve(argFile) : undefined;
+    createWindow(initialFile);
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

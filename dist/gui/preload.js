@@ -85,6 +85,9 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   showItemInFolder: (filePath) => ipcRenderer.invoke('show-item-in-folder', filePath),
   copyToClipboard: (text) => ipcRenderer.invoke('copy-clipboard', text),
+  copyArticleHtml: (html, text) => ipcRenderer.invoke('copy-clipboard-html', { html, text }),
+  readFileAsDataUrl: (filePath) => ipcRenderer.invoke('read-file-data-url', filePath),
+  capturePageRect: (rect) => ipcRenderer.invoke('capture-page-rect', rect),
   setTitle: (title) => ipcRenderer.invoke('set-title', title),
   // 将链接 href 相对当前文件所在目录解析为绝对路径（供相对 .md 链接跳转用）
   resolvePath: (baseFile, href) => {
@@ -115,6 +118,12 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   onMenuSave: (callback) => {
     ipcRenderer.on('menu-save', () => callback());
   },
+  onMenuShowHelp: (callback) => {
+    ipcRenderer.on('menu-show-help', () => callback());
+  },
+  onMenuCopyArticle: (callback) => {
+    ipcRenderer.on('menu-copy-article', () => callback());
+  },
   onAppCloseRequest: (callback) => {
     ipcRenderer.on('app-close-request', () => callback());
   },
@@ -124,6 +133,8 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   // 级别配色 / 严重度优先级（来源于 src/config/annotation-schema.json，经 core 暴露）
   levelColors: core.LEVEL_COLORS,
   levelSeverity: core.LEVEL_SEVERITY,
+  markdownExtensions: core.MARKDOWN_FILE_EXTENSIONS,
+  isMarkdownPath: (filePath) => core.isMarkdownPath(filePath),
 
   // ---- 复用 @mda/core ----
   parseAnnotations: (text) => core.parseAnnotations(text),

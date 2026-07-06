@@ -1,4 +1,4 @@
-﻿import schema from '../config/annotation-schema.json';
+import schema from '../config/annotation-schema.json';
 
 export type AnnotationLevel = 'critical' | 'major' | 'minor' | 'info';
 export type AnnotationStatus = 'open' | 'resolved' | 'wontfix';
@@ -14,6 +14,15 @@ export function isAnnotationLevel(v: unknown): v is AnnotationLevel {
 
 export function isAnnotationStatus(v: unknown): v is AnnotationStatus {
   return typeof v === 'string' && (ANNOTATION_STATUSES as string[]).includes(v);
+}
+
+/** GUI/CLI 可打开的 Markdown 类文件扩展名（不含点，来源于 annotation-schema.json） */
+export const MARKDOWN_FILE_EXTENSIONS: readonly string[] = schema.fileExtensions;
+
+export function isMarkdownPath(filePath: string): boolean {
+  const m = filePath.match(/\.([^.\\/]+)$/i);
+  if (!m) return false;
+  return MARKDOWN_FILE_EXTENSIONS.includes(m[1].toLowerCase());
 }
 
 export interface Annotation {
