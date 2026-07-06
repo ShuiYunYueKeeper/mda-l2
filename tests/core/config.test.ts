@@ -1,9 +1,11 @@
-﻿import schema from '../../src/config/annotation-schema.json';
+import schema from '../../src/config/annotation-schema.json';
 import {
   ANNOTATION_LEVELS,
   ANNOTATION_STATUSES,
   isAnnotationLevel,
   isAnnotationStatus,
+  isMarkdownPath,
+  MARKDOWN_FILE_EXTENSIONS,
 } from '../../src/core/model';
 import { LEVEL_COLORS, LEVEL_SEVERITY } from '../../src/core/renderer';
 
@@ -31,5 +33,14 @@ describe('外置规则配置驱动 core', () => {
       '[comment]: <> (@anno {"id":"x","content":"c","tags":[],"level":"info","status":"open","created_at":"2026-01-01T00:00:00Z"})';
     expect(re.test(line)).toBe(true);
     expect(re.test('普通正文')).toBe(false);
+  });
+
+  test('Markdown 文件扩展名来源于配置', () => {
+    expect(MARKDOWN_FILE_EXTENSIONS).toEqual(schema.fileExtensions);
+    expect(isMarkdownPath('doc.md')).toBe(true);
+    expect(isMarkdownPath('rules.mdc')).toBe(true);
+    expect(isMarkdownPath('readme.txt')).toBe(true);
+    expect(isMarkdownPath('notes.markdown')).toBe(true);
+    expect(isMarkdownPath('image.png')).toBe(false);
   });
 });

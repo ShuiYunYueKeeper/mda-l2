@@ -1,4 +1,4 @@
-﻿import * as fs from 'fs';
+import * as fs from 'fs';
 import * as path from 'path';
 import { parseAnnotations } from '../../core/parser';
 import {
@@ -7,6 +7,7 @@ import {
   ANNOTATION_STATUSES,
   isAnnotationLevel,
   isAnnotationStatus,
+  isMarkdownPath,
 } from '../../core/model';
 
 interface ScanOptions {
@@ -47,7 +48,7 @@ function scanDir(dirPath: string, recursive: boolean): AnnoRow[] {
     const fullPath = path.join(dirPath, entry.name);
     if (entry.isDirectory() && recursive) {
       results.push(...scanDir(fullPath, recursive));
-    } else if (entry.isFile() && entry.name.endsWith('.md')) {
+    } else if (entry.isFile() && isMarkdownPath(entry.name)) {
       results.push(...scanFile(fullPath));
     }
   }

@@ -61,7 +61,7 @@ function scanDir(dirPath, recursive) {
         if (entry.isDirectory() && recursive) {
             results.push(...scanDir(fullPath, recursive));
         }
-        else if (entry.isFile() && entry.name.endsWith('.md')) {
+        else if (entry.isFile() && (0, model_1.isMarkdownPath)(entry.name)) {
             results.push(...scanFile(fullPath));
         }
     }

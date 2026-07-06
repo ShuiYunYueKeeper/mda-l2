@@ -1,4 +1,4 @@
-// MDA Renderer — Markdown 批注管理工具 GUI
+﻿// MDA Renderer — Markdown 批注管理工具 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -48,11 +48,18 @@
     api.onMenuToggleEdit(function () { toggleEditor(); });
     api.onMenuTogglePanel(function () { togglePanel(); });
     api.onMenuSave(function () { saveFile(); });
+    api.onMenuShowHelp(function () { showHelpDialog(); });
+    api.onMenuCopyArticle(function () { copyPreviewForArticle(); });
     api.onAppCloseRequest(function () { handleAppCloseRequest(); });
 
     setupDragAndDrop();
     // 兜底：Ctrl+S 保存（菜单快捷键之外再拦一层）
     window.addEventListener('keydown', function (e) {
+      if (e.key === 'F1') {
+        e.preventDefault();
+        showHelpDialog();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && (e.key || '').toLowerCase() === 's') {
         e.preventDefault();
         saveFile();
@@ -84,7 +91,9 @@
           '</div>' +
         '</div>' +
         '<div id="split-left" class="mda-splitter hidden"></div>' +
-        '<div id="preview-pane"><div id="preview-content"></div></div>' +
+        '<div id="preview-pane">' +
+          '<div id="preview-content"></div>' +
+        '</div>' +
         '<div id="split-right" class="mda-splitter"></div>' +
         '<div id="panel-pane">' +
           '<div class="panel-head">' +
@@ -245,6 +254,7 @@
       try {
         try { m.initialize({ startOnLoad: false, theme: isDark() ? 'dark' : 'default', securityLevel: 'strict' }); } catch (e) { /* ignore */ }
         var out = await m.render(id, src);
+        holder.setAttribute('data-mermaid-src', src);
         holder.innerHTML = out.svg;
         if (out.bindFunctions) out.bindFunctions(holder);
         holder.addEventListener('click', function () {
@@ -487,8 +497,8 @@
       if (!files || !files.length) return;
       var p = files[0].path;
       if (!p) return;
-      if (/\.(md|markdown|txt)$/i.test(p)) requestOpen(p);
-      else uiAlert('仅支持打开 .md / .markdown / .txt 文件');
+      if (api.isMarkdownPath && api.isMarkdownPath(p)) requestOpen(p);
+      else uiAlert('仅支持打开 .md / .markdown / .txt / .mdc 文件');
     });
   }
 
@@ -500,7 +510,7 @@
     var clean = href.split('#')[0].split('?')[0];
     try { clean = decodeURIComponent(clean); } catch (e) { /* keep */ }
     if (!clean) return;
-    if (/\.(md|markdown|txt)$/i.test(clean)) {
+    if (api.isMarkdownPath && api.isMarkdownPath(clean)) {
       var target = currentFilePath ? api.resolvePath(currentFilePath, clean) : clean;
       if (target) requestOpen(target);
       return;
@@ -653,6 +663,7 @@
     var result = api.renderMarkdown(text);
     if (!result.success) {
       previewEl.innerHTML = '<p style="color:var(--danger)">渲染错误: ' + escHtml(result.error) + '</p>';
+      updateToolbar();
       return;
     }
     htmlContent = result.html;
@@ -660,10 +671,299 @@
 
     resolveImages();       // 相对/本地图片 → 绝对 file:// URL
     setupImageFallback();
+    updateToolbar();
     renderMermaidBlocks().then(function () {
       enhanceCodeBlocks(); // mermaid 块已被替换，剩余代码块加行号/复制/菜单
       decorateParagraphs();
+      updateToolbar();
     });
+  }
+
+  // ---- 复制预览为微信公众号富文本（Mermaid→图片、本地图→内嵌）----
+  function fileUrlToPath(url) {
+    if (!url || !/^file:/i.test(url)) return null;
+    try {
+      var p = decodeURIComponent(url.replace(/^file:\/\//i, ''));
+      if (/^\/[A-Za-z]:/.test(p)) p = p.slice(1);
+      return p;
+    } catch (e) { return null; }
+  }
+
+  function isValidPngDataUrl(url) {
+    return !!(url && /^data:image\/png;base64,.{80,}/i.test(url));
+  }
+
+  function svgDimensions(svg) {
+    var viewBox = svg.getAttribute('viewBox');
+    if (viewBox) {
+      var p = viewBox.trim().split(/[\s,]+/);
+      if (p.length >= 4) {
+        var vw = parseFloat(p[2]);
+        var vh = parseFloat(p[3]);
+        if (vw > 0 && vh > 0) return { w: Math.ceil(vw), h: Math.ceil(vh) };
+      }
+    }
+    var rect = svg.getBoundingClientRect();
+    var w = Math.ceil(rect.width) || parseInt(svg.getAttribute('width'), 10) || 0;
+    var h = Math.ceil(rect.height) || parseInt(svg.getAttribute('height'), 10) || 0;
+    if (w > 0 && h > 0) return { w: w, h: h };
+    return { w: 800, h: 600 };
+  }
+
+  async function captureElementPng(el) {
+    if (!el || !api.capturePageRect) return null;
+    var rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= window.innerHeight || rect.left >= window.innerWidth) {
+      return null;
+    }
+    var cap = await api.capturePageRect({
+      x: rect.left, y: rect.top, width: Math.ceil(rect.width), height: Math.ceil(rect.height),
+    });
+    return (cap && cap.success && isValidPngDataUrl(cap.dataUrl)) ? cap.dataUrl : null;
+  }
+
+  async function mermaidHolderToPngDataUrl(liveHolder) {
+    // 不滚动、不改布局：仅对已在视口内的元素截图，否则回退 SVG→PNG
+    var png = await captureElementPng(liveHolder);
+    if (png) return png;
+    var svg = liveHolder.querySelector('svg');
+    if (svg) {
+      try {
+        var fromSvg = await svgToPngDataUrl(svg);
+        if (isValidPngDataUrl(fromSvg)) return fromSvg;
+      } catch (e) { /* fallback */ }
+    }
+    throw new Error('流程图导出失败');
+  }
+
+  function svgToPngDataUrl(svg) {
+    return new Promise(function (resolve, reject) {
+      var clone = svg.cloneNode(true);
+      if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      var dim = svgDimensions(svg);
+      var w = dim.w;
+      var h = dim.h;
+      clone.setAttribute('width', String(w));
+      clone.setAttribute('height', String(h));
+      if (!clone.getAttribute('viewBox')) clone.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+      var svgStr = new XMLSerializer().serializeToString(clone);
+      var svg64 = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgStr)));
+      var img = new Image();
+      img.onload = function () {
+        var canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        try { resolve(canvas.toDataURL('image/png')); }
+        catch (err) { reject(err); }
+      };
+      img.onerror = function () { reject(new Error('SVG 转 PNG 失败')); };
+      img.src = svg64;
+    });
+  }
+
+  function imgElementToDataUrl(img) {
+    return new Promise(function (resolve, reject) {
+      function draw() {
+        try {
+          var w = img.naturalWidth || img.width;
+          var h = img.naturalHeight || img.height;
+          if (!w || !h) { reject(new Error('图片尺寸无效')); return; }
+          var canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0);
+          resolve(canvas.toDataURL('image/png'));
+        } catch (e) { reject(e); }
+      }
+      if (img.complete && img.naturalWidth) draw();
+      else { img.onload = draw; img.onerror = function () { reject(new Error('图片加载失败')); }; }
+    });
+  }
+
+  async function inlineImageSrc(img) {
+    var src = img.getAttribute('src') || '';
+    if (!src || /^data:/i.test(src)) return;
+    if (/^https?:/i.test(src)) return;
+    var filePath = fileUrlToPath(src);
+    if (!filePath && currentFilePath) filePath = api.resolvePath(currentFilePath, src);
+    if (filePath && api.readFileAsDataUrl) {
+      var r = await api.readFileAsDataUrl(filePath);
+      if (r.success) { img.setAttribute('src', r.dataUrl); return; }
+    }
+    var live = previewEl.querySelector('img[src="' + src.replace(/"/g, '\\"') + '"]');
+    if (live && live.complete) {
+      try { img.setAttribute('src', await imgElementToDataUrl(live)); } catch (e) { /* keep */ }
+    }
+  }
+
+  function applyArticleInlineStyles(root) {
+    var styleMap = {
+      H1: 'font-size:22px;font-weight:bold;line-height:1.4;margin:24px 0 16px;color:#222;',
+      H2: 'font-size:20px;font-weight:bold;line-height:1.4;margin:22px 0 14px;color:#222;',
+      H3: 'font-size:18px;font-weight:bold;line-height:1.4;margin:20px 0 12px;color:#222;',
+      H4: 'font-size:16px;font-weight:bold;line-height:1.4;margin:18px 0 10px;color:#222;',
+      H5: 'font-size:15px;font-weight:bold;line-height:1.4;margin:16px 0 8px;color:#222;',
+      H6: 'font-size:14px;font-weight:bold;line-height:1.4;margin:14px 0 8px;color:#666;',
+      P: 'font-size:16px;line-height:1.75;margin:0 0 16px;color:#333;',
+      BLOCKQUOTE: 'margin:0 0 16px;padding:8px 16px;border-left:4px solid #ddd;color:#666;background:#f9f9f9;',
+      UL: 'margin:0 0 16px;padding-left:2em;color:#333;',
+      OL: 'margin:0 0 16px;padding-left:2em;color:#333;',
+      LI: 'font-size:16px;line-height:1.75;margin:4px 0;',
+      PRE: 'margin:0 0 16px;padding:12px;background:#f6f8fa;border-radius:4px;overflow-x:auto;font-size:14px;line-height:1.6;',
+      CODE: 'font-family:Consolas,Monaco,monospace;font-size:14px;',
+      TABLE: 'border-collapse:collapse;width:100%;margin:0 0 16px;font-size:15px;',
+      TH: 'border:1px solid #ddd;padding:8px 12px;background:#f6f8fa;font-weight:bold;',
+      TD: 'border:1px solid #ddd;padding:8px 12px;',
+      HR: 'border:none;border-top:1px solid #ddd;margin:24px 0;',
+      A: 'color:#0969da;text-decoration:none;',
+      IMG: 'max-width:100%;height:auto;display:block;margin:12px auto;',
+      STRONG: 'font-weight:bold;',
+      EM: 'font-style:italic;',
+    };
+    var all = root.querySelectorAll('*');
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      var tag = el.tagName;
+      if (styleMap[tag]) el.setAttribute('style', styleMap[tag]);
+    }
+    root.querySelectorAll('code').forEach(function (c) {
+      if (c.parentElement && c.parentElement.tagName === 'PRE') return;
+      c.setAttribute('style', 'padding:2px 6px;background:#f6f8fa;border-radius:3px;font-size:14px;font-family:Consolas,Monaco,monospace;');
+    });
+  }
+
+  function wrapArticleSection(innerHtml) {
+    return '<section style="font-size:16px;line-height:1.75;color:#333;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',\'PingFang SC\',\'Microsoft YaHei\',sans-serif;">'
+      + innerHtml + '</section>';
+  }
+
+  function ensureImgDimensions(img) {
+    if (img.getAttribute('width') && img.getAttribute('height')) return Promise.resolve();
+    var src = img.getAttribute('src') || '';
+    if (!/^data:/i.test(src)) return Promise.resolve();
+    return new Promise(function (resolve) {
+      var im = new Image();
+      im.onload = function () {
+        img.setAttribute('width', String(im.naturalWidth || 400));
+        img.setAttribute('height', String(im.naturalHeight || 300));
+        resolve();
+      };
+      im.onerror = function () { resolve(); };
+      im.src = src;
+    });
+  }
+
+  function normalizeImgToPng(img) {
+    var src = img.getAttribute('src') || '';
+    if (!/^data:/i.test(src) || /^data:image\/png/i.test(src)) return Promise.resolve();
+    return new Promise(function (resolve) {
+      var im = new Image();
+      im.onload = function () {
+        try {
+          var c = document.createElement('canvas');
+          c.width = im.naturalWidth || 400;
+          c.height = im.naturalHeight || 300;
+          c.getContext('2d').drawImage(im, 0, 0);
+          img.setAttribute('src', c.toDataURL('image/png'));
+        } catch (e) { /* keep */ }
+        resolve();
+      };
+      im.onerror = function () { resolve(); };
+      im.src = src;
+    });
+  }
+
+  async function buildArticleClipboardContent() {
+    var root = document.createElement('div');
+    root.innerHTML = previewEl.innerHTML;
+
+    root.querySelectorAll('.mda-code-copy, .mda-code-gutter, .md-image-alt').forEach(function (el) { el.remove(); });
+    root.querySelectorAll('.mda-code').forEach(function (box) {
+      var pre = box.querySelector('pre');
+      if (pre && box.parentNode) box.parentNode.replaceChild(pre, box);
+    });
+    root.querySelectorAll('.mda-code-scroll').forEach(function (scroll) {
+      var pre = scroll.querySelector('pre');
+      if (pre && scroll.parentNode) scroll.parentNode.replaceChild(pre, scroll);
+    });
+    root.querySelectorAll('.md-image-wrapper').forEach(function (wrap) {
+      var img = wrap.querySelector('img');
+      if (img && wrap.parentNode) wrap.parentNode.replaceChild(img.cloneNode(true), wrap);
+    });
+
+    var mermaidHolders = root.querySelectorAll('.mda-mermaid');
+    var liveMermaids = previewEl.querySelectorAll('.mda-mermaid');
+    for (var mi = 0; mi < mermaidHolders.length; mi++) {
+      var holder = mermaidHolders[mi];
+      var liveHolder = liveMermaids[mi] || null;
+      var svg = liveHolder ? liveHolder.querySelector('svg') : holder.querySelector('svg');
+      var p = document.createElement('p');
+      p.setAttribute('style', 'text-align:center;margin:16px 0;');
+      if (liveHolder || svg) {
+        try {
+          var mmdImg = document.createElement('img');
+          mmdImg.src = liveHolder
+            ? await mermaidHolderToPngDataUrl(liveHolder)
+            : await svgToPngDataUrl(svg);
+          mmdImg.setAttribute('alt', '流程图');
+          p.appendChild(mmdImg);
+        } catch (e) {
+          p.textContent = '[流程图]';
+        }
+      } else {
+        p.textContent = '[流程图]';
+      }
+      if (holder.parentNode) holder.parentNode.replaceChild(p, holder);
+    }
+
+    root.querySelectorAll('.mda-mermaid-error').forEach(function (el) {
+      var p = document.createElement('p');
+      p.setAttribute('style', 'color:#999;font-style:italic;');
+      p.textContent = el.textContent || '[流程图渲染失败]';
+      if (el.parentNode) el.parentNode.replaceChild(p, el);
+    });
+
+    var imgs = root.querySelectorAll('img');
+    for (var ii = 0; ii < imgs.length; ii++) {
+      await inlineImageSrc(imgs[ii]);
+      await normalizeImgToPng(imgs[ii]);
+      await ensureImgDimensions(imgs[ii]);
+    }
+
+    root.querySelectorAll('.mda-cursor-block').forEach(function (el) { el.classList.remove('mda-cursor-block'); });
+    applyArticleInlineStyles(root);
+
+    return {
+      html: wrapArticleSection(root.innerHTML),
+      text: root.innerText || '',
+    };
+  }
+
+  async function copyPreviewForArticle() {
+    if (!previewEl || !previewEl.textContent.trim()) {
+      uiAlert('预览区尚无内容，请先打开 Markdown 文件');
+      return;
+    }
+    try {
+      var pack = await buildArticleClipboardContent();
+      if (!pack.text && !pack.html) {
+        uiAlert('复制失败: 剪贴板内容为空');
+        return;
+      }
+      var r = await api.copyArticleHtml(pack.html, pack.text);
+      if (r && r.success !== false) {
+        uiAlert('已复制微信公众号格式到剪贴板，可直接粘贴到公众号编辑器。');
+      } else {
+        uiAlert('复制失败: ' + ((r && r.error) || '未知错误'));
+      }
+    } catch (err) {
+      uiAlert('复制失败: ' + ((err && err.message) ? err.message : String(err)));
+    }
   }
 
   // ---- 图片：相对/本地路径 → 绝对 file://，并绑定点击放大 ----
@@ -1007,6 +1307,58 @@
 
   function uiConfirm(message) { return uiModal(message, true); }
   function uiAlert(message) { return uiModal(message, false); }
+
+  function showHelpDialog() {
+    var exts = (api.markdownExtensions || ['md', 'markdown', 'txt', 'mdc']).map(function (e) {
+      return '.' + e;
+    }).join(' / ');
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML =
+      '<div class="modal-box mda-help-box">' +
+        '<h2 class="mda-help-title">MDA 功能与快捷键</h2>' +
+        '<div class="mda-help-body">' +
+          '<p class="mda-help-lead">Markdown 批注管理工具：在 .md 等文件中嵌入结构化批注，提供可视化预览与批注面板。</p>' +
+          '<h3>支持的文件</h3>' +
+          '<p>可打开 ' + escHtml(exts) + '；拖拽文件到窗口、菜单「文件 → 打开」或命令行 <code>mda path/to/file</code>。</p>' +
+          '<h3>批注</h3>' +
+          '<ul>' +
+            '<li>段落左侧色条表示批注级别（critical / major / minor / info）</li>' +
+            '<li>点击预览段落 ↔ 点击批注列表，双向定位</li>' +
+            '<li>按状态、级别、标签筛选；增 / 删 / 改批注（写操作保护正文，仅改批注行）</li>' +
+            '<li>存在未保存的源码编辑时，批注写操作会暂时禁用</li>' +
+          '</ul>' +
+          '<h3>编辑与预览</h3>' +
+          '<ul>' +
+            '<li>三栏：源码编辑｜实时预览｜批注面板（编辑/批注可独立开关）</li>' +
+            '<li>源码语法高亮 + 行号；<kbd>Ctrl+S</kbd> 保存；关闭时未保存会提示</li>' +
+            '<li>深色模式；相对路径图片；Mermaid 流程图；点击图片/流程图可缩放</li>' +
+            '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片与流程图）</li>' +
+            '<li>分栏可拖拽调宽，双击分隔条复位</li>' +
+          '</ul>' +
+          '<h3>快捷键</h3>' +
+          '<table class="mda-help-table"><tbody>' +
+            '<tr><td>打开文件</td><td><kbd>Ctrl+O</kbd></td></tr>' +
+            '<tr><td>保存</td><td><kbd>Ctrl+S</kbd></td></tr>' +
+            '<tr><td>重新加载</td><td><kbd>Ctrl+R</kbd></td></tr>' +
+            '<tr><td>打开文件所在目录</td><td><kbd>Ctrl+Shift+O</kbd></td></tr>' +
+            '<tr><td>复制预览（微信公众号）</td><td><kbd>Ctrl+Shift+C</kbd></td></tr>' +
+            '<tr><td>编辑栏</td><td><kbd>Ctrl+E</kbd></td></tr>' +
+            '<tr><td>批注栏</td><td><kbd>Ctrl+B</kbd></td></tr>' +
+            '<tr><td>切换深色模式</td><td><kbd>Ctrl+Shift+D</kbd></td></tr>' +
+            '<tr><td>功能与快捷键（本页）</td><td><kbd>F1</kbd></td></tr>' +
+            '<tr><td>开发者工具</td><td><kbd>F12</kbd></td></tr>' +
+          '</tbody></table>' +
+          '<p class="mda-help-note">CLI 命令 <code>mda-cli scan/add/edit/remove</code> 与 GUI 共用同一套核心逻辑。</p>' +
+        '</div>' +
+        '<div class="modal-actions"><button id="ui-help-ok" class="btn-ok">关闭</button></div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    function close() { overlay.remove(); }
+    overlay.querySelector('#ui-help-ok').addEventListener('click', close);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+    overlay.querySelector('#ui-help-ok').focus();
+  }
 
   // 关闭应用前三选一：保存 / 不保存 / 取消（DOM 弹窗，不用原生 dialog）
   function uiCloseConfirm() {

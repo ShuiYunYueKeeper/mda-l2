@@ -1,4 +1,4 @@
-﻿{
+{
   "$comment": "MDA 批注规则的单一可配置真相。levels/statuses 决定合法枚举；levelColors 决定 CLI/GUI 级别配色；levelSeverity 决定段落多批注取色优先级（数值越大越严重）；annotationPattern 决定批注行的识别正则（含一个捕获组用于提取 JSON）。修改后需 npm run build。",
   "levels": ["critical", "major", "minor", "info"],
   "statuses": ["open", "resolved", "wontfix"],
@@ -14,5 +14,6 @@
     "minor": 1,
     "info": 0
   },
-  "annotationPattern": "^\\[comment\\]:\\s*<>\\s*\\(@anno\\s+(\\{.+?\\})\\)\\s*$"
+  "annotationPattern": "^\\[comment\\]:\\s*<>\\s*\\(@anno\\s+(\\{.+?\\})\\)\\s*$",
+  "fileExtensions": ["md", "markdown", "txt", "mdc"]
 }

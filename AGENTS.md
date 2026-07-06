@@ -1,4 +1,4 @@
-# AGENTS.md — MDA（Markdown 批注管理工具）AI 协作指南
+﻿# AGENTS.md — MDA（Markdown 批注管理工具）AI 协作指南
 
 > 本文件是面向 AI 协作者的项目级资产。任何在本仓库工作的 AI/人，**动手前必须读完本文件**，
 > 并严格遵守「禁止事项」与「隐性规范」。本文件与代码同步维护，发现不一致以代码为准并回头更新本文件。
@@ -154,11 +154,14 @@ buildCodeFenceMask(lines: string[]): boolean[]    // 围栏遮罩，parser/rende
 ```
 readFile(filePath) -> {success, content, filePath} | {success:false,error}
 openExternal(url) / setTitle(title) / showItemInFolder(filePath) / copyToClipboard(text)
+copyArticleHtml(html, text) -> {success:true} | {success:false,error}  // 富文本剪贴板（微信公众号；勿 writeBuffer 覆盖）
+readFileAsDataUrl(filePath) -> {success, dataUrl} | {success:false,error}  // 本地图片转 base64（复制预览内嵌用）
+capturePageRect({x,y,width,height}) -> {success, dataUrl} | {success:false,error}
 resolvePath(baseFile, href) -> absPath        // 相对当前文件目录解析（相对链接/图片用）
 onFileOpened(cb) / onReload(cb) / onMenuShowInFolder(cb)
-onMenuToggleTheme(cb) / onMenuToggleEdit(cb) / onMenuTogglePanel(cb) / onMenuSave(cb) / onAppCloseRequest(cb)
+onMenuToggleTheme(cb) / onMenuToggleEdit(cb) / onMenuTogglePanel(cb) / onMenuSave(cb) / onMenuShowHelp(cb) / onMenuCopyArticle(cb) / onAppCloseRequest(cb)
 setDirty(dirty) / confirmClose()
-levelColors / levelSeverity                    // 来自 annotation-schema.json
+levelColors / levelSeverity / markdownExtensions / isMarkdownPath(filePath)   // 来自 annotation-schema.json（扩展名）与 core
 parseAnnotations(text) -> ScanResult
 renderMarkdown(text) -> {success, html} | {success:false,error}   // 内部先容错隐藏疑似批注行
 addAnnotation(filePath, line, input) -> {success, value:Annotation} | {success:false,error}
@@ -239,12 +242,13 @@ npm test               # jest（含覆盖率）
 2. **【写入安全】换行保留**：写回前 `detectEol(rawText)`，只要原文出现过 `\r\n` 就按 CRLF 回写，否则 LF；禁止把 CRLF 文件静默转 LF。
 3. **【写入安全】原子写入**：临时文件（`.<name>.<uuid>.tmp`）+ `fs.rename`；失败需清理临时文件。绝不直接覆盖原文件。
 4. **【渲染】不可见性是硬指标**：渲染输出的 HTML 中不得出现 `@anno` 或任何批注字段值；`renderer.test.ts` 用「去批注后渲染等价」断言守护，改渲染时勿破坏。
-4b. **【渲染】渲染前预处理**：`renderMarkdown` 先 `preprocessForRender` —— ① 去掉起始 BOM（否则首行 `# 标题` 被 BOM 抢占行首而当成普通段落）；② 用 `buildCodeFenceMask` 把**围栏外**的批注行清空为空行（保留行数 → `data-line` 不变）。不能依赖 markdown-it 的链接引用定义来隐藏批注：内容含括号（如 `n(n-1)/2`）会破坏该语法导致批注泄漏。
+4b. **【渲染】渲染前预处理**：`renderMarkdown` 先 `preprocessForRender` —— ① 去掉起始 BOM（否则首行 `# 标题` 被 BOM 抢占行首而当成普通段落）；② 用 `buildCodeFenceMask` 把**围栏外**的批注行清空为空行（保留行数 → `data-line` 不变）；③ 对 `4b.` / `4e、` / `4f)` 等伪子条目在上一行末补硬换行，避免与父列表项并成一段。不能依赖 markdown-it 的链接引用定义来隐藏批注：内容含括号（如 `n(n-1)/2`）会破坏该语法导致批注泄漏。
 4c. **【解析/渲染】围栏感知**：`buildCodeFenceMask` 为 parser 与 renderer 共用；```` ``` ````/`~~~` 围栏内的 `@anno` 样例是字面文本，**不识别为批注、也不清空**，三处行为必须一致。
 4d. **【GUI 渲染】疑似批注容错隐藏**：GUI 源码编辑时批注可能被改坏（如缺 `]`、坏 JSON），此时严格正则不匹配 → 既不入面板又会泄漏进预览。preload 用**宽松识别** `ANNO_ISH`（只认 `<> (@anno` 标记，容忍方括号缺失/JSON 残缺，围栏外）在渲染前清空这些行，保证坏批注不泄漏；同一识别用于 `findMalformedAnnotations`，**保存时**对「疑似批注但不满足严格格式」的行号弹窗提示。此为 GUI 层能力，不改 core 严格解析。
 4e. **【写入安全】整篇写回**：GUI 源码编辑保存走 `writeRawFile`（原子写入 + `detectEol` 保留原换行风格），是对正文的**全量编辑**，**不做**源文件保护校验（区别于批注增删改）。存在未保存编辑（dirty）时，GUI 禁用批注增删改，避免 core 基于旧磁盘内容写入后重载丢失编辑。
 4f. **【GUI 编辑器】高亮层对齐**：源码编辑器为「透明 `textarea` 叠加 `pre` 高亮层 + 行号槽」结构；三者必须**同字体/字号/行高/padding/`white-space:pre`/`tab-size`**，`textarea` 为唯一可交互滚动层，其 `scroll` 事件同步高亮层与行号槽的 `scrollTop/scrollLeft`，否则光标与着色错位。**必须在三层都关闭连字**（`font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0;`）：整行被拆成多个 `<span>` 后，跨 span 的连字（如 `##`/`->`）会在高亮层断开而 textarea 不断开，两层字符宽度不一致导致光标错位。**并须在字体栈里显式指定同一中文回退字体**（如 `'Microsoft YaHei'`）：等宽字体无中文字形时，`<textarea>` 与高亮 `<code>` 可能各自挑到不同 CJK 回退字体，每个汉字差一点、行尾累积成明显偏移（点行首正常、点行尾偏）。连字关闭后斜体（`font-style`）不改字宽可保留；但**加粗禁用真实 `font-weight`**（会改变字宽、尤其中文回退字体 → 加粗行 textarea 光标错位），标题/粗体一律用 `text-shadow: 0.4px 0 0 currentColor` 横向描边**模拟加粗**（布局中性），围栏内 hljs 的 `.hljs-strong` 亦同。**行高须用整数像素**（如 `21px`，勿用 `1.6` 之类小数：13px×1.6=20.8px，textarea 与 `<code>` 逐行取整方式不同，滚几百行累积成纵向错位）。**高亮层文本须与 textarea 严格 1:1**（勿删 BOM——textarea 的 `value` 保留 BOM，删了会整体错开一位；BOM 仅在正则识别时单独剥离、原样拼回）。**高亮层须加足够底/右 `padding`**（如 60px）：textarea 因横向滚动条+末行预留，可滚动范围恒比高亮层多几十像素，滚到底部时高亮层被钳住导致纵向错位，加 padding 使其可滚范围 ≥ textarea 即可。
 4g. **【GUI 缩放】遮罩去栅格化 + 边界**：图片/流程图缩放遮罩的舞台元素**禁止**加 `will-change: transform`（会先按原尺寸栅格化再缩放导致放大模糊，SVG 亦然）；缩放钳制 0.3×–8×；平移须钳制中心留在视口内；`+/-` 按钮点击/双击要 `stopPropagation`，仅内容本身双击才复位（避免连点误复位）。
+4h. **【GUI 复制预览】仅微信公众号、不扰动界面**：「复制预览（微信公众号）」克隆预览 DOM 后离线处理（Mermaid→PNG、本地图→base64、内联样式），经 `copyArticleHtml` 写 `clipboard.write({ html, text })`。**禁止**复制时滚动预览、临时 overlay 重渲染、或 `clipboard.writeBuffer` 覆盖 HTML。不提供知乎复制路径。
 5. **【GUI·Electron】data-line 映射**：preload 仅对 `level===0` 的块级 token 注入 `data-line = map[0]+1`，其值等于段落 `startLine`，GUI 据此做「段落↔批注」双向定位与色条。
 6. **【GUI·Electron】运行前提**：preload `require('../core')` 需 `sandbox:false`；GUI 运行前必须 `npm run build`（否则 `dist/core` 不存在）。
 7. **【数据校验】枚举守卫**：add/edit/scan 入口用 `isAnnotationLevel/isAnnotationStatus` 校验，非法值报错退出而非落盘。
@@ -264,7 +268,7 @@ npm test               # jest（含覆盖率）
 | 渲染/不可见性 | `src/core/renderer.ts` |
 | CLI 命令 | `src/cli/commands/*.ts` |
 | GUI 主进程/桥接/界面 | `src/gui/main.js` / `preload.js` / `renderer/app.js` |
-| 设计文档 | `docs/P0..P3-*.md` |
+| 设计文档 | `docs/P0..P3-*.md`、`docs/README.md` |
 | AI 协作记录 | `docs/prompts/*.md` |
 | Few-shot 正反例 | `docs/few-shot-examples.md` |
 | 质量保障说明 | `quality.md` |

@@ -4,6 +4,9 @@ export declare const ANNOTATION_LEVELS: AnnotationLevel[];
 export declare const ANNOTATION_STATUSES: AnnotationStatus[];
 export declare function isAnnotationLevel(v: unknown): v is AnnotationLevel;
 export declare function isAnnotationStatus(v: unknown): v is AnnotationStatus;
+/** GUI/CLI 可打开的 Markdown 类文件扩展名（不含点，来源于 annotation-schema.json） */
+export declare const MARKDOWN_FILE_EXTENSIONS: readonly string[];
+export declare function isMarkdownPath(filePath: string): boolean;
 export interface Annotation {
     id: string;
     content: string;

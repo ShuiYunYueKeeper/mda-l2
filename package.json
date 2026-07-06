@@ -2,6 +2,7 @@
   "name": "mda",
   "version": "1.0.0",
   "description": "Markdown 批注管理工具 — CLI (mda-cli) + GUI (mda)",
+  "author": "MDA",
   "main": "dist/gui/main.js",
   "bin": {
     "mda": "dist/gui/main.js",
@@ -16,7 +17,11 @@
     "start": "electron dist/gui/main.js",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
-    "coverage": "jest --coverage"
+    "coverage": "jest --coverage",
+    "dist": "npm run build && node scripts/ensure-no-bom.js && electron-builder",
+    "dist:win": "npm run build && node scripts/ensure-no-bom.js && electron-builder --win",
+    "dist:mac": "npm run build && node scripts/ensure-no-bom.js && electron-builder --mac",
+    "dist:linux": "npm run build && node scripts/ensure-no-bom.js && electron-builder --linux"
   },
   "keywords": [
     "markdown",
@@ -42,10 +47,63 @@
     "@types/uuid": "^10.0.0",
     "c8": "^10.1.2",
     "electron": "^31.1.0",
+    "electron-builder": "^26.15.3",
     "jest": "^29.7.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "ts-jest": "^29.2.3",
     "typescript": "^5.5.3"
+  },
+  "build": {
+    "appId": "com.mda.annotation-tool",
+    "productName": "MDA",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "md",
+        "name": "Markdown Document",
+        "role": "Editor"
+      },
+      {
+        "ext": "markdown",
+        "name": "Markdown Document",
+        "role": "Editor"
+      },
+      {
+        "ext": "mdc",
+        "name": "Markdown Cursor Rules",
+        "role": "Editor"
+      }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable-${os}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "MDA"
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Office"
+    }
   }
 }

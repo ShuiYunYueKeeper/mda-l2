@@ -1,0 +1,12 @@
+# 根目录 package.json 若带 UTF-8 BOM，electron-builder 会 JSON 解析失败
+root = true
+
+[package.json]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+[*.{json,js,ts,md,html}]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
