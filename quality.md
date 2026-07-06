@@ -11,7 +11,7 @@
 |------|------|------|
 | parser 单元测试 | `tests/core/parser.test.ts` | E1–E25 边界体系：空文件、无批注、连续批注、多段落、非法 JSON、特殊字符、CRLF、无空行段落、1MB+ 性能、围栏代码块内样例不识别等 |
 | writer 单元测试 | `tests/core/writer.test.ts` | 增删改、行号越界、ID 不存在、源文件保护、原子写入失败清理、空行压缩、CRLF/LF 保留、**`writeRawFile` 整篇写回 + EOL 保留（3 用例）** |
-| renderer 单元测试 | `tests/core/renderer.test.ts` | 批注不可见性（不含 `@anno`/字段值、去批注后渲染等价）、含括号批注、BOM 标题、围栏样例原样显示、图片 fallback、level→color |
+| renderer 单元测试 | `tests/core/renderer.test.ts` | 批注不可见性（不含 `@anno`/字段值、去批注后渲染等价）、含括号批注、BOM 标题、围栏样例原样显示、**伪子条目（4b.）硬换行**、图片 fallback、level→color |
 | 配置一致性测试 | `tests/core/config.test.ts` | 锁定外置规则（枚举/配色/严重度/正则）与 core 派生值一致，防止漂移 |
 | CLI 集成测试 | `tests/cli/commands.test.ts` | 四命令端到端：stdout 纯净、退出码、枚举校验、round-trip |
 
@@ -21,7 +21,7 @@
 npm test          # jest，含覆盖率
 ```
 
-**当前状态：73 用例全部通过。**
+**当前状态：79 用例全部通过。**
 
 ---
 
@@ -29,9 +29,9 @@ npm test          # jest，含覆盖率
 
 | 指标 | 数值 |
 |------|------|
-| Statements | 88.36% |
-| Lines | 91.29% |
-| Functions | 95.34% |
+| Statements | 88.13% |
+| Lines | 91.85% |
+| Functions | 95.65% |
 
 > 以 `npm test`（jest --coverage）实测为准；core 模块覆盖率最高（model 100% / renderer 100%）。
 

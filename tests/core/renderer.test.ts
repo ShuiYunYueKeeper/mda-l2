@@ -1,4 +1,4 @@
-﻿import { createMarkdownIt, renderMarkdown } from '../../src/core/renderer';
+import { createMarkdownIt, renderMarkdown } from '../../src/core/renderer';
 
 describe('批注不可见性验证', () => {
   const md = createMarkdownIt();
@@ -78,6 +78,30 @@ describe('批注不可见性验证', () => {
     // 围栏内属于代码字面内容，应保留（HTML 转义后仍可见 @anno 文本）
     expect(html).toContain('@anno');
     expect(html).toContain('<pre>');
+  });
+
+  test('文件起始 YAML front matter 不在预览中显示（.mdc / SKILL 等）', () => {
+    const input = `---
+name: wps-cpp-code-review
+description: 用于 C++ 代码审查
+---
+# 标题
+
+正文段落。`;
+    const html = renderMarkdown(md, input);
+
+    expect(html).not.toContain('wps-cpp-code-review');
+    expect(html).not.toContain('用于 C++ 代码审查');
+    expect(html).not.toContain('<hr');
+    expect(html).toContain('<h1>标题</h1>');
+    expect(html).toContain('正文段落');
+  });
+
+  test('围栏内以 --- 开头的样例不按 front matter 隐藏', () => {
+    const input = '```yaml\n---\nkey: value\n---\n```\n\n正文。';
+    const html = renderMarkdown(md, input);
+    expect(html).toContain('key: value');
+    expect(html).toContain('正文');
   });
 
   test('批注 JSON 含 HTML 标签时 content 中的文本不出现在渲染输出中', () => {
@@ -168,5 +192,38 @@ describe('CommonMark 兼容', () => {
   test('链接', () => {
     const html = renderMarkdown(md, '[text](https://example.com)');
     expect(html).toContain('<a href="https://example.com">text</a>');
+  });
+
+  test('伪子条目（4b. 4c.）在列表项内保留换行', () => {
+    const input = `4. First line
+4b. Second line
+4c. Third line
+5. Next item`;
+    const html = renderMarkdown(md, input);
+
+    expect(html).toContain('First line<br />');
+    expect(html).toContain('4b. Second line<br />');
+    expect(html).toContain('4c. Third line');
+    expect(html).toContain('<li>Next item</li>');
+  });
+
+  test('伪子条目顿号/括号分隔符（4e、 4f)）保留换行', () => {
+    const input = `4. First line
+4e、Second line
+4f) Third line
+5. Next item`;
+    const html = renderMarkdown(md, input);
+
+    expect(html).toContain('First line<br />');
+    expect(html).toContain('4e、Second line<br />');
+    expect(html).toContain('4f) Third line');
+    expect(html).toContain('<li>Next item</li>');
+  });
+
+  test('围栏内伪子条目不注入硬换行', () => {
+    const input = '```\n4. a\n4b. b\n```';
+    const html = renderMarkdown(md, input);
+    expect(html).toContain('4. a\n4b. b');
+    expect(html).not.toContain('<br />');
   });
 });
