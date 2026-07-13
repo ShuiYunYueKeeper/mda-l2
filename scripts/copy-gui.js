@@ -5,13 +5,24 @@ const fs = require('fs');
 const path = require('path');
 
 fs.mkdirSync(path.join(__dirname, '..', 'dist', 'gui', 'renderer'), { recursive: true });
+fs.mkdirSync(path.join(__dirname, '..', 'dist', 'gui', 'main'), { recursive: true });
 fs.mkdirSync(path.join(__dirname, '..', 'dist', 'config'), { recursive: true });
 
 const files = [
   ['src/gui/main.js', 'dist/gui/main.js'],
   ['src/gui/preload.js', 'dist/gui/preload.js'],
+  ['src/gui/main/recent-files.js', 'dist/gui/main/recent-files.js'],
+  ['src/gui/main/markdown-tree.js', 'dist/gui/main/markdown-tree.js'],
   ['src/gui/renderer/index.html', 'dist/gui/renderer/index.html'],
   ['src/gui/renderer/app.js', 'dist/gui/renderer/app.js'],
+  ['src/gui/renderer/welcome.js', 'dist/gui/renderer/welcome.js'],
+  ['src/gui/renderer/file-sidebar.js', 'dist/gui/renderer/file-sidebar.js'],
+  ['src/gui/renderer/sync-scroll.js', 'dist/gui/renderer/sync-scroll.js'],
+  ['src/gui/renderer/find-replace.js', 'dist/gui/renderer/find-replace.js'],
+  ['src/gui/renderer/editor-assist.js', 'dist/gui/renderer/editor-assist.js'],
+  ['src/gui/renderer/outline-panel.js', 'dist/gui/renderer/outline-panel.js'],
+  ['src/gui/renderer/selection-anchor.js', 'dist/gui/renderer/selection-anchor.js'],
+  ['src/gui/renderer/anchor-highlights.js', 'dist/gui/renderer/anchor-highlights.js'],
   ['src/config/annotation-schema.json', 'dist/config/annotation-schema.json'],
 ];
 
@@ -35,4 +46,20 @@ try {
   console.log('  copied: dist/gui/renderer/mermaid.min.js');
 } catch (e) {
   console.warn('  [warn] 未找到 mermaid，流程图渲染将不可用：' + e.message);
+}
+
+try {
+  const katexDir = path.dirname(require.resolve('katex/package.json'));
+  const katexCssSrc = path.join(katexDir, 'dist', 'katex.min.css');
+  const katexCssDst = path.join(__dirname, '..', 'dist', 'gui', 'renderer', 'katex.min.css');
+  fs.copyFileSync(katexCssSrc, katexCssDst);
+  console.log('  copied: dist/gui/renderer/katex.min.css');
+  const fontsSrc = path.join(katexDir, 'dist', 'fonts');
+  const fontsDst = path.join(__dirname, '..', 'dist', 'gui', 'renderer', 'fonts');
+  if (fs.existsSync(fontsSrc)) {
+    fs.cpSync(fontsSrc, fontsDst, { recursive: true });
+    console.log('  copied: dist/gui/renderer/fonts/');
+  }
+} catch (e) {
+  console.warn('  [warn] 未找到 katex CSS：' + e.message);
 }

@@ -7,6 +7,11 @@ export declare function isAnnotationStatus(v: unknown): v is AnnotationStatus;
 /** GUI/CLI 可打开的 Markdown 类文件扩展名（不含点，来源于 annotation-schema.json） */
 export declare const MARKDOWN_FILE_EXTENSIONS: readonly string[];
 export declare function isMarkdownPath(filePath: string): boolean;
+export interface AnnotationAnchor {
+    start: number;
+    end: number;
+    quote?: string;
+}
 export interface Annotation {
     id: string;
     content: string;
@@ -16,11 +21,13 @@ export interface Annotation {
     created_at: string;
     line?: number;
     file?: string;
+    anchor?: AnnotationAnchor;
 }
 export interface AnnotationInput {
     content: string;
     tags?: string[];
     level?: AnnotationLevel;
+    anchor?: AnnotationAnchor;
 }
 export interface AnnotationPatch {
     content?: string;
@@ -37,5 +44,11 @@ export interface Paragraph {
 export interface ScanResult {
     annotations: Annotation[];
     paragraphs: Paragraph[];
+}
+export interface HeadingNode {
+    level: number;
+    title: string;
+    line: number;
+    children: HeadingNode[];
 }
 //# sourceMappingURL=model.d.ts.map

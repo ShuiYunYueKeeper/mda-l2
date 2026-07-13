@@ -9,6 +9,7 @@ exports.parseAnnotations = parseAnnotations;
 exports.findAnnotationByLine = findAnnotationByLine;
 exports.findParagraphByLine = findParagraphByLine;
 const model_1 = require("./model");
+const anchor_1 = require("./anchor");
 const annotation_schema_json_1 = __importDefault(require("../config/annotation-schema.json"));
 // 批注识别正则来源于外置配置（src/config/annotation-schema.json）的 annotationPattern
 const ANNO_REGEX = new RegExp(annotation_schema_json_1.default.annotationPattern);
@@ -42,23 +43,38 @@ function buildCodeFenceMask(lines) {
     }
     return mask;
 }
-function isAnnotation(obj) {
-    if (typeof obj !== 'object' || obj === null)
+function isAnnotationCore(obj) {
+    if (typeof obj.id !== 'string')
         return false;
-    const a = obj;
-    if (typeof a.id !== 'string')
+    if (typeof obj.content !== 'string')
         return false;
-    if (typeof a.content !== 'string')
+    if (!Array.isArray(obj.tags) || obj.tags.some(t => typeof t !== 'string'))
         return false;
-    if (!Array.isArray(a.tags) || a.tags.some(t => typeof t !== 'string'))
+    if (!(0, model_1.isAnnotationLevel)(obj.level))
         return false;
-    if (!(0, model_1.isAnnotationLevel)(a.level))
+    if (!(0, model_1.isAnnotationStatus)(obj.status))
         return false;
-    if (!(0, model_1.isAnnotationStatus)(a.status))
-        return false;
-    if (typeof a.created_at !== 'string')
+    if (typeof obj.created_at !== 'string')
         return false;
     return true;
+}
+function normalizeAnnotation(parsed) {
+    if (!isAnnotationCore(parsed))
+        return null;
+    const anno = {
+        id: parsed.id,
+        content: parsed.content,
+        tags: parsed.tags,
+        level: parsed.level,
+        status: parsed.status,
+        created_at: parsed.created_at,
+    };
+    if (parsed.anchor !== undefined) {
+        const anchor = (0, anchor_1.parseAnchor)(parsed.anchor);
+        if (anchor)
+            anno.anchor = anchor;
+    }
+    return anno;
 }
 function parseAnnotations(text) {
     // 去掉文件起始 BOM，避免首行文本携带 \uFEFF（不影响行号，BOM 仍在第 1 行）
@@ -78,8 +94,9 @@ function parseAnnotations(text) {
             const jsonStr = annoMatch[1];
             try {
                 const parsed = JSON.parse(jsonStr);
-                if (isAnnotation(parsed)) {
-                    const anno = { ...parsed, line: i + 1 };
+                const annoBase = normalizeAnnotation(parsed);
+                if (annoBase) {
+                    const anno = { ...annoBase, line: i + 1 };
                     annotations.push(anno);
                     buffer.push({ lineNumber: i + 1, raw: line, annotation: anno });
                 }

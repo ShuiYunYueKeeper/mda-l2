@@ -17,6 +17,23 @@
   var previewTimer = null;        // 实时预览防抖
   var closePromptOpen = false;    // 防止重复弹出关闭确认框
 
+  // 文档状态机：welcome | untitled | open（见 P2 §4.1）
+  var docState = 'welcome';
+  var workspaceRoot = null;
+  var welcomePane = null;
+  var fileSidebar = null;
+  var contentRowEl = null;
+  var leftRailEl = null;
+  var syncScrollCtrl = null;
+  var findReplaceUi = null;
+  var outlinePanelUi = null;
+  var assist = null;
+  var selAnchor = null;
+  var anchorHl = null;
+  var selectionMenuDismiss = null;
+  var previewSelectionSnap = null;
+  var previewPointer = { down: false, dragged: false, x: 0, y: 0 };
+
   var filterStatus = { open: true, resolved: true, wontfix: true };
   var filterLevel = { critical: true, major: true, minor: true, info: true };
   var filterTags = {};
@@ -27,7 +44,8 @@
   // DOM 元素
   var previewEl, annoListEl, statusFiltersEl, levelFiltersEl, tagFiltersEl, tagFiltersRow;
   var previewPaneEl, editorPaneEl, editorEl, panelPaneEl;
-  var srcGutterEl, srcHighlightEl, splitLeftEl, splitRightEl;
+  var srcGutterEl, srcHighlightEl, srcFindMarkEl, splitLeftEl, splitRightEl;
+  var findMatchState = null; // { matches: [{start,end}], index: number }
   var tbEditBtn, tbPanelBtn, tbFileNameEl, addBtn;
 
   var MOD_KEY = (navigator.platform || '').toLowerCase().indexOf('mac') >= 0 ? '\u2318' : 'Ctrl+';
@@ -39,6 +57,7 @@
     initMermaid();
 
     api.onFileOpened(function (filePath) { requestOpen(filePath); });
+    api.onSessionWelcome(function () { setDocState('welcome'); });
     api.onReload(function () { if (currentFilePath) requestOpen(currentFilePath); });
     api.onMenuShowInFolder(function () {
       if (currentFilePath) api.showItemInFolder(currentFilePath);
@@ -48,26 +67,725 @@
     api.onMenuToggleEdit(function () { toggleEditor(); });
     api.onMenuTogglePanel(function () { togglePanel(); });
     api.onMenuSave(function () { saveFile(); });
+    api.onMenuSaveAs(function () { saveAs(); });
+    api.onMenuNewDocument(function () { newDocument(); });
+    api.onMenuOpenFolder(function () { openWorkspaceFolder(); });
     api.onMenuShowHelp(function () { showHelpDialog(); });
     api.onMenuCopyArticle(function () { copyPreviewForArticle(); });
     api.onAppCloseRequest(function () { handleAppCloseRequest(); });
 
     setupDragAndDrop();
-    // 兜底：Ctrl+S 保存（菜单快捷键之外再拦一层）
     window.addEventListener('keydown', function (e) {
+      if (findReplaceUi && findReplaceUi.isOpen()) {
+        var t = e.target;
+        if (t && t.closest && t.closest('#find-replace-bar')) return;
+      }
       if (e.key === 'F1') {
         e.preventDefault();
         showHelpDialog();
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && (e.key || '').toLowerCase() === 's') {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      var k = (e.key || '').toLowerCase();
+      if (k === 's' && e.shiftKey) {
+        e.preventDefault();
+        saveAs();
+        return;
+      }
+      if (k === 'f' && !e.shiftKey) {
+        if (docState !== 'welcome' && findReplaceUi) {
+          e.preventDefault();
+          if (!editorVisible) showEditorPane(true);
+          findReplaceUi.show('find');
+        }
+        return;
+      }
+      if (k === 'h' && !e.shiftKey) {
+        if (docState !== 'welcome' && findReplaceUi) {
+          e.preventDefault();
+          if (!editorVisible) showEditorPane(true);
+          findReplaceUi.show('replace');
+        }
+        return;
+      }
+      if (k === 'g' && !e.shiftKey) {
+        e.preventDefault();
+        showGotoLineDialog();
+        return;
+      }
+      if (k === 'n') {
+        e.preventDefault();
+        newDocument();
+        return;
+      }
+      if (k === '\\' && !e.shiftKey) {
+        if (workspaceRoot && leftRailEl && !leftRailEl.classList.contains('hidden') && fileSidebar) {
+          e.preventDefault();
+          fileSidebar.toggleCollapsed();
+        }
+        return;
+      }
+      if (k === 's') {
         e.preventDefault();
         saveFile();
       }
     });
 
-    setTitle(null);
+    mountFileUi();
+    mountM3Modules();
+    mountM4Modules();
+    refreshWelcomeRecents();
     updateToolbar();
+  }
+
+  function mountM3Modules() {
+    assist = window.MDAEditorAssist || null;
+    if (window.MDAFindReplace && editorPaneEl) {
+      findReplaceUi = window.MDAFindReplace.mount(editorPaneEl, editorEl, function () {
+        setDirtyState(editorEl.value !== currentText);
+      }, {
+        onMatchesChange: function (matches, index, opts) {
+          opts = opts || {};
+          if (!opts.query) {
+            findMatchState = null;
+          } else {
+            findMatchState = {
+              matches: matches || [],
+              index: index,
+              query: opts.query,
+              caseSensitive: !!opts.caseSensitive,
+              regex: !!opts.regex,
+            };
+          }
+          updateFindHighlights();
+        },
+        syncEditorScroll: syncEditorScrollLayers,
+      });
+    }
+    var outlineHost = document.getElementById('outline-host');
+    if (window.MDAOutlinePanel && outlineHost) {
+      outlinePanelUi = window.MDAOutlinePanel.mount(outlineHost, function (line) {
+        if (!editorVisible) showEditorPane(true);
+        if (syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(line);
+        else jumpEditorToLine(line);
+      });
+    }
+    if (window.MDASyncScroll && editorEl && previewPaneEl && previewEl) {
+      syncScrollCtrl = window.MDASyncScroll.attach(editorEl, previewPaneEl, previewEl, function () {
+        return editorEl.value;
+      });
+    }
+    setupEditorAssistKeys();
+  }
+
+  function getSourceText() {
+    if (dirty && editorEl) return editorEl.value;
+    return currentText || (editorEl ? editorEl.value : '');
+  }
+
+  function mountM4Modules() {
+    selAnchor = window.MDASelectionAnchor || null;
+    anchorHl = window.MDAAnchorHighlights || null;
+    setupSelectionContextMenus();
+  }
+
+  function applyAnchorHighlights() {
+    if (!anchorHl || !previewEl) return;
+    if (!annotations.length) {
+      anchorHl.clearAnnotationHighlights(previewEl);
+      return;
+    }
+    anchorHl.applyAnnotationHighlights(previewEl, annotations, getSourceText(), {
+      validateAnchor: selAnchor ? selAnchor.validateAnchor : null,
+      anchorToPreviewRange: selAnchor ? selAnchor.anchorToPreviewRange : null,
+      isAnchorStale: selAnchor ? selAnchor.isAnchorStale : null,
+    });
+  }
+
+  function scrollPreviewToRange(range) {
+    if (!range || !previewPaneEl) return;
+    try {
+      var rect = range.getBoundingClientRect();
+      var pane = previewPaneEl.getBoundingClientRect();
+      var relTop = rect.top - pane.top + previewPaneEl.scrollTop;
+      previewPaneEl.scrollTop = Math.max(0, relTop - previewPaneEl.clientHeight * 0.35);
+    } catch (e) { /* ignore */ }
+  }
+
+  function resolveSelectionAnchor(source, snapshot) {
+    if (!selAnchor) return null;
+    var text = getSourceText();
+    if (source === 'preview') {
+      var snap = snapshot || previewSelectionSnap;
+      var r = selAnchor.selectionFromPreview(previewEl, text, snap || undefined);
+      return r;
+    }
+    return selAnchor.selectionFromEditor(editorEl);
+  }
+
+  function capturePreviewSelection(sel) {
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+    var quote = sel.toString();
+    if (!quote) return null;
+    try {
+      return { quote: quote, range: sel.getRangeAt(0).cloneRange() };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function clearPreviewSelectionSnap() {
+    previewSelectionSnap = null;
+  }
+
+  function removeSelectionContextMenu() {
+    var m = document.getElementById('mda-selection-menu');
+    if (m) m.remove();
+    if (selectionMenuDismiss) {
+      document.removeEventListener('click', selectionMenuDismiss, true);
+      document.removeEventListener('contextmenu', selectionMenuDismiss, true);
+      window.removeEventListener('blur', selectionMenuDismiss);
+      selectionMenuDismiss = null;
+    }
+  }
+
+  function showSelectionContextMenu(x, y, source, snapshot) {
+    if (docState === 'welcome' || !currentFilePath) return;
+    if (!ensureNotDirty()) return;
+    if (source === 'preview') {
+      previewSelectionSnap = snapshot || previewSelectionSnap;
+      if (!previewSelectionSnap) return;
+      if (selAnchor && selAnchor.isSelectionUiChrome(previewSelectionSnap.range.commonAncestorContainer)) {
+        return;
+      }
+    }
+    removeSelectionContextMenu();
+    var menu = document.createElement('div');
+    menu.id = 'mda-selection-menu';
+    menu.className = 'mda-context-menu';
+    menu.innerHTML = '<div class="mda-menu-item" data-act="anno"><span>添加选区批注</span></div>';
+    document.body.appendChild(menu);
+    menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 4) + 'px';
+    menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 4) + 'px';
+    menu.addEventListener('click', function (e) {
+      var item = e.target.closest('[data-act]');
+      if (!item) return;
+      var anchor = resolveSelectionAnchor(source, source === 'preview' ? previewSelectionSnap : null);
+      removeSelectionContextMenu();
+      clearPreviewSelectionSnap();
+      if (!anchor) {
+        uiAlert('无法识别选区，请尝试在源码编辑区选择');
+        return;
+      }
+      var line = selAnchor.anchorToLine(getSourceText(), anchor.start);
+      showEditDialog('add', null, line, anchor);
+    });
+    selectionMenuDismiss = function (ev) {
+      if (ev.type === 'click' && menu.contains(ev.target)) return;
+      removeSelectionContextMenu();
+      clearPreviewSelectionSnap();
+    };
+    setTimeout(function () {
+      document.addEventListener('click', selectionMenuDismiss, true);
+      document.addEventListener('contextmenu', selectionMenuDismiss, true);
+      window.addEventListener('blur', selectionMenuDismiss);
+    }, 0);
+  }
+
+  function setupSelectionContextMenus() {
+    if (previewPaneEl) {
+      previewPaneEl.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) return;
+        previewPointer.down = true;
+        previewPointer.dragged = false;
+        previewPointer.x = e.clientX;
+        previewPointer.y = e.clientY;
+      });
+      previewPaneEl.addEventListener('mousemove', function (e) {
+        if (!previewPointer.down) return;
+        if (Math.abs(e.clientX - previewPointer.x) > 4 || Math.abs(e.clientY - previewPointer.y) > 4) {
+          previewPointer.dragged = true;
+        }
+      });
+      document.addEventListener('mouseup', function () {
+        previewPointer.down = false;
+      });
+      previewPaneEl.addEventListener('contextmenu', function (e) {
+        var sel = window.getSelection();
+        if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+        if (!previewEl || !previewEl.contains(sel.anchorNode)) return;
+        if (selAnchor && selAnchor.isSelectionUiChrome(sel.anchorNode)) return;
+        if (selAnchor && selAnchor.isFenceCodeNode(sel.anchorNode)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        previewSelectionSnap = capturePreviewSelection(sel);
+        if (!previewSelectionSnap) return;
+        showSelectionContextMenu(e.clientX, e.clientY, 'preview', previewSelectionSnap);
+      }, true);
+    }
+    if (editorEl) {
+      editorEl.addEventListener('contextmenu', function (e) {
+        if (editorEl.selectionStart === editorEl.selectionEnd) return;
+        e.preventDefault();
+        showSelectionContextMenu(e.clientX, e.clientY, 'editor');
+      });
+    }
+  }
+
+  function getFenceMask() {
+    if (!api.buildCodeFenceMask || !editorEl) return null;
+    return api.buildCodeFenceMask(editorEl.value.split('\n'));
+  }
+
+  function syncEditorScrollLayers() {
+    if (!editorEl) return;
+    var hp = srcHighlightEl ? srcHighlightEl.parentNode : null;
+    if (hp) {
+      hp.scrollTop = editorEl.scrollTop;
+      hp.scrollLeft = editorEl.scrollLeft;
+    }
+    if (srcFindMarkEl) {
+      srcFindMarkEl.scrollTop = editorEl.scrollTop;
+      srcFindMarkEl.scrollLeft = editorEl.scrollLeft;
+    }
+    if (srcGutterEl) srcGutterEl.scrollTop = editorEl.scrollTop;
+  }
+
+  function updateFindMarkLayer() {
+    if (!srcFindMarkEl) return;
+    var code = srcFindMarkEl.querySelector('code') || srcFindMarkEl;
+    if (!findMatchState || !findMatchState.matches.length) {
+      code.innerHTML = '';
+      return;
+    }
+    var text = editorEl.value;
+    var matches = findMatchState.matches;
+    var activeIndex = findMatchState.index;
+    var html = '';
+    var last = 0;
+    for (var i = 0; i < matches.length; i++) {
+      var m = matches[i];
+      html += escHtml(text.slice(last, m.start));
+      var cls = i === activeIndex ? 'mda-find-active' : 'mda-find-mark';
+      html += '<span class="' + cls + '">' + escHtml(text.slice(m.start, m.end)) + '</span>';
+      last = m.end;
+    }
+    html += escHtml(text.slice(last));
+    code.innerHTML = html;
+  }
+
+  function updateFindHighlights() {
+    updateFindMarkLayer();
+    updateFindPreviewHighlights();
+  }
+
+  function clearPreviewFindHighlights() {
+    if (!previewEl) return;
+    var marks = previewEl.querySelectorAll('mark.mda-preview-find, mark.mda-preview-find-active');
+    for (var i = 0; i < marks.length; i++) {
+      var mark = marks[i];
+      var parent = mark.parentNode;
+      if (!parent) continue;
+      while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+      parent.removeChild(mark);
+      if (parent.normalize) parent.normalize();
+    }
+  }
+
+  function getActiveFindLine() {
+    if (!findMatchState || !findMatchState.matches.length || findMatchState.index < 0) return null;
+    var m = findMatchState.matches[findMatchState.index];
+    return editorEl.value.slice(0, m.start).split('\n').length;
+  }
+
+  function updateFindPreviewHighlights() {
+    clearPreviewFindHighlights();
+    if (!previewEl || !findMatchState || !findMatchState.query) return;
+    if (!window.MDAFindReplace || !window.MDAFindReplace.findAll) return;
+
+    var query = findMatchState.query;
+    var opts = {
+      caseSensitive: findMatchState.caseSensitive,
+      regex: findMatchState.regex,
+    };
+    var activeLine = getActiveFindLine();
+    var activeRef = { el: null };
+    var walker = document.createTreeWalker(previewEl, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        var p = node.parentElement;
+        if (!p) return NodeFilter.FILTER_REJECT;
+        if (p.closest('code, pre, .mda-code')) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    var nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+
+    for (var n = 0; n < nodes.length; n++) {
+      highlightPreviewTextNode(nodes[n], query, opts, activeLine, activeRef);
+    }
+
+    if (activeRef.el) {
+      activeRef.el.scrollIntoView({ block: 'center', behavior: 'auto' });
+    } else if (activeLine) {
+      var block = previewEl.querySelector('[data-line="' + activeLine + '"]');
+      if (block) block.scrollIntoView({ block: 'center', behavior: 'auto' });
+    }
+  }
+
+  function highlightPreviewTextNode(node, query, opts, activeLine, activeRef) {
+    if (!node || !node.textContent) return;
+    var matches = window.MDAFindReplace.findAll(node.textContent, query, opts);
+    if (!matches.length) return;
+    for (var i = matches.length - 1; i >= 0; i--) {
+      var m = matches[i];
+      if (m.end > node.textContent.length) continue;
+      var range = document.createRange();
+      range.setStart(node, m.start);
+      range.setEnd(node, m.end);
+      var mark = document.createElement('mark');
+      var block = node.parentElement ? node.parentElement.closest('[data-line]') : null;
+      var line = block ? parseInt(block.getAttribute('data-line'), 10) : -1;
+      var isActive = activeLine && line === activeLine && !activeRef.el;
+      mark.className = isActive ? 'mda-preview-find-active' : 'mda-preview-find';
+      try {
+        range.surroundContents(mark);
+        if (isActive) activeRef.el = mark;
+      } catch (e) { /* 跨节点边界时跳过 */ }
+    }
+  }
+
+  function clearFindMarkLayer() {
+    findMatchState = null;
+    updateFindHighlights();
+  }
+
+  function jumpEditorToLine(line) {
+    if (!editorEl) return;
+    var lines = editorEl.value.split('\n');
+    var idx = Math.max(0, Math.min(line - 1, lines.length - 1));
+    var pos = lines.slice(0, idx).join('\n').length + (idx > 0 ? 1 : 0);
+    editorEl.focus();
+    editorEl.selectionStart = editorEl.selectionEnd = pos;
+    editorEl.scrollTop = Math.max(0, (line - 1) * 21 - editorEl.clientHeight * 0.3);
+  }
+
+  function setupEditorAssistKeys() {
+    if (!editorEl || !assist) return;
+    document.addEventListener('keydown', function (e) {
+      if (!tryEditorAssistShortcut(e)) return;
+    }, true);
+  }
+
+  function tryEditorAssistShortcut(e) {
+    if (docState === 'welcome' || !editorVisible) return false;
+    if (findReplaceUi && findReplaceUi.isOpen()) return false;
+    var ae = document.activeElement;
+    if (ae && ae.closest && (ae.closest('#find-replace-bar') || ae.closest('.modal-overlay'))) return false;
+    if (e.key === 'Tab' && ae !== editorEl) return false;
+    if (ae !== editorEl) {
+      if (!(e.ctrlKey || e.metaKey) && e.key !== 'Tab') return false;
+      editorEl.focus();
+    }
+
+    var mod = e.ctrlKey || e.metaKey;
+    if (!mod && e.key !== 'Tab') return false;
+
+    var start = editorEl.selectionStart;
+    var end = editorEl.selectionEnd;
+    var val = editorEl.value;
+    var mask = getFenceMask();
+    var result = null;
+
+    if (mod && !e.shiftKey && (e.key === 'b' || e.key === 'B')) {
+      e.preventDefault();
+      result = assist.wrapSelection(val, start, end, '**', '**', 'text');
+    } else if (mod && !e.shiftKey && (e.key === 'i' || e.key === 'I')) {
+      e.preventDefault();
+      result = assist.wrapSelection(val, start, end, '*', '*', 'text');
+    } else if (mod && !e.shiftKey && e.key === '`') {
+      e.preventDefault();
+      result = assist.wrapSelection(val, start, end, '`', '`', 'code');
+    } else if (mod && e.shiftKey && (e.key === 'x' || e.key === 'X')) {
+      e.preventDefault();
+      result = assist.wrapSelection(val, start, end, '~~', '~~', 'text');
+    } else if (mod && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      result = assist.insertLink(val, start, end);
+    } else if (mod && e.shiftKey && e.key === '`') {
+      e.preventDefault();
+      result = assist.wrapCodeFence(val, start, end, '');
+    } else if (mod && e.shiftKey && e.key === '-') {
+      e.preventDefault();
+      result = assist.insertHorizontalRule(val, start, mask);
+    } else if (mod && e.shiftKey && isHeadingUpKey(e)) {
+      e.preventDefault();
+      result = assist.toggleHeadingLevel(val, start, 1, mask);
+    } else if (mod && e.shiftKey && isHeadingDownKey(e)) {
+      e.preventDefault();
+      result = assist.toggleHeadingLevel(val, start, -1, mask);
+    } else if (mod && e.shiftKey && e.key === '8') {
+      e.preventDefault();
+      result = assist.toggleLinePrefix(val, start, end, '- ', mask);
+    } else if (mod && e.shiftKey && e.key === '7') {
+      e.preventDefault();
+      result = assist.toggleLinePrefix(val, start, end, '1. ', mask);
+    } else if (mod && e.shiftKey && e.key === '.') {
+      e.preventDefault();
+      result = assist.toggleLinePrefix(val, start, end, '> ', mask);
+    } else if (mod && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+      e.preventDefault();
+      result = assist.duplicateLine(val, start, mask);
+    } else if (mod && !e.shiftKey && e.key >= '1' && e.key <= '6') {
+      e.preventDefault();
+      result = assist.setHeadingLevel(val, start, parseInt(e.key, 10), mask);
+    } else if (e.altKey && e.key === 'ArrowUp') {
+      e.preventDefault();
+      result = assist.moveLine(val, start, -1, mask);
+    } else if (e.altKey && e.key === 'ArrowDown') {
+      e.preventDefault();
+      result = assist.moveLine(val, start, 1, mask);
+    } else if (e.key === 'Tab' && !mod) {
+      e.preventDefault();
+      result = assist.indentLines(val, start, end, e.shiftKey ? -2 : 2, mask);
+    }
+
+    if (result) {
+      applyAssistResult(result);
+      return true;
+    }
+    return false;
+  }
+
+  function isHeadingUpKey(e) {
+    return e.code === 'BracketRight' || e.key === ']' || e.key === '}';
+  }
+
+  function isHeadingDownKey(e) {
+    return e.code === 'BracketLeft' || e.key === '[' || e.key === '{';
+  }
+
+  function applyAssistResult(result) {
+    if (!assist || !result) return false;
+    return assist.applyEdit(editorEl, result);
+  }
+
+  function showGotoLineDialog() {
+    if (docState === 'welcome') { uiAlert('请先打开文档'); return; }
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML =
+      '<div class="modal-box" style="min-width:280px">' +
+        '<h3>跳转到行</h3>' +
+        '<div class="modal-field"><input id="goto-line" type="number" min="1" style="width:100%;padding:8px" placeholder="行号" /></div>' +
+        '<div class="modal-actions">' +
+          '<button id="goto-cancel" class="btn-ghost">取消</button>' +
+          '<button id="goto-ok" class="btn-ok">跳转</button>' +
+        '</div></div>';
+    document.body.appendChild(overlay);
+    var input = overlay.querySelector('#goto-line');
+    function close() { overlay.remove(); }
+    overlay.querySelector('#goto-cancel').addEventListener('click', close);
+    overlay.querySelector('#goto-ok').addEventListener('click', function () {
+      var n = parseInt(input.value, 10);
+      if (isNaN(n) || n < 1) { uiAlert('请输入有效行号'); return; }
+      if (!editorVisible) showEditorPane(true);
+      if (syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(n);
+      else jumpEditorToLine(n);
+      close();
+    });
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+    input.focus();
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') overlay.querySelector('#goto-ok').click();
+      if (e.key === 'Escape') close();
+    });
+  }
+
+  function updateOutline(text) {
+    if (!outlinePanelUi || !api.extractHeadings) return;
+    outlinePanelUi.setHeadings(api.extractHeadings(text || ''));
+  }
+
+  function wrapPreviewTables() {
+    if (!previewEl) return;
+    var tables = previewEl.querySelectorAll('table');
+    for (var i = 0; i < tables.length; i++) {
+      var t = tables[i];
+      if (t.parentElement && t.parentElement.classList.contains('table-wrap')) continue;
+      var wrap = document.createElement('div');
+      wrap.className = 'table-wrap';
+      t.parentNode.insertBefore(wrap, t);
+      wrap.appendChild(t);
+    }
+  }
+
+  /** 树遍历顺序与侧栏展示一致，返回第一个 Markdown 文件路径 */
+  function firstMarkdownInTree(nodes) {
+    if (!nodes || !nodes.length) return null;
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (!n.isDir) return n.path;
+      if (n.children && n.children.length) {
+        var found = firstMarkdownInTree(n.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  function mountFileUi() {
+    contentRowEl = document.getElementById('content-row');
+    leftRailEl = document.getElementById('left-rail');
+    if (window.MDAWelcome && contentRowEl) {
+      welcomePane = window.MDAWelcome.mount(contentRowEl, {
+        onNew: function () { newDocument(); },
+        onOpenFile: function () { pickAndOpenFile(); },
+        onOpenFolder: function () { openWorkspaceFolder(); },
+        onOpenRecent: function (p) { requestOpen(p); },
+      });
+    }
+    var fsRoot = document.getElementById('file-sidebar-root');
+    if (window.MDAFileSidebar && fsRoot) {
+      fileSidebar = window.MDAFileSidebar.mount(fsRoot, {
+        railEl: leftRailEl,
+        onOpenFile: function (p) { requestOpen(p); },
+        onRefresh: function () { refreshWorkspaceTree(); },
+      });
+    }
+  }
+
+  function setDocState(state) {
+    docState = state;
+    if (state === 'welcome') {
+      if (welcomePane) welcomePane.show();
+      if (contentRowEl) contentRowEl.classList.add('welcome-mode');
+    } else {
+      if (welcomePane) welcomePane.hide();
+      if (contentRowEl) contentRowEl.classList.remove('welcome-mode');
+    }
+    updateToolbar();
+    setTitle(currentFilePath);
+  }
+
+  function refreshWelcomeRecents() {
+    if (!welcomePane || !api.getRecentFiles) return;
+    api.getRecentFiles().then(function (r) {
+      if (r.success) welcomePane.setRecents(r.files || []);
+    });
+  }
+
+  function pickAndOpenFile() {
+    if (!api.showOpenFileDialog) return;
+    api.showOpenFileDialog().then(function (r) {
+      if (r.success && r.filePath) requestOpen(r.filePath);
+    });
+  }
+
+  function newDocument() {
+    guardDiscard().then(function (ok) {
+      if (!ok) return;
+      currentFilePath = null;
+      currentText = '';
+      editorEl.value = '';
+      annotations = [];
+      paragraphs = [];
+      selectedAnnotationId = null;
+      previewEl.innerHTML = '';
+      setDirtyState(false);
+      setDocState('untitled');
+      showEditorPane(true);
+      parseAndRender('', null);
+      resetScrollTop();
+      requestAnimationFrame(function () { editorEl.focus(); });
+    });
+  }
+
+  function showEditorPane(visible) {
+    editorVisible = !!visible;
+    if (editorVisible) {
+      editorPaneEl.classList.add('visible');
+      splitLeftEl.classList.remove('hidden');
+      refreshEditorDecorations();
+    } else {
+      editorPaneEl.classList.remove('visible');
+      splitLeftEl.classList.add('hidden');
+    }
+    updateToolbar();
+  }
+
+  function openWorkspaceFolder() {
+    if (!api.showOpenFolderDialog) return;
+    api.showOpenFolderDialog().then(function (r) {
+      if (!r.success || !r.folderPath) return;
+      workspaceRoot = r.folderPath;
+      if (leftRailEl) leftRailEl.classList.remove('hidden');
+      refreshWorkspaceTree();
+    });
+  }
+
+  function refreshWorkspaceTree() {
+    if (!workspaceRoot || !api.listMarkdownTree) return;
+    api.listMarkdownTree(workspaceRoot).then(function (r) {
+      if (!r.success) {
+        uiAlert('读取文件夹失败: ' + (r.error || '未知错误'));
+        return;
+      }
+      var tree = r.tree || [];
+      if (fileSidebar) {
+        fileSidebar.setTree(tree);
+        if (currentFilePath) fileSidebar.setActive(currentFilePath);
+      }
+      if (!currentFilePath) {
+        var first = firstMarkdownInTree(tree);
+        if (first) requestOpen(first);
+      }
+    });
+  }
+
+  function saveAs(onSuccess) {
+    var suggestedName = '未命名.md';
+    if (currentFilePath) {
+      suggestedName = currentFilePath.replace(/\\/g, '/').split('/').pop() || suggestedName;
+    }
+    api.showSaveDialog({
+      defaultPath: workspaceRoot || undefined,
+      suggestedName: suggestedName,
+    }).then(function (dlg) {
+      if (!dlg.success || !dlg.filePath) return;
+      writeToPath(dlg.filePath, onSuccess);
+    });
+  }
+
+  function writeToPath(filePath, onSuccess) {
+    var content = editorEl.value;
+    var bad = (api.findMalformedAnnotations && api.findMalformedAnnotations(content)) || [];
+    var proceed = bad.length
+      ? uiConfirm('第 ' + bad.join('、') + ' 行的批注格式不正确，将无法被识别为批注。仍要保存吗？')
+      : Promise.resolve(true);
+    proceed.then(function (yes) {
+      if (!yes) return;
+      api.saveFile(filePath, content).then(function (r) {
+        if (!r.success) {
+          uiAlert('保存失败: ' + r.error);
+          return;
+        }
+        currentFilePath = filePath;
+        currentText = content;
+        setDocState('open');
+        setDirtyState(false);
+        if (api.addRecentFile) {
+          api.addRecentFile(filePath).then(function () { refreshWelcomeRecents(); });
+        }
+        setTitle(filePath);
+        parseAndRender(content, filePath);
+        refreshEditorDecorations();
+        if (fileSidebar) fileSidebar.setActive(filePath);
+        if (workspaceRoot) refreshWorkspaceTree();
+        updateToolbar();
+        if (typeof onSuccess === 'function') onSuccess();
+      });
+    });
   }
 
   // ---- 布局 ----
@@ -81,17 +799,22 @@
         '<span id="tb-filename" class="file-name"></span>' +
       '</div>' +
       '<div id="content-row">' +
+        '<div id="left-rail" class="mda-left-rail hidden">' +
+          '<div id="file-sidebar-root"></div>' +
+        '</div>' +
         '<div id="editor-pane">' +
           '<div class="mda-src-editor">' +
             '<div id="src-gutter" class="src-gutter"></div>' +
             '<div class="src-scroll">' +
               '<pre id="src-highlight" class="src-highlight" aria-hidden="true"><code class="language-markdown"></code></pre>' +
+              '<pre id="src-find-mark" class="src-find-mark" aria-hidden="true"><code></code></pre>' +
               '<textarea id="editor" class="src-input" spellcheck="false" wrap="off" placeholder="在此编辑 Markdown 源码…"></textarea>' +
             '</div>' +
           '</div>' +
         '</div>' +
         '<div id="split-left" class="mda-splitter hidden"></div>' +
         '<div id="preview-pane">' +
+          '<div id="outline-host"></div>' +
           '<div id="preview-content"></div>' +
         '</div>' +
         '<div id="split-right" class="mda-splitter"></div>' +
@@ -114,6 +837,7 @@
     editorEl = document.getElementById('editor');
     srcGutterEl = document.getElementById('src-gutter');
     srcHighlightEl = document.querySelector('#src-highlight code');
+    srcFindMarkEl = document.getElementById('src-find-mark');
     splitLeftEl = document.getElementById('split-left');
     splitRightEl = document.getElementById('split-right');
     panelPaneEl = document.getElementById('panel-pane');
@@ -142,17 +866,18 @@
     });
     // 滚动同步：textarea 为可交互滚动层，高亮层与行号槽跟随
     editorEl.addEventListener('scroll', function () {
-      var hp = srcHighlightEl.parentNode; // <pre>
-      hp.scrollTop = editorEl.scrollTop;
-      hp.scrollLeft = editorEl.scrollLeft;
-      srcGutterEl.scrollTop = editorEl.scrollTop;
+      syncEditorScrollLayers();
     });
 
     setupSplitter(splitLeftEl, editorPaneEl, 'left');
     setupSplitter(splitRightEl, panelPaneEl, 'right');
 
-    // 预览区点击：链接拦截默认导航；段落点击定位批注
+    // 预览区点击：链接拦截默认导航；段落点击定位批注（拖选文字时不触发）
     previewPaneEl.addEventListener('click', function (e) {
+      if (previewPointer.dragged) return;
+      var sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().trim()) return;
+
       var a = e.target.closest('a');
       if (a) {
         e.preventDefault();
@@ -163,6 +888,7 @@
       if (block) {
         cursorLine = parseInt(block.getAttribute('data-line'), 10) || null;
         highlightCursorBlock(block);
+        if (cursorLine && syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(cursorLine);
         var p = findParagraphForLine(cursorLine);
         if (p && p.annotations && p.annotations.length) {
           selectAnnotation(p.annotations[0].id, false);
@@ -270,7 +996,7 @@
 
   // ---- 编辑栏 / 批注栏（两侧独立开关，可同时展开：源码 | 预览 | 批注）----
   function toggleEditor() {
-    if (!currentFilePath) { uiAlert('请先打开一个文件'); return; }
+    if (docState === 'welcome') { uiAlert('请先新建或打开文档'); return; }
     editorVisible = !editorVisible;
     if (editorVisible) {
       if (!dirty) editorEl.value = currentText; // 无脏改动时同步磁盘内容
@@ -298,16 +1024,14 @@
     if (srcHighlightEl) {
       srcHighlightEl.innerHTML = (api.highlightSource ? api.highlightSource(text) : escHtml(text));
     }
+    updateFindMarkLayer();
     if (srcGutterEl) {
       var n = text.split('\n').length;
       var nums = new Array(n);
       for (var i = 0; i < n; i++) nums[i] = i + 1;
       srcGutterEl.textContent = nums.join('\n');
     }
-    // 同步一次滚动位置（内容变化后保持对齐）
-    var hp = srcHighlightEl ? srcHighlightEl.parentNode : null;
-    if (hp) { hp.scrollTop = editorEl.scrollTop; hp.scrollLeft = editorEl.scrollLeft; }
-    if (srcGutterEl) srcGutterEl.scrollTop = editorEl.scrollTop;
+    syncEditorScrollLayers();
   }
 
   // 分栏默认宽度（用于双击复位）
@@ -418,33 +1142,16 @@
   }
 
   function saveFile(onSuccess) {
-    if (!currentFilePath || !dirty) {
+    if (docState === 'welcome') return;
+    if (!currentFilePath) {
+      saveAs(onSuccess);
+      return;
+    }
+    if (!dirty) {
       if (typeof onSuccess === 'function') onSuccess();
       return;
     }
-    var content = editorEl.value;
-    var bad = (api.findMalformedAnnotations && api.findMalformedAnnotations(content)) || [];
-    var proceed = bad.length
-      ? uiConfirm('第 ' + bad.join('、') + ' 行的批注格式不正确，将无法被识别为批注。仍要保存吗？')
-      : Promise.resolve(true);
-    proceed.then(function (yes) {
-      if (!yes) return;
-      api.saveFile(currentFilePath, content).then(function (r) {
-        if (r.success) {
-          currentText = content;
-          setDirtyState(false);
-          if (typeof onSuccess === 'function') onSuccess();
-          else {
-            // 保存后仅刷新预览与批注面板，不重新 openFile（避免滚动位置回到开头）
-            parseAndRender(content, currentFilePath);
-            refreshEditorDecorations();
-            updateToolbar();
-          }
-        } else {
-          uiAlert('保存失败: ' + r.error);
-        }
-      });
-    });
+    writeToPath(currentFilePath, onSuccess);
   }
 
   function handleAppCloseRequest() {
@@ -475,14 +1182,16 @@
   function updateToolbar() {
     if (tbEditBtn) {
       tbEditBtn.classList.toggle('active', editorVisible);
-      tbEditBtn.disabled = !currentFilePath;
+      tbEditBtn.disabled = docState === 'welcome';
     }
     if (tbPanelBtn) tbPanelBtn.classList.toggle('active', panelVisible);
     if (tbFileNameEl) {
-      var name = currentFilePath ? currentFilePath.replace(/\\/g, '/').split('/').pop() : '';
+      var name = '';
+      if (docState === 'untitled') name = '未命名.md';
+      else if (currentFilePath) name = currentFilePath.replace(/\\/g, '/').split('/').pop();
       tbFileNameEl.innerHTML = name ? (escHtml(name) + (dirty ? '<span class="dirty-dot">●</span>' : '')) : '';
     }
-    if (addBtn) addBtn.disabled = !currentFilePath || dirty;
+    if (addBtn) addBtn.disabled = docState !== 'open' || !currentFilePath || dirty;
   }
 
   // ---- 拖拽打开 ----
@@ -573,9 +1282,32 @@
     renderPanel();
     var item = annoListEl.querySelector('[data-anno-id="' + id + '"]');
     if (item) item.scrollIntoView({ block: 'nearest' });
-    if (scrollPreview) {
-      var el = paragraphElement(findParagraphByAnnotationId(id));
-      if (el) { el.scrollIntoView({ block: 'center' }); highlightCursorBlock(el); }
+    if (!scrollPreview) return;
+
+    var anno = null;
+    for (var i = 0; i < annotations.length; i++) {
+      if (annotations[i].id === id) { anno = annotations[i]; break; }
+    }
+
+    if (anno && anno.anchor && selAnchor && selAnchor.validateAnchor(getSourceText(), anno.anchor)) {
+      var domRange = selAnchor.anchorToPreviewRange(previewEl, getSourceText(), anno.anchor);
+      if (domRange) scrollPreviewToRange(domRange);
+      if (!editorVisible) showEditorPane(true);
+      selAnchor.scrollEditorToAnchor(editorEl, anno.anchor, syncEditorScrollLayers);
+      return;
+    }
+
+    var p = findParagraphByAnnotationId(id);
+    var el = paragraphElement(p);
+    if (el) {
+      el.scrollIntoView({ block: 'center' });
+      highlightCursorBlock(el);
+    }
+    if (p) {
+      cursorLine = p.startLine;
+      if (!editorVisible) showEditorPane(true);
+      if (syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(p.startLine);
+      else jumpEditorToLine(p.startLine);
     }
   }
 
@@ -598,6 +1330,7 @@
     if (!result.success) { uiAlert('无法打开文件: ' + result.error); return; }
     currentFilePath = filePath;
     currentText = result.content;
+    setDocState('open');
     setDirtyState(false);
     editorEl.value = result.content;
     if (scrollToTop) {
@@ -611,6 +1344,10 @@
     setTitle(filePath);
     parseAndRender(result.content, filePath);
     updateToolbar();
+    if (api.addRecentFile) {
+      api.addRecentFile(filePath).then(function () { refreshWelcomeRecents(); });
+    }
+    if (fileSidebar) fileSidebar.setActive(filePath);
     if (scrollToTop) {
       resetScrollTop();
       requestAnimationFrame(resetScrollTop);
@@ -636,9 +1373,13 @@
   }
 
   function setTitle(filePath) {
-    if (filePath) {
+    if (docState === 'untitled') {
+      api.setTitle('MDA - 未命名.md');
+    } else if (filePath) {
       var name = filePath.replace(/\\/g, '/').split('/').pop();
       api.setTitle('MDA - ' + name);
+    } else if (docState === 'welcome') {
+      api.setTitle('MDA');
     } else {
       api.setTitle('MDA');
     }
@@ -654,6 +1395,7 @@
       annotations[i].file = filePath || currentFilePath;
     }
     buildTagFilters();
+    updateOutline(text);
     renderMarkdownContent(text);
     renderPanel();
   }
@@ -673,8 +1415,15 @@
     setupImageFallback();
     updateToolbar();
     renderMermaidBlocks().then(function () {
-      enhanceCodeBlocks(); // mermaid 块已被替换，剩余代码块加行号/复制/菜单
+      enhanceCodeBlocks();
       decorateParagraphs();
+      wrapPreviewTables();
+      if (syncScrollCtrl) {
+        syncScrollCtrl.refreshMap();
+        syncScrollCtrl.syncPreviewToEditor();
+      }
+      if (findMatchState && findMatchState.query) updateFindPreviewHighlights();
+      applyAnchorHighlights();
       updateToolbar();
     });
   }
@@ -1048,6 +1797,7 @@
     copyBtn.addEventListener('click', function (e) { e.stopPropagation(); copyCode(rawText, copyBtn); });
     container.addEventListener('contextmenu', function (e) {
       e.preventDefault();
+      e.stopPropagation();
       showCodeContextMenu(e.clientX, e.clientY, code, rawText, copyBtn);
     });
     container.addEventListener('keydown', function (e) {
@@ -1057,8 +1807,8 @@
       if (key === 'a') { e.preventDefault(); selectCodeContents(code); }
       else if (key === 'c') {
         e.preventDefault();
-        var sel = window.getSelection ? String(window.getSelection()) : '';
-        copyCode(sel || rawText, copyBtn);
+        var selText = window.getSelection ? String(window.getSelection()) : '';
+        if (selText.trim()) copyCode(selText, copyBtn);
       }
     });
   }
@@ -1095,24 +1845,59 @@
 
   function showCodeContextMenu(x, y, code, rawText, btn) {
     removeCodeContextMenu();
+    removeSelectionContextMenu();
+    clearPreviewSelectionSnap();
+
+    var sel = window.getSelection();
+    var hasSel = !!(sel && !sel.isCollapsed && sel.toString().trim());
+    var snap = hasSel ? capturePreviewSelection(sel) : null;
+
     var menu = document.createElement('div');
     menu.id = 'mda-code-menu';
     menu.className = 'mda-context-menu';
     menu.innerHTML =
-      '<div class="mda-menu-item" data-act="copy"><span>拷贝</span><span class="mda-menu-key">' + MOD_KEY + 'C</span></div>' +
-      '<div class="mda-menu-item" data-act="copy-all"><span>拷贝全部</span><span class="mda-menu-key">' + MOD_KEY + 'A</span></div>';
+      '<div class="mda-menu-item' + (hasSel ? '' : ' disabled') + '" data-act="copy"><span>拷贝</span><span class="mda-menu-key">' + MOD_KEY + 'C</span></div>' +
+      '<div class="mda-menu-item" data-act="copy-all"><span>拷贝全部</span><span class="mda-menu-key">' + MOD_KEY + 'A</span></div>' +
+      '<div class="mda-menu-item' + (hasSel ? '' : ' disabled') + '" data-act="anno"><span>添加选区批注</span></div>';
     document.body.appendChild(menu);
     menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 4) + 'px';
     menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 4) + 'px';
 
     menu.addEventListener('click', function (e) {
       var item = e.target.closest('[data-act]');
-      if (!item) return;
-      if (item.dataset.act === 'copy') {
-        var sel = window.getSelection ? String(window.getSelection()) : '';
-        copyCode(sel || rawText, btn);
-      } else {
+      if (!item || item.classList.contains('disabled')) return;
+      var act = item.dataset.act;
+      if (act === 'copy') {
+        var selText = snap ? snap.quote : '';
+        if (!selText.trim()) {
+          uiAlert('请先选中要拷贝的代码');
+          removeCodeContextMenu();
+          return;
+        }
+        copyCode(selText, btn);
+      } else if (act === 'copy-all') {
         copyCode(rawText, btn);
+      } else if (act === 'anno') {
+        if (!snap) {
+          uiAlert('请先选中代码再添加选区批注');
+          removeCodeContextMenu();
+          return;
+        }
+        if (!ensureNotDirty()) {
+          removeCodeContextMenu();
+          return;
+        }
+        previewSelectionSnap = snap;
+        var anchor = resolveSelectionAnchor('preview', snap);
+        removeCodeContextMenu();
+        clearPreviewSelectionSnap();
+        if (!anchor) {
+          uiAlert('无法识别选区，请尝试在源码编辑区选择');
+          return;
+        }
+        var line = selAnchor.anchorToLine(getSourceText(), anchor.start);
+        showEditDialog('add', null, line, anchor);
+        return;
       }
       removeCodeContextMenu();
     });
@@ -1211,11 +1996,15 @@
       var a = filtered[i];
       var selCls = a.id === selectedAnnotationId ? ' selected' : '';
       var content = (a.content || '').length > 50 ? a.content.slice(0, 50) + '…' : (a.content || '');
+      var stale = selAnchor && selAnchor.isAnchorStale(getSourceText(), a);
+      var anchorBadge = a.anchor
+        ? '<span style="font-size:10px;color:var(--text-muted);margin-left:4px">选区</span>' : '';
+      var staleBadge = stale ? '<span class="anno-stale-badge">锚点失效</span>' : '';
 
       html += '<div class="anno-item' + selCls + '" data-anno-id="' + escHtml(a.id) + '">' +
         '<div class="anno-meta">' +
         '<span style="border-left:3px solid ' + LEVEL_COLORS[a.level] + ';padding-left:4px;margin-right:8px"></span>' +
-        '行' + (a.line || '?') + ' · ' +
+        '行' + (a.line || '?') + anchorBadge + staleBadge + ' · ' +
         '<span style="color:' + LEVEL_COLORS[a.level] + ';font-weight:bold">' + a.level + '</span> · ' +
         '<span>' + a.status + '</span> · ' + (a.created_at || '').slice(0, 10) +
         '</div>' +
@@ -1320,7 +2109,13 @@
         '<div class="mda-help-body">' +
           '<p class="mda-help-lead">Markdown 批注管理工具：在 .md 等文件中嵌入结构化批注，提供可视化预览与批注面板。</p>' +
           '<h3>支持的文件</h3>' +
-          '<p>可打开 ' + escHtml(exts) + '；拖拽文件到窗口、菜单「文件 → 打开」或命令行 <code>mda path/to/file</code>。</p>' +
+          '<p>可打开 ' + escHtml(exts) + '；拖拽文件到窗口、菜单「文件 → 打开」、欢迎页或命令行 <code>mda path/to/file</code>。</p>' +
+          '<h3>文件管理</h3>' +
+          '<ul>' +
+            '<li><kbd>Ctrl+N</kbd> 新建未命名文档；首次保存弹出另存为对话框</li>' +
+            '<li><kbd>Ctrl+Alt+O</kbd> 打开文件夹，左侧文件树列出 Markdown 文件；侧栏标题栏 ‹ 或 <kbd>Ctrl+\\</kbd> 可收起</li>' +
+            '<li>菜单「最近文件」记录最近打开的 20 个文件</li>' +
+          '</ul>' +
           '<h3>批注</h3>' +
           '<ul>' +
             '<li>段落左侧色条表示批注级别（critical / major / minor / info）</li>' +
@@ -1331,15 +2126,27 @@
           '<h3>编辑与预览</h3>' +
           '<ul>' +
             '<li>三栏：源码编辑｜实时预览｜批注面板（编辑/批注可独立开关）</li>' +
+            '<li>编辑↔预览同步滚动；预览上方大纲可点击跳转源码行</li>' +
             '<li>源码语法高亮 + 行号；<kbd>Ctrl+S</kbd> 保存；关闭时未保存会提示</li>' +
-            '<li>深色模式；相对路径图片；Mermaid 流程图；点击图片/流程图可缩放</li>' +
+            '<li><kbd>Ctrl+F</kbd> 查找、<kbd>Ctrl+H</kbd> 替换、<kbd>Ctrl+G</kbd> 跳转到行</li>' +
+            '<li><kbd>Ctrl+B/I/`</kbd> 粗体/斜体/代码；<kbd>Ctrl+Shift+]/[</kbd> 标题升降级</li>' +
+            '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放</li>' +
             '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片与流程图）</li>' +
             '<li>分栏可拖拽调宽，双击分隔条复位</li>' +
           '</ul>' +
           '<h3>快捷键</h3>' +
           '<table class="mda-help-table"><tbody>' +
+            '<tr><td>新建文档</td><td><kbd>Ctrl+N</kbd></td></tr>' +
             '<tr><td>打开文件</td><td><kbd>Ctrl+O</kbd></td></tr>' +
+            '<tr><td>打开文件夹</td><td><kbd>Ctrl+Alt+O</kbd></td></tr>' +
+            '<tr><td>收起/展开文件树</td><td><kbd>Ctrl+\\</kbd></td></tr>' +
+            '<tr><td>查找</td><td><kbd>Ctrl+F</kbd></td></tr>' +
+            '<tr><td>替换</td><td><kbd>Ctrl+H</kbd></td></tr>' +
+            '<tr><td>跳转到行</td><td><kbd>Ctrl+G</kbd></td></tr>' +
+            '<tr><td>粗体 / 斜体 / 代码</td><td><kbd>Ctrl+B</kbd> / <kbd>Ctrl+I</kbd> / <kbd>Ctrl+`</kbd></td></tr>' +
+            '<tr><td>标题升降级</td><td><kbd>Ctrl+Shift+]</kbd> / <kbd>Ctrl+Shift+[</kbd></td></tr>' +
             '<tr><td>保存</td><td><kbd>Ctrl+S</kbd></td></tr>' +
+            '<tr><td>另存为</td><td><kbd>Ctrl+Shift+S</kbd></td></tr>' +
             '<tr><td>重新加载</td><td><kbd>Ctrl+R</kbd></td></tr>' +
             '<tr><td>打开文件所在目录</td><td><kbd>Ctrl+Shift+O</kbd></td></tr>' +
             '<tr><td>复制预览（微信公众号）</td><td><kbd>Ctrl+Shift+C</kbd></td></tr>' +
@@ -1384,13 +2191,13 @@
   }
 
   // ---- 编辑/添加批注弹窗 ----
-  function showEditDialog(mode, anno, defaultLine) {
+  function showEditDialog(mode, anno, defaultLine, pendingAnchor) {
     if (!ensureNotDirty()) return;
     var existing = document.getElementById('edit-dialog');
     if (existing) existing.remove();
 
     var isAdd = mode === 'add';
-    var title = isAdd ? '添加批注' : '编辑批注';
+    var title = isAdd ? (pendingAnchor ? '添加选区批注' : '添加批注') : '编辑批注';
 
     var overlay = document.createElement('div');
     overlay.id = 'edit-dialog';
@@ -1398,7 +2205,12 @@
 
     var formHtml = '<div class="modal-box" style="width:440px"><h3>' + title + '</h3>';
 
-    if (isAdd) {
+    if (isAdd && pendingAnchor) {
+      var quotePreview = pendingAnchor.quote || getSourceText().slice(pendingAnchor.start, pendingAnchor.end);
+      formHtml += '<div class="modal-field"><label>选中文本</label>' +
+        '<div style="font-size:12px;color:var(--text-muted);max-height:56px;overflow:auto;white-space:pre-wrap;border:1px solid var(--border-light);border-radius:4px;padding:6px 8px">' +
+        escHtml(quotePreview) + '</div></div>';
+    } else if (isAdd) {
       formHtml += '<div class="modal-field"><label>行号</label>' +
         '<input id="ed-line" type="number" min="1" value="' + (defaultLine || '') + '"></div>';
     }
@@ -1444,9 +2256,16 @@
       var tags = document.getElementById('ed-tags').value.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
       var level = document.getElementById('ed-level').value;
       if (isAdd) {
-        var line = parseInt(document.getElementById('ed-line').value, 10);
-        if (isNaN(line) || line < 1) { uiAlert('请输入有效行号'); return; }
-        doAdd(line, content, tags, level);
+        if (pendingAnchor) {
+          var anchorLine = selAnchor
+            ? selAnchor.anchorToLine(getSourceText(), pendingAnchor.start)
+            : defaultLine;
+          doAdd(anchorLine, content, tags, level, pendingAnchor);
+        } else {
+          var line = parseInt(document.getElementById('ed-line').value, 10);
+          if (isNaN(line) || line < 1) { uiAlert('请输入有效行号'); return; }
+          doAdd(line, content, tags, level, null);
+        }
       } else {
         var status = document.getElementById('ed-status').value;
         doEdit(anno.id, content, tags, level, status);
@@ -1456,13 +2275,21 @@
 
     overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
     requestAnimationFrame(function () {
-      var first = document.getElementById(isAdd ? 'ed-line' : 'ed-content');
+      var first = document.getElementById(isAdd && !pendingAnchor ? 'ed-line' : 'ed-content');
       if (first) first.focus();
     });
   }
 
-  function doAdd(line, content, tags, level) {
-    api.addAnnotation(currentFilePath, line, { content: content, tags: tags, level: level })
+  function doAdd(line, content, tags, level, anchor) {
+    var input = { content: content, tags: tags, level: level };
+    if (anchor) {
+      input.anchor = {
+        start: anchor.start,
+        end: anchor.end,
+        quote: anchor.quote,
+      };
+    }
+    api.addAnnotation(currentFilePath, line, input)
       .then(function (r) { if (r.success) reloadFile(); else uiAlert('添加失败: ' + r.error); });
   }
 

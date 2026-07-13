@@ -131,7 +131,7 @@ npm run gui -- samples/demo.md
 ```bash
 npm run build          # 先编译（打包脚本会自动执行，也可手动预检）
 
-npm run dist:win       # Windows：NSIS 安装包 + portable 便携版
+npm run dist:win       # Windows：NSIS 安装包 + portable 便携版 + zip 绿色版
 npm run dist:mac       # macOS：.dmg + .zip
 npm run dist:linux     # Linux：AppImage + deb
 npm run dist           # 当前平台默认目标
@@ -139,7 +139,7 @@ npm run dist           # 当前平台默认目标
 
 | 平台 | 典型产物（`release/` 下） |
 |------|---------------------------|
-| Windows | `MDA-1.0.0-win-x64.exe`（NSIS 安装程序）、`MDA-1.0.0-portable-win-x64.exe`（便携版） |
+| Windows | `MDA-1.0.0-win-x64.exe`（NSIS 安装程序，**推荐**）、`MDA-1.0.0-win-x64.zip`（解压后运行，**推荐**）、`MDA-1.0.0-portable-win-x64.exe`（单文件便携版） |
 | macOS | `MDA-1.0.0-mac-x64.dmg`、`MDA-1.0.0-mac-arm64.dmg` 等 |
 | Linux | `MDA-1.0.0-linux-x86_64.AppImage`、`mda_1.0.0_amd64.deb` |
 
@@ -165,6 +165,26 @@ npm install -g .    # 全局安装后使用 mda-cli
 - **macOS**：未公证时首次打开需右键「打开」；正式分发需 Apple 开发者账号 + 公证。
 - **Linux**：AppImage 需 `chmod +x` 后执行；deb 用 `sudo dpkg -i` 安装。
 
+### Windows 分发说明（避免「找不到 ffmpeg.dll」）
+
+Electron 应用启动时需要与 `MDA.exe` **同目录**下的多个运行时文件（`ffmpeg.dll`、`d3dcompiler_47.dll`、`libEGL.dll` 等共 6 个 DLL，以及 `locales/`、`resources/` 等）。**不能只拷贝 `MDA.exe` 一个文件**。
+
+| 分发方式 | 用法 | 说明 |
+|----------|------|------|
+| NSIS 安装包 `MDA-*-win-x64.exe` | 双击安装 | **最稳妥**，推荐发给一般用户 |
+| ZIP 绿色版 `MDA-*-win-x64.zip` | 解压整个文件夹 → 运行其中 `MDA.exe` | 无需安装；须保留解压后的**全部文件** |
+| 便携版 `MDA-*-portable-win-x64.exe` | 双击该 exe（不要只拷内部的 `MDA.exe`） | 每次运行解压到临时目录；部分杀毒软件会误删 `ffmpeg.dll` |
+
+若对方仍报 **「找不到 ffmpeg.dll」**：
+
+1. 确认发的是**完整安装包 / zip / portable exe**，不是从 `win-unpacked` 里单独拎出的 `MDA.exe`。
+2. 让对方将 MDA 加入杀毒/EDR **白名单**（`ffmpeg.dll` 常被误报）。
+3. 改用 **NSIS 安装包** 或 **zip 绿色版** 再试。
+
+打包结束会自动运行 `scripts/verify-release.js` 校验 `release/win-unpacked` 运行时文件是否齐全。
+
+若打包报 **`EBUSY: resource busy or locked, unlink ... app.asar`**：说明上次构建产物仍被占用。请先**关闭所有 MDA 窗口**，关闭资源管理器中打开的 `release` 文件夹，再执行 `npm run dist:win`（脚本会自动 `pre-dist` 清理并重试）。仍失败时重启终端或暂时排除杀毒对 `release/` 的实时扫描。
+
 ### GUI 功能
 
 - **三栏布局**：工具栏「编辑」「批注」两个独立开关，中间预览常驻；两者可同时展开为 **源码 ｜ 预览 ｜ 批注** 三栏平铺。栏间可拖拽调宽，**双击手柄复位**默认宽度。
@@ -173,8 +193,8 @@ npm install -g .    # 全局安装后使用 mda-cli
 - **深色模式**：默认跟随系统，可手动切换（菜单「视图 → 切换深色模式」/ `Ctrl+Shift+D`）并记忆；代码高亮与流程图配色随主题联动。
 - **图片加载**：相对/本地路径图片相对当前文件目录解析为绝对 `file://` 显示（png/jpg/gif/webp/svg 等），加载失败降级为占位文字。
 - **流程图渲染**：` ```mermaid ` 代码块渲染为图形（flowchart/sequence/class/state 等），离线打包无需联网；解析失败降级为错误提示。
-- **批注管理**：增 / 删 / 改 / 筛选（按状态、级别、标签），写操作复用 core writer（原子写入 + 源文件保护）。
-- **段落 ↔ 批注双向定位**：含批注段落显示级别色条，点击段落定位批注、点击批注滚动到段落。
+- **批注管理**：增 / 删 / 改 / 筛选（按状态、级别、标签），写操作复用 core writer（原子写入 + 源文件保护）；支持**选区级批注**（预览/源码拖选 + 右键，含代码块/表格内映射）。
+- **段落 ↔ 批注双向定位**：含批注段落显示级别色条，点击段落定位批注、点击批注滚动到段落；选区批注点击面板项可定位到高亮选区。
 - **拖拽打开**：将 `.md` / `.markdown` / `.txt` / `.mdc` 拖入窗口即可打开；文件菜单提供「打开文件所在目录」（`Ctrl+Shift+O`）。
 - **代码块增强**：语法高亮 + 行号、右上角悬浮「复制」按钮、右键菜单与快捷键（`Ctrl+C` 拷贝选区 / `Ctrl+A` 全选）；复制内容不含行号。
 - **复制预览（微信公众号）**：菜单或 `Ctrl+Shift+C`，将预览转为带内联样式的富文本（本地图与 Mermaid 内嵌 base64 PNG），可直接粘贴到公众号编辑器；复制过程不滚动、不改布局。
@@ -249,7 +269,7 @@ npm run coverage
 - **lcov** — `coverage/lcov.info`（可导入 IDE）
 - **html** — `coverage/lcov-report/index.html`（浏览器查看）
 
-当前覆盖率：**Statements 88.13% / Lines 91.85% / Functions 95.65%**（79 个测试用例全部通过，含 core 单元测试、配置一致性测试、整篇写回 EOL 保留测试与 CLI 集成测试）。
+当前覆盖率：**Statements 86.69% / Lines 90.26% / Functions 96.36%**（109 个测试用例全部通过，含 core 单元测试、anchor/outline、GUI 辅助单测、配置一致性测试与 CLI 集成测试）。
 
 ## 规则配置
 

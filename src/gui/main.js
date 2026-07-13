@@ -2,6 +2,9 @@
 const path = require('path');
 const fs = require('fs');
 
+const { getRecents, addRecent, clearRecents } = require('./main/recent-files');
+const { listMarkdownTree } = require('./main/markdown-tree');
+
 // Electron 31.x / Chromium 在 Windows 上偶发 PartitionAlloc dangling raw_ptr 致命崩溃（框架层问题）。
 // 须在 app.ready 之前关闭该检查，否则进程会直接 FATAL 退出。
 app.commandLine.appendSwitch('disable-features', 'PartitionAllocBackupRefPtr,PartitionAllocDanglingPtr');
@@ -15,75 +18,96 @@ function isMarkdownPath(filePath) {
 }
 
 let mainWindow = null;
-let rendererDirty = false;  // 渲染进程同步的「未保存编辑」标记
-let allowClose = false;     // 用户已确认放弃或保存成功后允许关闭
+let rendererDirty = false;
+let allowClose = false;
+let ipcHandlersRegistered = false;
 
-function createWindow(initialFile) {
-  allowClose = false;
-  rendererDirty = false;
-  mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 750,
-    minWidth: 900,
-    minHeight: 600,
-    title: 'MDA',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      // preload 需 require('../core')（及其依赖 markdown-it），沙箱下无法加载
-      // 本地/第三方模块，故关闭 sandbox；contextIsolation 仍开启以隔离渲染进程。
-      sandbox: false,
+function sendToRenderer(channel, ...args) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args);
+  }
+}
+
+function buildRecentSubmenu(recents) {
+  if (!recents.length) {
+    return [{ label: '(无)', enabled: false }];
+  }
+  const items = recents.map((item) => ({
+    label: path.basename(item.path),
+    click: () => sendToRenderer('file-opened', item.path),
+  }));
+  items.push({ type: 'separator' });
+  items.push({
+    label: '清空列表',
+    click: () => {
+      clearRecents(app.getPath('userData'));
+      rebuildApplicationMenu();
     },
   });
+  return items;
+}
 
-  // 菜单
-  const menuTemplate = [
+function buildMenuTemplate(recents) {
+  return [
     {
       label: '文件',
       submenu: [
         {
+          label: '新建',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => sendToRenderer('menu-new-document'),
+        },
+        {
           label: '打开',
           accelerator: 'CmdOrCtrl+O',
           click: async () => {
+            if (!mainWindow) return;
             const result = await dialog.showOpenDialog(mainWindow, {
               title: '打开 Markdown 文件',
               filters: [{ name: 'Markdown', extensions: MD_EXTENSIONS }],
               properties: ['openFile'],
             });
             if (!result.canceled && result.filePaths.length > 0) {
-              mainWindow.webContents.send('file-opened', result.filePaths[0]);
+              sendToRenderer('file-opened', result.filePaths[0]);
             }
           },
         },
         {
-          label: '打开文件所在目录',
-          accelerator: 'CmdOrCtrl+Shift+O',
-          click: () => {
-            mainWindow.webContents.send('menu-show-in-folder');
-          },
+          label: '打开文件夹',
+          accelerator: 'CmdOrCtrl+Alt+O',
+          click: () => sendToRenderer('menu-open-folder'),
         },
+        { type: 'separator' },
+        {
+          label: '最近文件',
+          submenu: buildRecentSubmenu(recents),
+        },
+        { type: 'separator' },
         {
           label: '保存',
           accelerator: 'CmdOrCtrl+S',
-          click: () => {
-            mainWindow.webContents.send('menu-save');
-          },
+          click: () => sendToRenderer('menu-save'),
+        },
+        {
+          label: '另存为',
+          accelerator: 'CmdOrCtrl+Shift+S',
+          click: () => sendToRenderer('menu-save-as'),
+        },
+        {
+          label: '打开文件所在目录',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: () => sendToRenderer('menu-show-in-folder'),
         },
         {
           label: '重新加载',
           accelerator: 'CmdOrCtrl+R',
-          click: () => {
-            mainWindow.webContents.send('reload');
-          },
+          click: () => sendToRenderer('reload'),
         },
         { type: 'separator' },
         {
           label: '复制预览（微信公众号）',
           accelerator: 'CmdOrCtrl+Shift+C',
-          click: () => {
-            mainWindow.webContents.send('menu-copy-article');
-          },
+          click: () => sendToRenderer('menu-copy-article'),
         },
         { type: 'separator' },
         { role: 'quit' },
@@ -95,30 +119,24 @@ function createWindow(initialFile) {
         {
           label: '编辑栏',
           accelerator: 'CmdOrCtrl+E',
-          click: () => {
-            mainWindow.webContents.send('menu-toggle-edit');
-          },
+          click: () => sendToRenderer('menu-toggle-edit'),
         },
         {
           label: '批注栏',
           accelerator: 'CmdOrCtrl+B',
-          click: () => {
-            mainWindow.webContents.send('menu-toggle-panel');
-          },
+          click: () => sendToRenderer('menu-toggle-panel'),
         },
         {
           label: '切换深色模式',
           accelerator: 'CmdOrCtrl+Shift+D',
-          click: () => {
-            mainWindow.webContents.send('menu-toggle-theme');
-          },
+          click: () => sendToRenderer('menu-toggle-theme'),
         },
         { type: 'separator' },
         {
           label: '开发者工具',
           accelerator: 'F12',
           click: () => {
-            mainWindow.webContents.toggleDevTools();
+            if (mainWindow) mainWindow.webContents.toggleDevTools();
           },
         },
       ],
@@ -129,16 +147,22 @@ function createWindow(initialFile) {
         {
           label: '功能与快捷键',
           accelerator: 'F1',
-          click: () => {
-            mainWindow.webContents.send('menu-show-help');
-          },
+          click: () => sendToRenderer('menu-show-help'),
         },
       ],
     },
   ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
+}
 
-  // IPC handlers
+function rebuildApplicationMenu() {
+  const recents = getRecents(app.getPath('userData'));
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate(recents)));
+}
+
+function registerIpcHandlers() {
+  if (ipcHandlersRegistered) return;
+  ipcHandlersRegistered = true;
+
   ipcMain.handle('read-file', async (_event, filePath) => {
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
@@ -148,15 +172,11 @@ function createWindow(initialFile) {
     }
   });
 
-  // 写操作（增/删/改批注）统一走 @mda/core 的 writer（原子写入 + 源文件保护
-  // + 换行风格保留），由 preload 直接调用，不再需要独立的 write-file 通道。
-
   ipcMain.handle('open-external', async (_event, url) => {
     await shell.openExternal(url);
   });
 
   ipcMain.handle('show-item-in-folder', async (_event, filePath) => {
-    // showItemInFolder 需要绝对路径；命令行相对路径要相对 cwd 解析
     if (filePath) shell.showItemInFolder(path.resolve(filePath));
   });
 
@@ -164,7 +184,6 @@ function createWindow(initialFile) {
     clipboard.writeText(text == null ? '' : String(text));
   });
 
-  // 富文本剪贴板（微信公众号粘贴用）：html + 纯文本
   ipcMain.handle('copy-clipboard-html', async (_event, payload) => {
     const html = payload && payload.html != null ? String(payload.html) : '';
     const text = payload && payload.text != null ? String(payload.text) : '';
@@ -172,7 +191,6 @@ function createWindow(initialFile) {
     return { success: true };
   });
 
-  // 将本地图片读为 data URL（复制预览时内嵌图片，避免 file:// 粘贴失效）
   ipcMain.handle('read-file-data-url', async (_event, filePath) => {
     try {
       if (!filePath) return { success: false, error: '路径为空' };
@@ -189,7 +207,6 @@ function createWindow(initialFile) {
     }
   });
 
-  // 将预览区内指定矩形截图为 PNG data URL（复制 Mermaid 时用）
   ipcMain.handle('capture-page-rect', async (event, rect) => {
     try {
       if (!rect || rect.width <= 0 || rect.height <= 0) {
@@ -211,7 +228,86 @@ function createWindow(initialFile) {
     if (mainWindow) mainWindow.setTitle(title);
   });
 
-  // 渲染进程同步 dirty 状态；关闭窗口时若有未保存编辑则拦截并交渲染层弹窗（不用原生 dialog）
+  ipcMain.handle('show-open-file-dialog', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(win || mainWindow, {
+      title: '打开 Markdown 文件',
+      filters: [{ name: 'Markdown', extensions: MD_EXTENSIONS }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || !result.filePaths.length) {
+      return { success: false, canceled: true };
+    }
+    return { success: true, filePath: result.filePaths[0] };
+  });
+
+  ipcMain.handle('show-save-dialog', async (event, opts) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const suggested = (opts && opts.suggestedName) || '未命名.md';
+    let defaultPath = suggested;
+    if (opts && opts.defaultPath) {
+      defaultPath = path.join(opts.defaultPath, suggested);
+    }
+    const result = await dialog.showSaveDialog(win || mainWindow, {
+      title: '另存为',
+      defaultPath,
+      filters: [{ name: 'Markdown', extensions: MD_EXTENSIONS }],
+    });
+    if (result.canceled || !result.filePath) {
+      return { success: false, canceled: true };
+    }
+    let fp = result.filePath;
+    if (!path.extname(fp)) fp += '.md';
+    return { success: true, filePath: fp };
+  });
+
+  ipcMain.handle('show-open-folder-dialog', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(win || mainWindow, {
+      title: '打开文件夹',
+      properties: ['openDirectory'],
+    });
+    if (result.canceled || !result.filePaths.length) {
+      return { success: false, canceled: true };
+    }
+    return { success: true, folderPath: result.filePaths[0] };
+  });
+
+  ipcMain.handle('list-markdown-tree', async (_event, folderPath) => {
+    try {
+      if (!folderPath) return { success: false, error: '路径为空' };
+      const tree = listMarkdownTree(folderPath, MD_EXTENSIONS);
+      return { success: true, tree };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('get-recent-files', async () => {
+    try {
+      return { success: true, files: getRecents(app.getPath('userData')) };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('add-recent-file', async (_event, filePath) => {
+    try {
+      if (!filePath) return { success: false, error: '路径为空' };
+      const files = addRecent(app.getPath('userData'), filePath);
+      rebuildApplicationMenu();
+      return { success: true, files };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('clear-recent-files', async () => {
+    clearRecents(app.getPath('userData'));
+    rebuildApplicationMenu();
+    return { success: true };
+  });
+
   ipcMain.on('set-dirty', (_event, dirty) => {
     rendererDirty = !!dirty;
   });
@@ -219,11 +315,31 @@ function createWindow(initialFile) {
     allowClose = true;
     if (mainWindow) mainWindow.close();
   });
+}
+
+function createWindow(initialFile) {
+  allowClose = false;
+  rendererDirty = false;
+  mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 750,
+    minWidth: 900,
+    minHeight: 600,
+    title: 'MDA',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  rebuildApplicationMenu();
 
   mainWindow.on('close', (e) => {
     if (!allowClose && rendererDirty) {
       e.preventDefault();
-      mainWindow.webContents.send('app-close-request');
+      sendToRenderer('app-close-request');
     }
   });
   mainWindow.on('closed', () => {
@@ -232,23 +348,27 @@ function createWindow(initialFile) {
     rendererDirty = false;
   });
 
-  // 防御性兜底：禁止渲染进程因链接点击 / 文件拖拽而离开 index.html（否则白屏且无法恢复）。
-  // 真正的“打开”动作由渲染层显式调用 openFile / openExternal 完成。
   mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:|^mailto:/i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
 
-  // 加载 renderer
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
-  // 启动参数：mda <file> 直接打开
-  if (initialFile) {
-    mainWindow.webContents.once('did-finish-load', () => {
-      mainWindow.webContents.send('file-opened', initialFile);
-    });
-  }
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (initialFile) {
+      sendToRenderer('file-opened', initialFile);
+      return;
+    }
+    const recents = getRecents(app.getPath('userData'));
+    const last = recents[0];
+    if (last && last.path && fs.existsSync(last.path)) {
+      sendToRenderer('file-opened', last.path);
+    } else {
+      sendToRenderer('session-welcome');
+    }
+  });
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
@@ -261,13 +381,13 @@ if (!gotSingleInstanceLock) {
     mainWindow.focus();
     const argFile = argv.find((a) => !a.startsWith('-') && isMarkdownPath(a));
     if (argFile) {
-      mainWindow.webContents.send('file-opened', path.resolve(argFile));
+      sendToRenderer('file-opened', path.resolve(argFile));
     }
   });
 
   app.whenReady().then(() => {
+    registerIpcHandlers();
     const argFile = process.argv.find((a) => !a.startsWith('-') && isMarkdownPath(a));
-    // 命令行可能传相对路径（如 samples/demo.md），统一解析为绝对路径
     const initialFile = argFile ? path.resolve(argFile) : undefined;
     createWindow(initialFile);
   });

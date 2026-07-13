@@ -10,6 +10,14 @@ const hljs = require('highlight.js');
 // 与语法高亮使用（均为 GUI 专属，不污染 core.renderer，保证渲染等价性测试）。
 const md = core.createMarkdownIt();
 
+// GUI 预览：KaTeX 数学公式（仅 preload md 实例，不污染 core.renderer）
+try {
+  const katexPlugin = require('markdown-it-katex');
+  md.use(katexPlugin, { throwOnError: false, errorColor: '#cc0000' });
+} catch (e) {
+  console.warn('[mda] markdown-it-katex 未加载，数学公式将不渲染:', e.message);
+}
+
 // GUI 专属：代码块语法高亮（highlight.js）。core.renderMarkdown 用的是各自实例，
 // 此处仅作用于 GUI 的 md，不影响 renderer.test.ts 的“去批注后渲染等价”断言。
 md.set({
@@ -100,6 +108,9 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   onFileOpened: (callback) => {
     ipcRenderer.on('file-opened', (_event, filePath) => callback(filePath));
   },
+  onSessionWelcome: (callback) => {
+    ipcRenderer.on('session-welcome', () => callback());
+  },
   onReload: (callback) => {
     ipcRenderer.on('reload', () => callback());
   },
@@ -118,6 +129,15 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   onMenuSave: (callback) => {
     ipcRenderer.on('menu-save', () => callback());
   },
+  onMenuSaveAs: (callback) => {
+    ipcRenderer.on('menu-save-as', () => callback());
+  },
+  onMenuNewDocument: (callback) => {
+    ipcRenderer.on('menu-new-document', () => callback());
+  },
+  onMenuOpenFolder: (callback) => {
+    ipcRenderer.on('menu-open-folder', () => callback());
+  },
   onMenuShowHelp: (callback) => {
     ipcRenderer.on('menu-show-help', () => callback());
   },
@@ -130,11 +150,21 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   setDirty: (dirty) => ipcRenderer.send('set-dirty', !!dirty),
   confirmClose: () => ipcRenderer.send('confirm-close'),
 
+  showSaveDialog: (opts) => ipcRenderer.invoke('show-save-dialog', opts || {}),
+  showOpenFileDialog: () => ipcRenderer.invoke('show-open-file-dialog'),
+  showOpenFolderDialog: () => ipcRenderer.invoke('show-open-folder-dialog'),
+  listMarkdownTree: (folderPath) => ipcRenderer.invoke('list-markdown-tree', folderPath),
+  getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
+  addRecentFile: (filePath) => ipcRenderer.invoke('add-recent-file', filePath),
+  clearRecentFiles: () => ipcRenderer.invoke('clear-recent-files'),
+
   // 级别配色 / 严重度优先级（来源于 src/config/annotation-schema.json，经 core 暴露）
   levelColors: core.LEVEL_COLORS,
   levelSeverity: core.LEVEL_SEVERITY,
   markdownExtensions: core.MARKDOWN_FILE_EXTENSIONS,
   isMarkdownPath: (filePath) => core.isMarkdownPath(filePath),
+  buildCodeFenceMask: (lines) => core.buildCodeFenceMask(lines),
+  extractHeadings: (text) => core.extractHeadings(text),
 
   // ---- 复用 @mda/core ----
   parseAnnotations: (text) => core.parseAnnotations(text),

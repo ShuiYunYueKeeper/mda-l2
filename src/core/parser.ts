@@ -5,6 +5,7 @@
   isAnnotationLevel,
   isAnnotationStatus,
 } from './model';
+import { parseAnchor } from './anchor';
 import schema from '../config/annotation-schema.json';
 
 // 批注识别正则来源于外置配置（src/config/annotation-schema.json）的 annotationPattern
@@ -39,16 +40,31 @@ export function buildCodeFenceMask(lines: string[]): boolean[] {
   return mask;
 }
 
-function isAnnotation(obj: unknown): obj is Annotation {
-  if (typeof obj !== 'object' || obj === null) return false;
-  const a = obj as Record<string, unknown>;
-  if (typeof a.id !== 'string') return false;
-  if (typeof a.content !== 'string') return false;
-  if (!Array.isArray(a.tags) || a.tags.some(t => typeof t !== 'string')) return false;
-  if (!isAnnotationLevel(a.level)) return false;
-  if (!isAnnotationStatus(a.status)) return false;
-  if (typeof a.created_at !== 'string') return false;
+function isAnnotationCore(obj: Record<string, unknown>): boolean {
+  if (typeof obj.id !== 'string') return false;
+  if (typeof obj.content !== 'string') return false;
+  if (!Array.isArray(obj.tags) || obj.tags.some(t => typeof t !== 'string')) return false;
+  if (!isAnnotationLevel(obj.level)) return false;
+  if (!isAnnotationStatus(obj.status)) return false;
+  if (typeof obj.created_at !== 'string') return false;
   return true;
+}
+
+function normalizeAnnotation(parsed: Record<string, unknown>): Annotation | null {
+  if (!isAnnotationCore(parsed)) return null;
+  const anno: Annotation = {
+    id: parsed.id as string,
+    content: parsed.content as string,
+    tags: parsed.tags as string[],
+    level: parsed.level as Annotation['level'],
+    status: parsed.status as Annotation['status'],
+    created_at: parsed.created_at as string,
+  };
+  if (parsed.anchor !== undefined) {
+    const anchor = parseAnchor(parsed.anchor);
+    if (anchor) anno.anchor = anchor;
+  }
+  return anno;
 }
 
 export function parseAnnotations(text: string): ScanResult {
@@ -70,9 +86,10 @@ export function parseAnnotations(text: string): ScanResult {
     if (annoMatch) {
       const jsonStr = annoMatch[1];
       try {
-        const parsed = JSON.parse(jsonStr);
-        if (isAnnotation(parsed)) {
-          const anno: Annotation = { ...parsed, line: i + 1 };
+        const parsed = JSON.parse(jsonStr) as Record<string, unknown>;
+        const annoBase = normalizeAnnotation(parsed);
+        if (annoBase) {
+          const anno: Annotation = { ...annoBase, line: i + 1 };
           annotations.push(anno);
           buffer.push({ lineNumber: i + 1, raw: line, annotation: anno });
         } else {

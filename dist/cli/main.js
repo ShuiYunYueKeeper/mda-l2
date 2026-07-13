@@ -26,6 +26,7 @@ program
     .description('对指定段落添加批注')
     .option('--tags <tags>', '标签，逗号分隔 (如 "bug,ui")')
     .option('--level <level>', '级别: critical, major, minor, info (默认 info)', 'info')
+    .option('--anchor <json>', '选区锚点 JSON，如 \'{"start":10,"end":20}\'')
     .action(add_1.addCommand);
 program
     .command('edit <file> <id>')

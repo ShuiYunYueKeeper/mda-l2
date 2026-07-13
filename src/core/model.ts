@@ -25,6 +25,12 @@ export function isMarkdownPath(filePath: string): boolean {
   return MARKDOWN_FILE_EXTENSIONS.includes(m[1].toLowerCase());
 }
 
+export interface AnnotationAnchor {
+  start: number;
+  end: number;
+  quote?: string;
+}
+
 export interface Annotation {
   id: string;
   content: string;
@@ -34,12 +40,14 @@ export interface Annotation {
   created_at: string;
   line?: number;
   file?: string;
+  anchor?: AnnotationAnchor;
 }
 
 export interface AnnotationInput {
   content: string;
   tags?: string[];
   level?: AnnotationLevel;
+  anchor?: AnnotationAnchor;
 }
 
 export interface AnnotationPatch {
@@ -59,4 +67,11 @@ export interface Paragraph {
 export interface ScanResult {
   annotations: Annotation[];
   paragraphs: Paragraph[];
+}
+
+export interface HeadingNode {
+  level: number;
+  title: string;
+  line: number;
+  children: HeadingNode[];
 }
