@@ -153,11 +153,11 @@ graph TD
 | ID | 任务 | 依赖 | 并行 | 涉及文件 | 步骤 |
 |----|------|------|------|---------|------|
 | M5-1 | `src/mcp/server.ts` 六 tools | M1-6 | ✓ | mcp/* | stdio MCP SDK |
-| M5-2 | MCP 集成测试 vs CLI | M5-1 | — | tests/mcp | AC-7 |
+| M5-2 | MCP 集成测试 vs CLI | M5-1 | ✓ | tests/mcp | AC-7 |
 | M5-3 | 导出 HTML（复用 copy 逻辑） | M3-7 | ✓ | app.js | 菜单项 |
 | M5-4 | 导出 PDF（printToPDF） | M3-7 | ✓ | main.js | IPC |
 | M5-5 | electron-updater 配置 | M0 | ✓ | main.js, package.json | Free 可用 |
-| M5-6 | README MCP 配置文档 | M5-1 | — | README.md | Cursor 示例 |
+| M5-6 | README MCP 配置文档 | M5-1 | ✓ | README.md | Cursor 示例 |
 
 ---
 

@@ -25,6 +25,7 @@
 | [`M2-acceptance-checklist.md`](M2-acceptance-checklist.md) | 文件管理 F8 | ✅ 已验收 |
 | [`M3-acceptance-checklist.md`](M3-acceptance-checklist.md) | 编辑预览增强 F1/F2 | ✅ 已验收 |
 | [`M4-acceptance-checklist.md`](M4-acceptance-checklist.md) | 选区批注 F3 | ✅ 已验收 |
+| [`M5-acceptance-checklist.md`](M5-acceptance-checklist.md) | MCP / 导出 / 更新 | 待实机验收 |
 
 ## AI 协作资产
 

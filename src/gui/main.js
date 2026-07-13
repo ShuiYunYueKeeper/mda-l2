@@ -4,6 +4,7 @@ const fs = require('fs');
 
 const { getRecents, addRecent, clearRecents } = require('./main/recent-files');
 const { listMarkdownTree } = require('./main/markdown-tree');
+const { setupAutoUpdater } = require('./main/updater');
 
 // Electron 31.x / Chromium 在 Windows 上偶发 PartitionAlloc dangling raw_ptr 致命崩溃（框架层问题）。
 // 须在 app.ready 之前关闭该检查，否则进程会直接 FATAL 退出。
@@ -21,6 +22,7 @@ let mainWindow = null;
 let rendererDirty = false;
 let allowClose = false;
 let ipcHandlersRegistered = false;
+let autoUpdaterApi = null;
 
 function sendToRenderer(channel, ...args) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -110,6 +112,15 @@ function buildMenuTemplate(recents) {
           click: () => sendToRenderer('menu-copy-article'),
         },
         { type: 'separator' },
+        {
+          label: '导出 HTML',
+          click: () => sendToRenderer('menu-export-html'),
+        },
+        {
+          label: '导出 PDF',
+          click: () => sendToRenderer('menu-export-pdf'),
+        },
+        { type: 'separator' },
         { role: 'quit' },
       ],
     },
@@ -148,6 +159,19 @@ function buildMenuTemplate(recents) {
           label: '功能与快捷键',
           accelerator: 'F1',
           click: () => sendToRenderer('menu-show-help'),
+        },
+        {
+          label: '检查更新',
+          click: () => {
+            if (autoUpdaterApi) autoUpdaterApi.checkForUpdates();
+            else if (mainWindow) {
+              dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: '检查更新',
+                message: '开发模式下不可用；请使用已打包的安装版检查更新。',
+              });
+            }
+          },
         },
       ],
     },
@@ -248,17 +272,56 @@ function registerIpcHandlers() {
     if (opts && opts.defaultPath) {
       defaultPath = path.join(opts.defaultPath, suggested);
     }
+    const filters = (opts && opts.filters) || [{ name: 'Markdown', extensions: MD_EXTENSIONS }];
     const result = await dialog.showSaveDialog(win || mainWindow, {
-      title: '另存为',
+      title: (opts && opts.title) || '另存为',
       defaultPath,
-      filters: [{ name: 'Markdown', extensions: MD_EXTENSIONS }],
+      filters,
     });
     if (result.canceled || !result.filePath) {
       return { success: false, canceled: true };
     }
     let fp = result.filePath;
-    if (!path.extname(fp)) fp += '.md';
+    if (!path.extname(fp) && filters[0] && filters[0].extensions && filters[0].extensions[0]) {
+      fp += '.' + filters[0].extensions[0];
+    }
     return { success: true, filePath: fp };
+  });
+
+  ipcMain.handle('write-text-file', async (_event, filePath, content) => {
+    try {
+      if (!filePath) return { success: false, error: '路径为空' };
+      const abs = path.resolve(filePath);
+      fs.writeFileSync(abs, content == null ? '' : String(content), 'utf-8');
+      return { success: true, filePath: abs };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('export-pdf', async (_event, payload) => {
+    let pdfWin = null;
+    try {
+      const filePath = payload && payload.filePath;
+      const html = payload && payload.html;
+      if (!filePath || !html) return { success: false, error: '参数无效' };
+      pdfWin = new BrowserWindow({
+        show: false,
+        webPreferences: { sandbox: true },
+      });
+      const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(String(html));
+      await pdfWin.loadURL(dataUrl);
+      const pdf = await pdfWin.webContents.printToPDF({
+        printBackground: true,
+        margins: { marginType: 'default' },
+      });
+      fs.writeFileSync(path.resolve(filePath), pdf);
+      return { success: true, filePath: path.resolve(filePath) };
+    } catch (err) {
+      return { success: false, error: err.message };
+    } finally {
+      if (pdfWin && !pdfWin.isDestroyed()) pdfWin.destroy();
+    }
   });
 
   ipcMain.handle('show-open-folder-dialog', async (event) => {
@@ -387,6 +450,7 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(() => {
     registerIpcHandlers();
+    autoUpdaterApi = setupAutoUpdater(app, () => mainWindow);
     const argFile = process.argv.find((a) => !a.startsWith('-') && isMarkdownPath(a));
     const initialFile = argFile ? path.resolve(argFile) : undefined;
     createWindow(initialFile);

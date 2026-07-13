@@ -144,6 +144,12 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   onMenuCopyArticle: (callback) => {
     ipcRenderer.on('menu-copy-article', () => callback());
   },
+  onMenuExportHtml: (callback) => {
+    ipcRenderer.on('menu-export-html', () => callback());
+  },
+  onMenuExportPdf: (callback) => {
+    ipcRenderer.on('menu-export-pdf', () => callback());
+  },
   onAppCloseRequest: (callback) => {
     ipcRenderer.on('app-close-request', () => callback());
   },
@@ -185,6 +191,9 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   // 整篇源码保存（编辑模式用）：走 core 原子写入 + 保留原换行风格
   saveFile: (filePath, content) =>
     core.writeRawFile(filePath, content).then(() => ok(null), fail),
+
+  writeTextFile: (filePath, content) => ipcRenderer.invoke('write-text-file', filePath, content),
+  exportPdf: (filePath, html) => ipcRenderer.invoke('export-pdf', { filePath, html }),
 
   // 保存前校验：返回疑似批注但格式不正确的行号数组（供渲染层提示用户）
   findMalformedAnnotations: (text) => findMalformedAnnotations(text),
