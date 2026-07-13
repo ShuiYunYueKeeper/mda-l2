@@ -149,6 +149,8 @@ extractHeadings(text): HeadingNode[]              // 大纲标题树（outline.t
 - `mda-cli edit <file> <id> [--content <c>] [--tags a,b] [--level <l>] [--status <s>]`
 - `mda-cli remove <file> <id>`
 
+**MCP**（`mda-mcp` / `dist/mcp/server.js`）：stdio 六 tools — `mda_scan`、`mda_add`、`mda_edit`、`mda_remove`、`mda_read_file`、`mda_export_review_prompt`；工作区 `MDA_WORKSPACE` 或 `--workspace`。
+
 输出规范（**强约束**）：
 - `--format json`：stdout **仅**输出 JSON 数组（无批注则 `[]`），每个对象含 `id/file/line/content/tags/level/status/created_at`。
 - 表格模式：stdout 输出表格；**所有**提示/警告/错误一律走 stderr。
@@ -277,6 +279,7 @@ npm test               # jest（含覆盖率）
 | 写入/保护/原子性 | `src/core/writer.ts` |
 | 渲染/不可见性 | `src/core/renderer.ts` |
 | CLI 命令 | `src/cli/commands/*.ts` |
+| MCP Server | `src/mcp/server.ts`、`handlers.ts` |
 | GUI 主进程/桥接/界面 | `src/gui/main.js` / `preload.js` / `renderer/app.js` |
 | GUI 选区/高亮/滚动/查找 | `renderer/selection-anchor.js`、`anchor-highlights.js`、`sync-scroll.js`、`find-replace.js` |
 | GUI 文件/欢迎/大纲 | `renderer/welcome.js`、`file-sidebar.js`、`outline-panel.js` |
@@ -286,4 +289,4 @@ npm test               # jest（含覆盖率）
 | Few-shot 正反例 | `docs/few-shot-examples.md` |
 | 质量保障说明 | `quality.md` |
 | GUI 截图清单 | `docs/screenshots/README.md` |
-| 测试 | `tests/core/*.test.ts`、`tests/cli/*.test.ts`、`tests/gui/*.test.ts` |
+| 测试 | `tests/core/*.test.ts`、`tests/cli/*.test.ts`、`tests/gui/*.test.ts`、`tests/mcp/*.test.ts` |

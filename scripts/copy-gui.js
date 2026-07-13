@@ -13,6 +13,7 @@ const files = [
   ['src/gui/preload.js', 'dist/gui/preload.js'],
   ['src/gui/main/recent-files.js', 'dist/gui/main/recent-files.js'],
   ['src/gui/main/markdown-tree.js', 'dist/gui/main/markdown-tree.js'],
+  ['src/gui/main/updater.js', 'dist/gui/main/updater.js'],
   ['src/gui/renderer/index.html', 'dist/gui/renderer/index.html'],
   ['src/gui/renderer/app.js', 'dist/gui/renderer/app.js'],
   ['src/gui/renderer/welcome.js', 'dist/gui/renderer/welcome.js'],

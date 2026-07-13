@@ -72,6 +72,8 @@
     api.onMenuOpenFolder(function () { openWorkspaceFolder(); });
     api.onMenuShowHelp(function () { showHelpDialog(); });
     api.onMenuCopyArticle(function () { copyPreviewForArticle(); });
+    api.onMenuExportHtml(function () { exportPreviewHtml(); });
+    api.onMenuExportPdf(function () { exportPreviewPdf(); });
     api.onAppCloseRequest(function () { handleAppCloseRequest(); });
 
     setupDragAndDrop();
@@ -1712,6 +1714,73 @@
       }
     } catch (err) {
       uiAlert('复制失败: ' + ((err && err.message) ? err.message : String(err)));
+    }
+  }
+
+  function exportBaseName() {
+    if (!currentFilePath) return 'export';
+    var name = currentFilePath.replace(/^.*[\\/]/, '');
+    var dot = name.lastIndexOf('.');
+    return dot > 0 ? name.slice(0, dot) : name;
+  }
+
+  function wrapExportHtmlDocument(bodyHtml, title) {
+    var safeTitle = String(title || 'export')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
+      + '<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>'
+      + safeTitle + '</title>\n</head>\n<body>\n' + bodyHtml + '\n</body>\n</html>';
+  }
+
+  async function exportPreviewHtml() {
+    if (!previewEl || !previewEl.textContent.trim()) {
+      uiAlert('预览区尚无内容，请先打开 Markdown 文件');
+      return;
+    }
+    try {
+      var pack = await buildArticleClipboardContent();
+      var base = exportBaseName();
+      var dlg = await api.showSaveDialog({
+        title: '导出 HTML',
+        suggestedName: base + '.html',
+        filters: [{ name: 'HTML', extensions: ['html'] }],
+      });
+      if (!dlg || !dlg.success || dlg.canceled) return;
+      var doc = wrapExportHtmlDocument(pack.html, base);
+      var wr = await api.writeTextFile(dlg.filePath, doc);
+      if (wr && wr.success) {
+        uiAlert('已导出 HTML：' + dlg.filePath);
+      } else {
+        uiAlert('导出失败: ' + ((wr && wr.error) || '未知错误'));
+      }
+    } catch (err) {
+      uiAlert('导出失败: ' + ((err && err.message) ? err.message : String(err)));
+    }
+  }
+
+  async function exportPreviewPdf() {
+    if (!previewEl || !previewEl.textContent.trim()) {
+      uiAlert('预览区尚无内容，请先打开 Markdown 文件');
+      return;
+    }
+    try {
+      var pack = await buildArticleClipboardContent();
+      var base = exportBaseName();
+      var dlg = await api.showSaveDialog({
+        title: '导出 PDF',
+        suggestedName: base + '.pdf',
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      });
+      if (!dlg || !dlg.success || dlg.canceled) return;
+      var doc = wrapExportHtmlDocument(pack.html, base);
+      var wr = await api.exportPdf(dlg.filePath, doc);
+      if (wr && wr.success) {
+        uiAlert('已导出 PDF：' + dlg.filePath);
+      } else {
+        uiAlert('导出失败: ' + ((wr && wr.error) || '未知错误'));
+      }
+    } catch (err) {
+      uiAlert('导出失败: ' + ((err && err.message) ? err.message : String(err)));
     }
   }
 

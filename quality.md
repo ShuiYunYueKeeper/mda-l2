@@ -17,6 +17,7 @@
 | 配置一致性测试 | `tests/core/config.test.ts` | 锁定外置规则（枚举/配色/严重度/正则）与 core 派生值一致，防止漂移 |
 | CLI 集成测试 | `tests/cli/commands.test.ts` | 四命令端到端；**`add --anchor` JSON 校验** |
 | GUI 辅助单测 | `tests/gui/*.test.ts` | `selection-anchor` 围栏映射、`editor-assist` 标题/列表快捷键 |
+| MCP 集成测试 | `tests/mcp/handlers.test.ts` | 六 tools 与 CLI scan 对齐、工作区路径校验 |
 
 运行：
 
@@ -24,7 +25,7 @@
 npm test          # jest，含覆盖率
 ```
 
-**当前状态：109 用例全部通过（9 套件）。**
+**当前状态：117 用例全部通过（10 套件）。**
 
 ---
 
@@ -32,9 +33,9 @@ npm test          # jest，含覆盖率
 
 | 指标 | 数值 |
 |------|------|
-| Statements | 86.69% |
-| Lines | 90.26% |
-| Functions | 96.36% |
+| Statements | 85.36% |
+| Lines | 88.81% |
+| Functions | 92.20% |
 
 > 以 `npm test`（jest --coverage）实测为准；core 模块覆盖率最高（model 100% / renderer 100%）。
 
@@ -73,6 +74,7 @@ npm test          # jest，含覆盖率
 | **复制预览（微信公众号）** | 改动 `copyPreviewForArticle` / Mermaid 导出 / 剪贴板 IPC | 实机：`Ctrl+Shift+C` 粘贴公众号编辑器，正文+图+流程图齐全；复制过程无滚动跳动/闪烁 |
 | **同步滚动 / 查找替换** | 改动 `sync-scroll.js` / `find-replace.js` | 编辑→预览块级同步；查找高亮与 ↑/↓ 跳转；IME 焦点不丢失 |
 | **选区批注** | 改动 `selection-anchor.js` / `anchor-highlights.js` / anchor 写入 | 预览/源码双路径选区→`anchor`；插入批注行后偏移不失效；代码块/表格可批注；orphan 标记 |
+| **MCP / 导出** | 改动 `src/mcp/**` 或导出/更新 IPC | `mda_scan` 与 CLI JSON 一致；HTML/PDF 导出；打包版检查更新 |
 | 阶段确认门禁 | P0–P3 每阶段产出后 | 设计取舍需人工确认后才进入下一阶段 |
 | **GUI 截图 / 录屏** | GUI 功能变更且用户确认实机通过 | 交付素材须人工产出；AI 在 Step 5 列出待补清单并提示用户补充，见 `docs/screenshots/README.md` |
 
