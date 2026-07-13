@@ -107,8 +107,10 @@ interface Annotation {
   created_at: string;    // ISO 8601
   line?: number;         // 1-based，解析时回填（批注行所在行号）
   file?: string;         // 扫描时回填
+  anchor?: AnnotationAnchor;  // 选区级批注（UTF-16 start/end + quote）
 }
-interface AnnotationInput { content: string; tags?: string[]; level?: AnnotationLevel; }
+interface AnnotationAnchor { start: number; end: number; quote?: string; }
+interface AnnotationInput { content: string; tags?: string[]; level?: AnnotationLevel; anchor?: AnnotationAnchor; }
 interface AnnotationPatch { content?: string; tags?: string[]; level?: AnnotationLevel; status?: AnnotationStatus; }
 interface Paragraph { startLine: number; endLine: number; text: string; annotations: Annotation[]; }
 interface ScanResult { annotations: Annotation[]; paragraphs: Paragraph[]; }
@@ -128,6 +130,9 @@ createMarkdownIt(): MarkdownIt
 renderMarkdown(md: MarkdownIt, text: string): string
 writeRawFile(filePath, content): Promise<void>   // 整篇写回（GUI 源码编辑保存）
 buildCodeFenceMask(lines: string[]): boolean[]    // 围栏遮罩，parser/renderer/GUI 共用
+validateAnchor(text, anchor): boolean             // 锚点是否仍有效（quote 匹配）
+shiftAnchorForInsert(anchor, insertLineIndex, insertedLineCount, text): AnnotationAnchor | null
+extractHeadings(text): HeadingNode[]              // 大纲标题树（outline.ts）
 ```
 
 ### 5.3 批注行语法（唯一合法形态）
@@ -140,7 +145,7 @@ buildCodeFenceMask(lines: string[]): boolean[]    // 围栏遮罩，parser/rende
 ### 5.4 CLI 契约（`src/cli`）
 
 - `mda-cli scan <file|dir> [-r] [--format table|json] [--status <s>] [--level <l>]`
-- `mda-cli add <file> <line> <content> [--tags a,b] [--level <l>]`
+- `mda-cli add <file> <line> <content> [--tags a,b] [--level <l>] [--anchor <json>]`
 - `mda-cli edit <file> <id> [--content <c>] [--tags a,b] [--level <l>] [--status <s>]`
 - `mda-cli remove <file> <id>`
 
@@ -254,6 +259,9 @@ npm test               # jest（含覆盖率）
 7. **【数据校验】枚举守卫**：add/edit/scan 入口用 `isAnnotationLevel/isAnnotationStatus` 校验，非法值报错退出而非落盘。
 8. **【CLI 输出】表格按显示宽度对齐**：中文为全角（2 列），用 `displayWidth/truncateToWidth/padToWidth` 对齐，勿用 `String.padEnd`（按码元数会错位）。
 9. **【CLI 输出】scan 目录模式**：每条批注的 `file` 必须是真实文件路径（在 `scanFile` 内回填），不可回退成目录名。
+10. **【选区批注】anchor 偏移**：`addAnnotation` 在段落上方插入批注行后，须 `shiftAnchorForInsert` 修正同文件内已有 anchor 的 UTF-16 偏移，否则选区批注一律失效。
+11. **【选区批注】预览映射**：`selection-anchor.js` 负责预览 DOM / 源码 textarea → UTF-16 `anchor`；围栏代码块经 `extractFenceContentRegions` 映射到源码字面内容；`anchor-highlights.js` 用 CSS Highlight API（降级 `<mark>`）着色。
+12. **【GUI 同步滚动】**：仅编辑→预览块级 ratio 同步，禁止双向环路；查找替换须同步预览高亮与 `scrollLeft`。
 
 ---
 
@@ -264,13 +272,18 @@ npm test               # jest（含覆盖率）
 | 类型/枚举 | `src/core/model.ts` |
 | 可配置规则（枚举/正则/色条） | `src/config/annotation-schema.json` |
 | 解析/归属算法 | `src/core/parser.ts` |
+| 锚点校验/偏移 | `src/core/anchor.ts` |
+| 大纲提取 | `src/core/outline.ts` |
 | 写入/保护/原子性 | `src/core/writer.ts` |
 | 渲染/不可见性 | `src/core/renderer.ts` |
 | CLI 命令 | `src/cli/commands/*.ts` |
 | GUI 主进程/桥接/界面 | `src/gui/main.js` / `preload.js` / `renderer/app.js` |
+| GUI 选区/高亮/滚动/查找 | `renderer/selection-anchor.js`、`anchor-highlights.js`、`sync-scroll.js`、`find-replace.js` |
+| GUI 文件/欢迎/大纲 | `renderer/welcome.js`、`file-sidebar.js`、`outline-panel.js` |
 | 设计文档 | `docs/P0..P3-*.md`、`docs/README.md` |
+| 里程碑验收 | `docs/M2–M4-acceptance-checklist.md` |
 | AI 协作记录 | `docs/prompts/*.md` |
 | Few-shot 正反例 | `docs/few-shot-examples.md` |
 | 质量保障说明 | `quality.md` |
 | GUI 截图清单 | `docs/screenshots/README.md` |
-| 测试 | `tests/core/*.test.ts`、`tests/cli/*.test.ts` |
+| 测试 | `tests/core/*.test.ts`、`tests/cli/*.test.ts`、`tests/gui/*.test.ts` |

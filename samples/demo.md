@@ -63,7 +63,7 @@ mda-cli scan doc.md --format json
 
 ## 链接测试
 
-更多信息请参考 [CommonMark 规范](https://spec.commonmark.org/0.31/) 和 [GFM 表格扩展](https://github.github.com/gfm/#tables-extension-)。
+更多信息请参考 [CommonMark 规范](https://spec.commonmark.org/0.31.2/) 和 [GFM 表格扩展](https://github.github.com/gfm/#tables-extension-)。
 
 ---
 

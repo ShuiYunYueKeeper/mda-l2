@@ -41,6 +41,8 @@ const fs = __importStar(require("fs/promises"));
 const path = __importStar(require("path"));
 const crypto_1 = require("crypto");
 const index_1 = require("./index");
+const anchor_1 = require("./anchor");
+const parser_1 = require("./parser");
 // ---------- 原子写入 ----------
 async function atomicWrite(filePath, content) {
     const dir = path.dirname(filePath);
@@ -113,12 +115,24 @@ async function addAnnotation(filePath, paragraphLine, input) {
     const rawText = await fs.readFile(filePath, 'utf-8');
     const eol = detectEol(rawText);
     const lines = rawText.split(/\r?\n/);
-    const { paragraphs, annotations } = (0, index_1.parseAnnotations)(rawText);
+    const { paragraphs } = (0, index_1.parseAnnotations)(rawText);
+    const targetLine = input.anchor
+        ? (0, anchor_1.anchorToLine)(rawText, input.anchor.start)
+        : paragraphLine;
     // 检查段落存在
-    const paragraph = (0, index_1.findParagraphByLine)(paragraphs, paragraphLine);
+    const paragraph = (0, index_1.findParagraphByLine)(paragraphs, targetLine);
     if (!paragraph) {
-        throw new Error(`未找到第 ${paragraphLine} 行所属的段落`);
+        throw new Error(`未找到第 ${targetLine} 行所属的段落`);
     }
+    const anchorQuote = input.anchor && input.anchor.quote === undefined
+        ? rawText.slice(input.anchor.start, input.anchor.end)
+        : input.anchor?.quote;
+    // 插入位置：段落首行上方（0-based index）
+    const insertIdx = paragraph.startLine - 1;
+    const insertCharOffset = (0, anchor_1.charOffsetAtLineIndex)(lines, insertIdx, eol);
+    const baseAnchor = input.anchor
+        ? { start: input.anchor.start, end: input.anchor.end, quote: anchorQuote }
+        : undefined;
     // 构造批注对象
     const anno = {
         id: (0, crypto_1.randomUUID)(),
@@ -128,11 +142,43 @@ async function addAnnotation(filePath, paragraphLine, input) {
         status: 'open',
         created_at: new Date().toISOString(),
     };
-    const annoLine = `[comment]: <> (@anno ${JSON.stringify(anno)})`;
-    // 插入位置：段落首行上方（0-based index）
-    // 若段落上方已有批注，插入到最后一个批注行下方
-    const insertAt = paragraph.startLine - 1;
-    const insertIdx = insertAt; // 0-based index to splice
+    if (baseAnchor) {
+        anno.anchor = { ...baseAnchor };
+    }
+    let annoLine = `[comment]: <> (@anno ${JSON.stringify(anno)})`;
+    if (baseAnchor) {
+        for (let pass = 0; pass < 4; pass++) {
+            const delta = annoLine.length + eol.length;
+            const shifted = (0, anchor_1.shiftAnchorForInsert)(baseAnchor, insertCharOffset, delta);
+            const nextAnno = { ...anno, anchor: shifted };
+            const nextLine = `[comment]: <> (@anno ${JSON.stringify(nextAnno)})`;
+            if (nextLine === annoLine)
+                break;
+            anno.anchor = shifted;
+            annoLine = nextLine;
+        }
+    }
+    const insertDelta = annoLine.length + eol.length;
+    // 已有批注行的 anchor 也需随插入点后移
+    if (insertDelta > 0) {
+        for (let i = 0; i < lines.length; i++) {
+            const match = lines[i].match(parser_1.ANNO_REGEX);
+            if (!match)
+                continue;
+            try {
+                const parsed = JSON.parse(match[1]);
+                const existingAnchor = (0, anchor_1.parseAnchor)(parsed.anchor);
+                if (!existingAnchor || existingAnchor.start < insertCharOffset)
+                    continue;
+                const shifted = (0, anchor_1.shiftAnchorForInsert)(existingAnchor, insertCharOffset, insertDelta);
+                parsed.anchor = shifted;
+                lines[i] = `[comment]: <> (@anno ${JSON.stringify(parsed)})`;
+            }
+            catch {
+                // 保留原行
+            }
+        }
+    }
     lines.splice(insertIdx, 0, annoLine);
     const newText = lines.join(eol);
     // 验证：source protection

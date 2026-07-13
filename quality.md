@@ -9,11 +9,14 @@
 
 | 套件 | 文件 | 说明 |
 |------|------|------|
-| parser 单元测试 | `tests/core/parser.test.ts` | E1–E25 边界体系：空文件、无批注、连续批注、多段落、非法 JSON、特殊字符、CRLF、无空行段落、1MB+ 性能、围栏代码块内样例不识别等 |
-| writer 单元测试 | `tests/core/writer.test.ts` | 增删改、行号越界、ID 不存在、源文件保护、原子写入失败清理、空行压缩、CRLF/LF 保留、**`writeRawFile` 整篇写回 + EOL 保留（3 用例）** |
-| renderer 单元测试 | `tests/core/renderer.test.ts` | 批注不可见性（不含 `@anno`/字段值、去批注后渲染等价）、含括号批注、BOM 标题、围栏样例原样显示、**伪子条目（4b.）硬换行**、图片 fallback、level→color |
+| parser 单元测试 | `tests/core/parser.test.ts` | E1–E25 边界体系；**E26–E32** anchor 字段解析与归属 |
+| writer 单元测试 | `tests/core/writer.test.ts` | 增删改、源文件保护、原子写入、空行压缩、CRLF/LF 保留、`writeRawFile`；**anchor 写入与插入偏移** |
+| renderer 单元测试 | `tests/core/renderer.test.ts` | 批注不可见性、含括号批注、BOM 标题、围栏样例、伪子条目硬换行、图片 fallback |
+| anchor 单元测试 | `tests/core/anchor.test.ts` | UTF-16 偏移、`shiftAnchorForInsert`、锚点校验 |
+| outline 单元测试 | `tests/core/outline.test.ts` | `extractHeadings` 标题树 |
 | 配置一致性测试 | `tests/core/config.test.ts` | 锁定外置规则（枚举/配色/严重度/正则）与 core 派生值一致，防止漂移 |
-| CLI 集成测试 | `tests/cli/commands.test.ts` | 四命令端到端：stdout 纯净、退出码、枚举校验、round-trip |
+| CLI 集成测试 | `tests/cli/commands.test.ts` | 四命令端到端；**`add --anchor` JSON 校验** |
+| GUI 辅助单测 | `tests/gui/*.test.ts` | `selection-anchor` 围栏映射、`editor-assist` 标题/列表快捷键 |
 
 运行：
 
@@ -21,7 +24,7 @@
 npm test          # jest，含覆盖率
 ```
 
-**当前状态：79 用例全部通过。**
+**当前状态：109 用例全部通过（9 套件）。**
 
 ---
 
@@ -29,9 +32,9 @@ npm test          # jest，含覆盖率
 
 | 指标 | 数值 |
 |------|------|
-| Statements | 88.13% |
-| Lines | 91.85% |
-| Functions | 95.65% |
+| Statements | 86.69% |
+| Lines | 90.26% |
+| Functions | 96.36% |
 
 > 以 `npm test`（jest --coverage）实测为准；core 模块覆盖率最高（model 100% / renderer 100%）。
 
@@ -68,6 +71,8 @@ npm test          # jest，含覆盖率
 | **分栏拖拽** | 改动三栏布局/手柄 | 拖拽调宽、双击手柄复位默认宽度（编辑 380px / 批注 320px） |
 | **深色 / mermaid / 图片** | 改动主题、流程图或图片解析 | 深色切换与流程图配色联动；`samples/all-features.md` 验证相对图片与 mermaid 渲染 |
 | **复制预览（微信公众号）** | 改动 `copyPreviewForArticle` / Mermaid 导出 / 剪贴板 IPC | 实机：`Ctrl+Shift+C` 粘贴公众号编辑器，正文+图+流程图齐全；复制过程无滚动跳动/闪烁 |
+| **同步滚动 / 查找替换** | 改动 `sync-scroll.js` / `find-replace.js` | 编辑→预览块级同步；查找高亮与 ↑/↓ 跳转；IME 焦点不丢失 |
+| **选区批注** | 改动 `selection-anchor.js` / `anchor-highlights.js` / anchor 写入 | 预览/源码双路径选区→`anchor`；插入批注行后偏移不失效；代码块/表格可批注；orphan 标记 |
 | 阶段确认门禁 | P0–P3 每阶段产出后 | 设计取舍需人工确认后才进入下一阶段 |
 | **GUI 截图 / 录屏** | GUI 功能变更且用户确认实机通过 | 交付素材须人工产出；AI 在 Step 5 列出待补清单并提示用户补充，见 `docs/screenshots/README.md` |
 

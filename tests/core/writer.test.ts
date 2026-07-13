@@ -2,6 +2,7 @@
 import * as path from 'path';
 import * as os from 'os';
 import { parseAnnotations } from '../../src/core/parser';
+import { isAnchorStale } from '../../src/core/anchor';
 import { addAnnotation, editAnnotation, removeAnnotation, writeRawFile } from '../../src/core/writer';
 import { Annotation } from '../../src/core/model';
 
@@ -221,6 +222,27 @@ describe('错误处理', () => {
     await writeFile(f, '# Title\n\n正文。\n');
 
     await expect(addAnnotation(f, 999, { content: 'test' })).rejects.toThrow('未找到');
+  });
+
+  test('add 带 anchor 写入 JSON 且源文件保护', async () => {
+    const f = tmpFile('anchor.md');
+    const body = '# Title\n\n正文段落。';
+    await writeFile(f, body + '\n');
+
+    const anchor = { start: body.indexOf('正文'), end: body.indexOf('正文') + 2, quote: '正文' };
+    const created = await addAnnotation(f, 3, {
+      content: '选区批注',
+      level: 'major',
+      anchor,
+    });
+
+    expect(created.anchor?.start).toBeGreaterThan(anchor.start);
+    const disk = await readFile(f);
+    expect(disk).toContain('"anchor"');
+    expect(disk).toContain('正文段落。');
+    const parsed = parseAnnotations(disk);
+    expect(parsed.annotations[0].anchor?.quote).toBe('正文');
+    expect(isAnchorStale(disk.replace(/\r\n/g, '\n'), parsed.annotations[0])).toBe(false);
   });
 });
 

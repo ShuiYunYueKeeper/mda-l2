@@ -279,6 +279,34 @@ describe('围栏代码块内的批注样例不识别为真实批注', () => {
     ]);
     expect(parseAnnotations(text).annotations).toHaveLength(0);
   });
+
+  test('E31: 合法 anchor 解析保留', () => {
+    const text = makeText([
+      makeAnnoLine({ id: 'a1', content: 'x', anchor: { start: 0, end: 4, quote: '正文' } }),
+      '正文段落。',
+    ]);
+    const result = parseAnnotations(text);
+    expect(result.annotations[0].anchor).toEqual({ start: 0, end: 4, quote: '正文' });
+  });
+
+  test('E32: 非法 anchor 忽略但批注仍有效', () => {
+    const raw = {
+      id: 'a1',
+      content: 'x',
+      tags: [],
+      level: 'info',
+      status: 'open',
+      created_at: '2026-01-01T00:00:00Z',
+      anchor: { start: 10, end: 5 },
+    };
+    const text = makeText([
+      `[comment]: <> (@anno ${JSON.stringify(raw)})`,
+      '正文。',
+    ]);
+    const result = parseAnnotations(text);
+    expect(result.annotations).toHaveLength(1);
+    expect(result.annotations[0].anchor).toBeUndefined();
+  });
 });
 
 describe('findParagraphByLine', () => {
