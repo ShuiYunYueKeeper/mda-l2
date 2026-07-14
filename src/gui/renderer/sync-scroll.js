@@ -14,9 +14,28 @@
     return map;
   }
 
+  function paddingTop(editor) {
+    if (!editor || !window.getComputedStyle) return 0;
+    return parseFloat(window.getComputedStyle(editor).paddingTop) || 0;
+  }
+
+  /** 1-based 行号 → textarea 字符偏移（按 \\n 计行，兼容 CRLF） */
+  function offsetOfLine(text, line1Based) {
+    if (!text || line1Based <= 1) return 0;
+    var n = 1;
+    for (var i = 0; i < text.length; i++) {
+      if (text.charAt(i) === '\n') {
+        n++;
+        if (n === line1Based) return i + 1;
+      }
+    }
+    return text.length;
+  }
+
   function lineAtEditorScroll(editor) {
     if (!editor) return 1;
-    var line = Math.floor(editor.scrollTop / LINE_HEIGHT) + 1;
+    var pad = paddingTop(editor);
+    var line = Math.floor(Math.max(0, editor.scrollTop - pad) / LINE_HEIGHT) + 1;
     var maxLine = editor.value.split('\n').length;
     return Math.max(1, Math.min(line, maxLine));
   }
@@ -24,12 +43,19 @@
   function scrollEditorToLine(editor, text, line, options) {
     options = options || {};
     if (!editor || !text) return;
-    var lines = text.split('\n');
-    var idx = Math.max(0, Math.min(line - 1, lines.length - 1));
-    var pos = lines.slice(0, idx).join('\n').length + (idx > 0 ? 1 : 0);
+    var maxLine = text.split('\n').length;
+    var targetLine = Math.max(1, Math.min(line, maxLine));
+    var pos = offsetOfLine(text, targetLine);
+    var pad = paddingTop(editor);
+    var targetScroll = Math.max(0, pad + (targetLine - 1) * LINE_HEIGHT - editor.clientHeight * 0.3);
     if (!options.skipFocus) editor.focus();
     editor.selectionStart = editor.selectionEnd = pos;
-    editor.scrollTop = Math.max(0, (line - 1) * LINE_HEIGHT - editor.clientHeight * 0.3);
+    editor.scrollTop = targetScroll;
+    // setSelectionRange 可能异步把滚动拽偏，下一帧再钉回目标行
+    requestAnimationFrame(function () {
+      editor.selectionStart = editor.selectionEnd = pos;
+      editor.scrollTop = targetScroll;
+    });
   }
 
   function scrollPreviewToLine(previewPane, line, map) {
@@ -82,7 +108,7 @@
         syncing = true;
         var text = typeof getText === 'function' ? getText() : '';
         scrollEditorToLine(editor, text, line, { skipFocus: opts.skipFocus });
-        scrollPreviewToLine(previewPane, line, blockMap);
+        if (!opts.skipPreview) scrollPreviewToLine(previewPane, line, blockMap);
         requestAnimationFrame(function () { syncing = false; });
       },
       detach: function () {

@@ -120,7 +120,9 @@
     function scrollToMatch(m) {
       if (!m) return;
       var line = editorEl.value.slice(0, m.start).split('\n').length;
-      editorEl.scrollTop = Math.max(0, (line - 1) * LINE_H - Math.floor(editorEl.clientHeight / 3));
+      var pad = 0;
+      try { pad = parseFloat(window.getComputedStyle(editorEl).paddingTop) || 0; } catch (e) { /* ignore */ }
+      editorEl.scrollTop = Math.max(0, pad + (line - 1) * LINE_H - Math.floor(editorEl.clientHeight / 3));
       editorEl.setSelectionRange(m.start, m.end);
       scrollMatchHorizontally(m);
       if (syncEditorScroll) syncEditorScroll();

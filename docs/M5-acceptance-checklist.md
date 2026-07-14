@@ -1,6 +1,7 @@
 ﻿# M5 MCP / 导出 / 自动更新 — 验收清单
 
-> 对应 P3 **M5-2 / M5-3 / M5-4 / M5-5**；需求见 [`P0-requirements-v2-commercial.md`](P0-requirements-v2-commercial.md) AC-7、PV-8。
+> 对应 P3 **M5-2 / M5-3 / M5-4 / M5-5**；需求见 [`P0-requirements-v2-commercial.md`](P0-requirements-v2-commercial.md) AC-7、PV-8。  
+> **状态：✅ 已验收**（2026-07-14；含后续 GUI 打磨：导出等待、跳转/主题/拷贝 toast、批注框 Tab 陷阱）
 
 ```bash
 npm run build && npm test
@@ -48,11 +49,12 @@ npm run build && npm test
 
 ## 验收结论
 
-- [ ] AC-7 通过
-- [ ] 导出 HTML/PDF 通过
-- [ ] 自动更新通过
+- [x] AC-7 通过
+- [x] 导出 HTML/PDF 通过
+- [x] 自动更新通过（开发模式提示不可用；打包版可触发检查）
 
 问题记录：
 
 ```
+（无阻塞遗留；进入 M6 Free 门禁集成）
 ```
