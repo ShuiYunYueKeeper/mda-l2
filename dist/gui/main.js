@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard } = require('electron');
+const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -300,27 +300,46 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('export-pdf', async (_event, payload) => {
+    const fsPromises = fs.promises;
+    const os = require('os');
     let pdfWin = null;
+    let tmpHtml = null;
     try {
       const filePath = payload && payload.filePath;
       const html = payload && payload.html;
       if (!filePath || !html) return { success: false, error: '参数无效' };
+      const absOut = path.resolve(filePath);
+      tmpHtml = path.join(os.tmpdir(), 'mda-export-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.html');
+      fs.writeFileSync(tmpHtml, String(html), 'utf-8');
+
       pdfWin = new BrowserWindow({
         show: false,
-        webPreferences: { sandbox: true },
+        width: 900,
+        height: 1200,
+        webPreferences: { sandbox: true, javascript: true },
       });
-      const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(String(html));
-      await pdfWin.loadURL(dataUrl);
-      const pdf = await pdfWin.webContents.printToPDF({
-        printBackground: true,
-        margins: { marginType: 'default' },
-      });
-      fs.writeFileSync(path.resolve(filePath), pdf);
-      return { success: true, filePath: path.resolve(filePath) };
+      await pdfWin.loadFile(tmpHtml);
+      await new Promise((r) => setTimeout(r, 300));
+
+      const PDF_TIMEOUT_MS = 55000;
+      const pdf = await Promise.race([
+        pdfWin.webContents.printToPDF({
+          printBackground: true,
+          margins: { marginType: 'default' },
+        }),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('生成 PDF 超时（超过 55 秒）')), PDF_TIMEOUT_MS);
+        }),
+      ]);
+      await fsPromises.writeFile(absOut, pdf);
+      return { success: true, filePath: absOut };
     } catch (err) {
       return { success: false, error: err.message };
     } finally {
       if (pdfWin && !pdfWin.isDestroyed()) pdfWin.destroy();
+      if (tmpHtml) {
+        try { fs.unlinkSync(tmpHtml); } catch (e) { /* ignore */ }
+      }
     }
   });
 

@@ -120,6 +120,11 @@
         newDocument();
         return;
       }
+      if (k === 'd' && e.shiftKey) {
+        e.preventDefault();
+        toggleTheme();
+        return;
+      }
       if (k === '\\' && !e.shiftKey) {
         if (workspaceRoot && leftRailEl && !leftRailEl.classList.contains('hidden') && fileSidebar) {
           e.preventDefault();
@@ -251,41 +256,234 @@
     }
   }
 
+  function showToast(message) {
+    var old = document.getElementById('mda-toast');
+    if (old) old.remove();
+    var el = document.createElement('div');
+    el.id = 'mda-toast';
+    el.className = 'mda-toast';
+    el.setAttribute('role', 'status');
+    el.textContent = message || '';
+    document.body.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add('show'); });
+    setTimeout(function () {
+      el.classList.remove('show');
+      setTimeout(function () { if (el.parentNode) el.remove(); }, 220);
+    }, 1600);
+  }
+
+  function copyTextWithToast(text, okMsg) {
+    var t = text == null ? '' : String(text);
+    if (!t) {
+      showToast('没有可拷贝的内容');
+      return;
+    }
+    api.copyToClipboard(t);
+    showToast(okMsg || '拷贝成功');
+  }
+
+  function isSelectionInFilename() {
+    if (!tbFileNameEl) return false;
+    var sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return false;
+    try {
+      var node = sel.anchorNode;
+      return !!(node && tbFileNameEl.contains(node.nodeType === 3 ? node.parentNode : node));
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function isSelectionInPreview() {
+    if (!previewEl) return false;
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) return false;
+    try {
+      var node = sel.anchorNode;
+      return !!(node && previewEl.contains(node.nodeType === 3 ? node.parentNode : node));
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /** Ctrl+C：编辑器 / 文件名 / 预览区（含代码块）选中文本拷贝 + toast */
+  function setupDomCopyShortcuts() {
+    window.addEventListener('keydown', function (e) {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey) return;
+      if ((e.key || '').toLowerCase() !== 'c') return;
+      var ae = document.activeElement;
+
+      // 源码编辑器选区拷贝 + toast
+      if (ae === editorEl && editorEl) {
+        var start = editorEl.selectionStart;
+        var end = editorEl.selectionEnd;
+        if (start === end) return;
+        var edText = editorEl.value.slice(start, end);
+        if (!edText) return;
+        e.preventDefault();
+        e.stopPropagation();
+        copyTextWithToast(edText, '拷贝成功');
+        return;
+      }
+
+      // 其他输入框交给原生拷贝
+      if (ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT')) return;
+
+      if (isSelectionInFilename()) {
+        var selFn = window.getSelection();
+        var fname = (selFn && !selFn.isCollapsed) ? selFn.toString() : '';
+        if (!String(fname).replace(/●/g, '').trim()) {
+          fname = (tbFileNameEl && tbFileNameEl.getAttribute('data-filename')) || '';
+        } else {
+          fname = String(fname).replace(/●/g, '').trim();
+        }
+        if (!fname) return;
+        e.preventDefault();
+        e.stopPropagation();
+        copyTextWithToast(fname, '拷贝成功');
+        return;
+      }
+
+      if (isSelectionInPreview()) {
+        var text = window.getSelection().toString();
+        if (!text.trim()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        copyTextWithToast(text, '拷贝成功');
+      }
+    }, true);
+  }
+
   function showSelectionContextMenu(x, y, source, snapshot) {
-    if (docState === 'welcome' || !currentFilePath) return;
-    if (!ensureNotDirty()) return;
+    if (docState === 'welcome') return;
     if (source === 'preview') {
       previewSelectionSnap = snapshot || previewSelectionSnap;
       if (!previewSelectionSnap) return;
       if (selAnchor && selAnchor.isSelectionUiChrome(previewSelectionSnap.range.commonAncestorContainer)) {
         return;
       }
+      removeSelectionContextMenu();
+      var quote = previewSelectionSnap.quote || '';
+      var pMenu = document.createElement('div');
+      pMenu.id = 'mda-selection-menu';
+      pMenu.className = 'mda-context-menu';
+      pMenu.innerHTML =
+        '<div class="mda-menu-item' + (quote.trim() ? '' : ' disabled') + '" data-act="copy"><span>拷贝</span><span class="mda-menu-key">' + MOD_KEY + 'C</span></div>' +
+        '<div class="mda-menu-item' + (currentFilePath ? '' : ' disabled') + '" data-act="anno"><span>添加选区批注</span></div>';
+      document.body.appendChild(pMenu);
+      pMenu.style.left = Math.min(x, window.innerWidth - pMenu.offsetWidth - 4) + 'px';
+      pMenu.style.top = Math.min(y, window.innerHeight - pMenu.offsetHeight - 4) + 'px';
+      pMenu.addEventListener('click', function (e) {
+        var item = e.target.closest('[data-act]');
+        if (!item || item.classList.contains('disabled')) return;
+        var act = item.dataset.act;
+        if (act === 'copy') {
+          var text = quote;
+          removeSelectionContextMenu();
+          clearPreviewSelectionSnap();
+          copyTextWithToast(text, '拷贝成功');
+          return;
+        }
+        if (act === 'anno') {
+          if (!currentFilePath) {
+            removeSelectionContextMenu();
+            return;
+          }
+          if (!ensureNotDirty()) {
+            removeSelectionContextMenu();
+            clearPreviewSelectionSnap();
+            return;
+          }
+          var anchor = resolveSelectionAnchor('preview', previewSelectionSnap);
+          removeSelectionContextMenu();
+          clearPreviewSelectionSnap();
+          if (!anchor) {
+            uiAlert('无法识别选区，请尝试在源码编辑区选择');
+            return;
+          }
+          var line = selAnchor.anchorToLine(getSourceText(), anchor.start);
+          showEditDialog('add', null, line, anchor);
+        }
+      });
+      selectionMenuDismiss = function (ev) {
+        if (ev.type === 'click' && pMenu.contains(ev.target)) return;
+        removeSelectionContextMenu();
+        clearPreviewSelectionSnap();
+      };
+      setTimeout(function () {
+        document.addEventListener('click', selectionMenuDismiss, true);
+        document.addEventListener('contextmenu', selectionMenuDismiss, true);
+        window.addEventListener('blur', selectionMenuDismiss);
+      }, 0);
+      return;
     }
+    showEditorContextMenu(x, y);
+  }
+
+  function showEditorContextMenu(x, y) {
+    if (docState === 'welcome' || !editorEl) return;
     removeSelectionContextMenu();
+    removeCodeContextMenu();
+
+    var start = editorEl.selectionStart;
+    var end = editorEl.selectionEnd;
+    var hasSel = start !== end;
+    var selText = hasSel ? editorEl.value.slice(start, end) : '';
+
     var menu = document.createElement('div');
     menu.id = 'mda-selection-menu';
     menu.className = 'mda-context-menu';
-    menu.innerHTML = '<div class="mda-menu-item" data-act="anno"><span>添加选区批注</span></div>';
+    menu.innerHTML =
+      '<div class="mda-menu-item' + (hasSel ? '' : ' disabled') + '" data-act="copy"><span>拷贝</span><span class="mda-menu-key">' + MOD_KEY + 'C</span></div>' +
+      '<div class="mda-menu-item" data-act="copy-all"><span>拷贝全部</span></div>' +
+      '<div class="mda-menu-item' + (hasSel && currentFilePath ? '' : ' disabled') + '" data-act="anno"><span>添加选区批注</span></div>';
     document.body.appendChild(menu);
     menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 4) + 'px';
     menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 4) + 'px';
+
     menu.addEventListener('click', function (e) {
       var item = e.target.closest('[data-act]');
-      if (!item) return;
-      var anchor = resolveSelectionAnchor(source, source === 'preview' ? previewSelectionSnap : null);
-      removeSelectionContextMenu();
-      clearPreviewSelectionSnap();
-      if (!anchor) {
-        uiAlert('无法识别选区，请尝试在源码编辑区选择');
+      if (!item || item.classList.contains('disabled')) return;
+      var act = item.dataset.act;
+      if (act === 'copy') {
+        if (!selText) {
+          uiAlert('请先选中要拷贝的文本');
+          removeSelectionContextMenu();
+          return;
+        }
+        copyTextWithToast(selText, '拷贝成功');
+        removeSelectionContextMenu();
         return;
       }
-      var line = selAnchor.anchorToLine(getSourceText(), anchor.start);
-      showEditDialog('add', null, line, anchor);
+      if (act === 'copy-all') {
+        copyTextWithToast(editorEl.value || '', '拷贝成功');
+        removeSelectionContextMenu();
+        return;
+      }
+      if (act === 'anno') {
+        if (!hasSel) {
+          uiAlert('请先选中文本再添加选区批注');
+          removeSelectionContextMenu();
+          return;
+        }
+        if (!ensureNotDirty()) {
+          removeSelectionContextMenu();
+          return;
+        }
+        var anchor = resolveSelectionAnchor('editor');
+        removeSelectionContextMenu();
+        if (!anchor) {
+          uiAlert('无法识别选区');
+          return;
+        }
+        var line = selAnchor.anchorToLine(getSourceText(), anchor.start);
+        showEditDialog('add', null, line, anchor);
+      }
     });
+
     selectionMenuDismiss = function (ev) {
       if (ev.type === 'click' && menu.contains(ev.target)) return;
       removeSelectionContextMenu();
-      clearPreviewSelectionSnap();
     };
     setTimeout(function () {
       document.addEventListener('click', selectionMenuDismiss, true);
@@ -327,9 +525,8 @@
     }
     if (editorEl) {
       editorEl.addEventListener('contextmenu', function (e) {
-        if (editorEl.selectionStart === editorEl.selectionEnd) return;
         e.preventDefault();
-        showSelectionContextMenu(e.clientX, e.clientY, 'editor');
+        showEditorContextMenu(e.clientX, e.clientY);
       });
     }
   }
@@ -464,12 +661,31 @@
 
   function jumpEditorToLine(line) {
     if (!editorEl) return;
-    var lines = editorEl.value.split('\n');
-    var idx = Math.max(0, Math.min(line - 1, lines.length - 1));
-    var pos = lines.slice(0, idx).join('\n').length + (idx > 0 ? 1 : 0);
+    var text = editorEl.value;
+    var maxLine = text.split('\n').length;
+    var targetLine = Math.max(1, Math.min(line, maxLine));
+    var pos = 0;
+    if (targetLine > 1) {
+      var n = 1;
+      for (var i = 0; i < text.length; i++) {
+        if (text.charAt(i) === '\n') {
+          n++;
+          if (n === targetLine) { pos = i + 1; break; }
+        }
+      }
+      if (n < targetLine) pos = text.length;
+    }
+    var pad = 0;
+    try { pad = parseFloat(window.getComputedStyle(editorEl).paddingTop) || 0; } catch (e) { /* ignore */ }
+    var targetScroll = Math.max(0, pad + (targetLine - 1) * 21 - editorEl.clientHeight * 0.3);
     editorEl.focus();
     editorEl.selectionStart = editorEl.selectionEnd = pos;
-    editorEl.scrollTop = Math.max(0, (line - 1) * 21 - editorEl.clientHeight * 0.3);
+    editorEl.scrollTop = targetScroll;
+    requestAnimationFrame(function () {
+      editorEl.selectionStart = editorEl.selectionEnd = pos;
+      editorEl.scrollTop = targetScroll;
+      syncEditorScrollLayers();
+    });
   }
 
   function setupEditorAssistKeys() {
@@ -482,16 +698,17 @@
   function tryEditorAssistShortcut(e) {
     if (docState === 'welcome' || !editorVisible) return false;
     if (findReplaceUi && findReplaceUi.isOpen()) return false;
+    // 任意模态框打开时禁用（即便 Tab 已把焦点移到编辑器）
+    if (document.querySelector('.modal-overlay')) return false;
     var ae = document.activeElement;
     if (ae && ae.closest && (ae.closest('#find-replace-bar') || ae.closest('.modal-overlay'))) return false;
-    if (e.key === 'Tab' && ae !== editorEl) return false;
-    if (ae !== editorEl) {
-      if (!(e.ctrlKey || e.metaKey) && e.key !== 'Tab') return false;
-      editorEl.focus();
-    }
+    // 仅在源码编辑器已聚焦时处理；勿在 Ctrl 按下时抢焦点，否则预览/文件名选区会丢失
+    if (ae !== editorEl) return false;
 
     var mod = e.ctrlKey || e.metaKey;
     if (!mod && e.key !== 'Tab') return false;
+    // 单独按下修饰键时不做任何事
+    if (e.key === 'Control' || e.key === 'Meta' || e.key === 'Alt' || e.key === 'Shift') return false;
 
     var start = editorEl.selectionStart;
     var end = editorEl.selectionEnd;
@@ -536,6 +753,9 @@
       e.preventDefault();
       result = assist.toggleLinePrefix(val, start, end, '> ', mask);
     } else if (mod && e.shiftKey && (e.key === 'd' || e.key === 'D')) {
+      // Ctrl+Shift+D 留给「切换深色模式」，勿占用
+      return false;
+    } else if (e.altKey && e.shiftKey && e.key === 'ArrowDown' && !mod) {
       e.preventDefault();
       result = assist.duplicateLine(val, start, mask);
     } else if (mod && !e.shiftKey && e.key >= '1' && e.key <= '6') {
@@ -587,20 +807,32 @@
     document.body.appendChild(overlay);
     var input = overlay.querySelector('#goto-line');
     function close() { overlay.remove(); }
-    overlay.querySelector('#goto-cancel').addEventListener('click', close);
-    overlay.querySelector('#goto-ok').addEventListener('click', function () {
+    function doGoto() {
       var n = parseInt(input.value, 10);
       if (isNaN(n) || n < 1) { uiAlert('请输入有效行号'); return; }
-      if (!editorVisible) showEditorPane(true);
-      if (syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(n);
-      else jumpEditorToLine(n);
       close();
-    });
+      // 延后聚焦编辑器，避免 keydown Enter 落到 textarea 插入换行导致标脏
+      setTimeout(function () {
+        if (!editorVisible) showEditorPane(true);
+        if (syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(n);
+        else jumpEditorToLine(n);
+      }, 0);
+    }
+    overlay.querySelector('#goto-cancel').addEventListener('click', close);
+    overlay.querySelector('#goto-ok').addEventListener('click', doGoto);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+    trapModalFocus(overlay, close);
     input.focus();
     input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') overlay.querySelector('#goto-ok').click();
-      if (e.key === 'Escape') close();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        doGoto();
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+      }
     });
   }
 
@@ -853,6 +1085,8 @@
     tbFileNameEl = document.getElementById('tb-filename');
     addBtn = document.getElementById('btn-add');
 
+    setupDomCopyShortcuts();
+
     addBtn.addEventListener('click', function () { showEditDialog('add', null, cursorLine); });
     tbEditBtn.addEventListener('click', function () { toggleEditor(); });
     tbPanelBtn.addEventListener('click', function () { togglePanel(); });
@@ -891,6 +1125,7 @@
         cursorLine = parseInt(block.getAttribute('data-line'), 10) || null;
         highlightCursorBlock(block);
         if (cursorLine && syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(cursorLine);
+        else if (cursorLine) jumpEditorToLine(cursorLine);
         var p = findParagraphForLine(cursorLine);
         if (p && p.annotations && p.annotations.length) {
           selectAnnotation(p.annotations[0].id, false);
@@ -922,7 +1157,7 @@
             try { pref = localStorage.getItem('mda-theme'); } catch (e) { /* ignore */ }
             if (pref !== 'dark' && pref !== 'light') {
               applyTheme(ev.matches ? 'dark' : 'light');
-              rerenderPreview();
+              rerenderPreview({ preserveScroll: true });
             }
           });
         } catch (e) { /* 旧版无 addEventListener */ }
@@ -934,11 +1169,44 @@
     var next = isDark() ? 'light' : 'dark';
     applyTheme(next);
     try { localStorage.setItem('mda-theme', next); } catch (e) { /* ignore */ }
-    rerenderPreview(); // 让 mermaid 跟随主题重绘
+    rerenderPreview({ preserveScroll: true }); // 让 mermaid 跟随主题重绘，并保留滚动位置
   }
 
-  function rerenderPreview() {
-    if (currentFilePath) parseAndRender(getPreviewSource(), currentFilePath);
+  function captureViewScroll() {
+    return {
+      editorTop: editorEl ? editorEl.scrollTop : 0,
+      editorLeft: editorEl ? editorEl.scrollLeft : 0,
+      gutterTop: srcGutterEl ? srcGutterEl.scrollTop : 0,
+      previewTop: previewPaneEl ? previewPaneEl.scrollTop : 0,
+      findMarkTop: srcFindMarkEl ? srcFindMarkEl.scrollTop : 0,
+    };
+  }
+
+  function restoreViewScroll(s) {
+    if (!s) return;
+    if (editorEl) {
+      editorEl.scrollTop = s.editorTop;
+      editorEl.scrollLeft = s.editorLeft || 0;
+    }
+    if (srcGutterEl) srcGutterEl.scrollTop = s.gutterTop;
+    if (srcHighlightEl && srcHighlightEl.parentNode) {
+      srcHighlightEl.parentNode.scrollTop = s.editorTop;
+      srcHighlightEl.parentNode.scrollLeft = s.editorLeft || 0;
+    }
+    if (srcFindMarkEl) {
+      srcFindMarkEl.scrollTop = s.findMarkTop != null ? s.findMarkTop : s.editorTop;
+      srcFindMarkEl.scrollLeft = s.editorLeft || 0;
+    }
+    if (previewPaneEl) previewPaneEl.scrollTop = s.previewTop;
+  }
+
+  function rerenderPreview(opts) {
+    opts = opts || {};
+    if (docState === 'welcome' && !currentText && !(editorEl && editorEl.value)) return;
+    if (opts.preserveScroll) {
+      opts.savedScroll = captureViewScroll();
+    }
+    parseAndRender(getPreviewSource(), currentFilePath, opts);
   }
 
   // 预览源：有未保存编辑时以编辑器缓冲为准，否则用磁盘内容
@@ -1191,6 +1459,8 @@
       var name = '';
       if (docState === 'untitled') name = '未命名.md';
       else if (currentFilePath) name = currentFilePath.replace(/\\/g, '/').split('/').pop();
+      tbFileNameEl.setAttribute('data-filename', name || '');
+      tbFileNameEl.title = name ? (name + '（可选中后 Ctrl+C 拷贝）') : '';
       tbFileNameEl.innerHTML = name ? (escHtml(name) + (dirty ? '<span class="dirty-dot">●</span>' : '')) : '';
     }
     if (addBtn) addBtn.disabled = docState !== 'open' || !currentFilePath || dirty;
@@ -1308,8 +1578,10 @@
     if (p) {
       cursorLine = p.startLine;
       if (!editorVisible) showEditorPane(true);
-      if (syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(p.startLine);
-      else jumpEditorToLine(p.startLine);
+      // 面板展示的是批注行 a.line；跳到段落 startLine 会在「批注紧贴正文」时刚好多 1 行
+      var editorLine = (anno && anno.line) ? anno.line : p.startLine;
+      if (syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(editorLine, { skipPreview: true });
+      else jumpEditorToLine(editorLine);
     }
   }
 
@@ -1342,7 +1614,9 @@
       editorEl.selectionStart = Math.min(savedScroll.selStart, len);
       editorEl.selectionEnd = Math.min(savedScroll.selEnd, len);
     }
-    refreshEditorDecorations();
+    // 打开文档后默认展开源码编辑栏（可用 Ctrl+E 收起；预览点击不再强行打开）
+    if (!editorVisible) showEditorPane(true);
+    else refreshEditorDecorations();
     setTitle(filePath);
     parseAndRender(result.content, filePath);
     updateToolbar();
@@ -1389,7 +1663,8 @@
 
   function reloadFile() { if (currentFilePath) openFile(currentFilePath, { scrollToTop: false }); }
 
-  function parseAndRender(text, filePath) {
+  function parseAndRender(text, filePath, opts) {
+    opts = opts || {};
     var parsed = api.parseAnnotations(text);
     annotations = parsed.annotations;
     paragraphs = parsed.paragraphs;
@@ -1398,12 +1673,16 @@
     }
     buildTagFilters();
     updateOutline(text);
-    renderMarkdownContent(text);
+    renderMarkdownContent(text, opts);
     renderPanel();
   }
 
   // ---- Markdown 渲染 ----
-  function renderMarkdownContent(text) {
+  function renderMarkdownContent(text, opts) {
+    opts = opts || {};
+    var savedScroll = opts.preserveScroll
+      ? (opts.savedScroll || captureViewScroll())
+      : null;
     var result = api.renderMarkdown(text);
     if (!result.success) {
       previewEl.innerHTML = '<p style="color:var(--danger)">渲染错误: ' + escHtml(result.error) + '</p>';
@@ -1420,7 +1699,12 @@
       enhanceCodeBlocks();
       decorateParagraphs();
       wrapPreviewTables();
-      if (syncScrollCtrl) {
+      if (savedScroll) {
+        restoreViewScroll(savedScroll);
+        // Mermaid 布局可能再撑高内容，下一帧再恢复一次
+        requestAnimationFrame(function () { restoreViewScroll(savedScroll); });
+        if (syncScrollCtrl) syncScrollCtrl.refreshMap();
+      } else if (syncScrollCtrl) {
         syncScrollCtrl.refreshMap();
         syncScrollCtrl.syncPreviewToEditor();
       }
@@ -1717,6 +2001,151 @@
     }
   }
 
+  function withTimeout(promise, ms, fallback) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var t = setTimeout(function () {
+        if (done) return;
+        done = true;
+        resolve(fallback);
+      }, ms);
+      Promise.resolve(promise).then(
+        function (v) {
+          if (done) return;
+          done = true;
+          clearTimeout(t);
+          resolve(v);
+        },
+        function () {
+          if (done) return;
+          done = true;
+          clearTimeout(t);
+          resolve(fallback);
+        },
+      );
+    });
+  }
+
+  /** 整段导出超时（拒绝而非吞掉），默认 60s */
+  var EXPORT_TIMEOUT_MS = 60000;
+
+  function raceWithTimeout(promise, ms, label) {
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      var t = setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        reject(new Error((label || '导出') + '超时（超过 ' + Math.round(ms / 1000) + ' 秒），请精简文档中的大图后重试'));
+      }, ms);
+      Promise.resolve(promise).then(
+        function (v) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(t);
+          resolve(v);
+        },
+        function (err) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(t);
+          reject(err);
+        },
+      );
+    });
+  }
+
+  var exportBusyEl = null;
+
+  function showExportBusy(message) {
+    hideExportBusy();
+    var overlay = document.createElement('div');
+    overlay.id = 'mda-export-busy';
+    overlay.className = 'modal-overlay mda-export-busy';
+    overlay.innerHTML =
+      '<div class="modal-box" role="status" aria-live="polite">' +
+        '<div class="mda-export-spin" aria-hidden="true"></div>' +
+        '<p class="mda-export-msg">' + escHtml(message || '正在导出…') + '</p>' +
+        '<p class="mda-export-hint">请稍候，大文档可能需要更长时间</p>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    exportBusyEl = overlay;
+  }
+
+  function setExportBusyMessage(message) {
+    if (!exportBusyEl) return;
+    var msg = exportBusyEl.querySelector('.mda-export-msg');
+    if (msg) msg.textContent = message || '正在导出…';
+  }
+
+  function hideExportBusy() {
+    if (exportBusyEl) {
+      exportBusyEl.remove();
+      exportBusyEl = null;
+    }
+    var orphan = document.getElementById('mda-export-busy');
+    if (orphan) orphan.remove();
+  }
+
+  /**
+   * 文件导出专用：比公众号复制更轻量——流程图保留 SVG（不截图转 PNG），
+   * 本地图片内联带超时，避免导出挂死或超大 IPC 失败。
+   */
+  async function buildExportHtmlContent() {
+    var root = document.createElement('div');
+    root.innerHTML = previewEl.innerHTML;
+
+    root.querySelectorAll('.mda-code-copy, .mda-code-gutter, .md-image-alt').forEach(function (el) { el.remove(); });
+    root.querySelectorAll('.mda-code').forEach(function (box) {
+      var pre = box.querySelector('pre');
+      if (pre && box.parentNode) box.parentNode.replaceChild(pre, box);
+    });
+    root.querySelectorAll('.mda-code-scroll').forEach(function (scroll) {
+      var pre = scroll.querySelector('pre');
+      if (pre && scroll.parentNode) scroll.parentNode.replaceChild(pre, scroll);
+    });
+    root.querySelectorAll('.md-image-wrapper').forEach(function (wrap) {
+      var img = wrap.querySelector('img');
+      if (img && wrap.parentNode) wrap.parentNode.replaceChild(img.cloneNode(true), wrap);
+    });
+
+    // 流程图：内联 SVG（可供浏览器 / printToPDF 渲染）
+    root.querySelectorAll('.mda-mermaid').forEach(function (holder, idx) {
+      var live = previewEl.querySelectorAll('.mda-mermaid')[idx];
+      var svg = (live && live.querySelector('svg')) || holder.querySelector('svg');
+      var wrap = document.createElement('div');
+      wrap.setAttribute('style', 'text-align:center;margin:16px 0;overflow-x:auto;');
+      if (svg) {
+        var clone = svg.cloneNode(true);
+        if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        wrap.appendChild(clone);
+      } else {
+        wrap.textContent = '[流程图]';
+      }
+      if (holder.parentNode) holder.parentNode.replaceChild(wrap, holder);
+    });
+    root.querySelectorAll('.mda-mermaid-error').forEach(function (el) {
+      var p = document.createElement('p');
+      p.setAttribute('style', 'color:#999;font-style:italic;');
+      p.textContent = el.textContent || '[流程图渲染失败]';
+      if (el.parentNode) el.parentNode.replaceChild(p, el);
+    });
+
+    var imgs = root.querySelectorAll('img');
+    for (var ii = 0; ii < imgs.length; ii++) {
+      if (imgs.length > 1) {
+        setExportBusyMessage('正在导出…（内联图片 ' + (ii + 1) + '/' + imgs.length + '）');
+      }
+      await withTimeout(inlineImageSrc(imgs[ii]), 8000, null);
+      await withTimeout(normalizeImgToPng(imgs[ii]), 5000, null);
+      await withTimeout(ensureImgDimensions(imgs[ii]), 3000, null);
+    }
+
+    root.querySelectorAll('.mda-cursor-block').forEach(function (el) { el.classList.remove('mda-cursor-block'); });
+    applyArticleInlineStyles(root);
+
+    return wrapExportHtmlDocument(wrapArticleSection(root.innerHTML), exportBaseName());
+  }
+
   function exportBaseName() {
     if (!currentFilePath) return 'export';
     var name = currentFilePath.replace(/^.*[\\/]/, '');
@@ -1729,7 +2158,30 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
       + '<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>'
-      + safeTitle + '</title>\n</head>\n<body>\n' + bodyHtml + '\n</body>\n</html>';
+      + safeTitle + '</title>\n'
+      + '<style>body{margin:24px;background:#fff;} svg{max-width:100%;height:auto;}</style>\n'
+      + '</head>\n<body>\n' + bodyHtml + '\n</body>\n</html>';
+  }
+
+  async function runExportJob(kind, writeFn) {
+    var label = kind === 'pdf' ? 'PDF' : 'HTML';
+    showExportBusy('正在导出 ' + label + '…');
+    try {
+      setExportBusyMessage('正在准备导出内容…');
+      var doc = await raceWithTimeout(buildExportHtmlContent(), EXPORT_TIMEOUT_MS, '准备' + label);
+      if (!doc) throw new Error('导出内容为空');
+      setExportBusyMessage(kind === 'pdf' ? '正在生成 PDF…' : '正在写入文件…');
+      var wr = await raceWithTimeout(writeFn(doc), EXPORT_TIMEOUT_MS, '写入' + label);
+      hideExportBusy();
+      if (wr && wr.success) {
+        uiAlert('已导出 ' + label + '：' + wr.filePath);
+      } else {
+        uiAlert('导出失败: ' + ((wr && wr.error) || '写入未成功'));
+      }
+    } catch (err) {
+      hideExportBusy();
+      uiAlert('导出失败: ' + ((err && err.message) ? err.message : String(err)));
+    }
   }
 
   async function exportPreviewHtml() {
@@ -1737,23 +2189,28 @@
       uiAlert('预览区尚无内容，请先打开 Markdown 文件');
       return;
     }
+    if (!api.writeTextFile) {
+      uiAlert('导出不可用：请重新构建并重启 GUI（缺少 writeTextFile）');
+      return;
+    }
     try {
-      var pack = await buildArticleClipboardContent();
       var base = exportBaseName();
-      var dlg = await api.showSaveDialog({
+      var dlgOpts = {
         title: '导出 HTML',
         suggestedName: base + '.html',
         filters: [{ name: 'HTML', extensions: ['html'] }],
-      });
-      if (!dlg || !dlg.success || dlg.canceled) return;
-      var doc = wrapExportHtmlDocument(pack.html, base);
-      var wr = await api.writeTextFile(dlg.filePath, doc);
-      if (wr && wr.success) {
-        uiAlert('已导出 HTML：' + dlg.filePath);
-      } else {
-        uiAlert('导出失败: ' + ((wr && wr.error) || '未知错误'));
+      };
+      if (workspaceRoot) dlgOpts.defaultPath = workspaceRoot;
+      else if (currentFilePath && api.resolvePath) {
+        dlgOpts.defaultPath = api.resolvePath(currentFilePath, '.');
       }
+      var dlg = await api.showSaveDialog(dlgOpts);
+      if (!dlg || !dlg.success || dlg.canceled || !dlg.filePath) return;
+      await runExportJob('html', function (doc) {
+        return api.writeTextFile(dlg.filePath, doc);
+      });
     } catch (err) {
+      hideExportBusy();
       uiAlert('导出失败: ' + ((err && err.message) ? err.message : String(err)));
     }
   }
@@ -1763,23 +2220,28 @@
       uiAlert('预览区尚无内容，请先打开 Markdown 文件');
       return;
     }
+    if (!api.exportPdf) {
+      uiAlert('导出不可用：请重新构建并重启 GUI（缺少 exportPdf）');
+      return;
+    }
     try {
-      var pack = await buildArticleClipboardContent();
       var base = exportBaseName();
-      var dlg = await api.showSaveDialog({
+      var dlgOpts = {
         title: '导出 PDF',
         suggestedName: base + '.pdf',
         filters: [{ name: 'PDF', extensions: ['pdf'] }],
-      });
-      if (!dlg || !dlg.success || dlg.canceled) return;
-      var doc = wrapExportHtmlDocument(pack.html, base);
-      var wr = await api.exportPdf(dlg.filePath, doc);
-      if (wr && wr.success) {
-        uiAlert('已导出 PDF：' + dlg.filePath);
-      } else {
-        uiAlert('导出失败: ' + ((wr && wr.error) || '未知错误'));
+      };
+      if (workspaceRoot) dlgOpts.defaultPath = workspaceRoot;
+      else if (currentFilePath && api.resolvePath) {
+        dlgOpts.defaultPath = api.resolvePath(currentFilePath, '.');
       }
+      var dlg = await api.showSaveDialog(dlgOpts);
+      if (!dlg || !dlg.success || dlg.canceled || !dlg.filePath) return;
+      await runExportJob('pdf', function (doc) {
+        return api.exportPdf(dlg.filePath, doc);
+      });
     } catch (err) {
+      hideExportBusy();
       uiAlert('导出失败: ' + ((err && err.message) ? err.message : String(err)));
     }
   }
@@ -1891,7 +2353,7 @@
   }
 
   function copyCode(text, btn) {
-    api.copyToClipboard(text);
+    copyTextWithToast(text, '拷贝成功');
     if (btn) {
       var old = btn.textContent;
       btn.textContent = '已复制';
@@ -2140,6 +2602,68 @@
   }
 
   // ---- DOM 弹窗 ----
+  /** 将 Tab 循环限制在 overlay 内，避免焦点逃到源码编辑器触发缩进/改脏 */
+  function trapModalFocus(overlay, onEscape) {
+    function focusableList() {
+      var nodes = overlay.querySelectorAll(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      var list = [];
+      for (var i = 0; i < nodes.length; i++) {
+        var el = nodes[i];
+        if (el.disabled || el.getAttribute('aria-hidden') === 'true') continue;
+        list.push(el);
+      }
+      return list;
+    }
+
+    function onKey(e) {
+      if (!overlay.isConnected) {
+        document.removeEventListener('keydown', onKey, true);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (typeof onEscape === 'function') onEscape();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+
+      var list = focusableList();
+      if (!list.length) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
+      var first = list[0];
+      var last = list[list.length - 1];
+      var active = document.activeElement;
+      var inside = overlay.contains(active);
+
+      if (!inside) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        (e.shiftKey ? last : first).focus();
+        return;
+      }
+      if (e.shiftKey) {
+        if (active === first) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          last.focus();
+        }
+      } else if (active === last) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        first.focus();
+      }
+    }
+
+    // 用捕获阶段挂到 document：早于编辑器辅助键，且焦点已跑出框时仍能拦回
+    document.addEventListener('keydown', onKey, true);
+  }
+
   function uiModal(message, withCancel) {
     return new Promise(function (resolve) {
       var overlay = document.createElement('div');
@@ -2154,6 +2678,7 @@
         '</div>';
       document.body.appendChild(overlay);
       function close(val) { overlay.remove(); resolve(val); }
+      trapModalFocus(overlay, function () { close(false); });
       overlay.querySelector('#ui-ok').addEventListener('click', function () { close(true); });
       var cancelBtn = overlay.querySelector('#ui-cancel');
       if (cancelBtn) cancelBtn.addEventListener('click', function () { close(false); });
@@ -2201,7 +2726,14 @@
             '<li><kbd>Ctrl+B/I/`</kbd> 粗体/斜体/代码；<kbd>Ctrl+Shift+]/[</kbd> 标题升降级</li>' +
             '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放</li>' +
             '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片与流程图）</li>' +
+            '<li><strong>导出</strong>：菜单「文件 → 导出 HTML / 导出 PDF」（导出会显示进度；大文档约 60s 超时）</li>' +
             '<li>分栏可拖拽调宽，双击分隔条复位</li>' +
+          '</ul>' +
+          '<h3>MCP / CLI</h3>' +
+          '<ul>' +
+            '<li>CLI：<code>mda-cli scan/add/edit/remove</code> 与 GUI 共用 <code>@mda/core</code></li>' +
+            '<li>MCP：<code>mda-mcp</code>（stdio）；六 tools：<code>mda_scan</code> / <code>mda_add</code> / <code>mda_edit</code> / <code>mda_remove</code> / <code>mda_read_file</code> / <code>mda_export_review_prompt</code></li>' +
+            '<li>配置见 README「MCP Server」；工作区 <code>--workspace</code> 或 <code>MDA_WORKSPACE</code></li>' +
           '</ul>' +
           '<h3>快捷键</h3>' +
           '<table class="mda-help-table"><tbody>' +
@@ -2212,7 +2744,7 @@
             '<tr><td>查找</td><td><kbd>Ctrl+F</kbd></td></tr>' +
             '<tr><td>替换</td><td><kbd>Ctrl+H</kbd></td></tr>' +
             '<tr><td>跳转到行</td><td><kbd>Ctrl+G</kbd></td></tr>' +
-            '<tr><td>粗体 / 斜体 / 代码</td><td><kbd>Ctrl+B</kbd> / <kbd>Ctrl+I</kbd> / <kbd>Ctrl+`</kbd></td></tr>' +
+            '<tr><td>粗体 / 斜体 / 代码（仅源码栏聚焦）</td><td><kbd>Ctrl+B</kbd> / <kbd>Ctrl+I</kbd> / <kbd>Ctrl+`</kbd></td></tr>' +
             '<tr><td>标题升降级</td><td><kbd>Ctrl+Shift+]</kbd> / <kbd>Ctrl+Shift+[</kbd></td></tr>' +
             '<tr><td>保存</td><td><kbd>Ctrl+S</kbd></td></tr>' +
             '<tr><td>另存为</td><td><kbd>Ctrl+Shift+S</kbd></td></tr>' +
@@ -2220,17 +2752,22 @@
             '<tr><td>打开文件所在目录</td><td><kbd>Ctrl+Shift+O</kbd></td></tr>' +
             '<tr><td>复制预览（微信公众号）</td><td><kbd>Ctrl+Shift+C</kbd></td></tr>' +
             '<tr><td>编辑栏</td><td><kbd>Ctrl+E</kbd></td></tr>' +
-            '<tr><td>批注栏</td><td><kbd>Ctrl+B</kbd></td></tr>' +
+            '<tr><td>批注栏（菜单）</td><td><kbd>Ctrl+B</kbd></td></tr>' +
+            '<tr><td>移动行</td><td><kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd></td></tr>' +
+            '<tr><td>重复行</td><td><kbd>Alt+Shift+↓</kbd></td></tr>' +
+            '<tr><td>缩进 / 反缩进</td><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td></tr>' +
             '<tr><td>切换深色模式</td><td><kbd>Ctrl+Shift+D</kbd></td></tr>' +
+            '<tr><td>检查更新</td><td>菜单「帮助 → 检查更新」</td></tr>' +
             '<tr><td>功能与快捷键（本页）</td><td><kbd>F1</kbd></td></tr>' +
             '<tr><td>开发者工具</td><td><kbd>F12</kbd></td></tr>' +
           '</tbody></table>' +
-          '<p class="mda-help-note">CLI 命令 <code>mda-cli scan/add/edit/remove</code> 与 GUI 共用同一套核心逻辑。</p>' +
+          '<p class="mda-help-note">批注/确认等弹窗内 <kbd>Tab</kbd> 仅在框内循环，<kbd>Esc</kbd> 可关闭；避免焦点落到源码区误改文件。</p>' +
         '</div>' +
         '<div class="modal-actions"><button id="ui-help-ok" class="btn-ok">关闭</button></div>' +
       '</div>';
     document.body.appendChild(overlay);
     function close() { overlay.remove(); }
+    trapModalFocus(overlay, close);
     overlay.querySelector('#ui-help-ok').addEventListener('click', close);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
     overlay.querySelector('#ui-help-ok').focus();
@@ -2318,7 +2855,10 @@
     overlay.innerHTML = formHtml;
     document.body.appendChild(overlay);
 
-    document.getElementById('ed-cancel').addEventListener('click', function () { overlay.remove(); });
+    function closeEdit() { overlay.remove(); }
+    trapModalFocus(overlay, closeEdit);
+
+    document.getElementById('ed-cancel').addEventListener('click', closeEdit);
     document.getElementById('ed-save').addEventListener('click', function () {
       var content = document.getElementById('ed-content').value.trim();
       if (!content) { uiAlert('请输入批注内容'); return; }
@@ -2339,10 +2879,10 @@
         var status = document.getElementById('ed-status').value;
         doEdit(anno.id, content, tags, level, status);
       }
-      overlay.remove();
+      closeEdit();
     });
 
-    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) closeEdit(); });
     requestAnimationFrame(function () {
       var first = document.getElementById(isAdd && !pendingAnchor ? 'ed-line' : 'ed-content');
       if (first) first.focus();

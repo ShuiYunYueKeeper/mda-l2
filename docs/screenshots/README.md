@@ -28,7 +28,7 @@
 | `8-mermaid_picture.png` | 流程图与图片渲染 | ✅ |
 | `9-zoom-overlay.png` | 图片/流程图缩放遮罩 | ✅ |
 
-### 2.0 Phase A 待补（M2–M4 实机通过后）
+### 2.0 Phase A 待补（M2–M5 实机通过后）
 
 | 建议文件 | 内容 | 要点 |
 |----------|------|------|
@@ -38,6 +38,8 @@
 | `13-outline-katex.png` | 大纲面板 + KaTeX 公式 | 点击大纲跳转；行内/块级公式 |
 | `14-selection-annotation.png` | 选区批注 | 预览选区高亮 + 面板项 + 添加对话框 |
 | `15-codeblock-menu.png` | 代码块统一右键菜单 | 拷贝 / 拷贝全部 / 添加选区批注 |
+| `16-export-dialog.png` | 导出 HTML/PDF | 导出过程遮罩 + 保存结果 |
+| `17-mcp-tools.png` | Cursor MCP 六 tools | Settings/MCP 面板或 Agent 调用截图 |
 
 ---
 

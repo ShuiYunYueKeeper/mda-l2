@@ -75,6 +75,8 @@ npm test          # jest，含覆盖率
 | **同步滚动 / 查找替换** | 改动 `sync-scroll.js` / `find-replace.js` | 编辑→预览块级同步；查找高亮与 ↑/↓ 跳转；IME 焦点不丢失 |
 | **选区批注** | 改动 `selection-anchor.js` / `anchor-highlights.js` / anchor 写入 | 预览/源码双路径选区→`anchor`；插入批注行后偏移不失效；代码块/表格可批注；orphan 标记 |
 | **MCP / 导出** | 改动 `src/mcp/**` 或导出/更新 IPC | `mda_scan` 与 CLI JSON 一致；HTML/PDF 导出；打包版检查更新 |
+| **跳转 / 主题 / 弹窗焦点** | 改动 `Ctrl+G`、主题切换、`trapModalFocus`、批注编辑框 | 跳转不标脏；切主题不滚到文首；批注框 Tab 不逃逸改源码 |
+| **Free 门禁（M6-5）** | Phase A 集成完成 | 对照 `.project-setup/verification-report.md`；用户明确确认前不得开工 M7 |
 | 阶段确认门禁 | P0–P3 每阶段产出后 | 设计取舍需人工确认后才进入下一阶段 |
 | **GUI 截图 / 录屏** | GUI 功能变更且用户确认实机通过 | 交付素材须人工产出；AI 在 Step 5 列出待补清单并提示用户补充，见 `docs/screenshots/README.md` |
 
