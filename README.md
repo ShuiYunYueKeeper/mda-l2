@@ -205,7 +205,7 @@ node dist/mcp/server.js --workspace D:\my-docs
 ### 导出与自动更新
 
 - **导出 HTML / PDF**：GUI 菜单「文件 → 导出 HTML / 导出 PDF」（复用公众号复制的内联样式与图片内嵌逻辑）
-- **自动更新**：打包版「帮助 → 检查更新」（`electron-updater`，需配置 `package.json` → `build.publish` 指向 GitHub Release）
+- **自动更新**：打包版「帮助 → 检查更新」（`electron-updater`）。更新源为 `package.json` → `build.publish`（当前为 **generic** HTTP 目录）。正式发版前请把 `url` 改成实际托管 `latest.yml` 与安装包的地址；勿使用 `github` provider（本仓远程为内网 GitLab，会无法推断仓库并在打包末尾崩溃）。
 
 ### 签名与首次打开提示
 

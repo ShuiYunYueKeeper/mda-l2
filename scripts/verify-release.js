@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
+const pkg = require(path.join(root, 'package.json'));
+const version = pkg.version;
 const unpacked = path.join(root, 'release', 'win-unpacked');
 
 /** 与 node_modules/electron/dist 根目录一致（exe 名在打包后为 MDA.exe） */
@@ -56,12 +58,23 @@ if (missing.length) {
   fail('win-unpacked 不完整');
 }
 
-const portable = path.join(root, 'release', 'MDA-1.0.0-portable-win-x64.exe');
-const zip = path.join(root, 'release', 'MDA-1.0.0-win-x64.zip');
+const portable = path.join(root, 'release', `MDA-${version}-portable-win-x64.exe`);
+const zip = path.join(root, 'release', `MDA-${version}-win-x64.zip`);
+const nsis = path.join(root, 'release', `MDA-${version}-win-x64.exe`);
+const latestYml = path.join(root, 'release', 'latest.yml');
+
 console.log('  verify-release: win-unpacked OK (' + REQUIRED_FILES.length + ' 个根文件 + locales + resources)');
 if (fs.existsSync(portable)) {
   console.log('  portable: ' + path.basename(portable) + ' (' + Math.round(fs.statSync(portable).size / 1024 / 1024) + ' MB)');
 }
 if (fs.existsSync(zip)) {
   console.log('  zip: ' + path.basename(zip) + ' (' + Math.round(fs.statSync(zip).size / 1024 / 1024) + ' MB)');
+}
+if (fs.existsSync(nsis)) {
+  console.log('  nsis: ' + path.basename(nsis) + ' (' + Math.round(fs.statSync(nsis).size / 1024 / 1024) + ' MB)');
+}
+if (fs.existsSync(latestYml)) {
+  console.log('  updater meta: latest.yml');
+} else {
+  console.warn('  verify-release: 未找到 latest.yml（publish 元数据未写出，检查更新将不可用）');
 }
