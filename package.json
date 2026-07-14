@@ -35,6 +35,10 @@
     "review"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://ksogitlab.kso.net/inner-source/ai-l2-2026/dev-l2/raoxiaoqiang.git"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "commander": "^12.1.0",
@@ -138,8 +142,9 @@
       "category": "Office"
     },
     "publish": {
-      "provider": "github",
-      "releaseType": "release"
+      "provider": "generic",
+      "url": "https://example.com/mda/updates/",
+      "channel": "latest"
     }
   }
 }

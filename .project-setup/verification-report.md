@@ -60,6 +60,7 @@
 - `l2-project-template/` / `skills/` 为本仓旁支脚手架，**勿误并入产品 release**
 - Ctrl+B：菜单「批注栏」与编辑器「粗体」共用加速键；帮助中已注明场景
 - `dist:win`：本机曾因 `release/win-unpacked` 文件锁（EPERM）失败，交付前需关闭 GUI 后重打一次
+- `build.publish` 已从 `github` 改为 `generic`（远程为内网 GitLab，无法推断 GitHub 仓库，会导致 `channel` NPE）；发版前替换 `url` 为实际上传目录
 
 ### M6-5 签字区
 
