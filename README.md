@@ -1,6 +1,10 @@
 ﻿# MDA — Markdown 批注管理工具
 
-通过 Markdown 标准注释语法在 `.md` 文件中嵌入结构化批注，提供 **CLI** (`mda-cli`) 和 **GUI** (`mda`) 两种使用方式。
+> **当前发版**：Phase A Free · tag [`v2.0.0-alpha`](docs/RELEASE-2.0.0-alpha.md)（2026-07-15）  
+> Pro AI（M7）未包含在本 tag。
+
+通过 Markdown 标准注释语法在 `.md` 文件中嵌入结构化批注，提供 **CLI** (`mda-cli`)、**GUI** (`mda`) 与 **MCP** (`mda-mcp`) 三种使用方式。
+
 
 ## 目录结构
 

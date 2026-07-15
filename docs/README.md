@@ -14,7 +14,7 @@
 | [`P1-architecture.md`](P1-architecture.md) | 1.0 架构设计（分层、模块边界、数据流） |
 | [`P1-architecture-v2.md`](P1-architecture-v2.md) | **2.0 架构设计**（已确认 2026-07-13） |
 | [`P2-detailed-design-v2.md`](P2-detailed-design-v2.md) | **2.0 详细设计**（已确认 2026-07-13） |
-| [`P3-implementation-plan-v2.md`](P3-implementation-plan-v2.md) | **2.0 实现计划**（已确认；**Free 门禁已通过 → 可进 M7**） |
+| [`RELEASE-2.0.0-alpha.md`](RELEASE-2.0.0-alpha.md) | **Phase A Free 发版说明**（tag `v2.0.0-alpha`） |
 | [`P2-detailed-design.md`](P2-detailed-design.md) | 详细设计（算法、接口、批注语法） |
 | [`P3-implementation-plan.md`](P3-implementation-plan.md) | 实现计划（Phase 任务 DAG、人机分工） |
 
