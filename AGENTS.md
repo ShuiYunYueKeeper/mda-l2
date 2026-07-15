@@ -263,7 +263,7 @@ npm test               # jest（含覆盖率）
 9. **【CLI 输出】scan 目录模式**：每条批注的 `file` 必须是真实文件路径（在 `scanFile` 内回填），不可回退成目录名。
 10. **【选区批注】anchor 偏移**：`addAnnotation` 在段落上方插入批注行后，须 `shiftAnchorForInsert` 修正同文件内已有 anchor 的 UTF-16 偏移，否则选区批注一律失效。
 11. **【选区批注】预览映射**：`selection-anchor.js` 负责预览 DOM / 源码 textarea → UTF-16 `anchor`；围栏代码块经 `extractFenceContentRegions` 映射到源码字面内容；`anchor-highlights.js` 用 CSS Highlight API（降级 `<mark>`）着色。
-12. **【GUI 同步滚动】**：仅编辑→预览块级 ratio 同步，禁止双向环路；查找替换须同步预览高亮与 `scrollLeft`。
+12. **【GUI 定位同步】**：预览/源码**滚动互不拖动**；点击预览只定位源码（`skipPreview`，勿再改预览 scroll）；点击源码行或方向键移动光标才定位预览；大纲/`Ctrl+G` 可显式双边跳转。禁止滚动反馈环路；查找替换须同步预览高亮与 `scrollLeft`。
 
 ---
 

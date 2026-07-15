@@ -2,7 +2,7 @@
 
 ### 验证时间
 
-2026-07-14（M6-4 初稿；**M6-5 待用户签字**）
+2026-07-14 准备；**2026-07-15 M6-5 用户签字：通过**
 
 ### 项目可运行性
 
@@ -13,7 +13,7 @@
 | 运行 | `npm run gui` / `npm run cli` / `npm run mcp` | ✅ 实机 | M2–M5 已验收 |
 | 测试 | `npm test` | ✅ | **117** passed / Statements **85.36%** / Lines **88.81%** |
 | Lint | N/A | N/A | 无独立 lint 脚本 |
-| 打包 | `npm run dist:win` | ⚠️ 本机 EPERM | `release/win-unpacked` 被占用；关闭 MDA/资源管理器后重试 |
+| 打包 | `npm run dist:win` | ⚠️/部分 | publish NPE 已修；`release-smoke` 验证过；正式 `release/` 需无文件锁时重打 |
 
 ### 资产完整性
 
@@ -21,13 +21,12 @@
 |--------|------|------|
 | README 包含快速开始 | ✅ | 含 MCP 配置示例 |
 | README 包含项目结构 | ✅ | |
-| AGENTS.md 已填充 | ✅ | 含 MCP / GUI 契约 |
+| AGENTS.md 已填充 | ✅ | 含 MCP / GUI 点击定位契约 |
 | quality.md 已填充 | ✅ | 含 M6 人工审核点 |
 | .gitignore 覆盖构建产物 | ✅ | dist 按策略放行可执行物 |
 | docs/P0–P3（含 v2）已创建 | ✅ | |
-| docs/prompts ≥3 轮 | ✅ | 含 prompt-08 |
-| M2–M5 实机验收清单 | ✅ | 均已勾选通过 |
-| M6 验收清单 | 进行中 | `docs/M6-acceptance-checklist.md` |
+| docs/prompts ≥3 轮 | ✅ | 含 prompt-08 / prompt-09 |
+| M2–M6 实机验收清单 | ✅ | 均已勾选通过 |
 
 ### 文档准确性
 
@@ -47,25 +46,24 @@
 | 项 | 状态 | 证据 |
 |----|------|------|
 | F8 文件管理 | ✅ M2 | M2-acceptance |
-| F1/F2 编辑预览 | ✅ M3 | M3-acceptance + 后续修复 |
+| F1/F2 编辑预览 | ✅ M3 + 门禁打磨 | 点击双向定位；大纲可不展开编辑栏 |
 | F3 选区批注 | ✅ M4 | M4-acceptance |
 | F6 MCP | ✅ M5 | M5-acceptance AC-7 |
 | 导出 HTML/PDF | ✅ M5 | M5-acceptance |
 | 自动更新入口 | ✅ M5 | 开发态提示 / 打包可检查 |
 | 源文件保护 / 不可见性 | ✅ | `npm test` renderer/writer |
 
-### 遗留问题
+### 遗留问题（非阻塞）
 
-- 截图 `10–17` 仍待人工补齐（不阻塞 Free 功能门禁；阻塞 README 素材完整度）
-- `l2-project-template/` / `skills/` 为本仓旁支脚手架，**勿误并入产品 release**
-- Ctrl+B：菜单「批注栏」与编辑器「粗体」共用加速键；帮助中已注明场景
-- `dist:win`：本机曾因 `release/win-unpacked` 文件锁（EPERM）失败，交付前需关闭 GUI 后重打一次
-- `build.publish` 已从 `github` 改为 `generic`（远程为内网 GitLab，无法推断 GitHub 仓库，会导致 `channel` NPE）；发版前替换 `url` 为实际上传目录
+- 截图 `10–17` 仍待人工补齐
+- `l2-project-template/` / `skills/` 旁支脚手架勿误并入产品 release
+- Ctrl+B：菜单「批注栏」与编辑器「粗体」场景说明已写入帮助
+- 发版前将 `build.publish.url` 换为实际上传目录
 
 ### M6-5 签字区
 
 ```
-用户确认 Free 可交付门禁：☐ 通过 / ☐ 驳回
-日期：
-备注：
+用户确认 Free 可交付门禁：☑ 通过
+日期：2026-07-15
+备注：用户原文「Free 门禁通过」；可进入 M7 Pro AI
 ```

@@ -72,7 +72,7 @@ npm test          # jest，含覆盖率
 | **分栏拖拽** | 改动三栏布局/手柄 | 拖拽调宽、双击手柄复位默认宽度（编辑 380px / 批注 320px） |
 | **深色 / mermaid / 图片** | 改动主题、流程图或图片解析 | 深色切换与流程图配色联动；`samples/all-features.md` 验证相对图片与 mermaid 渲染 |
 | **复制预览（微信公众号）** | 改动 `copyPreviewForArticle` / Mermaid 导出 / 剪贴板 IPC | 实机：`Ctrl+Shift+C` 粘贴公众号编辑器，正文+图+流程图齐全；复制过程无滚动跳动/闪烁 |
-| **同步滚动 / 查找替换** | 改动 `sync-scroll.js` / `find-replace.js` | 编辑→预览块级同步；查找高亮与 ↑/↓ 跳转；IME 焦点不丢失 |
+| **同步滚动 / 查找替换** | 改动 `sync-scroll.js` / `find-replace.js` | **点击双向定位**（滚动互不跟随）；点预览只滚源码且预览视口不变；点源码/方向键才滚预览；大纲/Ctrl+G 仍可双边定位；查找高亮与 ↑/↓ 跳转；IME 焦点不丢失 |
 | **选区批注** | 改动 `selection-anchor.js` / `anchor-highlights.js` / anchor 写入 | 预览/源码双路径选区→`anchor`；插入批注行后偏移不失效；代码块/表格可批注；orphan 标记 |
 | **MCP / 导出** | 改动 `src/mcp/**` 或导出/更新 IPC | `mda_scan` 与 CLI JSON 一致；HTML/PDF 导出；打包版检查更新 |
 | **跳转 / 主题 / 弹窗焦点** | 改动 `Ctrl+G`、主题切换、`trapModalFocus`、批注编辑框 | 跳转不标脏；切主题不滚到文首；批注框 Tab 不逃逸改源码 |
