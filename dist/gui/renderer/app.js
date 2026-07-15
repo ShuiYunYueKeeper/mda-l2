@@ -172,15 +172,34 @@
     var outlineHost = document.getElementById('outline-host');
     if (window.MDAOutlinePanel && outlineHost) {
       outlinePanelUi = window.MDAOutlinePanel.mount(outlineHost, function (line) {
-        if (!editorVisible) showEditorPane(true);
-        if (syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(line);
-        else jumpEditorToLine(line);
+        // 大纲点击：同步预览（与高亮）及源码光标；编辑栏未开时不强行展开
+        if (syncScrollCtrl) {
+          syncScrollCtrl.scrollEditorToLine(line, { skipFocus: !editorVisible });
+        } else if (editorVisible) {
+          jumpEditorToLine(line);
+        } else if (previewEl && previewPaneEl) {
+          var block = previewEl.querySelector('[data-line="' + line + '"]');
+          if (block) {
+            cursorLine = line;
+            highlightCursorBlock(block);
+            block.scrollIntoView({ block: 'center' });
+          }
+        }
       });
     }
     if (window.MDASyncScroll && editorEl && previewPaneEl && previewEl) {
-      syncScrollCtrl = window.MDASyncScroll.attach(editorEl, previewPaneEl, previewEl, function () {
-        return editorEl.value;
-      });
+      syncScrollCtrl = window.MDASyncScroll.attach(
+        editorEl,
+        previewPaneEl,
+        previewEl,
+        function () { return editorEl.value; },
+        {
+          onPreviewLocate: function (line, el) {
+            cursorLine = line || null;
+            highlightCursorBlock(el);
+          },
+        }
+      );
     }
     setupEditorAssistKeys();
   }
@@ -1124,8 +1143,12 @@
       if (block) {
         cursorLine = parseInt(block.getAttribute('data-line'), 10) || null;
         highlightCursorBlock(block);
-        if (cursorLine && syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(cursorLine);
-        else if (cursorLine) jumpEditorToLine(cursorLine);
+        // 只滚动源码；预览已由用户点中，禁止再改预览 scroll（否则选中块可能被滚出视口）
+        if (cursorLine && syncScrollCtrl) {
+          syncScrollCtrl.scrollEditorToLine(cursorLine, { skipPreview: true, skipFocus: false });
+        } else if (cursorLine) {
+          jumpEditorToLine(cursorLine);
+        }
         var p = findParagraphForLine(cursorLine);
         if (p && p.annotations && p.annotations.length) {
           selectAnnotation(p.annotations[0].id, false);
@@ -1705,8 +1728,8 @@
         requestAnimationFrame(function () { restoreViewScroll(savedScroll); });
         if (syncScrollCtrl) syncScrollCtrl.refreshMap();
       } else if (syncScrollCtrl) {
+        // 点击同步模式：重渲后只刷新块图，不强制拽预览跟编辑滚动条
         syncScrollCtrl.refreshMap();
-        syncScrollCtrl.syncPreviewToEditor();
       }
       if (findMatchState && findMatchState.query) updateFindPreviewHighlights();
       applyAnchorHighlights();
@@ -2720,7 +2743,7 @@
           '<h3>编辑与预览</h3>' +
           '<ul>' +
             '<li>三栏：源码编辑｜实时预览｜批注面板（编辑/批注可独立开关）</li>' +
-            '<li>编辑↔预览同步滚动；预览上方大纲可点击跳转源码行</li>' +
+            '<li>编辑↔预览<strong>点击定位</strong>（滚动互不跟随，避免比例漂移）；预览上方大纲可点击跳转源码行</li>' +
             '<li>源码语法高亮 + 行号；<kbd>Ctrl+S</kbd> 保存；关闭时未保存会提示</li>' +
             '<li><kbd>Ctrl+F</kbd> 查找、<kbd>Ctrl+H</kbd> 替换、<kbd>Ctrl+G</kbd> 跳转到行</li>' +
             '<li><kbd>Ctrl+B/I/`</kbd> 粗体/斜体/代码；<kbd>Ctrl+Shift+]/[</kbd> 标题升降级</li>' +

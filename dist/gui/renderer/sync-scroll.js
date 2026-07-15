@@ -1,4 +1,4 @@
-﻿// 编辑区 → 预览区同步滚动（块级映射；预览滚动不反向驱动编辑区，避免反馈环路）
+﻿// 编辑区 ↔ 预览区定位（点击同步；滚动互不驱动，避免比例漂移与反馈环路）
 (function (global) {
   var LINE_HEIGHT = 21;
 
@@ -9,7 +9,7 @@
     for (var i = 0; i < blocks.length; i++) {
       var el = blocks[i];
       var line = parseInt(el.getAttribute('data-line'), 10);
-      if (!isNaN(line)) map.push({ line: line, top: el.offsetTop });
+      if (!isNaN(line)) map.push({ line: line, el: el });
     }
     return map;
   }
@@ -32,6 +32,12 @@
     return text.length;
   }
 
+  function lineAtCaret(editor) {
+    if (!editor) return 1;
+    var pos = typeof editor.selectionStart === 'number' ? editor.selectionStart : 0;
+    return Math.max(1, editor.value.slice(0, pos).split('\n').length);
+  }
+
   function lineAtEditorScroll(editor) {
     if (!editor) return 1;
     var pad = paddingTop(editor);
@@ -51,69 +57,149 @@
     if (!options.skipFocus) editor.focus();
     editor.selectionStart = editor.selectionEnd = pos;
     editor.scrollTop = targetScroll;
-    // setSelectionRange 可能异步把滚动拽偏，下一帧再钉回目标行
     requestAnimationFrame(function () {
       editor.selectionStart = editor.selectionEnd = pos;
       editor.scrollTop = targetScroll;
     });
   }
 
-  function scrollPreviewToLine(previewPane, line, map) {
-    if (!previewPane || !map || !map.length) return;
+  function findMapEntry(map, line) {
+    if (!map || !map.length) return null;
     var best = null;
     for (var i = 0; i < map.length; i++) {
       if (map[i].line <= line) best = map[i];
       else break;
     }
-    if (best) {
-      previewPane.scrollTop = Math.max(0, best.top - previewPane.clientHeight * 0.15);
-    }
+    return best;
   }
 
-  function attach(editor, previewPane, previewEl, getText) {
+  /** 块是否已完整落在预览可视区内 */
+  function isPreviewBlockVisible(previewPane, entry) {
+    if (!previewPane || !entry || !entry.el) return false;
+    var paneRect = previewPane.getBoundingClientRect();
+    var r = entry.el.getBoundingClientRect();
+    var margin = 8;
+    return r.top >= paneRect.top + margin && r.bottom <= paneRect.bottom - margin;
+  }
+
+  /**
+   * 用 getBoundingClientRect 相对滚动容器求位移。
+   * 不可用 offsetTop：预览块在 #preview-content 内，而滚动的是含大纲的 #preview-pane。
+   */
+  function scrollPreviewToEntry(previewPane, entry, options) {
+    options = options || {};
+    if (!previewPane || !entry || !entry.el) return;
+    if (options.onlyIfNeeded && isPreviewBlockVisible(previewPane, entry)) return;
+    var paneRect = previewPane.getBoundingClientRect();
+    var r = entry.el.getBoundingClientRect();
+    var targetOffset = previewPane.clientHeight * 0.15;
+    var delta = r.top - paneRect.top - targetOffset;
+    previewPane.scrollTop = Math.max(0, previewPane.scrollTop + delta);
+  }
+
+  function scrollPreviewToLine(previewPane, line, map, options) {
+    options = options || {};
+    var best = findMapEntry(map, line);
+    if (!best) return null;
+    scrollPreviewToEntry(previewPane, best, options);
+    return best;
+  }
+
+  /**
+   * @param {function} [hooks.onPreviewLocate] — (line, el|null) 滚动/定位后回调，用于加 .mda-cursor-block
+   */
+  function attach(editor, previewPane, previewEl, getText, hooks) {
+    hooks = hooks || {};
+    var onPreviewLocate = typeof hooks.onPreviewLocate === 'function' ? hooks.onPreviewLocate : null;
     var blockMap = [];
     var syncing = false;
-    var scrollTimer = null;
 
     function refreshMap() {
       blockMap = buildBlockMap(previewEl);
     }
 
-    function syncPreviewToEditor() {
+    function withSyncLock(fn) {
       if (syncing) return;
-      var text = typeof getText === 'function' ? getText() : '';
-      if (!text) return;
       syncing = true;
-      var line = lineAtEditorScroll(editor);
-      scrollPreviewToLine(previewPane, line, blockMap);
-      requestAnimationFrame(function () { syncing = false; });
+      try {
+        fn();
+      } finally {
+        requestAnimationFrame(function () { syncing = false; });
+      }
     }
 
-    function onEditorScroll() {
-      if (syncing) return;
-      if (scrollTimer) clearTimeout(scrollTimer);
-      scrollTimer = setTimeout(function () {
-        scrollTimer = null;
-        syncPreviewToEditor();
-      }, 32);
+    function notifyLocate(line, entry) {
+      if (onPreviewLocate) onPreviewLocate(line, entry && entry.el ? entry.el : null);
     }
 
-    editor.addEventListener('scroll', onEditorScroll);
+    function syncPreviewToEditor() {
+      withSyncLock(function () {
+        if (!blockMap.length) refreshMap();
+        var line = lineAtEditorScroll(editor);
+        var entry = scrollPreviewToLine(previewPane, line, blockMap);
+        notifyLocate(line, entry);
+      });
+    }
+
+    function syncPreviewToCaret() {
+      withSyncLock(function () {
+        if (!blockMap.length) refreshMap();
+        var line = lineAtCaret(editor);
+        // 强制滚入视口（源码→预览时用户期望看到对应块）
+        var entry = scrollPreviewToLine(previewPane, line, blockMap, { onlyIfNeeded: false });
+        notifyLocate(line, entry);
+      });
+    }
+
+    function onEditorClick() {
+      // 等浏览器把 caret 落到点击处后再读 selectionStart
+      requestAnimationFrame(syncPreviewToCaret);
+    }
+
+    function onEditorKeyup(e) {
+      if (!e) return;
+      var k = e.key || '';
+      if (
+        k === 'ArrowUp' || k === 'ArrowDown' || k === 'ArrowLeft' || k === 'ArrowRight' ||
+        k === 'Home' || k === 'End' || k === 'PageUp' || k === 'PageDown' ||
+        k === 'Enter' || k === 'Backspace' || k === 'Delete'
+      ) {
+        syncPreviewToCaret();
+      }
+    }
+
+    editor.addEventListener('click', onEditorClick);
+    editor.addEventListener('keyup', onEditorKeyup);
 
     return {
       refreshMap: refreshMap,
       syncPreviewToEditor: syncPreviewToEditor,
+      syncPreviewToCaret: syncPreviewToCaret,
       scrollEditorToLine: function (line, opts) {
         opts = opts || {};
-        syncing = true;
-        var text = typeof getText === 'function' ? getText() : '';
-        scrollEditorToLine(editor, text, line, { skipFocus: opts.skipFocus });
-        if (!opts.skipPreview) scrollPreviewToLine(previewPane, line, blockMap);
-        requestAnimationFrame(function () { syncing = false; });
+        withSyncLock(function () {
+          var text = typeof getText === 'function' ? getText() : '';
+          scrollEditorToLine(editor, text, line, { skipFocus: opts.skipFocus });
+          if (!opts.skipPreview) {
+            if (!blockMap.length) refreshMap();
+            var entry = scrollPreviewToLine(previewPane, line, blockMap, {
+              onlyIfNeeded: !!opts.onlyIfNeeded,
+            });
+            notifyLocate(line, entry);
+          }
+        });
+      },
+      scrollPreviewToLine: function (line, opts) {
+        opts = opts || {};
+        withSyncLock(function () {
+          if (!blockMap.length) refreshMap();
+          var entry = scrollPreviewToLine(previewPane, line, blockMap, opts);
+          notifyLocate(line, entry);
+        });
       },
       detach: function () {
-        editor.removeEventListener('scroll', onEditorScroll);
-        if (scrollTimer) clearTimeout(scrollTimer);
+        editor.removeEventListener('click', onEditorClick);
+        editor.removeEventListener('keyup', onEditorKeyup);
       },
     };
   }
@@ -123,6 +209,7 @@
     attach: attach,
     scrollEditorToLine: scrollEditorToLine,
     scrollPreviewToLine: scrollPreviewToLine,
+    lineAtCaret: lineAtCaret,
   };
 
   global.MDASyncScroll = api;
