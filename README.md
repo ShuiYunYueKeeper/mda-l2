@@ -209,7 +209,7 @@ node dist/mcp/server.js --workspace D:\my-docs
 ### 导出与自动更新
 
 - **导出 HTML / PDF**：GUI 菜单「文件 → 导出 HTML / 导出 PDF」（复用公众号复制的内联样式与图片内嵌逻辑）
-- **自动更新**：打包版「帮助 → 检查更新」（`electron-updater`）。可将 `build.publish` 设为 `github`（仓库 `ShuiYunYueKeeper/mda-l2`）或继续使用 **generic** HTTP 目录托管 `latest.yml` 与安装包。
+- **自动更新**：打包版「帮助 → 检查更新」（`electron-updater`）。`build.publish` 已指向 GitHub 仓库 `ShuiYunYueKeeper/mda-l2`；发版时将安装包上传到该仓 **Releases**，并配置 `GH_TOKEN`（或登录 gh）供 electron-builder 发布。
 
 ### 签名与首次打开提示
 

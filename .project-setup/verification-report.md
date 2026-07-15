@@ -58,7 +58,7 @@
 - 截图 `10–17` 仍待人工补齐
 - `l2-project-template/` / `skills/` 旁支脚手架勿误并入产品 release
 - Ctrl+B：菜单「批注栏」与编辑器「粗体」场景说明已写入帮助
-- 发版前将 `build.publish.url` 换为实际上传目录
+- 发版前将安装包推到 GitHub Releases（`build.publish` 已指向本仓）；需配置 `GH_TOKEN`
 
 ### M6-5 签字区
 
