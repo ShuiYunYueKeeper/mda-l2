@@ -37,7 +37,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://ksogitlab.kso.net/inner-source/ai-l2-2026/dev-l2/raoxiaoqiang.git"
+    "url": "git+https://github.com/ShuiYunYueKeeper/mda-l2.git"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
