@@ -40,7 +40,7 @@ mda-mcp --workspace <docs-root>
 ## 已知非阻塞项
 
 - GUI 截图 `10–17` 待补（见 `docs/screenshots/README.md`）
-- `build.publish.url` 仍为示例地址；正式自动更新需改为实际上传目录
+- 自动更新依赖 GitHub Releases + `GH_TOKEN`（`build.publish` 已指向本仓）
 - 旁支 `l2-project-template/`、`skills/` **不属于**本产品发版物
 
 ## 不在本版本
