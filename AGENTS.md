@@ -161,6 +161,7 @@ extractHeadings(text): HeadingNode[]              // 大纲标题树（outline.t
 ```
 readFile(filePath) -> {success, content, filePath} | {success:false,error}
 openExternal(url) / setTitle(title) / showItemInFolder(filePath) / copyToClipboard(text)
+copyClipboardImage({dataUrl|filePath}) -> {success} | {success:false,error}  // 缩放层复制图片
 copyArticleHtml(html, text) -> {success:true} | {success:false,error}  // 富文本剪贴板（微信公众号；勿 writeBuffer 覆盖）
 readFileAsDataUrl(filePath) -> {success, dataUrl} | {success:false,error}  // 本地图片转 base64（复制预览内嵌用）
 capturePageRect({x,y,width,height}) -> {success, dataUrl} | {success:false,error}
@@ -264,7 +265,7 @@ npm test               # jest（含覆盖率）
 4d. **【GUI 渲染】疑似批注容错隐藏**：GUI 源码编辑时批注可能被改坏（如缺 `]`、坏 JSON），此时严格正则不匹配 → 既不入面板又会泄漏进预览。preload 用**宽松识别** `ANNO_ISH`（只认 `<> (@anno` 标记，容忍方括号缺失/JSON 残缺，围栏外）在渲染前清空这些行，保证坏批注不泄漏；同一识别用于 `findMalformedAnnotations`，**保存时**对「疑似批注但不满足严格格式」的行号弹窗提示。此为 GUI 层能力，不改 core 严格解析。
 4e. **【写入安全】整篇写回**：GUI 源码编辑保存走 `writeRawFile`（原子写入 + `detectEol` 保留原换行风格），是对正文的**全量编辑**，**不做**源文件保护校验（区别于批注增删改）。存在未保存编辑（dirty）时，GUI 禁用批注增删改，避免 core 基于旧磁盘内容写入后重载丢失编辑。
 4f. **【GUI 编辑器】高亮层对齐**：源码编辑器为「透明 `textarea` 叠加 `pre` 高亮层 + 行号槽」结构；三者必须**同字体/字号/行高/padding/`white-space:pre`/`tab-size`**，`textarea` 为唯一可交互滚动层，其 `scroll` 事件同步高亮层与行号槽的 `scrollTop/scrollLeft`，否则光标与着色错位。**必须在三层都关闭连字**（`font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0;`）：整行被拆成多个 `<span>` 后，跨 span 的连字（如 `##`/`->`）会在高亮层断开而 textarea 不断开，两层字符宽度不一致导致光标错位。**并须在字体栈里显式指定同一中文回退字体**（如 `'Microsoft YaHei'`）：等宽字体无中文字形时，`<textarea>` 与高亮 `<code>` 可能各自挑到不同 CJK 回退字体，每个汉字差一点、行尾累积成明显偏移（点行首正常、点行尾偏）。连字关闭后斜体（`font-style`）不改字宽可保留；但**加粗禁用真实 `font-weight`**（会改变字宽、尤其中文回退字体 → 加粗行 textarea 光标错位），标题/粗体一律用 `text-shadow: 0.4px 0 0 currentColor` 横向描边**模拟加粗**（布局中性），围栏内 hljs 的 `.hljs-strong` 亦同。**行高须用整数像素**（如 `21px`，勿用 `1.6` 之类小数：13px×1.6=20.8px，textarea 与 `<code>` 逐行取整方式不同，滚几百行累积成纵向错位）。**高亮层文本须与 textarea 严格 1:1**（勿删 BOM——textarea 的 `value` 保留 BOM，删了会整体错开一位；BOM 仅在正则识别时单独剥离、原样拼回）。**高亮层须加足够底/右 `padding`**（如 60px）：textarea 因横向滚动条+末行预留，可滚动范围恒比高亮层多几十像素，滚到底部时高亮层被钳住导致纵向错位，加 padding 使其可滚范围 ≥ textarea 即可。
-4g. **【GUI 缩放】遮罩去栅格化 + 边界**：图片/流程图缩放遮罩的舞台元素**禁止**加 `will-change: transform`（会先按原尺寸栅格化再缩放导致放大模糊，SVG 亦然）；缩放钳制 0.3×–8×；平移须钳制中心留在视口内；`+/-` 按钮点击/双击要 `stopPropagation`，仅内容本身双击才复位（避免连点误复位）。
+4g. **【GUI 缩放】遮罩去栅格化 + 边界 + 复制**：图片/流程图缩放遮罩的舞台元素**禁止**加 `will-change: transform`（会先按原尺寸栅格化再缩放导致放大模糊，SVG 亦然）；缩放钳制 0.3×–8×；平移须钳制中心留在视口内；`+/-` 按钮点击/双击要 `stopPropagation`，仅内容本身双击才复位（避免连点误复位）。工具栏「复制」/ `Ctrl+C`：图片走 `copyClipboardImage`（剪贴板位图）；流程图复制 `data-mermaid-src` **源码文本**（勿复制成 PNG）。
 4h. **【GUI 复制预览】仅微信公众号、不扰动界面**：「复制预览（微信公众号）」克隆预览 DOM 后离线处理（Mermaid→PNG、本地图→base64、内联样式），经 `copyArticleHtml` 写 `clipboard.write({ html, text })`。**禁止**复制时滚动预览、临时 overlay 重渲染、或 `clipboard.writeBuffer` 覆盖 HTML。不提供知乎复制路径。
 4i. **【GUI 文件树拖动】目标目录须在 dragover 记录、drop 复用**：`drop` 时 `e.target` 常为源文件行，不可单靠 `closest('.dir')`；须在 `dragover` 写入 `dropTargetDir`（文件夹行路径，或文件行之父目录），`drop` 优先使用该值；`lastDropIsCopy` 亦在 `dragover` 记录（`drop` 的 `ctrlKey` 不可靠）。同目录移动或拖到自身须静默忽略；`moveFileToDir` 源=目标返回 `noop` 不得 toast 成功。写操作路径须经 `file-ops.resolveInWorkspace`（工作区根 `rel===''` 合法）。
 4j. **【GUI 大纲】预览左侧栏 + 行归属高亮**：大纲在 `#preview-pane` 内、正文在 `#preview-scroll`；分隔线默认隐藏、hover 大纲显示；收起用左侧窄栏按钮（勿绝对定位盖住正文）；收放时正文 `max-width` 勿变（否则换行跳动）。高亮按「≤ 当前行的最近标题」更新（编辑 `onPreviewLocate` / 预览点击 / 滚动侦测）；滚动锚点约视口 20%，与 sync-scroll 对齐。

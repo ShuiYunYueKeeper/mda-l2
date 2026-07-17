@@ -102,6 +102,10 @@
       zoomOut: '缩小',
       zoomReset: '复位',
       zoomClose: '关闭',
+      zoomCopy: '复制',
+      toastZoomCopiedImage: '已复制图片',
+      toastZoomCopiedMermaid: '已复制流程图源码',
+      alertZoomCopyFail: '复制失败: {error}',
       filenameCopyHint: '{name}（可选中后 Ctrl+C 拷贝）',
       toastNoCopy: '没有可拷贝的内容',
       toastCopied: '拷贝成功',
@@ -260,6 +264,10 @@
       zoomOut: 'Zoom out',
       zoomReset: 'Reset',
       zoomClose: 'Close',
+      zoomCopy: 'Copy',
+      toastZoomCopiedImage: 'Image copied',
+      toastZoomCopiedMermaid: 'Mermaid source copied',
+      alertZoomCopyFail: 'Copy failed: {error}',
       filenameCopyHint: '{name} (select then Ctrl+C to copy)',
       toastNoCopy: 'Nothing to copy',
       toastCopied: 'Copied',
@@ -376,7 +384,7 @@
           '<li>Syntax highlight + line numbers; <kbd>Ctrl+S</kbd> save; unsaved close prompts</li>' +
           '<li><kbd>Ctrl+F</kbd> find, <kbd>Ctrl+H</kbd> replace, <kbd>Ctrl+G</kbd> go to line</li>' +
           '<li><kbd>Ctrl+B/I/`</kbd> bold/italic/code; <kbd>Ctrl+Shift+]/[</kbd> heading level</li>' +
-          '<li>Dark mode; relative images; Mermaid; KaTeX; click image/diagram to zoom</li>' +
+          '<li>Dark mode; relative images; Mermaid; KaTeX; click image/diagram to zoom — toolbar or Ctrl+C copies (image → clipboard image; diagram → Mermaid source)</li>' +
           '<li><strong>Copy preview</strong>: menu or <kbd>Ctrl+Shift+C</kbd> for WeChat-ready rich text</li>' +
           '<li><strong>Export</strong>: File → Export HTML / PDF (progress UI; ~60s timeout)</li>' +
           '<li>Panes are resizable; double-click splitter to reset</li>' +
@@ -441,7 +449,7 @@
         '<li>源码语法高亮 + 行号；<kbd>Ctrl+S</kbd> 保存；关闭时未保存会提示</li>' +
         '<li><kbd>Ctrl+F</kbd> 查找、<kbd>Ctrl+H</kbd> 替换、<kbd>Ctrl+G</kbd> 跳转到行</li>' +
         '<li><kbd>Ctrl+B/I/`</kbd> 粗体/斜体/代码；<kbd>Ctrl+Shift+]/[</kbd> 标题升降级</li>' +
-        '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放</li>' +
+        '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放，工具栏或 Ctrl+C 可复制（图片→剪贴板图片，流程图→Mermaid 源码）</li>' +
         '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片与流程图）</li>' +
         '<li><strong>导出</strong>：菜单「文件 → 导出 HTML / 导出 PDF」（导出会显示进度；大文档约 60s 超时）</li>' +
         '<li>分栏可拖拽调宽，双击分隔条复位</li>' +

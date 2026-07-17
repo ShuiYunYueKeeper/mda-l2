@@ -28,22 +28,34 @@
 | `8-mermaid_picture.png` | 流程图与图片渲染 | ✅ |
 | `9-zoom-overlay.png` | 图片/流程图缩放遮罩 | ✅ |
 
-### 2.0 Phase A 待补（M2–M5 实机通过后）
+### Phase A / 扩展能力（用户已补，2026-07-17）
 
-| 建议文件 | 内容 | 要点 |
+| 文件 | 内容 | README 引用 |
+|------|------|-------------|
+| `10-welcome.png` | 欢迎页（新建/打开/最近） | ✅ |
+| `11-file-sidebar.png` | 文件夹树侧栏 | ✅ |
+| `12-search.png` | 查找栏 | ✅ |
+| `13-outline-katex.png` | 预览左侧大纲 + KaTeX | ✅ |
+| `14-selection-annotation.png` | 选区批注 | ✅ |
+| `15-function-file.png` | 文件菜单能力概览 | ✅ |
+| `15-function-view.png` | 视图菜单能力概览 | ✅ |
+| `16-export-dialog.png` | 导出 HTML/PDF | ✅ |
+| `17-mcp-tools.png` | Cursor MCP 六 tools | ✅ |
+
+---
+
+## 暂不补充（用户明确跳过）
+
+| 建议文件 | 内容 | 说明 |
 |----------|------|------|
-| `10-welcome.png` | 欢迎页（新建/打开/最近） | 空态窗口全貌 |
-| `11-file-sidebar.png` | 文件夹树侧栏 | 展开目录 + 当前文件高亮 |
-| `11b-file-sidebar-ops.png` | 文件侧栏操作 | 右键菜单（复制/粘贴/重命名/删除）或拖动高亮目标文件夹 |
-| `11c-file-conflict.png` | 重名冲突弹窗 | 覆盖 / 自动重命名 / 取消 三选项 |
-| `11d-lang-switch.png` | 界面语言 | 视图→界面语言 + 中英文 UI 对比（可拼图） |
-| `12-sync-scroll-find.png` | 点击定位 + 查找栏 | 点预览定位源码且预览不漂；点源码定位预览；查找高亮 |
-| `13-outline-katex.png` | 大纲面板 + KaTeX 公式 | **预览左侧**大纲展开 + 当前标题高亮；可另含公式 |
-| `13b-outline-collapsed.png` | 大纲收起 | 左侧窄栏 ≡ 按钮，正文不被遮挡 |
-| `14-selection-annotation.png` | 选区批注 | 预览选区高亮 + 面板项 + 添加对话框 |
-| `15-codeblock-menu.png` | 代码块统一右键菜单 | 拷贝 / 拷贝全部 / 添加选区批注 |
-| `16-export-dialog.png` | 导出 HTML/PDF | 导出过程遮罩 + 保存结果 |
-| `17-mcp-tools.png` | Cursor MCP 六 tools | Settings/MCP 面板或 Agent 调用截图 |
+| `11b-file-sidebar-ops.png` | 右键菜单 / 拖动高亮 | 暂不补 |
+| `11c-file-conflict.png` | 重名冲突弹窗 | 暂不补 |
+| `11d-lang-switch.png` | 界面语言切换 | 暂不补 |
+| `13b-outline-collapsed.png` | 大纲收起窄栏 | 暂不补 |
+| `15-codeblock-menu.png` | 代码块右键菜单 | 暂不补（可用 `15-function-*` 代替菜单类展示） |
+| `9b-zoom-copy.png` | 缩放层「复制」按钮特写 | 暂不补（能力见帮助与 README 文字说明） |
+
+录屏建议场景仍可选补，见下表；当前以静态截图为主。
 
 ---
 
@@ -53,7 +65,7 @@
 |------|----------|------|
 | 源码编辑保存 | 15–30s | 编辑 → 实时预览 → `Ctrl+S` → dirty 标记消失 |
 | 坏批注提示 | 10–20s | 编辑栏删掉 `]` → 预览不泄漏 → 保存弹窗提示 |
-| 图片/流程图缩放 | 15–30s | 点击放大 → 滚轮缩放 → 拖拽平移 → 双击复位 |
+| 图片/流程图缩放与复制 | 15–30s | 点击放大 → 复制（图→位图 / 流程图→源码）→ 滚轮/拖拽 → 双击复位 |
 | 分栏拖拽 + 双击复位 | 10–20s | 拖动手柄调宽 → 双击复位 |
 | 文件侧栏拖动移动 | 15–30s | 拖到文件夹行 → 移动成功；同名冲突弹窗；`Ctrl` 拖动复制 |
 
@@ -66,4 +78,4 @@
 凡涉及 `src/gui/**` 的提交，在 `.cursor/workflow.md` Step 5 中 AI 须：
 1. 对照本清单检查是否有**新增/变更**的 GUI 交互需要新截图；
 2. **明确提示用户**补充对应截图或录屏（列出建议文件名与拍摄要点）；
-3. 用户补充素材后，再更新 `README.md` 引用（可单独 `docs:` commit）。
+3. 用户补充素材后，再更新 `README.md` 引用（可单独 `docs:` commit）；用户明确「暂不补充」的项记入上表，不阻塞提交。

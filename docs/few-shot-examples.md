@@ -420,3 +420,24 @@ function refreshWorkspaceTree(opts) {
 
 - ❌ `refreshWorkspaceTree` 里 `if (!currentFilePath) requestOpen(first)` → 清空最近后重启仍打开文档。
 - ❌ 清空最近打开时强制 `clearOpenDocument()` → 打断正在阅读的文档（用户明确不要）。
+
+---
+
+## 17. 缩放层复制：流程图须为源码（GUI）
+
+**规则**：缩放遮罩「复制」/ `Ctrl+C` — 图片写入剪贴板位图；流程图复制 Mermaid **源码文本**（`data-mermaid-src`），不要当成「复制预览」去抓 PNG。
+
+### ✅ 正确
+
+```javascript
+if (opts.kind === 'mermaid') {
+  copyTextWithToast(opts.mermaidSrc, uiT('toastZoomCopiedMermaid'));
+} else {
+  api.copyClipboardImage({ filePath: localPath }); // 或 dataUrl
+}
+```
+
+### ❌ 错误
+
+- ❌ 流程图也走 `writeImage` / `capturePageRect` → 粘贴进编辑器是图，无法改图语法。
+- ❌ 打开缩放时未传入 `data-mermaid-src` → 复制空内容。
