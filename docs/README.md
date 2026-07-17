@@ -39,7 +39,8 @@
 | [`screenshots/README.md`](screenshots/README.md) | GUI 截图与录屏清单（README 引用素材） |
 | [`packaging-windows.md`](packaging-windows.md) | Windows 签名、界面语言、自动更新与 `latest.yml` |
 | [`prompts/prompt-11-gui-file-sidebar-i18n.md`](prompts/prompt-11-gui-file-sidebar-i18n.md) | P4：文件侧栏、i18n、拖动修复协作记录 |
-| [`prompts/prompt-12-outline-welcome-clear-list.md`](prompts/prompt-12-outline-welcome-clear-list.md) | **本轮 P4**：预览左侧大纲、启动欢迎页、清空文件列表 |
+| [`prompts/prompt-12-outline-welcome-clear-list.md`](prompts/prompt-12-outline-welcome-clear-list.md) | P4：预览左侧大纲、启动欢迎页、清空文件列表 |
+| [`prompts/prompt-13-zoom-copy.md`](prompts/prompt-13-zoom-copy.md) | **本轮 P4**：缩放层复制（图片 / 流程图源码） |
 | `demo/` | 团队分享草稿（**暂不入库**，见 `.gitignore`） |
 
 ## 工作流

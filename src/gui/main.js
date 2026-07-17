@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard } = require('electron');
+﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -335,6 +335,23 @@ function registerIpcHandlers() {
 
   ipcMain.handle('copy-clipboard', async (_event, text) => {
     clipboard.writeText(text == null ? '' : String(text));
+  });
+
+  ipcMain.handle('copy-clipboard-image', async (_event, payload) => {
+    try {
+      const { nativeImage } = require('electron');
+      let img = null;
+      if (payload && payload.dataUrl) {
+        img = nativeImage.createFromDataURL(String(payload.dataUrl));
+      } else if (payload && payload.filePath) {
+        img = nativeImage.createFromPath(path.resolve(String(payload.filePath)));
+      }
+      if (!img || img.isEmpty()) return { success: false, error: t('errImageEmpty') };
+      clipboard.writeImage(img);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   });
 
   ipcMain.handle('copy-clipboard-html', async (_event, payload) => {

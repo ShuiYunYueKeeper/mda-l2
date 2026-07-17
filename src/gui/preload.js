@@ -111,6 +111,7 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   fileExists: (filePath, workspaceRoot) =>
     ipcRenderer.invoke('file-exists', { filePath, workspaceRoot }),
   copyToClipboard: (text) => ipcRenderer.invoke('copy-clipboard', text),
+  copyClipboardImage: (opts) => ipcRenderer.invoke('copy-clipboard-image', opts || {}),
   copyArticleHtml: (html, text) => ipcRenderer.invoke('copy-clipboard-html', { html, text }),
   readFileAsDataUrl: (filePath) => ipcRenderer.invoke('read-file-data-url', filePath),
   capturePageRect: (rect) => ipcRenderer.invoke('capture-page-rect', rect),

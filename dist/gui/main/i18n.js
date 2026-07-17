@@ -46,6 +46,7 @@ const STRINGS = {
     updateFailNoChannel:
       '未找到更新清单（latest.yml）。请确认 GitHub Release 已通过 electron-builder 发布并上传安装包与清单；当前发行版若仅含源码 zip，检查更新将不可用。',
     updateFailNetwork: '无法连接更新服务器，请检查网络后重试。',
+    errImageEmpty: '无法读取图片',
     updateFailGeneric: '检查更新失败：{detail}',
     updateAvailableTitle: '发现新版本',
     updateAvailableMsg: '发现新版本 {version}，是否下载？',
@@ -94,6 +95,7 @@ const STRINGS = {
     updateFailNoChannel:
       'Update manifest (latest.yml) was not found. Publish a GitHub Release with electron-builder so the installer and latest.yml are uploaded. Source-only releases cannot be used for updates.',
     updateFailNetwork: 'Cannot reach the update server. Check your network and try again.',
+    errImageEmpty: 'Could not read image',
     updateFailGeneric: 'Update check failed: {detail}',
     updateAvailableTitle: 'Update Available',
     updateAvailableMsg: 'Version {version} is available. Download now?',

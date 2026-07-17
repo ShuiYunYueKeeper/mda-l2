@@ -102,7 +102,6 @@
       }
     ],
     "win": {
-      "legalCopyright": "Copyright © 2026 MDA",
       "requestedExecutionLevel": "asInvoker",
       "verifyUpdateCodeSignature": false,
       "target": [

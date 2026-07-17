@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -333,6 +333,9 @@
     .mda-zoom-bar button {
       width: 34px; height: 34px; font-size: 18px; line-height: 1; cursor: pointer;
       color: #fff; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.45); border-radius: 6px;
+    }
+    .mda-zoom-bar button[data-z="copy"] {
+      width: auto; min-width: 34px; padding: 0 10px; font-size: 13px;
     }
     .mda-zoom-bar button:hover { background: rgba(0,0,0,0.82); border-color: #fff; }
     #preview-content img { cursor: zoom-in; }

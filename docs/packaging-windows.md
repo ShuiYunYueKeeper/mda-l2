@@ -5,6 +5,8 @@
 「属性 → 数字签名」为空是因为 **当前未配置 Authenticode 代码签名证书**。  
 没有证书时 electron-builder **无法**凭空写入签名；这与开源/自用分发常见情况一致。
 
+版权信息写在 `package.json` → `build.copyright`（**不要**写 `win.legalCopyright`，electron-builder 26 schema 不认该字段，会导致打包失败）。
+
 若需签名（减少 SmartScreen 拦截）：
 
 1. 购买代码签名证书（OV/EV），导出为 `.pfx`

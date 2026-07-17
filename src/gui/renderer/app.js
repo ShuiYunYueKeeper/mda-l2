@@ -1959,7 +1959,8 @@
         if (out.bindFunctions) out.bindFunctions(holder);
         holder.addEventListener('click', function () {
           var svg = this.querySelector('svg');
-          if (svg) openZoom(svg.cloneNode(true));
+          var mermaidSrc = this.getAttribute('data-mermaid-src') || '';
+          if (svg) openZoom(svg.cloneNode(true), { kind: 'mermaid', mermaidSrc: mermaidSrc });
         });
       } catch (err) {
         holder.className = 'mda-mermaid-error';
@@ -2085,7 +2086,74 @@
   }
 
   // ---- 缩放遮罩（图片 / 流程图共用）----
-  function openZoom(node) {
+  function copyZoomContent(opts) {
+    opts = opts || {};
+    if (opts.kind === 'mermaid') {
+      var src = opts.mermaidSrc || '';
+      if (!src) {
+        showToast(uiT('toastNoCopy'));
+        return;
+      }
+      copyTextWithToast(src, uiT('toastZoomCopiedMermaid'));
+      return;
+    }
+    var imageSrc = opts.imageSrc || '';
+    if (!imageSrc) {
+      showToast(uiT('toastNoCopy'));
+      return;
+    }
+    function fail(err) {
+      uiAlert(uiT('alertZoomCopyFail', { error: err || uiT('unknownError') }));
+    }
+    if (/^data:image\//i.test(imageSrc)) {
+      if (!api.copyClipboardImage) { fail(uiT('unknownError')); return; }
+      api.copyClipboardImage({ dataUrl: imageSrc }).then(function (r) {
+        if (r && r.success) showToast(uiT('toastZoomCopiedImage'));
+        else fail(r && r.error);
+      });
+      return;
+    }
+    var localPath = fileUrlToPath(imageSrc);
+    if (localPath && api.copyClipboardImage) {
+      api.copyClipboardImage({ filePath: localPath }).then(function (r) {
+        if (r && r.success) showToast(uiT('toastZoomCopiedImage'));
+        else if (api.readFileAsDataUrl) {
+          api.readFileAsDataUrl(localPath).then(function (dr) {
+            if (!dr.success || !dr.dataUrl) { fail(dr.error || (r && r.error)); return; }
+            api.copyClipboardImage({ dataUrl: dr.dataUrl }).then(function (r2) {
+              if (r2 && r2.success) showToast(uiT('toastZoomCopiedImage'));
+              else fail(r2 && r2.error);
+            });
+          });
+        } else fail(r && r.error);
+      });
+      return;
+    }
+    // http(s) 等：画到 canvas 再转 dataUrl
+    var img = new Image();
+    img.onload = function () {
+      try {
+        var canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || img.width;
+        canvas.height = img.naturalHeight || img.height;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        var dataUrl = canvas.toDataURL('image/png');
+        if (!api.copyClipboardImage) { fail(uiT('unknownError')); return; }
+        api.copyClipboardImage({ dataUrl: dataUrl }).then(function (r) {
+          if (r && r.success) showToast(uiT('toastZoomCopiedImage'));
+          else fail(r && r.error);
+        });
+      } catch (e) {
+        fail(e && e.message ? e.message : String(e));
+      }
+    };
+    img.onerror = function () { fail(uiT('unknownError')); };
+    img.src = imageSrc;
+  }
+
+  function openZoom(node, opts) {
+    opts = opts || {};
     var ov = document.createElement('div');
     ov.className = 'mda-zoom';
     var stage = document.createElement('div');
@@ -2093,7 +2161,8 @@
     stage.appendChild(node);
     var bar = document.createElement('div');
     bar.className = 'mda-zoom-bar';
-    bar.innerHTML = '<button data-z="in" title="' + uiT('zoomIn') + '">+</button>' +
+    bar.innerHTML = '<button data-z="copy" title="' + uiT('zoomCopy') + '">' + uiT('copyBtn') + '</button>' +
+      '<button data-z="in" title="' + uiT('zoomIn') + '">+</button>' +
       '<button data-z="out" title="' + uiT('zoomOut') + '">\u2212</button>' +
       '<button data-z="reset" title="' + uiT('zoomReset') + '">\u21ba</button>' +
       '<button data-z="close" title="' + uiT('zoomClose') + '">\u2715</button>';
@@ -2132,7 +2201,13 @@
       window.removeEventListener('mouseup', onUp);
       document.removeEventListener('keydown', onKey);
     }
-    function onKey(e) { if (e.key === 'Escape') close(); }
+    function onKey(e) {
+      if (e.key === 'Escape') { close(); return; }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C') && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        copyZoomContent(opts);
+      }
+    }
     document.addEventListener('keydown', onKey);
 
     ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
@@ -2143,7 +2218,8 @@
       if (!b) return;
       e.stopPropagation();
       var z = b.getAttribute('data-z');
-      if (z === 'in') zoom(1.2);
+      if (z === 'copy') copyZoomContent(opts);
+      else if (z === 'in') zoom(1.2);
       else if (z === 'out') zoom(1 / 1.2);
       else if (z === 'reset') reset();
       else close();
@@ -3018,7 +3094,7 @@
           e.stopPropagation();
           var z = new Image();
           z.src = this.src;
-          openZoom(z);
+          openZoom(z, { kind: 'image', imageSrc: this.src });
         });
       }
     }
