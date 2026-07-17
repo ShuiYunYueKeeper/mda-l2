@@ -10,6 +10,7 @@ Thumbs.db
 # 根目录临时截图（勿入库）
 /[0-9]*.png
 # 本地草稿，不纳入版本库
+docs/demo/
 docs/articles/
 docs/L2-evaluation-report.md
 .cursor/l2-exam-evaluator/

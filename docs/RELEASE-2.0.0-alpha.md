@@ -40,7 +40,7 @@ mda-mcp --workspace <docs-root>
 ## 已知非阻塞项
 
 - GUI 截图 `10–17` 待补（见 `docs/screenshots/README.md`）
-- 自动更新依赖 GitHub Releases + `GH_TOKEN`（`build.publish` 已指向本仓）
+- **Windows 签名 / 语言 / 更新**：见 [`docs/packaging-windows.md`](packaging-windows.md)（无证书则数字签名为空属预期；更新需 Release 含 `latest.yml`）
 - 旁支 `l2-project-template/`、`skills/` **不属于**本产品发版物
 
 ## 不在本版本

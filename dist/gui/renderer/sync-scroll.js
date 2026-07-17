@@ -84,7 +84,7 @@
 
   /**
    * 用 getBoundingClientRect 相对滚动容器求位移。
-   * 不可用 offsetTop：预览块在 #preview-content 内，而滚动的是含大纲的 #preview-pane。
+   * 不可用 offsetTop：预览块在 #preview-content 内，滚动容器为 #preview-scroll。
    */
   function scrollPreviewToEntry(previewPane, entry, options) {
     options = options || {};
@@ -181,7 +181,7 @@
           var text = typeof getText === 'function' ? getText() : '';
           scrollEditorToLine(editor, text, line, { skipFocus: opts.skipFocus });
           if (!opts.skipPreview) {
-            if (!blockMap.length) refreshMap();
+            refreshMap();
             var entry = scrollPreviewToLine(previewPane, line, blockMap, {
               onlyIfNeeded: !!opts.onlyIfNeeded,
             });

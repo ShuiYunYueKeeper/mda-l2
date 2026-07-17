@@ -12,14 +12,19 @@
   var htmlContent = '';
 
   var editorVisible = false;      // 左侧源码编辑栏是否展开
-  var panelVisible = true;        // 右侧批注栏是否展开（默认展开）
+  var editorUserDismissed = false; // 用户手动收起后，切换文档不再自动展开
+  var panelVisible = false;       // 右侧批注栏默认收起（偏辅助；预览点击定位仍可用）
   var dirty = false;              // 编辑器内容是否有未保存修改
   var previewTimer = null;        // 实时预览防抖
   var closePromptOpen = false;    // 防止重复弹出关闭确认框
 
   // 文档状态机：welcome | untitled | open（见 P2 §4.1）
   var docState = 'welcome';
+  // 清空「最近打开」后，在用户主动打开文件前禁止把当前文档写回历史（否则重载会恢复列表，下次启动又自动打开）
+  var allowAddRecent = true;
   var workspaceRoot = null;
+  var fsClip = null;
+  var fsUndoStack = [];
   var welcomePane = null;
   var fileSidebar = null;
   var contentRowEl = null;
@@ -27,6 +32,10 @@
   var syncScrollCtrl = null;
   var findReplaceUi = null;
   var outlinePanelUi = null;
+  var outlineFloatBtn = null;
+  var outlineExpandRail = null;
+  var outlineJumpLock = false;
+  var outlineScrollRaf = null;
   var assist = null;
   var selAnchor = null;
   var anchorHl = null;
@@ -43,25 +52,91 @@
 
   // DOM 元素
   var previewEl, annoListEl, statusFiltersEl, levelFiltersEl, tagFiltersEl, tagFiltersRow;
-  var previewPaneEl, editorPaneEl, editorEl, panelPaneEl;
-  var srcGutterEl, srcHighlightEl, srcFindMarkEl, splitLeftEl, splitRightEl;
+  var previewPaneEl, previewScrollEl, editorPaneEl, editorEl, panelPaneEl;
+  var srcGutterEl, srcHighlightEl, srcFindMarkEl, splitFilesEl, splitLeftEl, splitRightEl, splitOutlineEl;
   var findMatchState = null; // { matches: [{start,end}], index: number }
-  var tbEditBtn, tbPanelBtn, tbFileNameEl, addBtn;
+  var tbEditBtn, tbPanelBtn, tbFilesBtn, tbFileNameEl, addBtn;
 
   var MOD_KEY = (navigator.platform || '').toLowerCase().indexOf('mac') >= 0 ? '\u2318' : 'Ctrl+';
+
+  function uiT(key, vars) {
+    return (window.MDAI18n && window.MDAI18n.t) ? window.MDAI18n.t(key, vars) : key;
+  }
+
+  function applyUiLang() {
+    if (tbFilesBtn) {
+      tbFilesBtn.textContent = uiT('tbFiles');
+      tbFilesBtn.title = uiT('tbFilesTitle');
+    }
+    if (tbEditBtn) {
+      tbEditBtn.textContent = uiT('tbEdit');
+      tbEditBtn.title = uiT('tbEditTitle');
+    }
+    if (tbPanelBtn) {
+      tbPanelBtn.textContent = uiT('tbPanel');
+      tbPanelBtn.title = uiT('tbPanelTitle');
+    }
+    if (addBtn) addBtn.textContent = uiT('btnAddAnno');
+    if (editorEl) editorEl.placeholder = uiT('editorPlaceholder');
+    document.querySelectorAll('[data-i18n-filter]').forEach(function (el) {
+      var k = el.getAttribute('data-i18n-filter');
+      if (k) el.textContent = uiT(k);
+    });
+    if (welcomePane && welcomePane.applyLang) welcomePane.applyLang();
+    if (fileSidebar && fileSidebar.applyLang) fileSidebar.applyLang();
+    if (outlinePanelUi && outlinePanelUi.applyLang) outlinePanelUi.applyLang();
+    if (outlineFloatBtn) outlineFloatBtn.title = uiT('outlineExpand');
+    if (findReplaceUi && findReplaceUi.applyLang) findReplaceUi.applyLang();
+    updateToolbar();
+    if (typeof renderAnnoList === 'function') {
+      try { renderAnnoList(); } catch (e) { /* 列表可能尚未就绪 */ }
+    }
+  }
+
+  function initUiLang() {
+    function sync(lang) {
+      if (window.MDAI18n) window.MDAI18n.setLang(lang === 'en' ? 'en' : 'zh');
+      applyUiLang();
+    }
+    if (api.getLang) {
+      api.getLang().then(function (r) {
+        if (r && r.success) sync(r.lang);
+        else sync('zh');
+      }).catch(function () { sync('zh'); });
+    } else {
+      sync('zh');
+    }
+    if (api.onLangChanged) {
+      api.onLangChanged(function (lang) { sync(lang); });
+    }
+  }
 
   // ---- 初始化 ----
   function init() {
     buildLayout();
     initTheme();
     initMermaid();
+    initUiLang();
 
     api.onFileOpened(function (filePath) { requestOpen(filePath); });
-    api.onSessionWelcome(function () { setDocState('welcome'); });
-    api.onReload(function () { if (currentFilePath) requestOpen(currentFilePath); });
+    api.onSessionWelcome(function () { clearOpenDocument(); });
+    if (api.onRecentFilesCleared) {
+      api.onRecentFilesCleared(function () {
+        // 仅刷新最近列表；保持当前文档，勿跳起始页。禁止本会话静默写回历史，保证下次空列表启动为起始页
+        allowAddRecent = false;
+        refreshWelcomeRecents();
+      });
+    }
+    api.onReload(function () {
+      if (isFileTreeFocused()) {
+        renameActiveWorkspaceFile();
+        return;
+      }
+      if (currentFilePath) requestOpen(currentFilePath);
+    });
     api.onMenuShowInFolder(function () {
       if (currentFilePath) api.showItemInFolder(currentFilePath);
-      else uiAlert('请先打开一个文件');
+      else uiAlert(uiT('alertOpenFileFirst'));
     });
     api.onMenuToggleTheme(function () { toggleTheme(); });
     api.onMenuToggleEdit(function () { toggleEditor(); });
@@ -141,7 +216,9 @@
     mountFileUi();
     mountM3Modules();
     mountM4Modules();
+    restoreSavedWorkspace();
     refreshWelcomeRecents();
+    applyUiLang();
     updateToolbar();
   }
 
@@ -172,31 +249,51 @@
     var outlineHost = document.getElementById('outline-host');
     if (window.MDAOutlinePanel && outlineHost) {
       outlinePanelUi = window.MDAOutlinePanel.mount(outlineHost, function (line) {
+        outlineJumpLock = true;
         // 大纲点击：同步预览（与高亮）及源码光标；编辑栏未开时不强行展开
         if (syncScrollCtrl) {
           syncScrollCtrl.scrollEditorToLine(line, { skipFocus: !editorVisible });
         } else if (editorVisible) {
           jumpEditorToLine(line);
-        } else if (previewEl && previewPaneEl) {
+        } else if (previewEl && previewScrollEl) {
           var block = previewEl.querySelector('[data-line="' + line + '"]');
           if (block) {
             cursorLine = line;
             highlightCursorBlock(block);
-            block.scrollIntoView({ block: 'center' });
+            if (syncScrollCtrl && syncScrollCtrl.scrollPreviewToLine) {
+              syncScrollCtrl.scrollPreviewToLine(line);
+            } else {
+              block.scrollIntoView({ block: 'center' });
+            }
           }
         }
+        if (outlinePanelUi && outlinePanelUi.setActiveLine) {
+          outlinePanelUi.setActiveLine(line, { force: true, skipScroll: true });
+        }
+        setTimeout(function () { outlineJumpLock = false; }, 150);
+      }, {
+        onCollapsedChange: syncOutlineCollapsedState,
       });
+      syncOutlineCollapsedState(outlinePanelUi.isCollapsed());
+      applyOutlineWidth();
+      setupOutlineScrollSync();
     }
-    if (window.MDASyncScroll && editorEl && previewPaneEl && previewEl) {
+    if (window.MDASyncScroll && editorEl && previewScrollEl && previewEl) {
       syncScrollCtrl = window.MDASyncScroll.attach(
         editorEl,
-        previewPaneEl,
+        previewScrollEl,
         previewEl,
         function () { return editorEl.value; },
         {
           onPreviewLocate: function (line, el) {
             cursorLine = line || null;
             highlightCursorBlock(el);
+            // 按源码行归属标题；短暂锁定滚动侦测，避免同步滚动后被偏旧偏移覆盖
+            if (line) {
+              outlineJumpLock = true;
+              updateOutlineActiveFromLine(line);
+              setTimeout(function () { outlineJumpLock = false; }, 120);
+            }
           },
         }
       );
@@ -229,12 +326,12 @@
   }
 
   function scrollPreviewToRange(range) {
-    if (!range || !previewPaneEl) return;
+    if (!range || !previewScrollEl) return;
     try {
       var rect = range.getBoundingClientRect();
-      var pane = previewPaneEl.getBoundingClientRect();
-      var relTop = rect.top - pane.top + previewPaneEl.scrollTop;
-      previewPaneEl.scrollTop = Math.max(0, relTop - previewPaneEl.clientHeight * 0.35);
+      var pane = previewScrollEl.getBoundingClientRect();
+      var relTop = rect.top - pane.top + previewScrollEl.scrollTop;
+      previewScrollEl.scrollTop = Math.max(0, relTop - previewScrollEl.clientHeight * 0.35);
     } catch (e) { /* ignore */ }
   }
 
@@ -294,11 +391,11 @@
   function copyTextWithToast(text, okMsg) {
     var t = text == null ? '' : String(text);
     if (!t) {
-      showToast('没有可拷贝的内容');
+      showToast(uiT('toastNoCopy'));
       return;
     }
     api.copyToClipboard(t);
-    showToast(okMsg || '拷贝成功');
+    showToast(okMsg || uiT('toastCopied'));
   }
 
   function isSelectionInFilename() {
@@ -341,7 +438,7 @@
         if (!edText) return;
         e.preventDefault();
         e.stopPropagation();
-        copyTextWithToast(edText, '拷贝成功');
+        copyTextWithToast(edText, uiT('toastCopied'));
         return;
       }
 
@@ -359,7 +456,7 @@
         if (!fname) return;
         e.preventDefault();
         e.stopPropagation();
-        copyTextWithToast(fname, '拷贝成功');
+        copyTextWithToast(fname, uiT('toastCopied'));
         return;
       }
 
@@ -368,7 +465,7 @@
         if (!text.trim()) return;
         e.preventDefault();
         e.stopPropagation();
-        copyTextWithToast(text, '拷贝成功');
+        copyTextWithToast(text, uiT('toastCopied'));
       }
     }, true);
   }
@@ -387,8 +484,8 @@
       pMenu.id = 'mda-selection-menu';
       pMenu.className = 'mda-context-menu';
       pMenu.innerHTML =
-        '<div class="mda-menu-item' + (quote.trim() ? '' : ' disabled') + '" data-act="copy"><span>拷贝</span><span class="mda-menu-key">' + MOD_KEY + 'C</span></div>' +
-        '<div class="mda-menu-item' + (currentFilePath ? '' : ' disabled') + '" data-act="anno"><span>添加选区批注</span></div>';
+        '<div class="mda-menu-item' + (quote.trim() ? '' : ' disabled') + '" data-act="copy"><span>' + uiT('copy') + '</span><span class="mda-menu-key">' + MOD_KEY + 'C</span></div>' +
+        '<div class="mda-menu-item' + (currentFilePath ? '' : ' disabled') + '" data-act="anno"><span>' + uiT('addSelAnno') + '</span></div>';
       document.body.appendChild(pMenu);
       pMenu.style.left = Math.min(x, window.innerWidth - pMenu.offsetWidth - 4) + 'px';
       pMenu.style.top = Math.min(y, window.innerHeight - pMenu.offsetHeight - 4) + 'px';
@@ -400,7 +497,7 @@
           var text = quote;
           removeSelectionContextMenu();
           clearPreviewSelectionSnap();
-          copyTextWithToast(text, '拷贝成功');
+          copyTextWithToast(text, uiT('toastCopied'));
           return;
         }
         if (act === 'anno') {
@@ -417,7 +514,7 @@
           removeSelectionContextMenu();
           clearPreviewSelectionSnap();
           if (!anchor) {
-            uiAlert('无法识别选区，请尝试在源码编辑区选择');
+            uiAlert(uiT('alertBadSelectionEditor'));
             return;
           }
           var line = selAnchor.anchorToLine(getSourceText(), anchor.start);
@@ -453,9 +550,9 @@
     menu.id = 'mda-selection-menu';
     menu.className = 'mda-context-menu';
     menu.innerHTML =
-      '<div class="mda-menu-item' + (hasSel ? '' : ' disabled') + '" data-act="copy"><span>拷贝</span><span class="mda-menu-key">' + MOD_KEY + 'C</span></div>' +
-      '<div class="mda-menu-item" data-act="copy-all"><span>拷贝全部</span></div>' +
-      '<div class="mda-menu-item' + (hasSel && currentFilePath ? '' : ' disabled') + '" data-act="anno"><span>添加选区批注</span></div>';
+      '<div class="mda-menu-item' + (hasSel ? '' : ' disabled') + '" data-act="copy"><span>' + uiT('copy') + '</span><span class="mda-menu-key">' + MOD_KEY + 'C</span></div>' +
+      '<div class="mda-menu-item" data-act="copy-all"><span>' + uiT('copyAll') + '</span></div>' +
+      '<div class="mda-menu-item' + (hasSel && currentFilePath ? '' : ' disabled') + '" data-act="anno"><span>' + uiT('addSelAnno') + '</span></div>';
     document.body.appendChild(menu);
     menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 4) + 'px';
     menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 4) + 'px';
@@ -466,22 +563,22 @@
       var act = item.dataset.act;
       if (act === 'copy') {
         if (!selText) {
-          uiAlert('请先选中要拷贝的文本');
+          uiAlert(uiT('alertSelectCopy'));
           removeSelectionContextMenu();
           return;
         }
-        copyTextWithToast(selText, '拷贝成功');
+        copyTextWithToast(selText, uiT('toastCopied'));
         removeSelectionContextMenu();
         return;
       }
       if (act === 'copy-all') {
-        copyTextWithToast(editorEl.value || '', '拷贝成功');
+        copyTextWithToast(editorEl.value || '', uiT('toastCopied'));
         removeSelectionContextMenu();
         return;
       }
       if (act === 'anno') {
         if (!hasSel) {
-          uiAlert('请先选中文本再添加选区批注');
+          uiAlert(uiT('alertSelectAnno'));
           removeSelectionContextMenu();
           return;
         }
@@ -492,7 +589,7 @@
         var anchor = resolveSelectionAnchor('editor');
         removeSelectionContextMenu();
         if (!anchor) {
-          uiAlert('无法识别选区');
+          uiAlert(uiT('alertBadSelection'));
           return;
         }
         var line = selAnchor.anchorToLine(getSourceText(), anchor.start);
@@ -512,15 +609,15 @@
   }
 
   function setupSelectionContextMenus() {
-    if (previewPaneEl) {
-      previewPaneEl.addEventListener('mousedown', function (e) {
+    if (previewScrollEl) {
+      previewScrollEl.addEventListener('mousedown', function (e) {
         if (e.button !== 0) return;
         previewPointer.down = true;
         previewPointer.dragged = false;
         previewPointer.x = e.clientX;
         previewPointer.y = e.clientY;
       });
-      previewPaneEl.addEventListener('mousemove', function (e) {
+      previewScrollEl.addEventListener('mousemove', function (e) {
         if (!previewPointer.down) return;
         if (Math.abs(e.clientX - previewPointer.x) > 4 || Math.abs(e.clientY - previewPointer.y) > 4) {
           previewPointer.dragged = true;
@@ -529,7 +626,7 @@
       document.addEventListener('mouseup', function () {
         previewPointer.down = false;
       });
-      previewPaneEl.addEventListener('contextmenu', function (e) {
+      previewScrollEl.addEventListener('contextmenu', function (e) {
         var sel = window.getSelection();
         if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
         if (!previewEl || !previewEl.contains(sel.anchorNode)) return;
@@ -812,23 +909,23 @@
   }
 
   function showGotoLineDialog() {
-    if (docState === 'welcome') { uiAlert('请先打开文档'); return; }
+    if (docState === 'welcome') { uiAlert(uiT('alertOpenDocFirst')); return; }
     var overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.innerHTML =
       '<div class="modal-box" style="min-width:280px">' +
-        '<h3>跳转到行</h3>' +
-        '<div class="modal-field"><input id="goto-line" type="number" min="1" style="width:100%;padding:8px" placeholder="行号" /></div>' +
+        '<h3>' + uiT('gotoTitle') + '</h3>' +
+        '<div class="modal-field"><input id="goto-line" type="number" min="1" style="width:100%;padding:8px" placeholder="' + uiT('gotoPlaceholder') + '" /></div>' +
         '<div class="modal-actions">' +
-          '<button id="goto-cancel" class="btn-ghost">取消</button>' +
-          '<button id="goto-ok" class="btn-ok">跳转</button>' +
+          '<button id="goto-cancel" class="btn-ghost">' + uiT('cancel') + '</button>' +
+          '<button id="goto-ok" class="btn-ok">' + uiT('jump') + '</button>' +
         '</div></div>';
     document.body.appendChild(overlay);
     var input = overlay.querySelector('#goto-line');
     function close() { overlay.remove(); }
     function doGoto() {
       var n = parseInt(input.value, 10);
-      if (isNaN(n) || n < 1) { uiAlert('请输入有效行号'); return; }
+      if (isNaN(n) || n < 1) { uiAlert(uiT('alertInvalidLine')); return; }
       close();
       // 延后聚焦编辑器，避免 keydown Enter 落到 textarea 插入换行导致标脏
       setTimeout(function () {
@@ -904,8 +1001,36 @@
         railEl: leftRailEl,
         onOpenFile: function (p) { requestOpen(p); },
         onRefresh: function () { refreshWorkspaceTree(); },
+        onCopyFileName: function (_path, name) {
+          copyTextWithToast(name, uiT('toastCopied'));
+        },
+        onCopyFile: function (filePath) { copyFileToFsClip(filePath); },
+        onCutFile: function (filePath) { cutFileToFsClip(filePath); },
+        onPasteToDir: function (destDir) { pasteFsClipToDir(destDir); },
+        onDropFile: function (src, destDir, isCopy) { dropWorkspaceFile(src, destDir, isCopy); },
+        onUndoFs: function () { undoFsFileOp(); },
+        getFsClip: function () { return fsClip; },
+        onRenameFile: function (filePath, name) { renameWorkspaceFile(filePath, name); },
+        onDeleteFile: function (filePath, name) { deleteWorkspaceFile(filePath, name); },
+        onClearList: function () { clearWorkspaceFileList(); },
+        onCollapsedChange: function (collapsed) {
+          syncFilesSplitterVisibility(collapsed);
+          if (!collapsed) applyFileSidebarWidth();
+          updateToolbar();
+        },
       });
+      // 若上次会话已记住收起状态，初次挂载后同步分割条
+      if (fileSidebar) syncFilesSplitterVisibility(fileSidebar.isCollapsed());
     }
+  }
+
+  /** 文件列表展开时显示拖拽条；收起/未开工作区时隐藏 */
+  function syncFilesSplitterVisibility(collapsed) {
+    if (!splitFilesEl) return;
+    var show = !!(workspaceRoot && leftRailEl && !leftRailEl.classList.contains('hidden') && !collapsed);
+    splitFilesEl.classList.toggle('hidden', !show);
+    // 收起时清掉拖拽写入的 inline flex，让 .collapsed { 28px } 生效；展开时保留拖拽宽度
+    if (leftRailEl && collapsed) leftRailEl.style.flex = '';
   }
 
   function setDocState(state) {
@@ -947,10 +1072,10 @@
       previewEl.innerHTML = '';
       setDirtyState(false);
       setDocState('untitled');
-      showEditorPane(true);
+      if (shouldAutoOpenEditor() && !editorVisible) showEditorPane(true);
       parseAndRender('', null);
       resetScrollTop();
-      requestAnimationFrame(function () { editorEl.focus(); });
+      requestAnimationFrame(function () { if (editorVisible) editorEl.focus(); });
     });
   }
 
@@ -967,21 +1092,533 @@
     updateToolbar();
   }
 
+  // 分栏默认宽度（用于双击复位）
+  var PANE_DEFAULT = { files: 220, editor: 380, panel: 320, outline: 200 };
+  var FILES_WIDTH_KEY = 'mda-file-sidebar-width';
+  var OUTLINE_WIDTH_KEY = 'mda-outline-width';
+
+  function readPaneWidth(key, minW) {
+    try {
+      var w = parseInt(localStorage.getItem(key), 10);
+      if (isNaN(w) || w < (minW || 140)) return null;
+      return w;
+    } catch (e) { return null; }
+  }
+
+  function savePaneWidth(key, w) {
+    try { localStorage.setItem(key, String(Math.round(w))); } catch (e) { /* ignore */ }
+  }
+
+  function applyFileSidebarWidth() {
+    if (!leftRailEl || (fileSidebar && fileSidebar.isCollapsed())) return;
+    var w = readPaneWidth(FILES_WIDTH_KEY, 140);
+    if (w) leftRailEl.style.flex = '0 0 ' + w + 'px';
+  }
+
+  function applyOutlineWidth() {
+    var outlineHost = document.getElementById('outline-host');
+    if (!outlineHost || (outlinePanelUi && outlinePanelUi.isCollapsed())) return;
+    var w = readPaneWidth(OUTLINE_WIDTH_KEY, 120);
+    if (w) outlineHost.style.flex = '0 0 ' + w + 'px';
+  }
+
+  function syncOutlineSplitterVisibility(collapsed) {
+    if (!splitOutlineEl) return;
+    splitOutlineEl.classList.toggle('hidden', !!collapsed);
+  }
+
+  function syncOutlineCollapsedState(collapsed) {
+    var scrollTop = previewScrollEl ? previewScrollEl.scrollTop : 0;
+    var scrollLeft = previewScrollEl ? previewScrollEl.scrollLeft : 0;
+    syncOutlineSplitterVisibility(collapsed);
+    if (previewScrollEl) previewScrollEl.classList.remove('outline-collapsed');
+    if (outlineExpandRail) outlineExpandRail.classList.toggle('visible', !!collapsed);
+    if (!collapsed) applyOutlineWidth();
+    // 布局瞬时切换后立刻还原滚动，避免与编辑/批注收放行为不一致的跳动感
+    if (previewScrollEl) {
+      previewScrollEl.scrollTop = scrollTop;
+      previewScrollEl.scrollLeft = scrollLeft;
+    }
+  }
+
+  function headingLineAtOrBefore(line) {
+    if (!outlinePanelUi || !outlinePanelUi.getFlatHeadings) return null;
+    var headings = outlinePanelUi.getFlatHeadings();
+    if (!headings.length || line == null || isNaN(line)) return null;
+    var active = headings[0].line;
+    for (var i = 0; i < headings.length; i++) {
+      if (headings[i].line <= line) active = headings[i].line;
+      else break;
+    }
+    return active;
+  }
+
+  function updateOutlineActiveFromLine(line, opts) {
+    if (!outlinePanelUi || !outlinePanelUi.setActiveLine) return;
+    if (outlinePanelUi.isCollapsed && outlinePanelUi.isCollapsed()) return;
+    var active = headingLineAtOrBefore(line);
+    if (active == null) return;
+    outlinePanelUi.setActiveLine(active, opts || {});
+  }
+
+  function updateOutlineActiveFromScroll() {
+    if (outlineJumpLock || !outlinePanelUi || !outlinePanelUi.setActiveLine) return;
+    if (outlinePanelUi.isCollapsed && outlinePanelUi.isCollapsed()) return;
+    var headings = outlinePanelUi.getFlatHeadings ? outlinePanelUi.getFlatHeadings() : [];
+    if (!headings.length || !previewScrollEl || !previewEl) return;
+    // 与 sync-scroll 将块滚到约 15% 视口对齐；固定 64px 会偏上，常高亮成上一节标题
+    var anchorY = previewScrollEl.getBoundingClientRect().top + Math.max(48, previewScrollEl.clientHeight * 0.2);
+    var activeLine = headings[0].line;
+    for (var i = 0; i < headings.length; i++) {
+      var block = previewEl.querySelector('[data-line="' + headings[i].line + '"]');
+      if (!block) continue;
+      if (block.getBoundingClientRect().top <= anchorY) activeLine = headings[i].line;
+      else break;
+    }
+    outlinePanelUi.setActiveLine(activeLine);
+  }
+
+  function setupOutlineScrollSync() {
+    if (!previewScrollEl) return;
+    previewScrollEl.addEventListener('scroll', function () {
+      if (outlineJumpLock) return;
+      if (outlineScrollRaf) cancelAnimationFrame(outlineScrollRaf);
+      outlineScrollRaf = requestAnimationFrame(updateOutlineActiveFromScroll);
+    }, { passive: true });
+  }
+
+  function activateWorkspace(folderPath, opts) {
+    opts = opts || {};
+    workspaceRoot = folderPath;
+    if (leftRailEl) leftRailEl.classList.remove('hidden');
+    if (fileSidebar && fileSidebar.setWorkspaceKey) fileSidebar.setWorkspaceKey(folderPath);
+    syncFilesSplitterVisibility(fileSidebar ? fileSidebar.isCollapsed() : false);
+    if (!fileSidebar || !fileSidebar.isCollapsed()) applyFileSidebarWidth();
+    refreshWorkspaceTree({ openFirstIfEmpty: !!opts.openFirstIfEmpty });
+    updateToolbar();
+    if (api.setWorkspaceRoot) api.setWorkspaceRoot(folderPath);
+  }
+
+  function clearWorkspaceFileList() {
+    uiConfirm(uiT('fsClearListConfirm')).then(function (yes) {
+      if (!yes) return;
+      workspaceRoot = null;
+      if (api.setWorkspaceRoot) api.setWorkspaceRoot(null);
+      if (fileSidebar) {
+        if (fileSidebar.setWorkspaceKey) fileSidebar.setWorkspaceKey('');
+        if (fileSidebar.setTree) fileSidebar.setTree([]);
+        if (fileSidebar.setActive) fileSidebar.setActive(null);
+      }
+      if (leftRailEl) {
+        leftRailEl.classList.add('hidden');
+        leftRailEl.classList.remove('collapsed');
+        leftRailEl.style.flex = '';
+      }
+      syncFilesSplitterVisibility(true);
+      updateToolbar();
+      showToast(uiT('toastFsListCleared'));
+    });
+  }
+
+  function restoreSavedWorkspace() {
+    if (!api.getWorkspaceRoot) return;
+    api.getWorkspaceRoot().then(function (r) {
+      // 仅恢复侧栏工作区，不自动打开文档；文档由最近打开 / 命令行参数决定
+      if (r.success && r.folderPath) activateWorkspace(r.folderPath);
+    });
+  }
+
   function openWorkspaceFolder() {
     if (!api.showOpenFolderDialog) return;
     api.showOpenFolderDialog().then(function (r) {
       if (!r.success || !r.folderPath) return;
-      workspaceRoot = r.folderPath;
-      if (leftRailEl) leftRailEl.classList.remove('hidden');
+      // 用户主动打开文件夹：若当前无文档，可打开树内第一个 Markdown
+      activateWorkspace(r.folderPath, { openFirstIfEmpty: true });
+    });
+  }
+
+  function dirnamePath(filePath) {
+    var i = Math.max(filePath.lastIndexOf('\\'), filePath.lastIndexOf('/'));
+    return i >= 0 ? filePath.slice(0, i) : '';
+  }
+
+  function joinFilePath(dir, name) {
+    var sep = dir.indexOf('\\') >= 0 ? '\\' : '/';
+    return dir.replace(/[\\/]+$/, '') + sep + name;
+  }
+
+  function splitFileName(name) {
+    var idx = name.lastIndexOf('.');
+    if (idx <= 0) return { stem: name, ext: '' };
+    return { stem: name.slice(0, idx), ext: name.slice(idx) };
+  }
+
+  function clearOpenDocument() {
+    currentFilePath = null;
+    currentText = '';
+    editorEl.value = '';
+    annotations = [];
+    paragraphs = [];
+    selectedAnnotationId = null;
+    previewEl.innerHTML = '';
+    setDirtyState(false);
+    setDocState('welcome');
+    if (fileSidebar && fileSidebar.setActive) fileSidebar.setActive(null);
+    if (outlinePanelUi && outlinePanelUi.setHeadings) outlinePanelUi.setHeadings([]);
+    updateToolbar();
+  }
+
+  function pickNextFileAfterDelete(deletedPath) {
+    if (!fileSidebar || !fileSidebar.getFileList) return null;
+    var list = fileSidebar.getFileList();
+    var idx = list.indexOf(deletedPath);
+    var remaining = list.filter(function (p) { return p !== deletedPath; });
+    if (!remaining.length) return null;
+    if (idx < 0) return remaining[0];
+    if (idx < remaining.length) return remaining[idx];
+    return remaining[remaining.length - 1];
+  }
+
+  function isFileTreeFocused() {
+    var tree = document.getElementById('fs-tree');
+    return !!(tree && document.activeElement === tree);
+  }
+
+  function renameActiveWorkspaceFile() {
+    if (!fileSidebar || !fileSidebar.getActivePath) return;
+    var path = fileSidebar.getActivePath();
+    if (!path) return;
+    renameWorkspaceFile(path, basenameFromPath(path));
+  }
+
+  function basenameFromPath(filePath) {
+    return filePath.replace(/\\/g, '/').split('/').pop() || filePath;
+  }
+
+  function refreshFsClipVisual() {
+    if (fileSidebar && fileSidebar.refreshClipState) fileSidebar.refreshClipState();
+  }
+
+  function setFsClip(mode, paths) {
+    if (!paths || !paths.length) fsClip = null;
+    else fsClip = { mode: mode, paths: paths.slice() };
+    refreshFsClipVisual();
+  }
+
+  function pushFsUndo(entry) {
+    fsUndoStack.push(entry);
+  }
+
+  function pathsEqual(a, b) {
+    return String(a).replace(/\\/g, '/').toLowerCase() === String(b).replace(/\\/g, '/').toLowerCase();
+  }
+
+  function parentDirEquals(filePath, destDir) {
+    return pathsEqual(dirnamePath(filePath), destDir);
+  }
+
+  function uiFileConflictConfirm(fileName, opts) {
+    opts = opts || {};
+    return new Promise(function (resolve) {
+      var overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      var overwriteBtn = opts.allowOverwrite === false ? '' :
+        '<button id="fs-conflict-overwrite" class="btn-ghost">' + uiT('fsConflictOverwrite') + '</button>';
+      overlay.innerHTML =
+        '<div class="modal-box" style="min-width:320px">' +
+          '<h3>' + uiT('fsConflictTitle') + '</h3>' +
+          '<div style="font-size:14px;margin-bottom:20px;line-height:1.6">' +
+            uiT('fsConflictMsg', { name: fileName }) +
+          '</div>' +
+          '<div class="modal-actions" style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">' +
+            '<button id="fs-conflict-cancel" class="btn-ghost">' + uiT('cancel') + '</button>' +
+            overwriteBtn +
+            '<button id="fs-conflict-rename" class="btn-ok">' + uiT('fsConflictRename') + '</button>' +
+          '</div></div>';
+      document.body.appendChild(overlay);
+      function close(val) { overlay.remove(); resolve(val); }
+      trapModalFocus(overlay, function () { close(null); });
+      overlay.querySelector('#fs-conflict-cancel').addEventListener('click', function () { close(null); });
+      overlay.querySelector('#fs-conflict-rename').addEventListener('click', function () { close('rename'); });
+      var ow = overlay.querySelector('#fs-conflict-rename');
+      if (opts.allowOverwrite !== false) {
+        overlay.querySelector('#fs-conflict-overwrite').addEventListener('click', function () { close('overwrite'); });
+        overlay.querySelector('#fs-conflict-overwrite').focus();
+      } else if (ow) {
+        ow.focus();
+      }
+      overlay.addEventListener('click', function (e) { if (e.target === overlay) close(null); });
+    });
+  }
+
+  function doTransferWorkspaceFile(srcPath, destDir, mode, conflict) {
+    var apiFn = mode === 'copy' ? api.copyFileToDir : api.moveFileToDir;
+    return apiFn(srcPath, destDir, workspaceRoot, { conflict: conflict }).then(function (r) {
+      if (r.conflict) {
+        return uiFileConflictConfirm(r.baseName || basenameFromPath(r.destPath || srcPath), {
+          allowOverwrite: !(mode === 'copy' && pathsEqual(srcPath, r.destPath || joinFilePath(destDir, basenameFromPath(srcPath)))),
+        }).then(function (choice) {
+          if (!choice) return { success: false, cancelled: true };
+          return doTransferWorkspaceFile(srcPath, destDir, mode, choice);
+        });
+      }
+      return r;
+    });
+  }
+
+  function transferWorkspaceFile(srcPath, destDir, mode, opts) {
+    opts = opts || {};
+    if (!srcPath || !destDir || !workspaceRoot) return Promise.resolve(false);
+    if (mode === 'cut' && parentDirEquals(srcPath, destDir)) return Promise.resolve(false);
+    if (mode === 'cut' && currentFilePath === srcPath && dirty && !opts.skipDirtyGuard) {
+      return guardDiscard().then(function (ok) {
+        if (!ok) return false;
+        return transferWorkspaceFile(srcPath, destDir, mode, { skipDirtyGuard: true });
+      });
+    }
+    if (!api.copyFileToDir || !api.moveFileToDir) {
+      uiAlert(uiT(mode === 'copy' ? 'fsCopyFail' : 'fsMoveFail', { error: uiT('unknownError') }));
+      return Promise.resolve(false);
+    }
+    return doTransferWorkspaceFile(srcPath, destDir, mode, opts.conflict).then(function (r) {
+      if (!r || r.cancelled || r.noop) return false;
+      if (!r.success) {
+        uiAlert(uiT(mode === 'copy' ? 'fsCopyFail' : 'fsMoveFail', { error: r.error || uiT('unknownError') }));
+        return false;
+      }
+      var destPath = r.filePath;
+      if (mode === 'copy') {
+        pushFsUndo({ kind: 'copy', paths: [destPath] });
+        copyTextWithToast(basenameFromPath(destPath), uiT('toastFsCopied'));
+      } else {
+        pushFsUndo({ kind: 'move', pairs: [{ from: srcPath, to: destPath }] });
+        if (currentFilePath === srcPath) {
+          currentFilePath = destPath;
+          setTitle(destPath);
+          if (api.addRecentFile) api.addRecentFile(destPath);
+        }
+        if (fsClip && fsClip.mode === 'cut' && fsClip.paths.indexOf(srcPath) >= 0) setFsClip(null, null);
+        copyTextWithToast(basenameFromPath(destPath), uiT('toastFsMoved'));
+      }
+      refreshWorkspaceTree();
+      return true;
+    });
+  }
+
+  function copyFileToFsClip(filePath) {
+    if (!filePath) return;
+    setFsClip('copy', [filePath]);
+    copyTextWithToast(basenameFromPath(filePath), uiT('toastFsClipCopy'));
+  }
+
+  function cutFileToFsClip(filePath) {
+    if (!filePath) return;
+    setFsClip('cut', [filePath]);
+    copyTextWithToast(basenameFromPath(filePath), uiT('toastFsClipCut'));
+  }
+
+  function pasteFsClipToDir(destDir) {
+    if (!fsClip || !fsClip.paths.length) {
+      uiAlert(uiT('fsNothingToPaste'));
+      return;
+    }
+    if (!destDir) return;
+    var paths = fsClip.paths.slice();
+    var mode = fsClip.mode === 'cut' ? 'cut' : 'copy';
+    function pasteOne(i) {
+      if (i >= paths.length) {
+        if (mode === 'cut') setFsClip(null, null);
+        return;
+      }
+      transferWorkspaceFile(paths[i], destDir, mode).then(function () { pasteOne(i + 1); });
+    }
+    pasteOne(0);
+  }
+
+  function dropWorkspaceFile(srcPath, destDir, isCopy) {
+    if (!srcPath || !destDir) return;
+    if (!isCopy && parentDirEquals(srcPath, destDir)) return;
+    transferWorkspaceFile(srcPath, destDir, isCopy ? 'copy' : 'cut');
+  }
+
+  function undoFsFileOp() {
+    if (!fsUndoStack.length) {
+      uiAlert(uiT('fsUndoEmpty'));
+      return;
+    }
+    var entry = fsUndoStack[fsUndoStack.length - 1];
+    if (entry.kind === 'copy') {
+      var paths = entry.paths || [];
+      var chain = Promise.resolve();
+      paths.forEach(function (p) {
+        chain = chain.then(function () {
+          return api.deleteFile(p).then(function (r) {
+            if (!r.success) throw new Error(r.error || uiT('unknownError'));
+          });
+        });
+      });
+      chain.then(function () {
+        fsUndoStack.pop();
+        copyTextWithToast('', uiT('toastFsUndo'));
+        refreshWorkspaceTree();
+      }).catch(function (err) {
+        uiAlert(uiT('fsUndoFail', { error: (err && err.message) ? err.message : String(err) }));
+      });
+      return;
+    }
+    if (entry.kind === 'move') {
+      var pairs = (entry.pairs || []).slice().reverse();
+      var seq = Promise.resolve();
+      pairs.forEach(function (pair) {
+        seq = seq.then(function () {
+          return api.renameFile(pair.to, pair.from).then(function (r) {
+            if (!r.success) throw new Error(r.error || uiT('unknownError'));
+            if (currentFilePath === pair.to) {
+              currentFilePath = pair.from;
+              setTitle(pair.from);
+            }
+          });
+        });
+      });
+      seq.then(function () {
+        fsUndoStack.pop();
+        copyTextWithToast('', uiT('toastFsUndo'));
+        refreshWorkspaceTree();
+      }).catch(function (err) {
+        uiAlert(uiT('fsUndoFail', { error: (err && err.message) ? err.message : String(err) }));
+      });
+    }
+  }
+
+  function deleteWorkspaceFile(filePath, fileName) {
+    if (!fileName) fileName = basenameFromPath(filePath);
+    function confirmAndDelete() {
+      uiConfirm(uiT('fsDeleteConfirm', { name: fileName })).then(function (yes) {
+        if (!yes) return;
+        if (!api.deleteFile) {
+          uiAlert(uiT('fsDeleteFail', { error: uiT('unknownError') }));
+          return;
+        }
+        var wasCurrent = currentFilePath === filePath;
+        var nextPath = wasCurrent ? pickNextFileAfterDelete(filePath) : null;
+        api.deleteFile(filePath).then(function (r) {
+          if (!r.success) {
+            uiAlert(uiT('fsDeleteFail', { error: r.error || uiT('unknownError') }));
+            return;
+          }
+          if (wasCurrent) {
+            if (nextPath) openFile(nextPath, { scrollToTop: true });
+            else clearOpenDocument();
+          }
+          refreshWorkspaceTree();
+        });
+      });
+    }
+    if (currentFilePath === filePath) {
+      guardDiscard().then(function (ok) { if (ok) confirmAndDelete(); });
+    } else {
+      confirmAndDelete();
+    }
+  }
+
+  function renameWorkspaceFile(filePath, currentName) {
+    var parts = splitFileName(currentName);
+    showRenameFileDialog(parts.stem, parts.ext).then(function (newStem) {
+      if (newStem == null) return;
+      newStem = String(newStem).trim();
+      if (parts.ext && newStem.toLowerCase().endsWith(parts.ext.toLowerCase())) {
+        newStem = newStem.slice(0, -parts.ext.length);
+      }
+      if (!newStem) {
+        uiAlert(uiT('fsRenameEmpty'));
+        return;
+      }
+      var newName = newStem + parts.ext;
+      if (!newName || newName === currentName) return;
+      if (/[<>:"/\\|?*\x00-\x1f]/.test(newStem)) {
+        uiAlert(uiT('fsRenameInvalid'));
+        return;
+      }
+      var parent = dirnamePath(filePath);
+      var newPath = joinFilePath(parent, newName);
+      if (!api.renameFile) {
+        uiAlert(uiT('fsRenameFail', { error: uiT('unknownError') }));
+        return;
+      }
+      performWorkspaceRename(filePath, newPath);
+    });
+  }
+
+  function performWorkspaceRename(filePath, newPath, conflict) {
+    return api.renameFile(filePath, newPath, {
+      workspaceRoot: workspaceRoot,
+      conflict: conflict,
+    }).then(function (r) {
+      if (r.conflict) {
+        return uiFileConflictConfirm(basenameFromPath(newPath)).then(function (choice) {
+          if (!choice) return;
+          return performWorkspaceRename(filePath, newPath, choice);
+        });
+      }
+      if (!r.success) {
+        uiAlert(uiT('fsRenameFail', { error: r.error || uiT('unknownError') }));
+        return;
+      }
+      var renamedTo = r.filePath || newPath;
+      if (currentFilePath === filePath) {
+        currentFilePath = renamedTo;
+        setTitle(renamedTo);
+        if (api.addRecentFile) api.addRecentFile(renamedTo);
+      }
       refreshWorkspaceTree();
     });
   }
 
-  function refreshWorkspaceTree() {
+  function showRenameFileDialog(defaultStem, ext) {
+    ext = ext || '';
+    return new Promise(function (resolve) {
+      var overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      var extHtml = ext
+        ? '<span id="fs-rename-ext" style="flex-shrink:0;color:var(--muted,#888)">' + escHtml(ext) + '</span>'
+        : '';
+      var hintHtml = ext
+        ? '<div style="font-size:12px;color:var(--muted,#888);margin-top:6px">' + uiT('fsRenameExtHint') + '</div>'
+        : '';
+      overlay.innerHTML =
+        '<div class="modal-box" style="min-width:280px">' +
+          '<h3>' + uiT('fsRenameTitle') + '</h3>' +
+          '<div class="modal-field" style="display:flex;align-items:center;gap:4px">' +
+            '<input id="fs-rename-input" type="text" style="flex:1;padding:8px" />' + extHtml +
+          '</div>' + hintHtml +
+          '<div class="modal-actions">' +
+            '<button id="fs-rename-cancel" class="btn-ghost">' + uiT('cancel') + '</button>' +
+            '<button id="fs-rename-ok" class="btn-ok">' + uiT('ok') + '</button>' +
+          '</div></div>';
+      document.body.appendChild(overlay);
+      var input = overlay.querySelector('#fs-rename-input');
+      input.value = defaultStem || '';
+      function close(val) { overlay.remove(); resolve(val); }
+      function submit() { close(input.value); }
+      overlay.querySelector('#fs-rename-cancel').addEventListener('click', function () { close(null); });
+      overlay.querySelector('#fs-rename-ok').addEventListener('click', submit);
+      overlay.addEventListener('click', function (e) { if (e.target === overlay) close(null); });
+      trapModalFocus(overlay, function () { close(null); });
+      input.focus();
+      input.select();
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); submit(); }
+        if (e.key === 'Escape') { e.preventDefault(); close(null); }
+      });
+    });
+  }
+
+  function refreshWorkspaceTree(opts) {
+    opts = opts || {};
     if (!workspaceRoot || !api.listMarkdownTree) return;
     api.listMarkdownTree(workspaceRoot).then(function (r) {
       if (!r.success) {
-        uiAlert('读取文件夹失败: ' + (r.error || '未知错误'));
+        uiAlert(uiT('alertListFolderFail', { error: r.error || uiT('unknownError') }));
         return;
       }
       var tree = r.tree || [];
@@ -989,7 +1626,9 @@
         fileSidebar.setTree(tree);
         if (currentFilePath) fileSidebar.setActive(currentFilePath);
       }
-      if (!currentFilePath) {
+      // 仅在用户主动「打开文件夹」且当前无文档时自动打开首个文件；
+      // 启动恢复工作区 / 清空最近打开后的刷新不得抢起始页
+      if (opts.openFirstIfEmpty && !currentFilePath && docState === 'welcome') {
         var first = firstMarkdownInTree(tree);
         if (first) requestOpen(first);
       }
@@ -997,7 +1636,7 @@
   }
 
   function saveAs(onSuccess) {
-    var suggestedName = '未命名.md';
+    var suggestedName = uiT('untitled');
     if (currentFilePath) {
       suggestedName = currentFilePath.replace(/\\/g, '/').split('/').pop() || suggestedName;
     }
@@ -1014,13 +1653,13 @@
     var content = editorEl.value;
     var bad = (api.findMalformedAnnotations && api.findMalformedAnnotations(content)) || [];
     var proceed = bad.length
-      ? uiConfirm('第 ' + bad.join('、') + ' 行的批注格式不正确，将无法被识别为批注。仍要保存吗？')
+      ? uiConfirm(uiT('alertMalformedAnno', { lines: bad.join((window.MDAI18n && MDAI18n.getLang() === 'en') ? ', ' : '、') }))
       : Promise.resolve(true);
     proceed.then(function (yes) {
       if (!yes) return;
       api.saveFile(filePath, content).then(function (r) {
         if (!r.success) {
-          uiAlert('保存失败: ' + r.error);
+          uiAlert(uiT('alertSaveFail', { error: r.error }));
           return;
         }
         currentFilePath = filePath;
@@ -1028,6 +1667,7 @@
         setDocState('open');
         setDirtyState(false);
         if (api.addRecentFile) {
+          allowAddRecent = true;
           api.addRecentFile(filePath).then(function () { refreshWelcomeRecents(); });
         }
         setTitle(filePath);
@@ -1046,8 +1686,9 @@
     var root = document.getElementById('root');
     root.innerHTML =
       '<div class="toolbar">' +
-        '<button id="tb-edit" class="tool-btn" title="编辑栏 (Ctrl+E)">编辑</button>' +
-        '<button id="tb-panel" class="tool-btn" title="批注栏 (Ctrl+B)">批注</button>' +
+        '<button id="tb-files" class="tool-btn" title="" disabled></button>' +
+        '<button id="tb-edit" class="tool-btn" title=""></button>' +
+        '<button id="tb-panel" class="tool-btn" title=""></button>' +
         '<span class="spacer"></span>' +
         '<span id="tb-filename" class="file-name"></span>' +
       '</div>' +
@@ -1055,30 +1696,39 @@
         '<div id="left-rail" class="mda-left-rail hidden">' +
           '<div id="file-sidebar-root"></div>' +
         '</div>' +
+        '<div id="split-files" class="mda-splitter hidden"></div>' +
         '<div id="editor-pane">' +
           '<div class="mda-src-editor">' +
             '<div id="src-gutter" class="src-gutter"></div>' +
             '<div class="src-scroll">' +
               '<pre id="src-highlight" class="src-highlight" aria-hidden="true"><code class="language-markdown"></code></pre>' +
               '<pre id="src-find-mark" class="src-find-mark" aria-hidden="true"><code></code></pre>' +
-              '<textarea id="editor" class="src-input" spellcheck="false" wrap="off" placeholder="在此编辑 Markdown 源码…"></textarea>' +
+              '<textarea id="editor" class="src-input" spellcheck="false" wrap="off" placeholder=""></textarea>' +
             '</div>' +
           '</div>' +
         '</div>' +
         '<div id="split-left" class="mda-splitter hidden"></div>' +
         '<div id="preview-pane">' +
+          '<div id="outline-expand-rail" class="mda-outline-expand-rail">' +
+            '<button type="button" id="outline-float-toggle" class="mda-outline-expand-tab" title="">' +
+              '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3.5h12v1.2H2V3.5zm0 4.15h12v1.2H2V7.65zm0 4.15h12v1.2H2v-1.2z"/></svg>' +
+            '</button>' +
+          '</div>' +
           '<div id="outline-host"></div>' +
-          '<div id="preview-content"></div>' +
+          '<div id="split-outline" class="mda-splitter"></div>' +
+          '<div id="preview-scroll">' +
+            '<div id="preview-content"></div>' +
+          '</div>' +
         '</div>' +
-        '<div id="split-right" class="mda-splitter"></div>' +
-        '<div id="panel-pane">' +
+        '<div id="split-right" class="mda-splitter hidden"></div>' +
+        '<div id="panel-pane" class="hidden">' +
           '<div class="panel-head">' +
-            '<button id="btn-add" class="btn-primary" disabled>+ 添加批注</button>' +
+            '<button id="btn-add" class="btn-primary" disabled></button>' +
           '</div>' +
           '<div class="filter-box">' +
-            '<div style="margin-bottom:4px"><b>状态</b> <span id="status-filters"></span></div>' +
-            '<div style="margin-bottom:4px"><b>级别</b> <span id="level-filters"></span></div>' +
-            '<div id="tag-filters-row" style="display:none"><b>标签</b> <span id="tag-filters"></span></div>' +
+            '<div style="margin-bottom:4px"><b data-i18n-filter="filterStatus"></b> <span id="status-filters"></span></div>' +
+            '<div style="margin-bottom:4px"><b data-i18n-filter="filterLevel"></b> <span id="level-filters"></span></div>' +
+            '<div id="tag-filters-row" style="display:none"><b data-i18n-filter="filterTags"></b> <span id="tag-filters"></span></div>' +
           '</div>' +
           '<div id="anno-list"></div>' +
         '</div>' +
@@ -1086,19 +1736,26 @@
 
     previewEl = document.getElementById('preview-content');
     previewPaneEl = document.getElementById('preview-pane');
+    previewScrollEl = document.getElementById('preview-scroll');
+    outlineFloatBtn = document.getElementById('outline-float-toggle');
+    outlineExpandRail = document.getElementById('outline-expand-rail');
+    leftRailEl = document.getElementById('left-rail');
     editorPaneEl = document.getElementById('editor-pane');
     editorEl = document.getElementById('editor');
     srcGutterEl = document.getElementById('src-gutter');
     srcHighlightEl = document.querySelector('#src-highlight code');
     srcFindMarkEl = document.getElementById('src-find-mark');
+    splitFilesEl = document.getElementById('split-files');
     splitLeftEl = document.getElementById('split-left');
     splitRightEl = document.getElementById('split-right');
+    splitOutlineEl = document.getElementById('split-outline');
     panelPaneEl = document.getElementById('panel-pane');
     statusFiltersEl = document.getElementById('status-filters');
     levelFiltersEl = document.getElementById('level-filters');
     tagFiltersEl = document.getElementById('tag-filters');
     tagFiltersRow = document.getElementById('tag-filters-row');
     annoListEl = document.getElementById('anno-list');
+    tbFilesBtn = document.getElementById('tb-files');
     tbEditBtn = document.getElementById('tb-edit');
     tbPanelBtn = document.getElementById('tb-panel');
     tbFileNameEl = document.getElementById('tb-filename');
@@ -1107,6 +1764,7 @@
     setupDomCopyShortcuts();
 
     addBtn.addEventListener('click', function () { showEditDialog('add', null, cursorLine); });
+    tbFilesBtn.addEventListener('click', function () { toggleFilesSidebar(); });
     tbEditBtn.addEventListener('click', function () { toggleEditor(); });
     tbPanelBtn.addEventListener('click', function () { togglePanel(); });
 
@@ -1124,12 +1782,34 @@
       syncEditorScrollLayers();
     });
 
+    if (outlineFloatBtn) {
+      outlineFloatBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (outlinePanelUi) outlinePanelUi.setCollapsed(false);
+      });
+    }
+
+    setupSplitter(splitFilesEl, leftRailEl, 'left', {
+      defaultWidth: PANE_DEFAULT.files,
+      minWidth: 140,
+      maxRatio: 0.45,
+      widthStorageKey: FILES_WIDTH_KEY,
+    });
     setupSplitter(splitLeftEl, editorPaneEl, 'left');
     setupSplitter(splitRightEl, panelPaneEl, 'right');
+    var outlineHostEl = document.getElementById('outline-host');
+    setupSplitter(splitOutlineEl, outlineHostEl, 'left', {
+      widthStorageKey: OUTLINE_WIDTH_KEY,
+      defaultWidth: PANE_DEFAULT.outline,
+      minWidth: 120,
+      maxRatio: 0.45,
+    });
 
     // 预览区点击：链接拦截默认导航；段落点击定位批注（拖选文字时不触发）
-    previewPaneEl.addEventListener('click', function (e) {
+    if (previewScrollEl) previewScrollEl.addEventListener('click', function (e) {
       if (previewPointer.dragged) return;
+      // 大纲在预览栏内，其按钮也带 data-line，须排除
+      if (e.target.closest && e.target.closest('#outline-host, .mda-outline-panel, #outline-expand-rail, #outline-float-toggle, .mda-outline-expand-tab')) return;
       var sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.toString().trim()) return;
 
@@ -1143,6 +1823,7 @@
       if (block) {
         cursorLine = parseInt(block.getAttribute('data-line'), 10) || null;
         highlightCursorBlock(block);
+        if (cursorLine) updateOutlineActiveFromLine(cursorLine);
         // 只滚动源码；预览已由用户点中，禁止再改预览 scroll（否则选中块可能被滚出视口）
         if (cursorLine && syncScrollCtrl) {
           syncScrollCtrl.scrollEditorToLine(cursorLine, { skipPreview: true, skipFocus: false });
@@ -1200,7 +1881,7 @@
       editorTop: editorEl ? editorEl.scrollTop : 0,
       editorLeft: editorEl ? editorEl.scrollLeft : 0,
       gutterTop: srcGutterEl ? srcGutterEl.scrollTop : 0,
-      previewTop: previewPaneEl ? previewPaneEl.scrollTop : 0,
+      previewTop: previewScrollEl ? previewScrollEl.scrollTop : 0,
       findMarkTop: srcFindMarkEl ? srcFindMarkEl.scrollTop : 0,
     };
   }
@@ -1220,7 +1901,7 @@
       srcFindMarkEl.scrollTop = s.findMarkTop != null ? s.findMarkTop : s.editorTop;
       srcFindMarkEl.scrollLeft = s.editorLeft || 0;
     }
-    if (previewPaneEl) previewPaneEl.scrollTop = s.previewTop;
+    if (previewScrollEl) previewScrollEl.scrollTop = s.previewTop;
   }
 
   function rerenderPreview(opts) {
@@ -1262,7 +1943,7 @@
       var holder = document.createElement('div');
       if (!m) {
         holder.className = 'mda-mermaid-error';
-        holder.textContent = '流程图渲染失败: mermaid 未加载';
+        holder.textContent = uiT('mermaidMissing');
         pre.parentNode.replaceChild(holder, pre);
         continue;
       }
@@ -1282,22 +1963,51 @@
         });
       } catch (err) {
         holder.className = 'mda-mermaid-error';
-        holder.textContent = '流程图渲染失败: ' + ((err && err.message) ? err.message : String(err));
+        holder.textContent = uiT('mermaidFail', { error: (err && err.message) ? err.message : String(err) });
       }
     }
   }
 
-  // ---- 编辑栏 / 批注栏（两侧独立开关，可同时展开：源码 | 预览 | 批注）----
+  // ---- 文件列表 / 编辑栏 / 批注栏（独立开关）----
+  function toggleFilesSidebar() {
+    if (!workspaceRoot || !leftRailEl || leftRailEl.classList.contains('hidden') || !fileSidebar) {
+      uiAlert(uiT('alertOpenFolderFirst'));
+      return;
+    }
+    fileSidebar.toggleCollapsed();
+    updateToolbar();
+  }
+
+  function readEditorDismissed() {
+    try { return localStorage.getItem('mda-editor-pane-dismissed') === '1'; } catch (e) { return false; }
+  }
+
+  function setEditorDismissed(val) {
+    editorUserDismissed = !!val;
+    try {
+      if (editorUserDismissed) localStorage.setItem('mda-editor-pane-dismissed', '1');
+      else localStorage.removeItem('mda-editor-pane-dismissed');
+    } catch (e) { /* ignore */ }
+  }
+
+  editorUserDismissed = readEditorDismissed();
+
+  function shouldAutoOpenEditor() {
+    return !editorUserDismissed;
+  }
+
   function toggleEditor() {
-    if (docState === 'welcome') { uiAlert('请先新建或打开文档'); return; }
+    if (docState === 'welcome') { uiAlert(uiT('alertNewOrOpen')); return; }
     editorVisible = !editorVisible;
     if (editorVisible) {
+      setEditorDismissed(false);
       if (!dirty) editorEl.value = currentText; // 无脏改动时同步磁盘内容
       editorPaneEl.classList.add('visible');
       splitLeftEl.classList.remove('hidden');
       refreshEditorDecorations();
       requestAnimationFrame(function () { editorEl.focus(); });
     } else {
+      setEditorDismissed(true);
       editorPaneEl.classList.remove('visible');
       splitLeftEl.classList.add('hidden');
     }
@@ -1327,13 +2037,26 @@
     syncEditorScrollLayers();
   }
 
-  // 分栏默认宽度（用于双击复位）
-  var PANE_DEFAULT = { editor: 380, panel: 320 };
+  // 分栏拖拽调宽：side='left' 向右拖加宽；side='right' 向左拖加宽。
+  // opts: { defaultWidth, minWidth, maxRatio, widthStorageKey }；双击手柄 → 复位到 defaultWidth。
+  function setupSplitter(splitter, paneEl, side, opts) {
+    if (!splitter || !paneEl) return;
+    opts = opts || {};
+    var defW = opts.defaultWidth != null
+      ? opts.defaultWidth
+      : (side === 'left' ? PANE_DEFAULT.editor : PANE_DEFAULT.panel);
+    var minW = opts.minWidth != null ? opts.minWidth : 220;
+    var maxRatio = opts.maxRatio != null ? opts.maxRatio : 0.7;
+    var widthKey = opts.widthStorageKey || null;
 
-  // 分栏拖拽调宽：side='left' 调左侧（编辑栏）宽度；side='right' 调右侧（批注栏）宽度；
-  // 双击手柄 → 复位到默认宽度。
-  function setupSplitter(splitter, paneEl, side) {
-    var defW = side === 'left' ? PANE_DEFAULT.editor : PANE_DEFAULT.panel;
+    function persistWidth() {
+      if (!widthKey) return;
+      savePaneWidth(widthKey, paneEl.getBoundingClientRect().width);
+    }
+
+    var savedW = widthKey ? readPaneWidth(widthKey, minW) : null;
+    if (savedW) paneEl.style.flex = '0 0 ' + savedW + 'px';
+
     splitter.addEventListener('mousedown', function (e) {
       e.preventDefault();
       var startX = e.clientX;
@@ -1341,13 +2064,14 @@
       function move(ev) {
         var dx = ev.clientX - startX;
         var w = side === 'left' ? startW + dx : startW - dx;
-        w = Math.max(220, Math.min(w, window.innerWidth * 0.7));
+        w = Math.max(minW, Math.min(w, window.innerWidth * maxRatio));
         paneEl.style.flex = '0 0 ' + w + 'px';
       }
       function up() {
         document.removeEventListener('mousemove', move);
         document.removeEventListener('mouseup', up);
         document.body.style.cursor = '';
+        persistWidth();
       }
       document.addEventListener('mousemove', move);
       document.addEventListener('mouseup', up);
@@ -1355,8 +2079,9 @@
     });
     splitter.addEventListener('dblclick', function () {
       paneEl.style.flex = '0 0 ' + defW + 'px';
+      if (widthKey) savePaneWidth(widthKey, defW);
     });
-    splitter.title = '拖动调整宽度，双击复位';
+    splitter.title = uiT('splitterHint');
   }
 
   // ---- 缩放遮罩（图片 / 流程图共用）----
@@ -1368,10 +2093,10 @@
     stage.appendChild(node);
     var bar = document.createElement('div');
     bar.className = 'mda-zoom-bar';
-    bar.innerHTML = '<button data-z="in" title="放大">+</button>' +
-      '<button data-z="out" title="缩小">\u2212</button>' +
-      '<button data-z="reset" title="复位">\u21ba</button>' +
-      '<button data-z="close" title="关闭">\u2715</button>';
+    bar.innerHTML = '<button data-z="in" title="' + uiT('zoomIn') + '">+</button>' +
+      '<button data-z="out" title="' + uiT('zoomOut') + '">\u2212</button>' +
+      '<button data-z="reset" title="' + uiT('zoomReset') + '">\u21ba</button>' +
+      '<button data-z="close" title="' + uiT('zoomClose') + '">\u2715</button>';
     ov.appendChild(bar);
     ov.appendChild(stage);
     document.body.appendChild(ov);
@@ -1462,10 +2187,11 @@
 
   function guardDiscard() {
     if (!dirty) return Promise.resolve(true);
-    return uiConfirm('有未保存的修改，确定放弃吗？');
+    return uiConfirm(uiT('alertDiscardDirty'));
   }
 
   function requestOpen(filePath) {
+    allowAddRecent = true;
     guardDiscard().then(function (yes) {
       // 仅切换到不同文件时回到文档开头；同文件重载（如 Ctrl+R）保留滚动位置
       if (yes) openFile(filePath, { scrollToTop: filePath !== currentFilePath });
@@ -1473,6 +2199,12 @@
   }
 
   function updateToolbar() {
+    if (tbFilesBtn) {
+      var filesReady = !!(workspaceRoot && leftRailEl && !leftRailEl.classList.contains('hidden') && fileSidebar);
+      tbFilesBtn.disabled = !filesReady;
+      // active = 侧栏展开（与编辑/批注一致：亮起表示该区可见）
+      tbFilesBtn.classList.toggle('active', filesReady && fileSidebar && !fileSidebar.isCollapsed());
+    }
     if (tbEditBtn) {
       tbEditBtn.classList.toggle('active', editorVisible);
       tbEditBtn.disabled = docState === 'welcome';
@@ -1480,10 +2212,10 @@
     if (tbPanelBtn) tbPanelBtn.classList.toggle('active', panelVisible);
     if (tbFileNameEl) {
       var name = '';
-      if (docState === 'untitled') name = '未命名.md';
+      if (docState === 'untitled') name = uiT('untitled');
       else if (currentFilePath) name = currentFilePath.replace(/\\/g, '/').split('/').pop();
       tbFileNameEl.setAttribute('data-filename', name || '');
-      tbFileNameEl.title = name ? (name + '（可选中后 Ctrl+C 拷贝）') : '';
+      tbFileNameEl.title = name ? uiT('filenameCopyHint', { name: name }) : '';
       tbFileNameEl.innerHTML = name ? (escHtml(name) + (dirty ? '<span class="dirty-dot">●</span>' : '')) : '';
     }
     if (addBtn) addBtn.disabled = docState !== 'open' || !currentFilePath || dirty;
@@ -1502,7 +2234,7 @@
       var p = files[0].path;
       if (!p) return;
       if (api.isMarkdownPath && api.isMarkdownPath(p)) requestOpen(p);
-      else uiAlert('仅支持打开 .md / .markdown / .txt / .mdc 文件');
+      else uiAlert(uiT('alertMdOnly'));
     });
   }
 
@@ -1618,13 +2350,13 @@
         editorTop: editorEl.scrollTop,
         editorLeft: editorEl.scrollLeft,
         gutterTop: srcGutterEl ? srcGutterEl.scrollTop : 0,
-        previewTop: previewPaneEl ? previewPaneEl.scrollTop : 0,
+        previewTop: previewScrollEl ? previewScrollEl.scrollTop : 0,
         selStart: editorEl.selectionStart,
         selEnd: editorEl.selectionEnd,
       };
     }
     var result = await api.readFile(filePath);
-    if (!result.success) { uiAlert('无法打开文件: ' + result.error); return; }
+    if (!result.success) { uiAlert(uiT('alertOpenFail', { error: result.error })); return; }
     currentFilePath = filePath;
     currentText = result.content;
     setDocState('open');
@@ -1637,13 +2369,13 @@
       editorEl.selectionStart = Math.min(savedScroll.selStart, len);
       editorEl.selectionEnd = Math.min(savedScroll.selEnd, len);
     }
-    // 打开文档后默认展开源码编辑栏（可用 Ctrl+E 收起；预览点击不再强行打开）
-    if (!editorVisible) showEditorPane(true);
-    else refreshEditorDecorations();
+    // 用户手动收起编辑栏后，切换文档保持收起；否则默认展开（Ctrl+E 可切换）
+    if (shouldAutoOpenEditor() && !editorVisible) showEditorPane(true);
+    else if (editorVisible) refreshEditorDecorations();
     setTitle(filePath);
     parseAndRender(result.content, filePath);
     updateToolbar();
-    if (api.addRecentFile) {
+    if (api.addRecentFile && allowAddRecent) {
       api.addRecentFile(filePath).then(function () { refreshWelcomeRecents(); });
     }
     if (fileSidebar) fileSidebar.setActive(filePath);
@@ -1659,7 +2391,7 @@
         hp.scrollTop = savedScroll.editorTop;
         hp.scrollLeft = savedScroll.editorLeft;
       }
-      if (previewPaneEl) previewPaneEl.scrollTop = savedScroll.previewTop;
+      if (previewScrollEl) previewScrollEl.scrollTop = savedScroll.previewTop;
     }
   }
 
@@ -1668,12 +2400,12 @@
     if (editorEl) { editorEl.scrollTop = 0; editorEl.scrollLeft = 0; }
     if (srcHighlightEl) { var hp = srcHighlightEl.parentNode; hp.scrollTop = 0; hp.scrollLeft = 0; }
     if (srcGutterEl) srcGutterEl.scrollTop = 0;
-    if (previewPaneEl) previewPaneEl.scrollTop = 0;
+    if (previewScrollEl) previewScrollEl.scrollTop = 0;
   }
 
   function setTitle(filePath) {
     if (docState === 'untitled') {
-      api.setTitle('MDA - 未命名.md');
+      api.setTitle('MDA - ' + uiT('untitled'));
     } else if (filePath) {
       var name = filePath.replace(/\\/g, '/').split('/').pop();
       api.setTitle('MDA - ' + name);
@@ -1708,7 +2440,7 @@
       : null;
     var result = api.renderMarkdown(text);
     if (!result.success) {
-      previewEl.innerHTML = '<p style="color:var(--danger)">渲染错误: ' + escHtml(result.error) + '</p>';
+      previewEl.innerHTML = '<p style="color:var(--danger)">' + escHtml(uiT('alertRenderError', { error: result.error })) + '</p>';
       updateToolbar();
       return;
     }
@@ -1734,6 +2466,7 @@
       if (findMatchState && findMatchState.query) updateFindPreviewHighlights();
       applyAnchorHighlights();
       updateToolbar();
+      requestAnimationFrame(updateOutlineActiveFromScroll);
     });
   }
 
@@ -1792,7 +2525,7 @@
         if (isValidPngDataUrl(fromSvg)) return fromSvg;
       } catch (e) { /* fallback */ }
     }
-    throw new Error('流程图导出失败');
+    throw new Error('diagram export failed');
   }
 
   function svgToPngDataUrl(svg) {
@@ -1819,7 +2552,7 @@
         try { resolve(canvas.toDataURL('image/png')); }
         catch (err) { reject(err); }
       };
-      img.onerror = function () { reject(new Error('SVG 转 PNG 失败')); };
+      img.onerror = function () { reject(new Error('SVG to PNG failed')); };
       img.src = svg64;
     });
   }
@@ -1830,7 +2563,7 @@
         try {
           var w = img.naturalWidth || img.width;
           var h = img.naturalHeight || img.height;
-          if (!w || !h) { reject(new Error('图片尺寸无效')); return; }
+          if (!w || !h) { reject(new Error('invalid image size')); return; }
           var canvas = document.createElement('canvas');
           canvas.width = w;
           canvas.height = h;
@@ -1839,7 +2572,7 @@
         } catch (e) { reject(e); }
       }
       if (img.complete && img.naturalWidth) draw();
-      else { img.onload = draw; img.onerror = function () { reject(new Error('图片加载失败')); }; }
+      else { img.onload = draw; img.onerror = function () { reject(new Error('image load failed')); }; }
     });
   }
 
@@ -1968,13 +2701,13 @@
           mmdImg.src = liveHolder
             ? await mermaidHolderToPngDataUrl(liveHolder)
             : await svgToPngDataUrl(svg);
-          mmdImg.setAttribute('alt', '流程图');
+          mmdImg.setAttribute('alt', uiT('diagram'));
           p.appendChild(mmdImg);
         } catch (e) {
-          p.textContent = '[流程图]';
+          p.textContent = uiT('diagramBracket');
         }
       } else {
-        p.textContent = '[流程图]';
+        p.textContent = uiT('diagramBracket');
       }
       if (holder.parentNode) holder.parentNode.replaceChild(p, holder);
     }
@@ -1982,7 +2715,7 @@
     root.querySelectorAll('.mda-mermaid-error').forEach(function (el) {
       var p = document.createElement('p');
       p.setAttribute('style', 'color:#999;font-style:italic;');
-      p.textContent = el.textContent || '[流程图渲染失败]';
+      p.textContent = el.textContent || uiT('diagramFailBracket');
       if (el.parentNode) el.parentNode.replaceChild(p, el);
     });
 
@@ -2004,23 +2737,23 @@
 
   async function copyPreviewForArticle() {
     if (!previewEl || !previewEl.textContent.trim()) {
-      uiAlert('预览区尚无内容，请先打开 Markdown 文件');
+      uiAlert(uiT('alertPreviewEmpty'));
       return;
     }
     try {
       var pack = await buildArticleClipboardContent();
       if (!pack.text && !pack.html) {
-        uiAlert('复制失败: 剪贴板内容为空');
+        uiAlert(uiT('alertCopyEmpty'));
         return;
       }
       var r = await api.copyArticleHtml(pack.html, pack.text);
       if (r && r.success !== false) {
-        uiAlert('已复制微信公众号格式到剪贴板，可直接粘贴到公众号编辑器。');
+        uiAlert(uiT('alertCopyWechatOk'));
       } else {
-        uiAlert('复制失败: ' + ((r && r.error) || '未知错误'));
+        uiAlert(uiT('alertCopyFail', { error: (r && r.error) || uiT('unknownError') }));
       }
     } catch (err) {
-      uiAlert('复制失败: ' + ((err && err.message) ? err.message : String(err)));
+      uiAlert(uiT('alertCopyFail', { error: (err && err.message) ? err.message : String(err) }));
     }
   }
 
@@ -2058,7 +2791,7 @@
       var t = setTimeout(function () {
         if (settled) return;
         settled = true;
-        reject(new Error((label || '导出') + '超时（超过 ' + Math.round(ms / 1000) + ' 秒），请精简文档中的大图后重试'));
+        reject(new Error(uiT('exportTimeout', { label: label || uiT('exportDefaultLabel'), sec: Math.round(ms / 1000) })));
       }, ms);
       Promise.resolve(promise).then(
         function (v) {
@@ -2087,8 +2820,8 @@
     overlay.innerHTML =
       '<div class="modal-box" role="status" aria-live="polite">' +
         '<div class="mda-export-spin" aria-hidden="true"></div>' +
-        '<p class="mda-export-msg">' + escHtml(message || '正在导出…') + '</p>' +
-        '<p class="mda-export-hint">请稍候，大文档可能需要更长时间</p>' +
+        '<p class="mda-export-msg">' + escHtml(message || uiT('exportBusy')) + '</p>' +
+        '<p class="mda-export-hint">' + uiT('exportBusyHint') + '</p>' +
       '</div>';
     document.body.appendChild(overlay);
     exportBusyEl = overlay;
@@ -2097,7 +2830,7 @@
   function setExportBusyMessage(message) {
     if (!exportBusyEl) return;
     var msg = exportBusyEl.querySelector('.mda-export-msg');
-    if (msg) msg.textContent = message || '正在导出…';
+    if (msg) msg.textContent = message || uiT('exportBusy');
   }
 
   function hideExportBusy() {
@@ -2142,21 +2875,21 @@
         if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
         wrap.appendChild(clone);
       } else {
-        wrap.textContent = '[流程图]';
+        wrap.textContent = uiT('diagramBracket');
       }
       if (holder.parentNode) holder.parentNode.replaceChild(wrap, holder);
     });
     root.querySelectorAll('.mda-mermaid-error').forEach(function (el) {
       var p = document.createElement('p');
       p.setAttribute('style', 'color:#999;font-style:italic;');
-      p.textContent = el.textContent || '[流程图渲染失败]';
+      p.textContent = el.textContent || uiT('diagramFailBracket');
       if (el.parentNode) el.parentNode.replaceChild(p, el);
     });
 
     var imgs = root.querySelectorAll('img');
     for (var ii = 0; ii < imgs.length; ii++) {
       if (imgs.length > 1) {
-        setExportBusyMessage('正在导出…（内联图片 ' + (ii + 1) + '/' + imgs.length + '）');
+        setExportBusyMessage(uiT('exportBusyImages', { cur: ii + 1, total: imgs.length }));
       }
       await withTimeout(inlineImageSrc(imgs[ii]), 8000, null);
       await withTimeout(normalizeImgToPng(imgs[ii]), 5000, null);
@@ -2188,38 +2921,38 @@
 
   async function runExportJob(kind, writeFn) {
     var label = kind === 'pdf' ? 'PDF' : 'HTML';
-    showExportBusy('正在导出 ' + label + '…');
+    showExportBusy(uiT('exportBusyLabel', { label: label }));
     try {
-      setExportBusyMessage('正在准备导出内容…');
-      var doc = await raceWithTimeout(buildExportHtmlContent(), EXPORT_TIMEOUT_MS, '准备' + label);
-      if (!doc) throw new Error('导出内容为空');
-      setExportBusyMessage(kind === 'pdf' ? '正在生成 PDF…' : '正在写入文件…');
-      var wr = await raceWithTimeout(writeFn(doc), EXPORT_TIMEOUT_MS, '写入' + label);
+      setExportBusyMessage(uiT('exportBusyPrepare'));
+      var doc = await raceWithTimeout(buildExportHtmlContent(), EXPORT_TIMEOUT_MS, uiT('prepareLabel', { label: label }));
+      if (!doc) throw new Error(uiT('exportEmpty'));
+      setExportBusyMessage(kind === 'pdf' ? uiT('exportBusyPdf') : uiT('exportBusyWrite'));
+      var wr = await raceWithTimeout(writeFn(doc), EXPORT_TIMEOUT_MS, uiT('writeLabel', { label: label }));
       hideExportBusy();
       if (wr && wr.success) {
-        uiAlert('已导出 ' + label + '：' + wr.filePath);
+        uiAlert(uiT('alertExportOk', { label: label, path: wr.filePath }));
       } else {
-        uiAlert('导出失败: ' + ((wr && wr.error) || '写入未成功'));
+        uiAlert(uiT('alertExportFail', { error: (wr && wr.error) || uiT('unknownError') }));
       }
     } catch (err) {
       hideExportBusy();
-      uiAlert('导出失败: ' + ((err && err.message) ? err.message : String(err)));
+      uiAlert(uiT('alertExportFail', { error: (err && err.message) ? err.message : String(err) }));
     }
   }
 
   async function exportPreviewHtml() {
     if (!previewEl || !previewEl.textContent.trim()) {
-      uiAlert('预览区尚无内容，请先打开 Markdown 文件');
+      uiAlert(uiT('alertPreviewEmpty'));
       return;
     }
     if (!api.writeTextFile) {
-      uiAlert('导出不可用：请重新构建并重启 GUI（缺少 writeTextFile）');
+      uiAlert(uiT('alertExportNoWrite'));
       return;
     }
     try {
       var base = exportBaseName();
       var dlgOpts = {
-        title: '导出 HTML',
+        title: uiT('exportHtmlTitle'),
         suggestedName: base + '.html',
         filters: [{ name: 'HTML', extensions: ['html'] }],
       };
@@ -2234,23 +2967,23 @@
       });
     } catch (err) {
       hideExportBusy();
-      uiAlert('导出失败: ' + ((err && err.message) ? err.message : String(err)));
+      uiAlert(uiT('alertExportFail', { error: (err && err.message) ? err.message : String(err) }));
     }
   }
 
   async function exportPreviewPdf() {
     if (!previewEl || !previewEl.textContent.trim()) {
-      uiAlert('预览区尚无内容，请先打开 Markdown 文件');
+      uiAlert(uiT('alertPreviewEmpty'));
       return;
     }
     if (!api.exportPdf) {
-      uiAlert('导出不可用：请重新构建并重启 GUI（缺少 exportPdf）');
+      uiAlert(uiT('alertExportNoPdf'));
       return;
     }
     try {
       var base = exportBaseName();
       var dlgOpts = {
-        title: '导出 PDF',
+        title: uiT('exportPdfTitle'),
         suggestedName: base + '.pdf',
         filters: [{ name: 'PDF', extensions: ['pdf'] }],
       };
@@ -2265,7 +2998,7 @@
       });
     } catch (err) {
       hideExportBusy();
-      uiAlert('导出失败: ' + ((err && err.message) ? err.message : String(err)));
+      uiAlert(uiT('alertExportFail', { error: (err && err.message) ? err.message : String(err) }));
     }
   }
 
@@ -2339,7 +3072,7 @@
     var copyBtn = document.createElement('button');
     copyBtn.className = 'mda-code-copy';
     copyBtn.type = 'button';
-    copyBtn.textContent = '复制';
+    copyBtn.textContent = uiT('copyBtn');
 
     pre.classList.add('mda-code-pre');
     pre.parentNode.insertBefore(container, pre);
@@ -2376,10 +3109,10 @@
   }
 
   function copyCode(text, btn) {
-    copyTextWithToast(text, '拷贝成功');
+    copyTextWithToast(text, uiT('toastCopied'));
     if (btn) {
       var old = btn.textContent;
-      btn.textContent = '已复制';
+      btn.textContent = uiT('copied');
       setTimeout(function () { btn.textContent = old; }, 1200);
     }
   }
@@ -2410,9 +3143,9 @@
     menu.id = 'mda-code-menu';
     menu.className = 'mda-context-menu';
     menu.innerHTML =
-      '<div class="mda-menu-item' + (hasSel ? '' : ' disabled') + '" data-act="copy"><span>拷贝</span><span class="mda-menu-key">' + MOD_KEY + 'C</span></div>' +
-      '<div class="mda-menu-item" data-act="copy-all"><span>拷贝全部</span><span class="mda-menu-key">' + MOD_KEY + 'A</span></div>' +
-      '<div class="mda-menu-item' + (hasSel ? '' : ' disabled') + '" data-act="anno"><span>添加选区批注</span></div>';
+      '<div class="mda-menu-item' + (hasSel ? '' : ' disabled') + '" data-act="copy"><span>' + uiT('copy') + '</span><span class="mda-menu-key">' + MOD_KEY + 'C</span></div>' +
+      '<div class="mda-menu-item" data-act="copy-all"><span>' + uiT('copyAll') + '</span><span class="mda-menu-key">' + MOD_KEY + 'A</span></div>' +
+      '<div class="mda-menu-item' + (hasSel ? '' : ' disabled') + '" data-act="anno"><span>' + uiT('addSelAnno') + '</span></div>';
     document.body.appendChild(menu);
     menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 4) + 'px';
     menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 4) + 'px';
@@ -2424,7 +3157,7 @@
       if (act === 'copy') {
         var selText = snap ? snap.quote : '';
         if (!selText.trim()) {
-          uiAlert('请先选中要拷贝的代码');
+          uiAlert(uiT('alertSelectCodeCopy'));
           removeCodeContextMenu();
           return;
         }
@@ -2433,7 +3166,7 @@
         copyCode(rawText, btn);
       } else if (act === 'anno') {
         if (!snap) {
-          uiAlert('请先选中代码再添加选区批注');
+          uiAlert(uiT('alertSelectCodeAnno'));
           removeCodeContextMenu();
           return;
         }
@@ -2446,7 +3179,7 @@
         removeCodeContextMenu();
         clearPreviewSelectionSnap();
         if (!anchor) {
-          uiAlert('无法识别选区，请尝试在源码编辑区选择');
+          uiAlert(uiT('alertBadSelectionEditor'));
           return;
         }
         var line = selAnchor.anchorToLine(getSourceText(), anchor.start);
@@ -2552,13 +3285,13 @@
       var content = (a.content || '').length > 50 ? a.content.slice(0, 50) + '…' : (a.content || '');
       var stale = selAnchor && selAnchor.isAnchorStale(getSourceText(), a);
       var anchorBadge = a.anchor
-        ? '<span style="font-size:10px;color:var(--text-muted);margin-left:4px">选区</span>' : '';
-      var staleBadge = stale ? '<span class="anno-stale-badge">锚点失效</span>' : '';
+        ? '<span style="font-size:10px;color:var(--text-muted);margin-left:4px">' + uiT('selBadge') + '</span>' : '';
+      var staleBadge = stale ? '<span class="anno-stale-badge">' + uiT('staleBadge') + '</span>' : '';
 
       html += '<div class="anno-item' + selCls + '" data-anno-id="' + escHtml(a.id) + '">' +
         '<div class="anno-meta">' +
         '<span style="border-left:3px solid ' + LEVEL_COLORS[a.level] + ';padding-left:4px;margin-right:8px"></span>' +
-        '行' + (a.line || '?') + anchorBadge + staleBadge + ' · ' +
+        uiT('linePrefix') + (a.line || '?') + anchorBadge + staleBadge + ' · ' +
         '<span style="color:' + LEVEL_COLORS[a.level] + ';font-weight:bold">' + a.level + '</span> · ' +
         '<span>' + a.status + '</span> · ' + (a.created_at || '').slice(0, 10) +
         '</div>' +
@@ -2567,12 +3300,12 @@
         (a.tags || []).map(function (t) { return '<span class="anno-tag">' + escHtml(t) + '</span>'; }).join('') +
         '</div>' +
         '<div class="anno-actions">' +
-        '<button class="btn-mini btn-edit" data-id="' + escHtml(a.id) + '">编辑</button>' +
-        '<button class="btn-mini danger btn-del" data-id="' + escHtml(a.id) + '">删除</button>' +
+        '<button class="btn-mini btn-edit" data-id="' + escHtml(a.id) + '">' + uiT('edit') + '</button>' +
+        '<button class="btn-mini danger btn-del" data-id="' + escHtml(a.id) + '">' + uiT('del') + '</button>' +
         '</div></div>';
     }
 
-    if (filtered.length === 0) html = '<div class="anno-empty">无批注</div>';
+    if (filtered.length === 0) html = '<div class="anno-empty">' + uiT('annoEmpty') + '</div>';
 
     annoListEl.innerHTML = html;
     if (addBtn) addBtn.disabled = !currentFilePath || dirty;
@@ -2595,7 +3328,7 @@
   }
 
   function ensureNotDirty() {
-    if (dirty) { uiAlert('存在未保存的编辑，请先保存或撤销后再操作批注'); return false; }
+    if (dirty) { uiAlert(uiT('alertDirtyAnno')); return false; }
     return true;
   }
 
@@ -2608,13 +3341,13 @@
 
   function deleteAnnotation(id) {
     if (!ensureNotDirty()) return;
-    uiConfirm('确认删除此批注？').then(function (yes) {
+    uiConfirm(uiT('alertDelAnno')).then(function (yes) {
       if (!yes) return;
       api.removeAnnotation(currentFilePath, id).then(function (r) {
         if (r.success) {
           if (selectedAnnotationId === id) selectedAnnotationId = null;
           reloadFile();
-        } else { uiAlert('删除失败: ' + r.error); }
+        } else { uiAlert(uiT('alertDelFail', { error: r.error })); }
       });
     });
   }
@@ -2691,12 +3424,12 @@
     return new Promise(function (resolve) {
       var overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
-      var btns = withCancel ? '<button id="ui-cancel" class="btn-ghost">取消</button>' : '';
+      var btns = withCancel ? '<button id="ui-cancel" class="btn-ghost">' + uiT('cancel') + '</button>' : '';
       overlay.innerHTML =
         '<div class="modal-box" style="min-width:280px;max-width:420px">' +
           '<div style="font-size:14px;margin-bottom:20px;line-height:1.6">' + escHtml(message) + '</div>' +
           '<div class="modal-actions">' + btns +
-            '<button id="ui-ok" class="btn-ok">确定</button>' +
+            '<button id="ui-ok" class="btn-ok">' + uiT('ok') + '</button>' +
           '</div>' +
         '</div>';
       document.body.appendChild(overlay);
@@ -2722,71 +3455,11 @@
     overlay.className = 'modal-overlay';
     overlay.innerHTML =
       '<div class="modal-box mda-help-box">' +
-        '<h2 class="mda-help-title">MDA 功能与快捷键</h2>' +
+        '<h2 class="mda-help-title">' + uiT('helpTitle') + '</h2>' +
         '<div class="mda-help-body">' +
-          '<p class="mda-help-lead">Markdown 批注管理工具：在 .md 等文件中嵌入结构化批注，提供可视化预览与批注面板。</p>' +
-          '<h3>支持的文件</h3>' +
-          '<p>可打开 ' + escHtml(exts) + '；拖拽文件到窗口、菜单「文件 → 打开」、欢迎页或命令行 <code>mda path/to/file</code>。</p>' +
-          '<h3>文件管理</h3>' +
-          '<ul>' +
-            '<li><kbd>Ctrl+N</kbd> 新建未命名文档；首次保存弹出另存为对话框</li>' +
-            '<li><kbd>Ctrl+Alt+O</kbd> 打开文件夹，左侧文件树列出 Markdown 文件；侧栏标题栏 ‹ 或 <kbd>Ctrl+\\</kbd> 可收起</li>' +
-            '<li>菜单「最近文件」记录最近打开的 20 个文件</li>' +
-          '</ul>' +
-          '<h3>批注</h3>' +
-          '<ul>' +
-            '<li>段落左侧色条表示批注级别（critical / major / minor / info）</li>' +
-            '<li>点击预览段落 ↔ 点击批注列表，双向定位</li>' +
-            '<li>按状态、级别、标签筛选；增 / 删 / 改批注（写操作保护正文，仅改批注行）</li>' +
-            '<li>存在未保存的源码编辑时，批注写操作会暂时禁用</li>' +
-          '</ul>' +
-          '<h3>编辑与预览</h3>' +
-          '<ul>' +
-            '<li>三栏：源码编辑｜实时预览｜批注面板（编辑/批注可独立开关）</li>' +
-            '<li>编辑↔预览<strong>点击定位</strong>（滚动互不跟随，避免比例漂移）；预览上方大纲可点击跳转源码行</li>' +
-            '<li>源码语法高亮 + 行号；<kbd>Ctrl+S</kbd> 保存；关闭时未保存会提示</li>' +
-            '<li><kbd>Ctrl+F</kbd> 查找、<kbd>Ctrl+H</kbd> 替换、<kbd>Ctrl+G</kbd> 跳转到行</li>' +
-            '<li><kbd>Ctrl+B/I/`</kbd> 粗体/斜体/代码；<kbd>Ctrl+Shift+]/[</kbd> 标题升降级</li>' +
-            '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放</li>' +
-            '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片与流程图）</li>' +
-            '<li><strong>导出</strong>：菜单「文件 → 导出 HTML / 导出 PDF」（导出会显示进度；大文档约 60s 超时）</li>' +
-            '<li>分栏可拖拽调宽，双击分隔条复位</li>' +
-          '</ul>' +
-          '<h3>MCP / CLI</h3>' +
-          '<ul>' +
-            '<li>CLI：<code>mda-cli scan/add/edit/remove</code> 与 GUI 共用 <code>@mda/core</code></li>' +
-            '<li>MCP：<code>mda-mcp</code>（stdio）；六 tools：<code>mda_scan</code> / <code>mda_add</code> / <code>mda_edit</code> / <code>mda_remove</code> / <code>mda_read_file</code> / <code>mda_export_review_prompt</code></li>' +
-            '<li>配置见 README「MCP Server」；工作区 <code>--workspace</code> 或 <code>MDA_WORKSPACE</code></li>' +
-          '</ul>' +
-          '<h3>快捷键</h3>' +
-          '<table class="mda-help-table"><tbody>' +
-            '<tr><td>新建文档</td><td><kbd>Ctrl+N</kbd></td></tr>' +
-            '<tr><td>打开文件</td><td><kbd>Ctrl+O</kbd></td></tr>' +
-            '<tr><td>打开文件夹</td><td><kbd>Ctrl+Alt+O</kbd></td></tr>' +
-            '<tr><td>收起/展开文件树</td><td><kbd>Ctrl+\\</kbd></td></tr>' +
-            '<tr><td>查找</td><td><kbd>Ctrl+F</kbd></td></tr>' +
-            '<tr><td>替换</td><td><kbd>Ctrl+H</kbd></td></tr>' +
-            '<tr><td>跳转到行</td><td><kbd>Ctrl+G</kbd></td></tr>' +
-            '<tr><td>粗体 / 斜体 / 代码（仅源码栏聚焦）</td><td><kbd>Ctrl+B</kbd> / <kbd>Ctrl+I</kbd> / <kbd>Ctrl+`</kbd></td></tr>' +
-            '<tr><td>标题升降级</td><td><kbd>Ctrl+Shift+]</kbd> / <kbd>Ctrl+Shift+[</kbd></td></tr>' +
-            '<tr><td>保存</td><td><kbd>Ctrl+S</kbd></td></tr>' +
-            '<tr><td>另存为</td><td><kbd>Ctrl+Shift+S</kbd></td></tr>' +
-            '<tr><td>重新加载</td><td><kbd>Ctrl+R</kbd></td></tr>' +
-            '<tr><td>打开文件所在目录</td><td><kbd>Ctrl+Shift+O</kbd></td></tr>' +
-            '<tr><td>复制预览（微信公众号）</td><td><kbd>Ctrl+Shift+C</kbd></td></tr>' +
-            '<tr><td>编辑栏</td><td><kbd>Ctrl+E</kbd></td></tr>' +
-            '<tr><td>批注栏（菜单）</td><td><kbd>Ctrl+B</kbd></td></tr>' +
-            '<tr><td>移动行</td><td><kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd></td></tr>' +
-            '<tr><td>重复行</td><td><kbd>Alt+Shift+↓</kbd></td></tr>' +
-            '<tr><td>缩进 / 反缩进</td><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td></tr>' +
-            '<tr><td>切换深色模式</td><td><kbd>Ctrl+Shift+D</kbd></td></tr>' +
-            '<tr><td>检查更新</td><td>菜单「帮助 → 检查更新」</td></tr>' +
-            '<tr><td>功能与快捷键（本页）</td><td><kbd>F1</kbd></td></tr>' +
-            '<tr><td>开发者工具</td><td><kbd>F12</kbd></td></tr>' +
-          '</tbody></table>' +
-          '<p class="mda-help-note">批注/确认等弹窗内 <kbd>Tab</kbd> 仅在框内循环，<kbd>Esc</kbd> 可关闭；避免焦点落到源码区误改文件。</p>' +
+          (window.MDAI18n && MDAI18n.buildHelpHtml ? MDAI18n.buildHelpHtml(exts) : '') +
         '</div>' +
-        '<div class="modal-actions"><button id="ui-help-ok" class="btn-ok">关闭</button></div>' +
+        '<div class="modal-actions"><button id="ui-help-ok" class="btn-ok">' + uiT('close') + '</button></div>' +
       '</div>';
     document.body.appendChild(overlay);
     function close() { overlay.remove(); }
@@ -2803,11 +3476,11 @@
       overlay.className = 'modal-overlay';
       overlay.innerHTML =
         '<div class="modal-box" style="min-width:320px">' +
-          '<div style="font-size:14px;margin-bottom:20px;line-height:1.6">有未保存的修改，是否在关闭前保存？</div>' +
+          '<div style="font-size:14px;margin-bottom:20px;line-height:1.6">' + uiT('alertCloseDirty') + '</div>' +
           '<div class="modal-actions" style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">' +
-            '<button id="ui-discard" class="btn-ghost">不保存</button>' +
-            '<button id="ui-cancel" class="btn-ghost">取消</button>' +
-            '<button id="ui-save" class="btn-ok">保存</button>' +
+            '<button id="ui-discard" class="btn-ghost">' + uiT('discard') + '</button>' +
+            '<button id="ui-cancel" class="btn-ghost">' + uiT('cancel') + '</button>' +
+            '<button id="ui-save" class="btn-ok">' + uiT('save') + '</button>' +
           '</div></div>';
       document.body.appendChild(overlay);
       function close(val) { overlay.remove(); resolve(val); }
@@ -2826,7 +3499,7 @@
     if (existing) existing.remove();
 
     var isAdd = mode === 'add';
-    var title = isAdd ? (pendingAnchor ? '添加选区批注' : '添加批注') : '编辑批注';
+    var title = isAdd ? (pendingAnchor ? uiT('addSelAnno') : uiT('addAnno')) : uiT('editAnno');
 
     var overlay = document.createElement('div');
     overlay.id = 'edit-dialog';
@@ -2836,21 +3509,21 @@
 
     if (isAdd && pendingAnchor) {
       var quotePreview = pendingAnchor.quote || getSourceText().slice(pendingAnchor.start, pendingAnchor.end);
-      formHtml += '<div class="modal-field"><label>选中文本</label>' +
+      formHtml += '<div class="modal-field"><label>' + uiT('labelQuote') + '</label>' +
         '<div style="font-size:12px;color:var(--text-muted);max-height:56px;overflow:auto;white-space:pre-wrap;border:1px solid var(--border-light);border-radius:4px;padding:6px 8px">' +
         escHtml(quotePreview) + '</div></div>';
     } else if (isAdd) {
-      formHtml += '<div class="modal-field"><label>行号</label>' +
+      formHtml += '<div class="modal-field"><label>' + uiT('labelLine') + '</label>' +
         '<input id="ed-line" type="number" min="1" value="' + (defaultLine || '') + '"></div>';
     }
 
     formHtml +=
-      '<div class="modal-field"><label>内容</label>' +
+      '<div class="modal-field"><label>' + uiT('labelContent') + '</label>' +
         '<textarea id="ed-content" rows="3">' + (anno ? escHtml(anno.content) : '') + '</textarea></div>' +
-      '<div class="modal-field"><label>标签（逗号分隔）</label>' +
+      '<div class="modal-field"><label>' + uiT('labelTags') + '</label>' +
         '<input id="ed-tags" value="' + (anno ? (anno.tags || []).join(', ') : '') + '"></div>' +
       '<div style="display:flex;gap:12px" class="modal-field">' +
-        '<div style="flex:1"><label>级别</label>' +
+        '<div style="flex:1"><label>' + uiT('labelLevel') + '</label>' +
           '<select id="ed-level">' +
           '<option value="info"' + (anno && anno.level === 'info' ? ' selected' : '') + '>info</option>' +
           '<option value="minor"' + (anno && anno.level === 'minor' ? ' selected' : '') + '>minor</option>' +
@@ -2860,7 +3533,7 @@
 
     if (!isAdd) {
       formHtml +=
-        '<div style="flex:1"><label>状态</label>' +
+        '<div style="flex:1"><label>' + uiT('labelStatus') + '</label>' +
           '<select id="ed-status">' +
           '<option value="open"' + (anno && anno.status === 'open' ? ' selected' : '') + '>open</option>' +
           '<option value="resolved"' + (anno && anno.status === 'resolved' ? ' selected' : '') + '>resolved</option>' +
@@ -2871,8 +3544,8 @@
     formHtml += '</div>';
     formHtml +=
       '<div class="modal-actions">' +
-      '<button id="ed-cancel" class="btn-ghost">取消</button>' +
-      '<button id="ed-save" class="btn-ok">保存</button>' +
+      '<button id="ed-cancel" class="btn-ghost">' + uiT('cancel') + '</button>' +
+      '<button id="ed-save" class="btn-ok">' + uiT('save') + '</button>' +
       '</div></div>';
 
     overlay.innerHTML = formHtml;
@@ -2884,7 +3557,7 @@
     document.getElementById('ed-cancel').addEventListener('click', closeEdit);
     document.getElementById('ed-save').addEventListener('click', function () {
       var content = document.getElementById('ed-content').value.trim();
-      if (!content) { uiAlert('请输入批注内容'); return; }
+      if (!content) { uiAlert(uiT('alertNeedAnnoContent')); return; }
       var tags = document.getElementById('ed-tags').value.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
       var level = document.getElementById('ed-level').value;
       if (isAdd) {
@@ -2895,7 +3568,7 @@
           doAdd(anchorLine, content, tags, level, pendingAnchor);
         } else {
           var line = parseInt(document.getElementById('ed-line').value, 10);
-          if (isNaN(line) || line < 1) { uiAlert('请输入有效行号'); return; }
+          if (isNaN(line) || line < 1) { uiAlert(uiT('alertInvalidLine')); return; }
           doAdd(line, content, tags, level, null);
         }
       } else {
@@ -2922,12 +3595,12 @@
       };
     }
     api.addAnnotation(currentFilePath, line, input)
-      .then(function (r) { if (r.success) reloadFile(); else uiAlert('添加失败: ' + r.error); });
+      .then(function (r) { if (r.success) reloadFile(); else uiAlert(uiT('alertSaveFail', { error: r.error })); });
   }
 
   function doEdit(id, content, tags, level, status) {
     api.editAnnotation(currentFilePath, id, { content: content, tags: tags, level: level, status: status })
-      .then(function (r) { if (r.success) reloadFile(); else uiAlert('编辑失败: ' + r.error); });
+      .then(function (r) { if (r.success) reloadFile(); else uiAlert(uiT('alertSaveFail', { error: r.error })); });
   }
 
   function escHtml(s) {

@@ -3,12 +3,32 @@ const path = require('path');
 const fs = require('fs');
 
 const { getRecents, addRecent, clearRecents } = require('./main/recent-files');
+const { getWorkspaceRoot, setWorkspaceRoot } = require('./main/workspace-prefs');
+const { copyFileToDir, moveFileToDir, fileExists, renameFileConflict } = require('./main/file-ops');
 const { listMarkdownTree } = require('./main/markdown-tree');
 const { setupAutoUpdater } = require('./main/updater');
+const { initI18n, t, getLang, getLangPref, setLangPref } = require('./main/i18n');
 
 // Electron 31.x / Chromium 在 Windows 上偶发 PartitionAlloc dangling raw_ptr 致命崩溃（框架层问题）。
 // 须在 app.ready 之前关闭该检查，否则进程会直接 FATAL 退出。
 app.commandLine.appendSwitch('disable-features', 'PartitionAllocBackupRefPtr,PartitionAllocDanglingPtr');
+
+// Chromium UI / 拼写检查语言：跟随系统（可被 MDA_LANG 覆盖）
+(function applyChromiumLangHint() {
+  const forced = (process.env.MDA_LANG || '').trim().toLowerCase();
+  let pack = '';
+  if (forced === 'en' || forced === 'en-us' || forced === 'en_us') pack = 'en-US';
+  else if (forced === 'zh' || forced === 'zh-cn' || forced === 'zh_cn' || forced === 'cn') pack = 'zh-CN';
+  else {
+    try {
+      const loc = String(Intl.DateTimeFormat().resolvedOptions().locale || '').toLowerCase();
+      pack = loc.startsWith('zh') ? 'zh-CN' : 'en-US';
+    } catch (_) {
+      pack = 'zh-CN';
+    }
+  }
+  if (pack) app.commandLine.appendSwitch('lang', pack);
+})();
 
 const schema = require(path.join(__dirname, '..', 'config', 'annotation-schema.json'));
 const MD_EXTENSIONS = schema.fileExtensions || ['md', 'markdown', 'txt', 'mdc'];
@@ -32,7 +52,7 @@ function sendToRenderer(channel, ...args) {
 
 function buildRecentSubmenu(recents) {
   if (!recents.length) {
-    return [{ label: '(无)', enabled: false }];
+    return [{ label: t('menuRecentEmpty'), enabled: false }];
   }
   const items = recents.map((item) => ({
     label: path.basename(item.path),
@@ -40,10 +60,12 @@ function buildRecentSubmenu(recents) {
   }));
   items.push({ type: 'separator' });
   items.push({
-    label: '清空列表',
+    label: t('menuClearRecent'),
     click: () => {
       clearRecents(app.getPath('userData'));
+      try { if (typeof app.clearRecentDocuments === 'function') app.clearRecentDocuments(); } catch (_) { /* ignore */ }
       rebuildApplicationMenu();
+      sendToRenderer('recent-files-cleared');
     },
   });
   return items;
@@ -52,21 +74,21 @@ function buildRecentSubmenu(recents) {
 function buildMenuTemplate(recents) {
   return [
     {
-      label: '文件',
+      label: t('menuFile'),
       submenu: [
         {
-          label: '新建',
+          label: t('menuNew'),
           accelerator: 'CmdOrCtrl+N',
           click: () => sendToRenderer('menu-new-document'),
         },
         {
-          label: '打开',
+          label: t('menuOpen'),
           accelerator: 'CmdOrCtrl+O',
           click: async () => {
             if (!mainWindow) return;
             const result = await dialog.showOpenDialog(mainWindow, {
-              title: '打开 Markdown 文件',
-              filters: [{ name: 'Markdown', extensions: MD_EXTENSIONS }],
+              title: t('openMdTitle'),
+              filters: [{ name: t('filterMarkdown'), extensions: MD_EXTENSIONS }],
               properties: ['openFile'],
             });
             if (!result.canceled && result.filePaths.length > 0) {
@@ -75,76 +97,99 @@ function buildMenuTemplate(recents) {
           },
         },
         {
-          label: '打开文件夹',
+          label: t('menuOpenFolder'),
           accelerator: 'CmdOrCtrl+Alt+O',
           click: () => sendToRenderer('menu-open-folder'),
         },
         { type: 'separator' },
         {
-          label: '最近文件',
+          label: t('menuRecent'),
           submenu: buildRecentSubmenu(recents),
         },
         { type: 'separator' },
         {
-          label: '保存',
+          label: t('menuSave'),
           accelerator: 'CmdOrCtrl+S',
           click: () => sendToRenderer('menu-save'),
         },
         {
-          label: '另存为',
+          label: t('menuSaveAs'),
           accelerator: 'CmdOrCtrl+Shift+S',
           click: () => sendToRenderer('menu-save-as'),
         },
         {
-          label: '打开文件所在目录',
+          label: t('menuShowInFolder'),
           accelerator: 'CmdOrCtrl+Shift+O',
           click: () => sendToRenderer('menu-show-in-folder'),
         },
         {
-          label: '重新加载',
+          label: t('menuReload'),
           accelerator: 'CmdOrCtrl+R',
           click: () => sendToRenderer('reload'),
         },
         { type: 'separator' },
         {
-          label: '复制预览（微信公众号）',
+          label: t('menuCopyArticle'),
           accelerator: 'CmdOrCtrl+Shift+C',
           click: () => sendToRenderer('menu-copy-article'),
         },
         { type: 'separator' },
         {
-          label: '导出 HTML',
+          label: t('menuExportHtml'),
           click: () => sendToRenderer('menu-export-html'),
         },
         {
-          label: '导出 PDF',
+          label: t('menuExportPdf'),
           click: () => sendToRenderer('menu-export-pdf'),
         },
         { type: 'separator' },
-        { role: 'quit' },
+        { role: 'quit', label: t('menuQuit') },
       ],
     },
     {
-      label: '视图',
+      label: t('menuView'),
       submenu: [
         {
-          label: '编辑栏',
+          label: t('menuEditPane'),
           accelerator: 'CmdOrCtrl+E',
           click: () => sendToRenderer('menu-toggle-edit'),
         },
         {
-          label: '批注栏',
+          label: t('menuAnnoPane'),
           accelerator: 'CmdOrCtrl+B',
           click: () => sendToRenderer('menu-toggle-panel'),
         },
         {
-          label: '切换深色模式',
+          label: t('menuDarkMode'),
           accelerator: 'CmdOrCtrl+Shift+D',
           click: () => sendToRenderer('menu-toggle-theme'),
         },
+        {
+          label: t('menuLanguage'),
+          submenu: [
+            {
+              label: t('menuLangSystem'),
+              type: 'radio',
+              checked: getLangPref() === 'system',
+              click: () => applyLangPref('system'),
+            },
+            {
+              label: t('menuLangZh'),
+              type: 'radio',
+              checked: getLangPref() === 'zh',
+              click: () => applyLangPref('zh'),
+            },
+            {
+              label: t('menuLangEn'),
+              type: 'radio',
+              checked: getLangPref() === 'en',
+              click: () => applyLangPref('en'),
+            },
+          ],
+        },
         { type: 'separator' },
         {
-          label: '开发者工具',
+          label: t('menuDevTools'),
           accelerator: 'F12',
           click: () => {
             if (mainWindow) mainWindow.webContents.toggleDevTools();
@@ -153,22 +198,22 @@ function buildMenuTemplate(recents) {
       ],
     },
     {
-      label: '帮助',
+      label: t('menuHelp'),
       submenu: [
         {
-          label: '功能与快捷键',
+          label: t('menuHelpShortcuts'),
           accelerator: 'F1',
           click: () => sendToRenderer('menu-show-help'),
         },
         {
-          label: '检查更新',
+          label: t('menuCheckUpdate'),
           click: () => {
             if (autoUpdaterApi) autoUpdaterApi.checkForUpdates();
             else if (mainWindow) {
               dialog.showMessageBox(mainWindow, {
                 type: 'info',
-                title: '检查更新',
-                message: '开发模式下不可用；请使用已打包的安装版检查更新。',
+                title: t('updateCheckTitle'),
+                message: t('updateDevOnly'),
               });
             }
           },
@@ -181,6 +226,12 @@ function buildMenuTemplate(recents) {
 function rebuildApplicationMenu() {
   const recents = getRecents(app.getPath('userData'));
   Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate(recents)));
+}
+
+function applyLangPref(pref) {
+  const r = setLangPref(pref);
+  rebuildApplicationMenu();
+  sendToRenderer('lang-changed', r.lang, r.pref);
 }
 
 function registerIpcHandlers() {
@@ -202,6 +253,84 @@ function registerIpcHandlers() {
 
   ipcMain.handle('show-item-in-folder', async (_event, filePath) => {
     if (filePath) shell.showItemInFolder(path.resolve(filePath));
+  });
+
+  ipcMain.handle('rename-file', async (_event, arg1, arg2) => {
+    try {
+      let oldPath;
+      let newPath;
+      let workspaceRoot;
+      let conflict;
+      if (arg1 && typeof arg1 === 'object') {
+        oldPath = arg1.oldPath;
+        newPath = arg1.newPath;
+        workspaceRoot = arg1.workspaceRoot;
+        conflict = arg1.conflict;
+      } else {
+        oldPath = arg1;
+        newPath = arg2;
+      }
+      if (workspaceRoot != null) {
+        return renameFileConflict(oldPath, newPath, workspaceRoot, conflict);
+      }
+      if (!oldPath || !newPath) return { success: false, error: '路径无效' };
+      const absOld = path.resolve(oldPath);
+      const absNew = path.resolve(newPath);
+      if (!fs.existsSync(absOld)) return { success: false, error: '源文件不存在' };
+      if (fs.existsSync(absNew)) return { success: false, error: '目标文件已存在' };
+      fs.renameSync(absOld, absNew);
+      return { success: true, filePath: absNew };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('delete-file', async (_event, filePath) => {
+    try {
+      if (!filePath) return { success: false, error: '路径为空' };
+      const abs = path.resolve(filePath);
+      if (!fs.existsSync(abs)) return { success: false, error: '文件不存在' };
+      const stat = fs.statSync(abs);
+      if (!stat.isFile()) return { success: false, error: '不是文件' };
+      fs.unlinkSync(abs);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('copy-file-to-dir', async (_event, payload) => {
+    try {
+      const srcPath = payload && payload.srcPath;
+      const destDir = payload && payload.destDir;
+      const workspaceRoot = payload && payload.workspaceRoot;
+      const conflict = payload && payload.conflict;
+      return copyFileToDir(srcPath, destDir, workspaceRoot, conflict);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('move-file-to-dir', async (_event, payload) => {
+    try {
+      const srcPath = payload && payload.srcPath;
+      const destDir = payload && payload.destDir;
+      const workspaceRoot = payload && payload.workspaceRoot;
+      const conflict = payload && payload.conflict;
+      return moveFileToDir(srcPath, destDir, workspaceRoot, conflict);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('file-exists', async (_event, payload) => {
+    try {
+      const filePath = payload && payload.filePath;
+      const workspaceRoot = payload && payload.workspaceRoot;
+      return fileExists(filePath, workspaceRoot);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   });
 
   ipcMain.handle('copy-clipboard', async (_event, text) => {
@@ -255,8 +384,8 @@ function registerIpcHandlers() {
   ipcMain.handle('show-open-file-dialog', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(win || mainWindow, {
-      title: '打开 Markdown 文件',
-      filters: [{ name: 'Markdown', extensions: MD_EXTENSIONS }],
+      title: t('openMdTitle'),
+      filters: [{ name: t('filterMarkdown'), extensions: MD_EXTENSIONS }],
       properties: ['openFile'],
     });
     if (result.canceled || !result.filePaths.length) {
@@ -267,14 +396,14 @@ function registerIpcHandlers() {
 
   ipcMain.handle('show-save-dialog', async (event, opts) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    const suggested = (opts && opts.suggestedName) || '未命名.md';
-    let defaultPath = suggested;
+    const defaultName = (opts && opts.suggestedName) || (getLang() === 'en' ? 'Untitled.md' : '未命名.md');
+    let defaultPath = defaultName;
     if (opts && opts.defaultPath) {
-      defaultPath = path.join(opts.defaultPath, suggested);
+      defaultPath = path.join(opts.defaultPath, defaultName);
     }
-    const filters = (opts && opts.filters) || [{ name: 'Markdown', extensions: MD_EXTENSIONS }];
+    const filters = (opts && opts.filters) || [{ name: t('filterMarkdown'), extensions: MD_EXTENSIONS }];
     const result = await dialog.showSaveDialog(win || mainWindow, {
-      title: (opts && opts.title) || '另存为',
+      title: (opts && opts.title) || t('menuSaveAs'),
       defaultPath,
       filters,
     });
@@ -346,7 +475,7 @@ function registerIpcHandlers() {
   ipcMain.handle('show-open-folder-dialog', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(win || mainWindow, {
-      title: '打开文件夹',
+      title: t('openFolderTitle'),
       properties: ['openDirectory'],
     });
     if (result.canceled || !result.filePaths.length) {
@@ -360,6 +489,24 @@ function registerIpcHandlers() {
       if (!folderPath) return { success: false, error: '路径为空' };
       const tree = listMarkdownTree(folderPath, MD_EXTENSIONS);
       return { success: true, tree };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('get-workspace-root', async () => {
+    try {
+      const folderPath = getWorkspaceRoot(app.getPath('userData'));
+      return { success: true, folderPath };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('set-workspace-root', async (_event, folderPath) => {
+    try {
+      setWorkspaceRoot(app.getPath('userData'), folderPath || null);
+      return { success: true };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -386,8 +533,23 @@ function registerIpcHandlers() {
 
   ipcMain.handle('clear-recent-files', async () => {
     clearRecents(app.getPath('userData'));
+    try { if (typeof app.clearRecentDocuments === 'function') app.clearRecentDocuments(); } catch (_) { /* ignore */ }
     rebuildApplicationMenu();
+    sendToRenderer('recent-files-cleared');
     return { success: true };
+  });
+
+  ipcMain.handle('get-lang', async () => ({
+    success: true,
+    lang: getLang(),
+    pref: getLangPref(),
+  }));
+
+  ipcMain.handle('set-lang-pref', async (_event, pref) => {
+    const r = setLangPref(pref);
+    rebuildApplicationMenu();
+    sendToRenderer('lang-changed', r.lang, r.pref);
+    return { success: true, lang: r.lang, pref: r.pref };
   });
 
   ipcMain.on('set-dirty', (_event, dirty) => {
@@ -445,6 +607,7 @@ function createWindow(initialFile) {
     }
     const recents = getRecents(app.getPath('userData'));
     const last = recents[0];
+    // 历史为空（或首条文件已不存在）→ 起始页，勿自动打开其它文档
     if (last && last.path && fs.existsSync(last.path)) {
       sendToRenderer('file-opened', last.path);
     } else {
@@ -468,6 +631,7 @@ if (!gotSingleInstanceLock) {
   });
 
   app.whenReady().then(() => {
+    initI18n(app);
     registerIpcHandlers();
     autoUpdaterApi = setupAutoUpdater(app, () => mainWindow);
     const argFile = process.argv.find((a) => !a.startsWith('-') && isMarkdownPath(a));

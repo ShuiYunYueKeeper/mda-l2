@@ -67,10 +67,16 @@
     "ts-jest": "^29.4.11",
     "typescript": "^5.5.3"
   },
+  "copyright": "Copyright © 2026 MDA",
   "build": {
     "appId": "com.mda.annotation-tool",
     "productName": "MDA",
+    "copyright": "Copyright © 2026 MDA",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ],
     "directories": {
       "output": "release"
     },
@@ -96,6 +102,9 @@
       }
     ],
     "win": {
+      "legalCopyright": "Copyright © 2026 MDA",
+      "requestedExecutionLevel": "asInvoker",
+      "verifyUpdateCodeSignature": false,
       "target": [
         {
           "target": "nsis",
@@ -125,7 +134,13 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "MDA"
+      "shortcutName": "MDA",
+      "unicode": true,
+      "multiLanguageInstaller": true,
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ]
     },
     "mac": {
       "target": [
@@ -145,7 +160,7 @@
       "provider": "github",
       "owner": "ShuiYunYueKeeper",
       "repo": "mda-l2",
-      "releaseType": "release"
+      "releaseType": "prerelease"
     }
   }
 }

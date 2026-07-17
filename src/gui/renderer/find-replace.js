@@ -41,18 +41,18 @@
     bar.className = 'mda-find-bar hidden';
     bar.innerHTML =
       '<div class="mda-find-row">' +
-        '<input id="fr-find" type="text" placeholder="查找" autocomplete="off" />' +
+        '<input id="fr-find" type="text" placeholder="" autocomplete="off" />' +
         '<span id="fr-count" class="mda-find-count"></span>' +
-        '<button type="button" id="fr-prev" title="上一个 (Shift+Enter)">↑</button>' +
-        '<button type="button" id="fr-next" title="下一个 (Enter)">↓</button>' +
-        '<label class="mda-find-opt"><input id="fr-case" type="checkbox" /> 区分大小写</label>' +
-        '<label class="mda-find-opt"><input id="fr-regex" type="checkbox" /> 正则</label>' +
-        '<button type="button" id="fr-close" title="关闭 (Esc)">×</button>' +
+        '<button type="button" id="fr-prev" title="">↑</button>' +
+        '<button type="button" id="fr-next" title="">↓</button>' +
+        '<label class="mda-find-opt"><input id="fr-case" type="checkbox" /> <span data-fr="case"></span></label>' +
+        '<label class="mda-find-opt"><input id="fr-regex" type="checkbox" /> <span data-fr="regex"></span></label>' +
+        '<button type="button" id="fr-close" title="">×</button>' +
       '</div>' +
       '<div id="fr-replace-row" class="mda-find-row hidden">' +
-        '<input id="fr-replace" type="text" placeholder="替换为" autocomplete="off" />' +
-        '<button type="button" id="fr-replace-one">替换</button>' +
-        '<button type="button" id="fr-replace-all">全部替换</button>' +
+        '<input id="fr-replace" type="text" placeholder="" autocomplete="off" />' +
+        '<button type="button" id="fr-replace-one"></button>' +
+        '<button type="button" id="fr-replace-all"></button>' +
       '</div>';
     hostEl.appendChild(bar);
 
@@ -62,6 +62,27 @@
     var replaceRow = bar.querySelector('#fr-replace-row');
     var state = { matches: [], index: -1, mode: 'find', composing: false };
     var measureMirror = null;
+
+    function tr(key) {
+      return (global.MDAI18n && global.MDAI18n.t) ? global.MDAI18n.t(key) : key;
+    }
+
+    function applyLang() {
+      findInput.placeholder = tr('findPlaceholder');
+      replaceInput.placeholder = tr('replacePlaceholder');
+      bar.querySelector('#fr-prev').title = tr('findPrev');
+      bar.querySelector('#fr-next').title = tr('findNext');
+      bar.querySelector('#fr-close').title = tr('findClose');
+      var caseSpan = bar.querySelector('[data-fr="case"]');
+      var regexSpan = bar.querySelector('[data-fr="regex"]');
+      if (caseSpan) caseSpan.textContent = tr('findCase');
+      if (regexSpan) regexSpan.textContent = tr('findRegex');
+      bar.querySelector('#fr-replace-one').textContent = tr('replace');
+      bar.querySelector('#fr-replace-all').textContent = tr('replaceAll');
+      if (typeof updateCount === 'function') updateCount();
+    }
+
+    applyLang();
 
     function getMeasureMirror() {
       if (measureMirror) return measureMirror;
@@ -152,7 +173,7 @@
         return;
       }
       if (!state.matches.length) {
-        countEl.textContent = '无匹配';
+        countEl.textContent = tr('findNoMatch');
         return;
       }
       countEl.textContent = (state.index + 1) + ' / ' + state.matches.length;
@@ -288,7 +309,7 @@
       inp.addEventListener('keydown', function (e) { e.stopPropagation(); });
     });
 
-    return { show: show, hide: hide, isOpen: isOpen, findNext: findNext, refreshMatches: refreshMatches };
+    return { show: show, hide: hide, isOpen: isOpen, findNext: findNext, refreshMatches: refreshMatches, applyLang: applyLang };
   }
 
   var api = { findAll: findAll, mount: mount };

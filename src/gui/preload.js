@@ -92,6 +92,24 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   showItemInFolder: (filePath) => ipcRenderer.invoke('show-item-in-folder', filePath),
+  renameFile: (oldPath, newPath, opts) =>
+    ipcRenderer.invoke('rename-file', {
+      oldPath,
+      newPath,
+      workspaceRoot: opts && opts.workspaceRoot,
+      conflict: opts && opts.conflict,
+    }),
+  deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
+  copyFileToDir: (srcPath, destDir, workspaceRoot, opts) =>
+    ipcRenderer.invoke('copy-file-to-dir', {
+      srcPath, destDir, workspaceRoot, conflict: opts && opts.conflict,
+    }),
+  moveFileToDir: (srcPath, destDir, workspaceRoot, opts) =>
+    ipcRenderer.invoke('move-file-to-dir', {
+      srcPath, destDir, workspaceRoot, conflict: opts && opts.conflict,
+    }),
+  fileExists: (filePath, workspaceRoot) =>
+    ipcRenderer.invoke('file-exists', { filePath, workspaceRoot }),
   copyToClipboard: (text) => ipcRenderer.invoke('copy-clipboard', text),
   copyArticleHtml: (html, text) => ipcRenderer.invoke('copy-clipboard-html', { html, text }),
   readFileAsDataUrl: (filePath) => ipcRenderer.invoke('read-file-data-url', filePath),
@@ -110,6 +128,9 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   },
   onSessionWelcome: (callback) => {
     ipcRenderer.on('session-welcome', () => callback());
+  },
+  onRecentFilesCleared: (callback) => {
+    ipcRenderer.on('recent-files-cleared', () => callback());
   },
   onReload: (callback) => {
     ipcRenderer.on('reload', () => callback());
@@ -160,9 +181,16 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   showOpenFileDialog: () => ipcRenderer.invoke('show-open-file-dialog'),
   showOpenFolderDialog: () => ipcRenderer.invoke('show-open-folder-dialog'),
   listMarkdownTree: (folderPath) => ipcRenderer.invoke('list-markdown-tree', folderPath),
+  getWorkspaceRoot: () => ipcRenderer.invoke('get-workspace-root'),
+  setWorkspaceRoot: (folderPath) => ipcRenderer.invoke('set-workspace-root', folderPath),
   getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
   addRecentFile: (filePath) => ipcRenderer.invoke('add-recent-file', filePath),
   clearRecentFiles: () => ipcRenderer.invoke('clear-recent-files'),
+  getLang: () => ipcRenderer.invoke('get-lang'),
+  setLangPref: (pref) => ipcRenderer.invoke('set-lang-pref', pref),
+  onLangChanged: (callback) => {
+    ipcRenderer.on('lang-changed', (_event, lang, pref) => callback(lang, pref));
+  },
 
   // 级别配色 / 严重度优先级（来源于 src/config/annotation-schema.json，经 core 暴露）
   levelColors: core.LEVEL_COLORS,
