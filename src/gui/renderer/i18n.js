@@ -48,7 +48,7 @@
       outlineCollapse: '收起',
       outlineExpand: '展开',
       outlineEmpty: '无标题',
-      welcomeLead: 'Markdown 批注管理工具 — 预览、编辑、批注与文件管理',
+      welcomeLead: 'Markdown 工作台 — 预览 · 编辑 · 批注 · 文件',
       welcomeNew: '新建文档',
       welcomeOpen: '打开文件',
       welcomeFolder: '打开文件夹',
@@ -210,7 +210,7 @@
       outlineCollapse: 'Collapse',
       outlineExpand: 'Expand',
       outlineEmpty: 'No headings',
-      welcomeLead: 'Markdown annotation tool — preview, edit, notes & files',
+      welcomeLead: 'Markdown workspace — preview · edit · annotate · files',
       welcomeNew: 'New Document',
       welcomeOpen: 'Open File',
       welcomeFolder: 'Open Folder',
@@ -361,7 +361,7 @@
     exts = escHtml(exts || '');
     if (lang === 'en') {
       return (
-        '<p class="mda-help-lead">Markdown annotation tool: embed structured notes in .md files with preview and an annotation pane.</p>' +
+        '<p class="mda-help-lead">MDA Markdown workspace: preview and edit Markdown, manage files, and embed structured annotations in .md.</p>' +
         '<h3>Supported files</h3>' +
         '<p>Open ' + exts + '; drag onto the window, use File → Open, the welcome page, or <code>mda path/to/file</code>.</p>' +
         '<h3>Files</h3>' +
@@ -426,7 +426,7 @@
       );
     }
     return (
-      '<p class="mda-help-lead">Markdown 批注管理工具：在 .md 等文件中嵌入结构化批注，提供可视化预览与批注面板。</p>' +
+      '<p class="mda-help-lead">MDA Markdown 工作台：预览与编辑 Markdown、管理文件，并在 .md 中嵌入结构化批注。</p>' +
       '<h3>支持的文件</h3>' +
       '<p>可打开 ' + exts + '；拖拽文件到窗口、菜单「文件 → 打开」、欢迎页或命令行 <code>mda path/to/file</code>。</p>' +
       '<h3>文件管理</h3>' +

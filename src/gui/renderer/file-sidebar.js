@@ -568,7 +568,7 @@
 
         filePath: fileRow.getAttribute('data-node-path'),
 
-        fileName: fileRow.getAttribute('title') || '',
+        fileName: basenamePath(fileRow.getAttribute('data-node-path') || ''),
 
         pasteDir: getPasteTargetDir(),
 
@@ -814,7 +814,7 @@
 
         var html =
 
-          '<div class="mda-fs-row dir" data-node-path="' + escHtml(node.path) + '" data-is-dir="1" title="' + escHtml(node.name) + '" style="padding-left:' + pad + 'px">' +
+          '<div class="mda-fs-row dir" data-node-path="' + escHtml(node.path) + '" data-is-dir="1" title="' + escHtml(node.path) + '" style="padding-left:' + pad + 'px">' +
 
             '<span class="mda-fs-chevron">' + (open ? '▾' : '▸') + '</span>' +
 
@@ -844,7 +844,7 @@
 
       return (
 
-        '<div class="mda-fs-row file' + extraCls + '" draggable="true" data-node-path="' + escHtml(node.path) + '" data-is-dir="0" title="' + escHtml(node.name) + '" style="padding-left:' + pad + 'px">' +
+        '<div class="mda-fs-row file' + extraCls + '" draggable="true" data-node-path="' + escHtml(node.path) + '" data-is-dir="0" title="' + escHtml(node.path) + '" style="padding-left:' + pad + 'px">' +
 
           '<span class="mda-fs-chevron"></span>' +
 

@@ -112,7 +112,7 @@ function createMdaMcpServer(workspace) {
     const ctx = { workspace };
     const server = new index_js_1.Server({ name: 'mda-mcp', version: '2.0.0-alpha' }, {
         capabilities: { tools: {} },
-        instructions: 'MDA Markdown 批注管理 MCP。写操作路径须在工作区内（MDA_WORKSPACE 或 --workspace）。',
+        instructions: 'MDA Markdown 工作台 MCP。写操作路径须在工作区内（MDA_WORKSPACE 或 --workspace）。',
     });
     server.setRequestHandler(types_js_1.ListToolsRequestSchema, async () => ({
         tools: TOOLS.map(t => ({

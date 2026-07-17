@@ -1,7 +1,7 @@
 {
   "name": "mda",
   "version": "2.0.0-alpha",
-  "description": "Markdown 批注管理工具 — CLI (mda-cli) + GUI (mda)",
+  "description": "Markdown 工作台 — 预览 · 编辑 · 批注 · 文件（CLI / GUI / MCP）",
   "author": "MDA",
   "main": "dist/gui/main.js",
   "bin": {

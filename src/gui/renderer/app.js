@@ -1,4 +1,4 @@
-﻿// MDA Renderer — Markdown 批注管理工具 GUI
+﻿// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
