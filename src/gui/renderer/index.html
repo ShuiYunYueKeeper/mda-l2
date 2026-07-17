@@ -106,7 +106,7 @@
     #content-row.welcome-mode #editor-pane,
     #content-row.welcome-mode .mda-splitter { visibility: hidden; }
 
-    /* ================= 左侧文件树 ================= */
+    /* ================= 左侧文件列表 ================= */
     #file-sidebar-root { position: relative; display: flex; flex: 1; min-height: 0; overflow: hidden; }
     .mda-left-rail {
       flex: 0 0 220px;
@@ -114,7 +114,6 @@
       flex-direction: column;
       overflow: hidden;
       background: var(--bg-secondary);
-      border-right: 1px solid var(--border);
       transition: flex-basis .15s ease;
     }
     .mda-left-rail.collapsed { flex: 0 0 28px; }
@@ -144,16 +143,24 @@
       font-size: 14px; padding: 2px 6px; border-radius: 4px; line-height: 1;
     }
     .mda-file-sidebar-icon:hover { color: var(--accent); background: var(--bg-tertiary); }
-    .mda-file-tree { flex: 1; overflow: auto; padding: 6px 0; font-size: 12px; }
+    .mda-file-tree { flex: 1; overflow: auto; padding: 6px 0; font-size: 12px; outline: none; }
+    .mda-file-tree:focus { box-shadow: inset 0 0 0 1px var(--accent); }
     .mda-fs-row {
       display: flex; align-items: center; gap: 4px; padding: 4px 8px 4px 4px;
       cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .mda-fs-row:hover { background: var(--sel-bg); }
     .mda-fs-row.active { background: var(--sel-bg); color: var(--accent); font-weight: 600; }
+    .mda-fs-row.file[draggable="true"] { cursor: grab; }
+    .mda-fs-row.cut-pending { opacity: 0.45; }
+    .mda-fs-row.dragging { opacity: 0.55; }
+    .mda-fs-row.drop-target {
+      outline: 1px solid var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+    }
     .mda-fs-row.dir { color: var(--text-muted); font-weight: 600; }
     .mda-fs-chevron { flex: 0 0 12px; font-size: 10px; color: var(--text-muted); }
-    .mda-fs-name { overflow: hidden; text-overflow: ellipsis; }
+    .mda-fs-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; }
     .mda-fs-empty { padding: 12px; color: var(--text-muted); font-size: 12px; }
 
     /* ================= 欢迎页（WELCOME 空态）================= */
@@ -194,9 +201,44 @@
 
     #editor-pane { flex: 0 0 380px; display: none; overflow: hidden; }
     #editor-pane.visible { display: flex; }
-    #preview-pane { flex: 1 1 auto; min-width: 200px; overflow: auto; padding: 0; background: var(--bg); display: flex; flex-direction: column; }
-    #outline-host { flex: 0 0 auto; max-height: 200px; overflow: auto; border-bottom: 1px solid var(--border-light); }
-    #preview-content { flex: 1 1 auto; overflow: visible; padding: 16px; max-width: 800px; margin: 0 auto; width: 100%; line-height: 1.7; }
+    #preview-pane { flex: 1 1 auto; min-width: 200px; overflow: hidden; padding: 0; background: var(--bg); display: flex; flex-direction: row; align-items: stretch; }
+    #outline-host {
+      position: relative; flex: 0 0 200px; display: flex; flex-direction: column;
+      overflow: hidden; background: var(--bg);
+      border-right: 1px solid transparent;
+      transition: border-color .12s ease;
+    }
+    #outline-host:hover { border-right-color: var(--border-light); }
+    #outline-host.collapsed { display: none; flex: 0 0 0; width: 0; min-width: 0; overflow: hidden; }
+    #split-outline.mda-splitter { background: transparent; }
+    #outline-host:hover + #split-outline,
+    #split-outline:hover { background: var(--border-light); }
+    #split-outline.mda-splitter:hover { background: var(--accent); }
+    #preview-scroll {
+      position: relative; flex: 1 1 auto; min-width: 0; overflow: auto; background: var(--bg);
+    }
+    .mda-outline-expand-rail {
+      flex: 0 0 44px; display: none; flex-direction: column; align-items: center;
+      padding-top: 12px; background: var(--bg); border-right: 1px solid var(--border-light);
+    }
+    .mda-outline-expand-rail.visible { display: flex; }
+    .mda-outline-expand-tab {
+      width: 32px; height: 32px; padding: 0; border-radius: 50%;
+      border: 1px solid var(--border); background: var(--bg);
+      box-shadow: 0 1px 6px rgba(0,0,0,.08); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-muted); flex: 0 0 auto;
+    }
+    .mda-outline-expand-tab:hover {
+      color: var(--accent); border-color: var(--accent);
+      box-shadow: 0 2px 10px rgba(0,0,0,.12);
+    }
+    .mda-outline-expand-tab svg { width: 16px; height: 16px; fill: currentColor; pointer-events: none; }
+    /* 与收放编辑/批注一致：外层变宽，正文 max-width 恒定 800 + 居中，避免换行重排跳动 */
+    #preview-content {
+      overflow: visible; padding: 16px; max-width: 800px; margin: 0 auto; width: 100%; line-height: 1.7;
+      box-sizing: border-box;
+    }
     #panel-pane { flex: 0 0 320px; display: flex; flex-direction: column; overflow: hidden; min-width: 240px; background: var(--bg-secondary); }
     #panel-pane.hidden { display: none; }
 
@@ -473,15 +515,15 @@
     .mda-help-note { margin: 12px 0 0; font-size: 12px; color: var(--text-muted); }
 
     /* ================= 大纲面板 ================= */
-    .mda-outline-panel { font-size: 12px; }
+    .mda-outline-panel { font-size: 12px; display: flex; flex-direction: column; height: 100%; flex: 1; min-height: 0; overflow: hidden; }
     .mda-outline-head {
       display: flex; align-items: center; justify-content: space-between;
       padding: 6px 10px; font-weight: 600; color: var(--text-muted);
-      background: var(--bg-secondary); position: sticky; top: 0; z-index: 2;
+      background: transparent; flex: 0 0 auto;
     }
-    .mda-outline-toggle { border: none; background: transparent; cursor: pointer; color: var(--text-muted); padding: 2px 6px; }
-    .mda-outline-body { padding: 4px 0 8px; max-height: 160px; overflow: auto; }
-    .mda-outline-body.hidden { display: none; }
+    .mda-outline-toggle { border: none; background: transparent; cursor: pointer; color: var(--text-muted); padding: 2px 6px; font-size: 14px; }
+    .mda-outline-toggle:hover { color: var(--accent); }
+    .mda-outline-body { flex: 1 1 auto; min-height: 0; padding: 4px 0 8px; overflow: auto; }
     .mda-outline-list { list-style: none; margin: 0; padding: 0; }
     .mda-outline-link {
       display: block; width: 100%; text-align: left; border: none; background: transparent;
@@ -489,6 +531,7 @@
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .mda-outline-link:hover { background: var(--sel-bg); color: var(--accent); }
+    .mda-outline-link.active { color: var(--accent); font-weight: 600; background: transparent; }
     .mda-outline-empty { padding: 8px 12px; color: var(--text-muted); }
 
     /* ================= 查找替换 ================= */
@@ -548,6 +591,7 @@
   <div id="root"></div>
   <!-- mermaid 离线 UMD（copy-gui 从 node_modules 拷贝） -->
   <script src="./mermaid.min.js"></script>
+  <script src="./i18n.js"></script>
   <script src="./welcome.js"></script>
   <script src="./file-sidebar.js"></script>
   <script src="./sync-scroll.js"></script>

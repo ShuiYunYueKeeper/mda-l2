@@ -292,3 +292,131 @@ clipboard.write({ text, html });
 
 - ❌ `clipboard.writeBuffer('CF_HDROP', …)` 覆盖 HTML → 公众号粘贴空白。
 - ❌ 复制前改 `scrollTop` 或 overlay 重渲染 → 界面闪烁。
+
+---
+
+## 12. 文件树拖动移动目标解析（GUI）
+
+**规则**：
+
+- `dragover` 须记录 `dropTargetDir`（文件夹行 `data-node-path`，或文件行之父目录）与 `lastDropIsCopy`。
+- `drop` **优先**使用 `dropTargetDir`，不可仅依赖 `e.target.closest('.dir')`（松手时常为源文件行）。
+- 同目录移动静默忽略；`moveFileToDir` 源路径=目标路径返回 `noop`，**不得** toast「移动成功」。
+
+### ✅ 正确
+
+```javascript
+treeEl.addEventListener('dragover', function (e) {
+  lastDropIsCopy = !!(e.ctrlKey || e.metaKey);
+  var dirRow = e.target.closest('.mda-fs-row.dir[data-node-path]');
+  if (dirRow) { setDropTargetDir(dirRow.getAttribute('data-node-path')); return; }
+  var fileRow = e.target.closest('.mda-fs-row.file[data-node-path]');
+  if (fileRow) { setDropTargetDir(dirnamePath(fileRow.getAttribute('data-node-path'))); }
+});
+
+treeEl.addEventListener('drop', function (e) {
+  var destDir = dropTargetDir || resolveDropDestDir(e);
+  if (!isCopy && pathsEqual(dirnamePath(src), destDir)) return;
+  cb.onDropFile(src, destDir, isCopy);
+});
+```
+
+### ❌ 错误
+
+- ❌ `drop` 里 `e.target.closest('.dir')` → 目标算成源目录 → 文件未移动却提示成功。
+- ❌ 同路径 `moveFileToDir` 返回 `{ success: true }` → 误报 toast。
+- ❌ `drop` 时用 `e.ctrlKey` 判断复制/移动 → 模式与用户意图不一致。
+
+---
+
+## 13. GUI 文案 i18n 与插值（`uiT`）
+
+**规则**：用户可见字符串走 `MDAI18n.t`；带占位符须转发 `vars`，禁止硬编码单语。
+
+### ✅ 正确
+
+```javascript
+function uiT(key, vars) {
+  return (global.MDAI18n && global.MDAI18n.t)
+    ? global.MDAI18n.t(key, vars)
+    : key;
+}
+uiConfirm(uiT('fsDeleteConfirm', { name: fileName }));
+```
+
+`i18n.js` 中：`fsDeleteConfirm: '确定删除「{name}」吗？'`
+
+### ❌ 错误
+
+- ❌ `uiT('fsDeleteConfirm', { name: fileName })` 但 `uiT` 未传 `vars` → 弹窗显示字面量 `{name}`。
+- ❌ 菜单/弹窗直接写 `'确定删除吗？'` 或 `'Delete?'` → 切换语言无效。
+
+---
+
+## 14. 工作区文件冲突与路径解析（GUI IPC）
+
+**规则**：
+
+- 复制/移动/重命名路径须经 `resolveInWorkspace`；工作区根目录 `rel === ''` 为合法目标。
+- 目标已存在且未传 `conflict` → 返回 `{ conflict: true }`，由渲染层弹窗后再带 `overwrite` / `rename` 重试。
+
+### ✅ 正确
+
+```javascript
+function resolveInWorkspace(inputPath, workspaceRoot) {
+  const rel = path.relative(workspaceRoot, abs);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  return abs; // rel === '' 即 workspaceRoot 本身
+}
+```
+
+### ❌ 错误
+
+- ❌ `if (!rel)` 误判工作区根为非法路径 → 粘贴/移动到根目录失败。
+- ❌ 同名文件直接 `renameSync` 覆盖 → 无确认、违反用户预期。
+
+---
+
+## 15. 大纲高亮按源码行归属（GUI）
+
+**规则**：高亮「≤ 当前行的最近标题」；编辑定位与预览点击须直接更新；滚动锚点约视口 20%（勿用固定 64px，易偏上一节）。
+
+### ✅ 正确
+
+```javascript
+function headingLineAtOrBefore(line) {
+  var active = headings[0].line;
+  for (var i = 0; i < headings.length; i++) {
+    if (headings[i].line <= line) active = headings[i].line;
+    else break;
+  }
+  return active;
+}
+// 预览点击 / onPreviewLocate → updateOutlineActiveFromLine(cursorLine)
+```
+
+### ❌ 错误
+
+- ❌ 仅依赖滚动 + `top + 64` → 点在 1.2 却高亮 1.1。
+- ❌ 预览点击不更新大纲 → 大纲高亮不动。
+
+---
+
+## 16. 启动恢复工作区不得自动打开首文件（GUI）
+
+**规则**：最近列表为空 → 欢迎页；恢复上次工作区只刷新侧栏树，**禁止** `!currentFilePath` 时 `requestOpen(firstMd)`。
+
+### ✅ 正确
+
+```javascript
+// restoreSavedWorkspace → activateWorkspace(path)  // 无 openFirstIfEmpty
+// 用户主动打开文件夹 → activateWorkspace(path, { openFirstIfEmpty: true })
+function refreshWorkspaceTree(opts) {
+  // 仅 opts.openFirstIfEmpty && welcome 时才 requestOpen(first)
+}
+```
+
+### ❌ 错误
+
+- ❌ `refreshWorkspaceTree` 里 `if (!currentFilePath) requestOpen(first)` → 清空最近后重启仍打开文档。
+- ❌ 清空最近打开时强制 `clearOpenDocument()` → 打断正在阅读的文档（用户明确不要）。

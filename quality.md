@@ -76,6 +76,10 @@ npm test          # jest，含覆盖率
 | **选区批注** | 改动 `selection-anchor.js` / `anchor-highlights.js` / anchor 写入 | 预览/源码双路径选区→`anchor`；插入批注行后偏移不失效；代码块/表格可批注；orphan 标记 |
 | **MCP / 导出** | 改动 `src/mcp/**` 或导出/更新 IPC | `mda_scan` 与 CLI JSON 一致；HTML/PDF 导出；打包版检查更新 |
 | **跳转 / 主题 / 弹窗焦点** | 改动 `Ctrl+G`、主题切换、`trapModalFocus`、批注编辑框 | 跳转不标脏；切主题不滚到文首；批注框 Tab 不逃逸改源码 |
+| **工作区文件侧栏** | 改动 `file-sidebar.js` / `file-ops.js` / 文件 IPC | 打开文件夹后树展示；拖宽/双击复位；标题栏 ✕ **清空列表**（关侧栏、不删磁盘文件）；↑↓ 换文档；复制/剪切/粘贴/拖动移动；重命名（仅主文件名）/删除；重名冲突；`Ctrl+Z` 撤销；**拖动**须拖到文件夹行或目标目录内文件行验证 |
+| **预览左侧大纲** | 改动 `outline-panel.js` / 预览布局 / 大纲同步 | 左侧可收起；hover 才显示边线；点击跳转；滚动预览与点击编辑/预览时高亮应对准当前节（勿偏上一节）；收起按钮不挡正文；收放正文不跳动 |
+| **最近打开 / 启动** | 改动 `recent-files` / 启动 `did-finish-load` / `refreshWorkspaceTree` | 清空最近列表不关当前文档；列表为空时重启应为起始页；恢复工作区不得自动打开首个 md |
+| **GUI i18n** | 改动 `i18n.js` 或新增用户可见文案 | 视图→界面语言切换 zh/en；弹窗/toast/菜单无硬编码；`uiT(key, vars)` 插值生效（勿原样显示 `{name}`） |
 | **Free 门禁（M6-5）** | Phase A 集成完成 | 对照 `.project-setup/verification-report.md`；用户明确确认前不得开工 M7 |
 | 阶段确认门禁 | P0–P3 每阶段产出后 | 设计取舍需人工确认后才进入下一阶段 |
 | **GUI 截图 / 录屏** | GUI 功能变更且用户确认实机通过 | 交付素材须人工产出；AI 在 Step 5 列出待补清单并提示用户补充，见 `docs/screenshots/README.md` |

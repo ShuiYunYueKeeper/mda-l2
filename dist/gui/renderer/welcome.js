@@ -12,6 +12,10 @@
     return String(p || '').replace(/\\/g, '/').split('/').pop() || p;
   }
 
+  function tr(key) {
+    return (global.MDAI18n && global.MDAI18n.t) ? global.MDAI18n.t(key) : key;
+  }
+
   /**
    * @param {HTMLElement} hostEl 挂载容器（通常为 #content-row）
    * @param {{ onNew: Function, onOpenFile: Function, onOpenFolder: Function, onOpenRecent: Function }} cb
@@ -23,22 +27,30 @@
     el.innerHTML =
       '<div class="mda-welcome-inner">' +
         '<h1 class="mda-welcome-title">MDA</h1>' +
-        '<p class="mda-welcome-lead">Markdown 批注管理工具 — 预览、编辑、批注与文件管理</p>' +
+        '<p class="mda-welcome-lead" data-i18n="welcomeLead"></p>' +
         '<div class="mda-welcome-actions">' +
-          '<button type="button" class="mda-welcome-btn primary" data-act="new">新建文档 <kbd>Ctrl+N</kbd></button>' +
-          '<button type="button" class="mda-welcome-btn" data-act="open">打开文件 <kbd>Ctrl+O</kbd></button>' +
-          '<button type="button" class="mda-welcome-btn" data-act="folder">打开文件夹 <kbd>Ctrl+Alt+O</kbd></button>' +
+          '<button type="button" class="mda-welcome-btn primary" data-act="new"><span data-i18n="welcomeNew"></span> <kbd>Ctrl+N</kbd></button>' +
+          '<button type="button" class="mda-welcome-btn" data-act="open"><span data-i18n="welcomeOpen"></span> <kbd>Ctrl+O</kbd></button>' +
+          '<button type="button" class="mda-welcome-btn" data-act="folder"><span data-i18n="welcomeFolder"></span> <kbd>Ctrl+Alt+O</kbd></button>' +
         '</div>' +
         '<div class="mda-welcome-recent">' +
-          '<div class="mda-welcome-recent-head">最近打开</div>' +
+          '<div class="mda-welcome-recent-head" data-i18n="welcomeRecent"></div>' +
           '<ul id="welcome-recent-list" class="mda-welcome-recent-list"></ul>' +
-          '<div id="welcome-recent-empty" class="mda-welcome-recent-empty">暂无最近文件</div>' +
+          '<div id="welcome-recent-empty" class="mda-welcome-recent-empty" data-i18n="welcomeRecentEmpty"></div>' +
         '</div>' +
       '</div>';
     hostEl.appendChild(el);
 
     var recentList = el.querySelector('#welcome-recent-list');
     var recentEmpty = el.querySelector('#welcome-recent-empty');
+
+    function applyLang() {
+      el.querySelectorAll('[data-i18n]').forEach(function (node) {
+        var k = node.getAttribute('data-i18n');
+        if (k) node.textContent = tr(k);
+      });
+    }
+    applyLang();
 
     el.addEventListener('click', function (e) {
       var btn = e.target.closest('[data-act]');
@@ -75,7 +87,7 @@
     function show() { el.classList.remove('hidden'); }
     function hide() { el.classList.add('hidden'); }
 
-    return { el: el, show: show, hide: hide, setRecents: setRecents };
+    return { el: el, show: show, hide: hide, setRecents: setRecents, applyLang: applyLang };
   }
 
   global.MDAWelcome = { mount: mount };
