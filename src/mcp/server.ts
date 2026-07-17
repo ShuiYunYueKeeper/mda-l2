@@ -126,7 +126,7 @@ export function createMdaMcpServer(workspace: string): Server {
     {
       capabilities: { tools: {} },
       instructions:
-        'MDA Markdown 批注管理 MCP。写操作路径须在工作区内（MDA_WORKSPACE 或 --workspace）。',
+        'MDA Markdown 工作台 MCP。写操作路径须在工作区内（MDA_WORKSPACE 或 --workspace）。',
     },
   );
 

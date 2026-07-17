@@ -77,6 +77,7 @@
         var p = item.path || item;
         var li = document.createElement('li');
         li.setAttribute('data-path', p);
+        li.title = p;
         li.innerHTML =
           '<span class="mda-welcome-recent-name">' + escHtml(basename(p)) + '</span>' +
           '<span class="mda-welcome-recent-path">' + escHtml(p) + '</span>';

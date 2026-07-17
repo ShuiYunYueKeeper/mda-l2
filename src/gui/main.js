@@ -54,10 +54,17 @@ function buildRecentSubmenu(recents) {
   if (!recents.length) {
     return [{ label: t('menuRecentEmpty'), enabled: false }];
   }
-  const items = recents.map((item) => ({
-    label: path.basename(item.path),
-    click: () => sendToRenderer('file-opened', item.path),
-  }));
+  const items = recents.map((item) => {
+    const full = item.path;
+    const base = path.basename(full);
+    // toolTip 仅 macOS；Windows/Linux 菜单无 hover tooltip，用「文件名 — 全路径」展示
+    const label = process.platform === 'darwin' ? base : `${base} — ${full}`;
+    return {
+      label,
+      toolTip: full,
+      click: () => sendToRenderer('file-opened', full),
+    };
+  });
   items.push({ type: 'separator' });
   items.push({
     label: t('menuClearRecent'),

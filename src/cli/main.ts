@@ -11,7 +11,7 @@ const program = new Command();
 
 program
   .name('mda-cli')
-  .description('Markdown 批注管理工具 - CLI')
+  .description('MDA Markdown 工作台 - CLI')
   .version('1.0.0');
 
 program

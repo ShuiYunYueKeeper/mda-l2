@@ -1,7 +1,7 @@
-# MDA Demo — Markdown 批注管理工具演示文档
+# MDA Demo — Markdown 工作台演示文档
 
 [comment]: <> (@anno {"id":"c1","content":"标题结构建议调整，建议增加副标题","tags":["style","structure"],"level":"major","status":"open","created_at":"2026-06-20T09:00:00+08:00"})
-# MDA - Markdown 批注管理工具
+# MDA — Markdown 工作台
 
 这是 MDA 工具的演示文档，展示了各种 Markdown 元素和批注的混合使用。
 
