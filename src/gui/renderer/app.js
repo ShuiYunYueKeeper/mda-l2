@@ -1,4 +1,4 @@
-﻿// MDA Renderer — Markdown 工作台 GUI
+// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -27,6 +27,8 @@
   var docState = 'welcome';
   // 清空「最近打开」后，在用户主动打开文件前禁止把当前文档写回历史（否则重载会恢复列表，下次启动又自动打开）
   var allowAddRecent = true;
+  // 记住上次会话（文件列表 + 当前文件）；与 main workspace-prefs.rememberSession 同步，默认 true
+  var rememberSessionPref = true;
   var workspaceRoot = null;
   var fsClip = null;
   var fsUndoStack = [];
@@ -48,7 +50,7 @@
   var previewSelectionSnap = null;
   var previewPointer = { down: false, dragged: false, x: 0, y: 0 };
 
-  var filterStatus = { open: true, resolved: true, wontfix: true };
+  var filterStatus = { open: true, resolved: false, wontfix: false };
   var filterLevel = { critical: true, major: true, minor: true, info: true };
   var filterTags = {};
 
@@ -60,7 +62,7 @@
   var previewPaneEl, previewScrollEl, editorPaneEl, editorEl, panelPaneEl;
   var srcGutterEl, srcHighlightEl, srcFindMarkEl, splitFilesEl, splitLeftEl, splitRightEl, splitOutlineEl;
   var findMatchState = null; // { matches: [{start,end}], index: number }
-  var tbEditBtn, tbPanelBtn, tbFilesBtn, tbFileNameEl, addBtn;
+  var tbEditBtn, tbPanelBtn, tbFilesBtn, tbFileNameEl, addBtn, clearAllBtn;
 
   var MOD_KEY = (navigator.platform || '').toLowerCase().indexOf('mac') >= 0 ? '\u2318' : 'Ctrl+';
 
@@ -82,6 +84,7 @@
       tbPanelBtn.title = uiT('tbPanelTitle');
     }
     if (addBtn) addBtn.textContent = uiT('btnAddAnno');
+    if (clearAllBtn) clearAllBtn.textContent = uiT('btnClearAllAnnos');
     if (editorEl) editorEl.placeholder = uiT('editorPlaceholder');
     document.querySelectorAll('[data-i18n-filter]').forEach(function (el) {
       var k = el.getAttribute('data-i18n-filter');
@@ -155,13 +158,34 @@
     api.onMenuExportHtml(function () { exportPreviewHtml(); });
     api.onMenuExportPdf(function () { exportPreviewPdf(); });
     api.onMenuExportDocx(function () { exportPreviewDocx(); });
-    if (api.onMenuAutosave) {
-      api.onMenuAutosave(function (mode) { applyAutosavePref(mode, { toast: true, persist: true }); });
+    if (api.onMenuSettings) {
+      api.onMenuSettings(function () { showSettingsDialog(); });
     }
-    api.onAppCloseRequest(function () { handleAppCloseRequest(); });
+    api.onAppCloseRequest(function () {
+      if (document.getElementById('settings-dialog')) return;
+      handleAppCloseRequest();
+    });
+    if (api.onSettingsModalBlockedClose) {
+      api.onSettingsModalBlockedClose(function () {
+        var shell = document.querySelector('#settings-dialog .mda-settings-shell');
+        if (shell) {
+          shell.classList.remove('mda-settings-shake');
+          void shell.offsetWidth;
+          shell.classList.add('mda-settings-shake');
+        }
+      });
+    }
 
     setupDragAndDrop();
     window.addEventListener('keydown', function (e) {
+      // 设置模态打开时不响应应用级快捷键（菜单加速键由主进程禁用）
+      if (document.getElementById('settings-dialog')) {
+        if (e.key === 'F1' || e.ctrlKey || e.metaKey || e.altKey) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
       if (findReplaceUi && findReplaceUi.isOpen()) {
         var t = e.target;
         if (t && t.closest && t.closest('#find-replace-bar')) return;
@@ -225,8 +249,10 @@
     mountFileUi();
     mountM3Modules();
     mountM4Modules();
-    restoreSavedWorkspace();
-    refreshWelcomeRecents();
+    initRememberSession().then(function () {
+      if (rememberSessionPref) restoreSavedWorkspace();
+      refreshWelcomeRecents();
+    });
     applyUiLang();
     updateToolbar();
   }
@@ -1162,8 +1188,45 @@
   var PANE_DEFAULT = { files: 220, editor: 380, panel: 320, outline: 200 };
   var FILES_WIDTH_KEY = 'mda-file-sidebar-width';
   var OUTLINE_WIDTH_KEY = 'mda-outline-width';
+  var REMEMBER_LAYOUT_KEY = 'mda-remember-layout';
+  var LAYOUT_HABIT_KEYS = [
+    'mda-panel-visible',
+    'mda-editor-pane-dismissed',
+    'mda-outline-collapsed',
+    'mda-file-sidebar-collapsed',
+    'mda-fs-expanded-dirs',
+    FILES_WIDTH_KEY,
+    OUTLINE_WIDTH_KEY,
+  ];
+
+  /** 是否持久化界面布局习惯（默认开；关时读默认、不写、并可清已存键） */
+  function isRememberLayout() {
+    try { return localStorage.getItem(REMEMBER_LAYOUT_KEY) !== '0'; } catch (e) { return true; }
+  }
+
+  function clearLayoutHabits() {
+    for (var i = 0; i < LAYOUT_HABIT_KEYS.length; i++) {
+      try { localStorage.removeItem(LAYOUT_HABIT_KEYS[i]); } catch (e) { /* ignore */ }
+    }
+  }
+
+  function applyRememberLayoutPref(on, opts) {
+    opts = opts || {};
+    var next = !!on;
+    try {
+      if (next) localStorage.setItem(REMEMBER_LAYOUT_KEY, '1');
+      else {
+        localStorage.setItem(REMEMBER_LAYOUT_KEY, '0');
+        clearLayoutHabits();
+      }
+    } catch (e) { /* ignore */ }
+    if (opts.toast) {
+      showToast(next ? uiT('toastRememberLayoutOn') : uiT('toastRememberLayoutOff'));
+    }
+  }
 
   function readPaneWidth(key, minW) {
+    if (!isRememberLayout()) return null;
     try {
       var w = parseInt(localStorage.getItem(key), 10);
       if (isNaN(w) || w < (minW || 140)) return null;
@@ -1172,6 +1235,7 @@
   }
 
   function savePaneWidth(key, w) {
+    if (!isRememberLayout()) return;
     try { localStorage.setItem(key, String(Math.round(w))); } catch (e) { /* ignore */ }
   }
 
@@ -1262,7 +1326,7 @@
     if (!fileSidebar || !fileSidebar.isCollapsed()) applyFileSidebarWidth();
     refreshWorkspaceTree({ openFirstIfEmpty: !!opts.openFirstIfEmpty });
     updateToolbar();
-    if (api.setWorkspaceRoot) api.setWorkspaceRoot(folderPath);
+    if (rememberSessionPref && api.setWorkspaceRoot) api.setWorkspaceRoot(folderPath);
   }
 
   function clearWorkspaceFileList() {
@@ -1286,8 +1350,56 @@
     });
   }
 
+  function isRememberSession() {
+    return !!rememberSessionPref;
+  }
+
+  function initRememberSession() {
+    if (!api.getRememberSession) {
+      rememberSessionPref = true;
+      return Promise.resolve(true);
+    }
+    return api.getRememberSession().then(function (r) {
+      rememberSessionPref = !(r && r.success === false) && (r.value !== false);
+      return rememberSessionPref;
+    }).catch(function () {
+      rememberSessionPref = true;
+      return true;
+    });
+  }
+
+  function applyRememberSessionPref(on, opts) {
+    opts = opts || {};
+    var next = !!on;
+    rememberSessionPref = next;
+    var p = api.setRememberSession
+      ? api.setRememberSession(next)
+      : Promise.resolve({ success: true });
+    return p.then(function () {
+      if (!next) {
+        // 已清磁盘；本会话侧栏若仍开着可保留到用户手动关，欢迎页最近列表刷新为空
+        refreshWelcomeRecents();
+        if (opts.toast) showToast(uiT('toastRememberSessionOff'));
+        return;
+      }
+      // 开启后立刻把当前工作区 / 已打开文件落盘（关着时 open 不会写入，否则下次仍欢迎页）
+      var writes = [];
+      if (workspaceRoot && api.setWorkspaceRoot) {
+        writes.push(Promise.resolve(api.setWorkspaceRoot(workspaceRoot)));
+      }
+      if (currentFilePath && docState === 'open' && api.addRecentFile) {
+        writes.push(api.addRecentFile(currentFilePath).then(function () {
+          refreshWelcomeRecents();
+        }));
+      }
+      return Promise.all(writes).then(function () {
+        if (opts.toast) showToast(uiT('toastRememberSessionOn'));
+      });
+    });
+  }
+
   function restoreSavedWorkspace() {
-    if (!api.getWorkspaceRoot) return;
+    if (!rememberSessionPref || !api.getWorkspaceRoot) return;
     api.getWorkspaceRoot().then(function (r) {
       // 仅恢复侧栏工作区，不自动打开文档；文档由最近打开 / 命令行参数决定
       if (r.success && r.folderPath) activateWorkspace(r.folderPath);
@@ -1802,6 +1914,7 @@
         '<div id="panel-pane" class="hidden">' +
           '<div class="panel-head">' +
             '<button id="btn-add" class="btn-primary" disabled></button>' +
+            '<button id="btn-clear-all" class="btn-clear-all" disabled></button>' +
           '</div>' +
           '<div class="filter-box">' +
             '<div style="margin-bottom:4px"><b data-i18n-filter="filterStatus"></b> <span id="status-filters"></span></div>' +
@@ -1838,6 +1951,7 @@
     tbPanelBtn = document.getElementById('tb-panel');
     tbFileNameEl = document.getElementById('tb-filename');
     addBtn = document.getElementById('btn-add');
+    clearAllBtn = document.getElementById('btn-clear-all');
 
     // 恢复批注栏展开习惯（与大纲/文件列表一致走 localStorage）
     applyPanelVisible(readPanelVisiblePref());
@@ -1845,6 +1959,9 @@
     setupDomCopyShortcuts();
 
     addBtn.addEventListener('click', function () { showEditDialog('add', null, cursorLine); });
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener('click', function () { clearAllAnnotationsInFile(); });
+    }
     tbFilesBtn.addEventListener('click', function () { toggleFilesSidebar(); });
     tbEditBtn.addEventListener('click', function () { toggleEditor(); });
     tbPanelBtn.addEventListener('click', function () { togglePanel(); });
@@ -2105,11 +2222,13 @@
   }
 
   function readEditorDismissed() {
+    if (!isRememberLayout()) return false;
     try { return localStorage.getItem('mda-editor-pane-dismissed') === '1'; } catch (e) { return false; }
   }
 
   function setEditorDismissed(val) {
     editorUserDismissed = !!val;
+    if (!isRememberLayout()) return;
     try {
       if (editorUserDismissed) localStorage.setItem('mda-editor-pane-dismissed', '1');
       else localStorage.removeItem('mda-editor-pane-dismissed');
@@ -2141,10 +2260,12 @@
   }
 
   function readPanelVisiblePref() {
+    if (!isRememberLayout()) return false;
     try { return localStorage.getItem('mda-panel-visible') === '1'; } catch (e) { return false; }
   }
 
   function savePanelVisiblePref(vis) {
+    if (!isRememberLayout()) return;
     try {
       if (vis) localStorage.setItem('mda-panel-visible', '1');
       else localStorage.removeItem('mda-panel-visible');
@@ -2502,6 +2623,9 @@
       tbFileNameEl.innerHTML = name ? (escHtml(name) + (dirty ? '<span class="dirty-dot">●</span>' : '')) : '';
     }
     if (addBtn) addBtn.disabled = docState !== 'open' || !currentFilePath || dirty;
+    if (clearAllBtn) {
+      clearAllBtn.disabled = docState !== 'open' || !currentFilePath || dirty || !annotations.length;
+    }
   }
 
   // ---- 拖拽打开 ----
@@ -3721,6 +3845,9 @@
 
     annoListEl.innerHTML = html;
     if (addBtn) addBtn.disabled = !currentFilePath || dirty;
+    if (clearAllBtn) {
+      clearAllBtn.disabled = !currentFilePath || dirty || !annotations.length;
+    }
 
     var items = annoListEl.querySelectorAll('[data-anno-id]');
     for (var j = 0; j < items.length; j++) {
@@ -3759,6 +3886,147 @@
     var anno = findAnno(id);
     if (!anno) return;
     showEditDialog('edit', anno, null);
+  }
+
+  function clearAllAnnotationsInFile() {
+    if (!ensureNotDirty()) return;
+    if (!currentFilePath || !annotations.length) return;
+    uiConfirm(uiT('alertClearAllAnnos'), {
+      preferCancel: true,
+      okLabel: uiT('confirm'),
+    }).then(function (yes) {
+      if (!yes) return;
+      if (!api.clearAllAnnotations) {
+        uiAlert(uiT('alertClearAllFail', { error: uiT('unknownError') }));
+        return;
+      }
+      api.clearAllAnnotations(currentFilePath).then(function (r) {
+        if (!r || !r.success) {
+          uiAlert(uiT('alertClearAllFail', { error: (r && r.error) || uiT('unknownError') }));
+          return;
+        }
+        selectedAnnotationId = null;
+        var n = typeof r.value === 'number' ? r.value : 0;
+        showToast(uiT('toastClearAllOk', { count: n }));
+        reloadFile();
+      });
+    });
+  }
+
+  function showSettingsDialog() {
+    var existing = document.getElementById('settings-dialog');
+    if (existing) return;
+    // 锁定菜单动作 / 窗口关闭（不卸载菜单栏）
+    if (api.setSettingsModal) api.setSettingsModal(true);
+
+    var cur = autosavePref || 'off';
+    var modes = [
+      { id: 'off', label: uiT('autosaveModeOff') },
+      { id: 'blur', label: uiT('autosaveModeBlur') },
+      { id: 'interval:30', label: uiT('autosaveModeInterval30') },
+      { id: 'interval:60', label: uiT('autosaveModeInterval60') },
+    ];
+    var options = modes.map(function (m) {
+      return '<option value="' + m.id + '"' + (cur === m.id ? ' selected' : '') + '>' +
+        escHtml(m.label) + '</option>';
+    }).join('');
+    var rememberOn = isRememberLayout();
+    var sessionOn = isRememberSession();
+
+    var overlay = document.createElement('div');
+    overlay.id = 'settings-dialog';
+    overlay.className = 'modal-overlay mda-settings-overlay';
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.innerHTML =
+      '<div class="mda-settings-shell" role="dialog" aria-modal="true" aria-label="' +
+        escHtml(uiT('settingsTitle')) + '">' +
+        '<aside class="mda-settings-nav">' +
+          '<div class="mda-settings-brand">' + escHtml(uiT('settingsTitle')) + '</div>' +
+          '<button type="button" class="mda-settings-nav-item active" data-pane="general">' +
+            escHtml(uiT('settingsNavGeneral')) +
+          '</button>' +
+          '<button type="button" class="mda-settings-nav-item is-soon" data-pane="pro" disabled title="' +
+            escHtml(uiT('settingsProSoon')) + '">' +
+            escHtml(uiT('settingsNavPro')) +
+            '<span class="mda-settings-soon">' + escHtml(uiT('settingsProSoon')) + '</span>' +
+          '</button>' +
+        '</aside>' +
+        '<div class="mda-settings-main">' +
+          '<div class="mda-settings-body" data-pane-panel="general">' +
+            '<h2 class="mda-settings-heading">' + escHtml(uiT('settingsNavGeneral')) + '</h2>' +
+            '<div class="mda-settings-group">' +
+              '<div class="mda-settings-row">' +
+                '<div class="mda-settings-row-text">' +
+                  '<div class="mda-settings-row-title">' + escHtml(uiT('settingsAutosave')) + '</div>' +
+                  '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsAutosaveDesc')) + '</div>' +
+                '</div>' +
+                '<div class="mda-settings-row-ctrl">' +
+                  '<select id="settings-autosave" class="mda-settings-select">' + options + '</select>' +
+                '</div>' +
+              '</div>' +
+              '<div class="mda-settings-row">' +
+                '<div class="mda-settings-row-text">' +
+                  '<div class="mda-settings-row-title">' + escHtml(uiT('settingsRememberSession')) + '</div>' +
+                  '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsRememberSessionDesc')) + '</div>' +
+                '</div>' +
+                '<div class="mda-settings-row-ctrl">' +
+                  '<label class="mda-settings-switch" title="' + escHtml(uiT('settingsRememberSession')) + '">' +
+                    '<input type="checkbox" id="settings-remember-session"' +
+                      (sessionOn ? ' checked' : '') + ' />' +
+                    '<span class="mda-settings-switch-track" aria-hidden="true"></span>' +
+                  '</label>' +
+                '</div>' +
+              '</div>' +
+              '<div class="mda-settings-row">' +
+                '<div class="mda-settings-row-text">' +
+                  '<div class="mda-settings-row-title">' + escHtml(uiT('settingsRememberLayout')) + '</div>' +
+                  '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsRememberLayoutDesc')) + '</div>' +
+                '</div>' +
+                '<div class="mda-settings-row-ctrl">' +
+                  '<label class="mda-settings-switch" title="' + escHtml(uiT('settingsRememberLayout')) + '">' +
+                    '<input type="checkbox" id="settings-remember-layout"' +
+                      (rememberOn ? ' checked' : '') + ' />' +
+                    '<span class="mda-settings-switch-track" aria-hidden="true"></span>' +
+                  '</label>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="mda-settings-footer">' +
+            '<button type="button" id="settings-cancel" class="mda-settings-btn">' + escHtml(uiT('settingsCancel')) + '</button>' +
+            '<button type="button" id="settings-save" class="mda-settings-btn mda-settings-btn-primary">' +
+              escHtml(uiT('settingsSave')) +
+            '</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+
+    function close() {
+      overlay.remove();
+      if (api.setSettingsModal) api.setSettingsModal(false);
+    }
+    trapModalFocus(overlay, close);
+    overlay.querySelector('#settings-cancel').addEventListener('click', close);
+    overlay.querySelector('#settings-save').addEventListener('click', function () {
+      var sel = overlay.querySelector('#settings-autosave');
+      var mode = sel ? sel.value : 'off';
+      var rem = overlay.querySelector('#settings-remember-layout');
+      var nextRemember = !!(rem && rem.checked);
+      var remSess = overlay.querySelector('#settings-remember-session');
+      var nextSession = !!(remSess && remSess.checked);
+      var rememberChanged = nextRemember !== isRememberLayout();
+      var sessionChanged = nextSession !== isRememberSession();
+      var toastOther = !rememberChanged && !sessionChanged;
+      applyAutosavePref(mode, { toast: toastOther, persist: true });
+      applyRememberLayoutPref(nextRemember, { toast: rememberChanged && !sessionChanged });
+      applyRememberSessionPref(nextSession, { toast: sessionChanged });
+      close();
+    });
+    requestAnimationFrame(function () {
+      var sel = overlay.querySelector('#settings-autosave');
+      if (sel) sel.focus();
+    });
   }
 
   function deleteAnnotation(id) {
@@ -3842,17 +4110,31 @@
     document.addEventListener('keydown', onKey, true);
   }
 
-  function uiModal(message, withCancel) {
+  function uiModal(message, withCancel, opts) {
+    opts = opts || {};
     return new Promise(function (resolve) {
       var overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
-      var btns = withCancel ? '<button id="ui-cancel" class="btn-ghost">' + uiT('cancel') + '</button>' : '';
+      var preferCancel = !!(withCancel && opts.preferCancel);
+      var okLabel = opts.okLabel || uiT('ok');
+      var cancelLabel = opts.cancelLabel || uiT('cancel');
+      var actionsHtml;
+      if (!withCancel) {
+        actionsHtml = '<button id="ui-ok" class="btn-ok">' + okLabel + '</button>';
+      } else if (preferCancel) {
+        // 破坏性操作：确认在左（次要），取消在右且为蓝色默认焦点
+        actionsHtml =
+          '<button id="ui-ok" class="btn-ghost">' + okLabel + '</button>' +
+          '<button id="ui-cancel" class="btn-ok">' + cancelLabel + '</button>';
+      } else {
+        actionsHtml =
+          '<button id="ui-cancel" class="btn-ghost">' + cancelLabel + '</button>' +
+          '<button id="ui-ok" class="btn-ok">' + okLabel + '</button>';
+      }
       overlay.innerHTML =
         '<div class="modal-box" style="min-width:280px;max-width:420px">' +
           '<div style="font-size:14px;margin-bottom:20px;line-height:1.6">' + escHtml(message) + '</div>' +
-          '<div class="modal-actions">' + btns +
-            '<button id="ui-ok" class="btn-ok">' + uiT('ok') + '</button>' +
-          '</div>' +
+          '<div class="modal-actions">' + actionsHtml + '</div>' +
         '</div>';
       document.body.appendChild(overlay);
       function close(val) { overlay.remove(); resolve(val); }
@@ -3861,22 +4143,25 @@
       var cancelBtn = overlay.querySelector('#ui-cancel');
       if (cancelBtn) cancelBtn.addEventListener('click', function () { close(false); });
       overlay.addEventListener('click', function (e) { if (e.target === overlay) close(false); });
-      var ok = overlay.querySelector('#ui-ok');
-      if (ok) ok.focus();
+      var focusEl = preferCancel && cancelBtn ? cancelBtn : overlay.querySelector('#ui-ok');
+      if (focusEl) focusEl.focus();
     });
   }
 
-  function uiConfirm(message) { return uiModal(message, true); }
+  function uiConfirm(message, opts) { return uiModal(message, true, opts); }
   function uiAlert(message) { return uiModal(message, false); }
 
   function showHelpDialog() {
+    if (document.getElementById('help-dialog')) return;
     var exts = (api.markdownExtensions || ['md', 'markdown', 'txt', 'mdc']).map(function (e) {
       return '.' + e;
     }).join(' / ');
     var overlay = document.createElement('div');
+    overlay.id = 'help-dialog';
     overlay.className = 'modal-overlay';
     overlay.innerHTML =
-      '<div class="modal-box mda-help-box">' +
+      '<div class="modal-box mda-help-box" role="dialog" aria-label="' +
+        escHtml(uiT('helpTitle')) + '">' +
         '<h2 class="mda-help-title">' + uiT('helpTitle') + '</h2>' +
         '<div class="mda-help-body">' +
           (window.MDAI18n && MDAI18n.buildHelpHtml ? MDAI18n.buildHelpHtml(exts) : '') +

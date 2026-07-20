@@ -1,4 +1,4 @@
-﻿const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 // 复用编译后的 @mda/core（dist/core），消除 GUI 与核心库的重复实现。
 // 需 sandbox: false 才能在 preload 中 require 第三方/本地模块。
@@ -175,11 +175,15 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   onMenuExportDocx: (callback) => {
     ipcRenderer.on('menu-export-docx', () => callback());
   },
-  onMenuAutosave: (callback) => {
-    ipcRenderer.on('menu-autosave', (_event, mode) => callback(mode));
+  onMenuSettings: (callback) => {
+    ipcRenderer.on('menu-settings', () => callback());
   },
   getAutosavePref: () => ipcRenderer.invoke('get-autosave-pref'),
   setAutosavePref: (mode) => ipcRenderer.invoke('set-autosave-pref', mode),
+  setSettingsModal: (open) => ipcRenderer.invoke('set-settings-modal', !!open),
+  onSettingsModalBlockedClose: (callback) => {
+    ipcRenderer.on('settings-modal-blocked-close', () => callback());
+  },
   onAppCloseRequest: (callback) => {
     ipcRenderer.on('app-close-request', () => callback());
   },
@@ -192,6 +196,8 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   listMarkdownTree: (folderPath) => ipcRenderer.invoke('list-markdown-tree', folderPath),
   getWorkspaceRoot: () => ipcRenderer.invoke('get-workspace-root'),
   setWorkspaceRoot: (folderPath) => ipcRenderer.invoke('set-workspace-root', folderPath),
+  getRememberSession: () => ipcRenderer.invoke('get-remember-session'),
+  setRememberSession: (on) => ipcRenderer.invoke('set-remember-session', !!on),
   getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
   addRecentFile: (filePath) => ipcRenderer.invoke('add-recent-file', filePath),
   clearRecentFiles: () => ipcRenderer.invoke('clear-recent-files'),
@@ -224,6 +230,8 @@ contextBridge.exposeInMainWorld('mdaAPI', {
     core.editAnnotation(filePath, id, patch).then(ok, fail),
   removeAnnotation: (filePath, id) =>
     core.removeAnnotation(filePath, id).then(() => ok(null), fail),
+  clearAllAnnotations: (filePath) =>
+    core.clearAllAnnotations(filePath).then((n) => ok(n), fail),
 
   // 整篇源码保存（编辑模式用）：走 core 原子写入 + 保留原换行风格
   saveFile: (filePath, content) =>

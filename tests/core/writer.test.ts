@@ -1,9 +1,9 @@
-﻿import * as fs from 'fs/promises';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import { parseAnnotations } from '../../src/core/parser';
 import { isAnchorStale } from '../../src/core/anchor';
-import { addAnnotation, editAnnotation, removeAnnotation, writeRawFile } from '../../src/core/writer';
+import { addAnnotation, editAnnotation, removeAnnotation, clearAllAnnotations, writeRawFile } from '../../src/core/writer';
 import { Annotation } from '../../src/core/model';
 
 const tmpDir = path.join(os.tmpdir(), 'mda-writer-test-' + Date.now());
@@ -243,6 +243,42 @@ describe('错误处理', () => {
     const parsed = parseAnnotations(disk);
     expect(parsed.annotations[0].anchor?.quote).toBe('正文');
     expect(isAnchorStale(disk.replace(/\r\n/g, '\n'), parsed.annotations[0])).toBe(false);
+  });
+});
+
+// ---- 清空全部批注 ----
+
+describe('clearAllAnnotations', () => {
+  test('删除全部批注行且正文不变', async () => {
+    const f = tmpFile('clear-all.md');
+    const body = makeText([
+      '# Title',
+      '',
+      makeAnnoLine({ id: 'a1', content: 'one', level: 'major' }),
+      '第一段。',
+      '',
+      makeAnnoLine({ id: 'a2', content: 'two', level: 'info' }),
+      '第二段。',
+      '',
+    ]);
+    await writeFile(f, body);
+
+    const n = await clearAllAnnotations(f);
+    expect(n).toBe(2);
+    const content = await readFile(f);
+    expect(content).not.toContain('@anno');
+    expect(content).toContain('# Title');
+    expect(content).toContain('第一段。');
+    expect(content).toContain('第二段。');
+    expect(parseAnnotations(content).annotations).toHaveLength(0);
+  });
+
+  test('无批注时返回 0', async () => {
+    const f = tmpFile('clear-empty.md');
+    await writeFile(f, '# Only\n\n正文。\n');
+    const n = await clearAllAnnotations(f);
+    expect(n).toBe(0);
+    expect(await readFile(f)).toContain('正文。');
   });
 });
 

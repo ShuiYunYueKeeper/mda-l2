@@ -1,4 +1,4 @@
-﻿// MDA 工作区文件列表侧栏（打开文件夹后展示 Markdown 文件列表）
+// MDA 工作区文件列表侧栏（打开文件夹后展示 Markdown 文件列表）
 
 (function (global) {
 
@@ -213,7 +213,17 @@
 
 
 
+    function rememberLayout() {
+
+      try { return localStorage.getItem('mda-remember-layout') !== '0'; } catch (e) { return true; }
+
+    }
+
+
+
     function readCollapsedPref() {
+
+      if (!rememberLayout()) return false;
 
       try { return localStorage.getItem('mda-file-sidebar-collapsed') === '1'; } catch (e) { return false; }
 
@@ -223,7 +233,7 @@
 
     function loadExpandedDirs() {
 
-      if (!workspaceKey) {
+      if (!workspaceKey || !rememberLayout()) {
 
         expandedDirs = {};
 
@@ -249,7 +259,7 @@
 
     function saveExpandedDirs() {
 
-      if (!workspaceKey) return;
+      if (!workspaceKey || !rememberLayout()) return;
 
       try {
 
@@ -273,7 +283,11 @@
 
       if (railEl) railEl.classList.toggle('collapsed', collapsed);
 
-      try { localStorage.setItem('mda-file-sidebar-collapsed', collapsed ? '1' : '0'); } catch (e) { /* ignore */ }
+      if (rememberLayout()) {
+
+        try { localStorage.setItem('mda-file-sidebar-collapsed', collapsed ? '1' : '0'); } catch (e) { /* ignore */ }
+
+      }
 
       if (cb.onCollapsedChange) cb.onCollapsedChange(collapsed);
 
