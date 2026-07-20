@@ -441,3 +441,30 @@ if (opts.kind === 'mermaid') {
 
 - ❌ 流程图也走 `writeImage` / `capturePageRect` → 粘贴进编辑器是图，无法改图语法。
 - ❌ 打开缩放时未传入 `data-mermaid-src` → 复制空内容。
+
+---
+
+## 18. 批注定位与编辑滚动钉住（GUI）
+
+**规则**：
+- 点批注定位须用预览滚动容器的几何位移（`#preview-scroll` + `getBoundingClientRect`），勿对块 `scrollIntoView`（易滚错祖先）。
+- 连续「滚预览 + 滚编辑」勿依赖会**丢弃**第二次调用的 sync 锁；布局未稳（开编辑栏）须重试。
+- Enter 等编辑键：若光标仍在原视口内，钉住 `scrollTop`，勿让浏览器「保光标可见」或实时重渲拽飞视口。
+- 实时键入勿「先跳过 Mermaid 再空闲补渲」——预览高度先塌后撑会造成半秒闪烁。
+
+### ✅ 正确
+
+```javascript
+// 批注定位：直接几何滚预览 + 多次重试
+MDASyncScroll.scrollPreviewToLine(previewScrollEl, p.startLine, map, { onlyIfNeeded: false });
+syncScrollCtrl.scrollEditorToLine(anno.line, { skipPreview: true });
+
+// 新建后
+reloadFile({ selectAnnoId: r.value.id }); // mermaid.then → selectAnnotation
+```
+
+### ❌ 错误
+
+- ❌ `el.scrollIntoView` 后再 `showEditorPane` → 预览宽度变了，第一次定位不准。
+- ❌ `withSyncLock` 内连续两次定位且第二次被 `if (syncing) return` 丢掉 → 「要点两次」。
+- ❌ 键入时 `skipMermaid` 再 450ms 全量补渲 → 预览先下后上闪烁。

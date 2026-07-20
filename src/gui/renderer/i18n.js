@@ -60,6 +60,8 @@
       filterLevel: '级别',
       filterTags: '标签',
       annoEmpty: '无批注',
+      annoExpand: '展开',
+      annoCollapse: '收起',
       untitled: '未命名.md',
       editorPlaceholder: '在此编辑 Markdown 源码…',
       ok: '确定',
@@ -232,6 +234,8 @@
       filterLevel: 'Level',
       filterTags: 'Tags',
       annoEmpty: 'No annotations',
+      annoExpand: 'Show more',
+      annoCollapse: 'Show less',
       untitled: 'Untitled.md',
       editorPlaceholder: 'Edit Markdown source…',
       ok: 'OK',
@@ -399,7 +403,7 @@
         '</ul>' +
         '<h3>Edit &amp; preview</h3>' +
         '<ul class="mda-help-list">' +
-          '<li>Preview-first; editor / notes panes toggle independently</li>' +
+          '<li>Preview-first; editor pane toggles independently; notes pane remembers last open/closed</li>' +
           '<li>Click to locate (no continuous scroll sync); <strong>outline on the left</strong> — click to jump, scroll preview to sync active heading; ‹ collapse, left rail button to expand</li>' +
           '<li>Syntax highlight + line numbers; <kbd>Ctrl+S</kbd> save; unsaved close prompts</li>' +
           '<li><kbd>Ctrl+F</kbd> find, <kbd>Ctrl+H</kbd> replace, <kbd>Ctrl+G</kbd> go to line</li>' +
@@ -465,7 +469,7 @@
       '</ul>' +
       '<h3>编辑与预览</h3>' +
       '<ul class="mda-help-list">' +
-        '<li>布局：预览为主；编辑栏 / 批注栏默认收起，可独立开关（工具栏或快捷键）</li>' +
+        '<li>布局：预览为主；编辑栏可独立开关；批注栏记住上次展开/收起</li>' +
         '<li>编辑↔预览<strong>点击定位</strong>（滚动互不跟随）；预览<strong>左侧大纲</strong>点击跳转，滚动预览时标题同步高亮；‹ 收起后左侧窄栏按钮展开</li>' +
         '<li>源码语法高亮 + 行号；<kbd>Ctrl+S</kbd> 保存；关闭时未保存会提示</li>' +
         '<li><kbd>Ctrl+F</kbd> 查找、<kbd>Ctrl+H</kbd> 替换、<kbd>Ctrl+G</kbd> 跳转到行</li>' +

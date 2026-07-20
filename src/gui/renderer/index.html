@@ -452,7 +452,23 @@
     .anno-item:nth-child(2n) { background: var(--bg-secondary); }
     .anno-item.selected { background: var(--sel-bg); }
     .anno-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
-    .anno-content { margin-bottom: 6px; font-size: 13px; color: var(--text); }
+    .anno-content {
+      margin-bottom: 4px; font-size: 13px; color: var(--text);
+      white-space: pre-wrap; word-break: break-word; line-height: 1.45;
+    }
+    .anno-content.is-collapsed {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+      overflow: hidden;
+      white-space: normal;
+    }
+    .anno-expand-toggle {
+      display: inline-block; margin: 0 0 6px; padding: 0;
+      border: none; background: none; color: var(--accent);
+      font-size: 12px; cursor: pointer; line-height: 1.4;
+    }
+    .anno-expand-toggle:hover { text-decoration: underline; }
     .anno-tags { margin-bottom: 6px; }
     .anno-tag { background: var(--tag-bg); border-radius: 3px; padding: 2px 6px; font-size: 11px; margin-right: 4px; color: var(--text); }
     .anno-actions { text-align: right; }
