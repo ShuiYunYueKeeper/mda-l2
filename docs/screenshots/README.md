@@ -54,6 +54,9 @@
 | `13b-outline-collapsed.png` | 大纲收起窄栏 | 暂不补 |
 | `15-codeblock-menu.png` | 代码块右键菜单 | 暂不补（可用 `15-function-*` 代替菜单类展示） |
 | `9b-zoom-copy.png` | 缩放层「复制」按钮特写 | 暂不补（能力见帮助与 README 文字说明） |
+| `18-export-docx.png` | 导出 Word | 建议补；暂不强制 |
+| `19-autosave-menu.png` | 自动保存菜单 | 建议补；暂不强制 |
+| `10b-welcome-pitch.png` | 欢迎页副文案 | 建议更新 `10-welcome.png`；暂不强制 |
 
 录屏建议场景仍可选补，见下表；当前以静态截图为主。
 

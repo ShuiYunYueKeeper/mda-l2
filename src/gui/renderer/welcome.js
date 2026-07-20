@@ -28,6 +28,7 @@
       '<div class="mda-welcome-inner">' +
         '<h1 class="mda-welcome-title">MDA</h1>' +
         '<p class="mda-welcome-lead" data-i18n="welcomeLead"></p>' +
+        '<p class="mda-welcome-pitch" data-i18n="welcomePitch"></p>' +
         '<div class="mda-welcome-actions">' +
           '<button type="button" class="mda-welcome-btn primary" data-act="new"><span data-i18n="welcomeNew"></span> <kbd>Ctrl+N</kbd></button>' +
           '<button type="button" class="mda-welcome-btn" data-act="open"><span data-i18n="welcomeOpen"></span> <kbd>Ctrl+O</kbd></button>' +

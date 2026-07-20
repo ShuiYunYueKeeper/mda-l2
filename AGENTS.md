@@ -7,17 +7,24 @@
 
 ## 1. 项目背景
 
-MDA 源自 L2 命题「Markdown 批注管理工具」，现定位为 **Markdown 工作台**：预览、编辑、批注与文件管理。
-核心仍是：在不破坏 Markdown 原文渲染效果的前提下，为 `.md` 文件嵌入、查询、管理结构化批注（评审意见）。
-批注以 **Markdown 标准注释语法**承载，渲染后完全不可见，因此可与正文共存于同一文件、随文件一起进入 git 版本控制。
+### 1.1 行业与产品背景
 
-工具同时提供两种一致的使用方式：
+生成式 AI 普及后，Markdown（`.md`）已从技术文档标记语言，扩展为 AI 与人协作的「通用中介语言」：方案草稿、会议纪要、技术说明、知识库条目、Agent 配置与评审意见等，越来越多以 Markdown 生成、修订与传递。相对富文本或二进制文档，它语法轻量、便于 git 版本管理与跨工具协作，在研发与日常办公中的使用频率持续上升。
 
-- **CLI**（`mda-cli`）：扫描 / 增 / 删 / 改批注，可脚本化、可输出 JSON。
-- **GUI**（`mda`，Electron）：Markdown 预览与编辑、文件侧栏、大纲、批注面板等。
-- **MCP**（`mda-mcp`）：供 Agent 调用的批注 / 读文件 / 导出评审提示工具。
+用户反馈亦集中在：**打开/预览体验**、**语法渲染**、**导入导出与格式互操作**、**与 AI 工作流结合**等基础能力。市场存在明显断层——办公套件多将 `.md` 导入为私有格式，难以原生编辑源文件；专业编辑器（Typora、Obsidian、IDE 等）面向重度用户，在办公交付与 Agent 协作链路上仍偏重。大量用户从 AI / 协作平台拿到 `.md` 后，只需「能看懂、能改几句、能批注、能导出」，却不得不在多种工具间切换。
 
-CLI / GUI / MCP 共享同一个核心库 `@mda/core`（`src/core/`），保证行为一致。
+### 1.2 MDA 定位
+
+MDA（Markdown 工作台）面向「被 Markdown 文件触达」的研发与办公用户，补齐本地优先的 **打开 → 预览 → 轻量编辑 → 批注协作 → 导出 / Agent 调用** 链路：比办公套件更原生地处理 `.md`，比专业编辑器更贴合「读改批注 + AI 脚本化」的轻便场景。
+
+产品源自 L2 命题「Markdown 批注管理工具」，能力已扩展为工作台，**差异化核心**仍是：在不破坏原文渲染的前提下，用 Markdown 标准注释嵌入结构化批注（`[comment]: <> (@anno {JSON})`），渲染不可见、可随文件进 git；并提供一致的 **CLI**（`mda-cli`）/ **GUI**（`mda`）/ **MCP**（`mda-mcp`），共享 `@mda/core`。
+
+| 能力轴 | MDA 现状侧重 |
+|--------|----------------|
+| 打开与预览 | 工作区文件树、欢迎页、最近打开、CommonMark + GFM / Mermaid / KaTeX |
+| 轻量编辑 | 源码高亮、查找替换、大纲、分屏预览 |
+| 批注协作 | 段落/选区批注、色条互定位、源文件保护写入 |
+| 导出与 AI | HTML/PDF、微信公众号复制、MCP 工具供 Agent 扫描与改批注 |
 
 ---
 
@@ -166,9 +173,12 @@ copyClipboardImage({dataUrl|filePath}) -> {success} | {success:false,error}  // 
 copyArticleHtml(html, text) -> {success:true} | {success:false,error}  // 富文本剪贴板（微信公众号；勿 writeBuffer 覆盖）
 readFileAsDataUrl(filePath) -> {success, dataUrl} | {success:false,error}  // 本地图片转 base64（复制预览内嵌用）
 capturePageRect({x,y,width,height}) -> {success, dataUrl} | {success:false,error}
+exportDocx(filePath, html) -> {success, filePath} | {success:false,error}  // HTML→docx（html-to-docx）
+getAutosavePref() / setAutosavePref(mode) / onMenuAutosave(cb)  // off|blur|interval:30|interval:60
 resolvePath(baseFile, href) -> absPath        // 相对当前文件目录解析（相对链接/图片用）
 onFileOpened(cb) / onReload(cb) / onMenuShowInFolder(cb)
 onMenuToggleTheme(cb) / onMenuToggleEdit(cb) / onMenuTogglePanel(cb) / onMenuSave(cb) / onMenuShowHelp(cb) / onMenuCopyArticle(cb) / onAppCloseRequest(cb)
+onMenuExportDocx(cb) / onMenuAutosave(cb)
 setDirty(dirty) / confirmClose()
 levelColors / levelSeverity / markdownExtensions / isMarkdownPath(filePath)   // 来自 annotation-schema.json（扩展名）与 core
 parseAnnotations(text) -> ScanResult

@@ -48,7 +48,8 @@
       outlineCollapse: '收起',
       outlineExpand: '展开',
       outlineEmpty: '无标题',
-      welcomeLead: 'Markdown 工作台 — 预览 · 编辑 · 批注 · 文件',
+      welcomeLead: '本地优先的 Markdown 工作台 — 预览 · 编辑 · 批注 · 文件',
+      welcomePitch: '把 AI 产出的 .md 打开、看懂、轻改、批注，再导出或交给 Agent',
       welcomeNew: '新建文档',
       welcomeOpen: '打开文件',
       welcomeFolder: '打开文件夹',
@@ -141,6 +142,14 @@
       alertExportWriteFail: '导出失败: 写入未成功',
       alertExportNoWrite: '导出不可用：请重新构建并重启 GUI（缺少 writeTextFile）',
       alertExportNoPdf: '导出不可用：请重新构建并重启 GUI（缺少 exportPdf）',
+      alertExportNoDocx: '导出不可用：请重新构建并重启 GUI（缺少 exportDocx）',
+      toastAutosaveFail: '自动保存失败: {error}',
+      toastAutosaveSkipMalformed: '存在格式异常的批注行，已跳过自动保存',
+      toastAutosaveOn: '自动保存：{mode}',
+      autosaveModeOff: '关闭',
+      autosaveModeBlur: '失焦保存',
+      autosaveModeInterval30: '每 30 秒',
+      autosaveModeInterval60: '每 60 秒',
       unknownError: '未知错误',
       mermaidMissing: '流程图渲染失败: mermaid 未加载',
       mermaidFail: '流程图渲染失败: {error}',
@@ -158,6 +167,7 @@
       exportEmpty: '导出内容为空',
       exportHtmlTitle: '导出 HTML',
       exportPdfTitle: '导出 PDF',
+      exportDocxTitle: '导出 Word',
       exportDefaultLabel: '导出',
       prepareLabel: '准备{label}',
       writeLabel: '写入{label}',
@@ -210,7 +220,8 @@
       outlineCollapse: 'Collapse',
       outlineExpand: 'Expand',
       outlineEmpty: 'No headings',
-      welcomeLead: 'Markdown workspace — preview · edit · annotate · files',
+      welcomeLead: 'Local-first Markdown workspace — preview · edit · annotate · files',
+      welcomePitch: 'Open AI-generated .md, skim, tweak, annotate — then export or hand off to an Agent',
       welcomeNew: 'New Document',
       welcomeOpen: 'Open File',
       welcomeFolder: 'Open Folder',
@@ -303,6 +314,14 @@
       alertExportWriteFail: 'Export failed: write did not succeed',
       alertExportNoWrite: 'Export unavailable: rebuild and restart GUI (missing writeTextFile)',
       alertExportNoPdf: 'Export unavailable: rebuild and restart GUI (missing exportPdf)',
+      alertExportNoDocx: 'Export unavailable: rebuild and restart GUI (missing exportDocx)',
+      toastAutosaveFail: 'Auto-save failed: {error}',
+      toastAutosaveSkipMalformed: 'Malformed annotation lines found; auto-save skipped',
+      toastAutosaveOn: 'Auto-save: {mode}',
+      autosaveModeOff: 'Off',
+      autosaveModeBlur: 'On blur',
+      autosaveModeInterval30: 'Every 30s',
+      autosaveModeInterval60: 'Every 60s',
       unknownError: 'Unknown error',
       mermaidMissing: 'Diagram render failed: mermaid not loaded',
       mermaidFail: 'Diagram render failed: {error}',
@@ -320,6 +339,7 @@
       exportEmpty: 'Export content is empty',
       exportHtmlTitle: 'Export HTML',
       exportPdfTitle: 'Export PDF',
+      exportDocxTitle: 'Export Word',
       exportDefaultLabel: 'Export',
       prepareLabel: 'Prepare {label}',
       writeLabel: 'Write {label}',
@@ -361,7 +381,7 @@
     exts = escHtml(exts || '');
     if (lang === 'en') {
       return (
-        '<p class="mda-help-lead">MDA Markdown workspace: preview and edit Markdown, manage files, and embed structured annotations in .md.</p>' +
+        '<p class="mda-help-lead">MDA is a local-first Markdown workspace: open .md natively, preview and lightly edit, keep structured annotations in git, with export and Agent (MCP) hooks.</p>' +
         '<h3>Supported files</h3>' +
         '<p>Open ' + exts + '; drag onto the window, use File → Open, the welcome page, or <code>mda path/to/file</code>.</p>' +
         '<h3>Files</h3>' +
@@ -386,7 +406,8 @@
           '<li><kbd>Ctrl+B/I/`</kbd> bold/italic/code; <kbd>Ctrl+Shift+]/[</kbd> heading level</li>' +
           '<li>Dark mode; relative images; Mermaid; KaTeX; click image/diagram to zoom — toolbar or Ctrl+C copies (image → clipboard image; diagram → Mermaid source)</li>' +
           '<li><strong>Copy preview</strong>: menu or <kbd>Ctrl+Shift+C</kbd> for WeChat-ready rich text</li>' +
-          '<li><strong>Export</strong>: File → Export HTML / PDF (progress UI; ~60s timeout)</li>' +
+          '<li><strong>Export</strong>: File → Export HTML / PDF / Word (progress UI; ~60s timeout)</li>' +
+          '<li><strong>Auto-save</strong>: File → Auto Save — Off / On blur / Every 30s / Every 60s (saved files only; untitled never auto Save As)</li>' +
           '<li>Panes are resizable; double-click splitter to reset</li>' +
         '</ul>' +
         '<h3>CLI / MCP</h3>' +
@@ -426,7 +447,7 @@
       );
     }
     return (
-      '<p class="mda-help-lead">MDA Markdown 工作台：预览与编辑 Markdown、管理文件，并在 .md 中嵌入结构化批注。</p>' +
+      '<p class="mda-help-lead">MDA 是本地优先的 Markdown 工作台：原生打开 .md，预览与轻量编辑，结构化批注可进 git，并支持导出与 Agent（MCP）。</p>' +
       '<h3>支持的文件</h3>' +
       '<p>可打开 ' + exts + '；拖拽文件到窗口、菜单「文件 → 打开」、欢迎页或命令行 <code>mda path/to/file</code>。</p>' +
       '<h3>文件管理</h3>' +
@@ -451,7 +472,8 @@
         '<li><kbd>Ctrl+B/I/`</kbd> 粗体/斜体/代码；<kbd>Ctrl+Shift+]/[</kbd> 标题升降级</li>' +
         '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放，工具栏或 Ctrl+C 可复制（图片→剪贴板图片，流程图→Mermaid 源码）</li>' +
         '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片与流程图）</li>' +
-        '<li><strong>导出</strong>：菜单「文件 → 导出 HTML / 导出 PDF」（导出会显示进度；大文档约 60s 超时）</li>' +
+        '<li><strong>导出</strong>：菜单「文件 → 导出 HTML / PDF / Word」（导出会显示进度；大文档约 60s 超时）</li>' +
+        '<li><strong>自动保存</strong>：菜单「文件 → 自动保存」— 关闭 / 失焦 / 每 30 秒 / 每 60 秒（仅已保存过的磁盘文件；未命名不自动另存）</li>' +
         '<li>分栏可拖拽调宽，双击分隔条复位</li>' +
       '</ul>' +
       '<h3>CLI / MCP</h3>' +

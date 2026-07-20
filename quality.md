@@ -74,7 +74,8 @@ npm test          # jest，含覆盖率
 | **复制预览（微信公众号）** | 改动 `copyPreviewForArticle` / Mermaid 导出 / 剪贴板 IPC | 实机：`Ctrl+Shift+C` 粘贴公众号编辑器，正文+图+流程图齐全；复制过程无滚动跳动/闪烁 |
 | **同步滚动 / 查找替换** | 改动 `sync-scroll.js` / `find-replace.js` | **点击双向定位**（滚动互不跟随）；点预览只滚源码且预览视口不变；点源码/方向键才滚预览；大纲/Ctrl+G 仍可双边定位；查找高亮与 ↑/↓ 跳转；IME 焦点不丢失 |
 | **选区批注** | 改动 `selection-anchor.js` / `anchor-highlights.js` / anchor 写入 | 预览/源码双路径选区→`anchor`；插入批注行后偏移不失效；代码块/表格可批注；orphan 标记 |
-| **MCP / 导出** | 改动 `src/mcp/**` 或导出/更新 IPC | `mda_scan` 与 CLI JSON 一致；HTML/PDF 导出；打包版检查更新 |
+| **MCP / 导出** | 改动 `src/mcp/**` 或导出/更新 IPC | `mda_scan` 与 CLI JSON 一致；HTML/PDF/**Word** 导出（docx 用 WPS/Word 打开抽检）；打包版检查更新 |
+| **自动保存** | 改动 autosave 菜单 / `writeToPath` quiet 路径 | 关/失焦/30s/60s；未命名不自动另存；成功安静、失败 toast；坏批注行跳过自动保存 |
 | **跳转 / 主题 / 弹窗焦点** | 改动 `Ctrl+G`、主题切换、`trapModalFocus`、批注编辑框 | 跳转不标脏；切主题不滚到文首；批注框 Tab 不逃逸改源码 |
 | **工作区文件侧栏** | 改动 `file-sidebar.js` / `file-ops.js` / 文件 IPC | 打开文件夹后树展示；拖宽/双击复位；标题栏 ✕ **清空列表**（关侧栏、不删磁盘文件）；↑↓ 换文档；复制/剪切/粘贴/拖动移动；重命名（仅主文件名）/删除；重名冲突；`Ctrl+Z` 撤销；**拖动**须拖到文件夹行或目标目录内文件行验证 |
 | **预览左侧大纲** | 改动 `outline-panel.js` / 预览布局 / 大纲同步 | 左侧可收起；hover 才显示边线；点击跳转；滚动预览与点击编辑/预览时高亮应对准当前节（勿偏上一节）；收起按钮不挡正文；收放正文不跳动 |

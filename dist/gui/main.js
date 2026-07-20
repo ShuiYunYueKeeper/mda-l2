@@ -40,6 +40,22 @@ function isMarkdownPath(filePath) {
 
 let mainWindow = null;
 let rendererDirty = false;
+/** @type {'off'|'blur'|'interval:30'|'interval:60'} */
+let autosavePref = 'off';
+
+const AUTOSAVE_MODES = ['off', 'blur', 'interval:30', 'interval:60'];
+
+function normalizeAutosavePref(mode) {
+  const m = String(mode || 'off');
+  return AUTOSAVE_MODES.indexOf(m) >= 0 ? m : 'off';
+}
+
+function setAutosavePref(mode) {
+  autosavePref = normalizeAutosavePref(mode);
+  rebuildApplicationMenu();
+  sendToRenderer('menu-autosave', autosavePref);
+  return autosavePref;
+}
 let allowClose = false;
 let ipcHandlersRegistered = false;
 let autoUpdaterApi = null;
@@ -148,6 +164,39 @@ function buildMenuTemplate(recents) {
         {
           label: t('menuExportPdf'),
           click: () => sendToRenderer('menu-export-pdf'),
+        },
+        {
+          label: t('menuExportDocx'),
+          click: () => sendToRenderer('menu-export-docx'),
+        },
+        {
+          label: t('menuAutosave'),
+          submenu: [
+            {
+              label: t('menuAutosaveOff'),
+              type: 'radio',
+              checked: autosavePref === 'off',
+              click: () => setAutosavePref('off'),
+            },
+            {
+              label: t('menuAutosaveBlur'),
+              type: 'radio',
+              checked: autosavePref === 'blur',
+              click: () => setAutosavePref('blur'),
+            },
+            {
+              label: t('menuAutosaveInterval30'),
+              type: 'radio',
+              checked: autosavePref === 'interval:30',
+              click: () => setAutosavePref('interval:30'),
+            },
+            {
+              label: t('menuAutosaveInterval60'),
+              type: 'radio',
+              checked: autosavePref === 'interval:60',
+              click: () => setAutosavePref('interval:60'),
+            },
+          ],
         },
         { type: 'separator' },
         { role: 'quit', label: t('menuQuit') },
@@ -494,6 +543,32 @@ function registerIpcHandlers() {
         try { fs.unlinkSync(tmpHtml); } catch (e) { /* ignore */ }
       }
     }
+  });
+
+  ipcMain.handle('export-docx', async (_event, payload) => {
+    try {
+      const HTMLtoDOCX = require('html-to-docx');
+      const filePath = payload && payload.filePath;
+      const html = payload && payload.html;
+      if (!filePath || !html) return { success: false, error: '参数无效' };
+      const absOut = path.resolve(filePath);
+      const buf = await HTMLtoDOCX(String(html), null, {
+        title: path.basename(absOut, path.extname(absOut)),
+        margins: { top: 720, right: 720, bottom: 720, left: 720 },
+      });
+      await fs.promises.writeFile(absOut, Buffer.from(buf));
+      return { success: true, filePath: absOut };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('get-autosave-pref', async () => autosavePref);
+
+  ipcMain.handle('set-autosave-pref', async (_event, mode) => {
+    autosavePref = normalizeAutosavePref(mode);
+    rebuildApplicationMenu();
+    return autosavePref;
   });
 
   ipcMain.handle('show-open-folder-dialog', async (event) => {

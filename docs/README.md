@@ -41,7 +41,8 @@
 | [`prompts/prompt-11-gui-file-sidebar-i18n.md`](prompts/prompt-11-gui-file-sidebar-i18n.md) | P4：文件侧栏、i18n、拖动修复协作记录 |
 | [`prompts/prompt-12-outline-welcome-clear-list.md`](prompts/prompt-12-outline-welcome-clear-list.md) | P4：预览左侧大纲、启动欢迎页、清空文件列表 |
 | [`prompts/prompt-13-zoom-copy.md`](prompts/prompt-13-zoom-copy.md) | P4：缩放层复制（图片 / 流程图源码） |
-| [`prompts/prompt-14-path-tooltip-workspace-brand.md`](prompts/prompt-14-path-tooltip-workspace-brand.md) | **本轮 P4**：全路径悬停 + Markdown 工作台定位 |
+| [`prompts/prompt-14-path-tooltip-workspace-brand.md`](prompts/prompt-14-path-tooltip-workspace-brand.md) | P4：全路径悬停 + Markdown 工作台定位 |
+| [`prompts/prompt-15-docx-autosave-welcome.md`](prompts/prompt-15-docx-autosave-welcome.md) | **本轮 P4**：导出 Word、自动保存、欢迎页叙事 |
 | `demo/` | 团队分享草稿（**暂不入库**，见 `.gitignore`） |
 
 ## 工作流

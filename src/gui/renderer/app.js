@@ -17,6 +17,9 @@
   var dirty = false;              // 编辑器内容是否有未保存修改
   var previewTimer = null;        // 实时预览防抖
   var closePromptOpen = false;    // 防止重复弹出关闭确认框
+  var autosavePref = 'off';       // off | blur | interval:30 | interval:60
+  var autosaveTimer = null;
+  var autosaveSaving = false;
 
   // 文档状态机：welcome | untitled | open（见 P2 §4.1）
   var docState = 'welcome';
@@ -149,6 +152,10 @@
     api.onMenuCopyArticle(function () { copyPreviewForArticle(); });
     api.onMenuExportHtml(function () { exportPreviewHtml(); });
     api.onMenuExportPdf(function () { exportPreviewPdf(); });
+    api.onMenuExportDocx(function () { exportPreviewDocx(); });
+    if (api.onMenuAutosave) {
+      api.onMenuAutosave(function (mode) { applyAutosavePref(mode, { toast: true, persist: true }); });
+    }
     api.onAppCloseRequest(function () { handleAppCloseRequest(); });
 
     setupDragAndDrop();
@@ -1649,17 +1656,29 @@
     });
   }
 
-  function writeToPath(filePath, onSuccess) {
+  function writeToPath(filePath, onSuccess, opts) {
+    opts = opts || {};
+    var quiet = !!opts.quiet;
+    function done() {
+      if (typeof onSuccess === 'function') onSuccess();
+    }
     var content = editorEl.value;
     var bad = (api.findMalformedAnnotations && api.findMalformedAnnotations(content)) || [];
+    if (quiet && bad.length) {
+      showToast(uiT('toastAutosaveSkipMalformed'));
+      done();
+      return;
+    }
     var proceed = bad.length
       ? uiConfirm(uiT('alertMalformedAnno', { lines: bad.join((window.MDAI18n && MDAI18n.getLang() === 'en') ? ', ' : '、') }))
       : Promise.resolve(true);
     proceed.then(function (yes) {
-      if (!yes) return;
+      if (!yes) { done(); return; }
       api.saveFile(filePath, content).then(function (r) {
         if (!r.success) {
-          uiAlert(uiT('alertSaveFail', { error: r.error }));
+          if (quiet) showToast(uiT('toastAutosaveFail', { error: r.error || uiT('unknownError') }));
+          else uiAlert(uiT('alertSaveFail', { error: r.error }));
+          done();
           return;
         }
         currentFilePath = filePath;
@@ -1676,7 +1695,7 @@
         if (fileSidebar) fileSidebar.setActive(filePath);
         if (workspaceRoot) refreshWorkspaceTree();
         updateToolbar();
-        if (typeof onSuccess === 'function') onSuccess();
+        done();
       });
     });
   }
@@ -1781,6 +1800,8 @@
     editorEl.addEventListener('scroll', function () {
       syncEditorScrollLayers();
     });
+
+    initAutosave();
 
     if (outlineFloatBtn) {
       outlineFloatBtn.addEventListener('click', function (e) {
@@ -2235,9 +2256,11 @@
     updateToolbar();
   }
 
-  function saveFile(onSuccess) {
+  function saveFile(onSuccess, opts) {
+    opts = opts || {};
     if (docState === 'welcome') return;
     if (!currentFilePath) {
+      if (opts.quiet) return; // 自动保存不对未命名文档弹另存为
       saveAs(onSuccess);
       return;
     }
@@ -2245,7 +2268,62 @@
       if (typeof onSuccess === 'function') onSuccess();
       return;
     }
-    writeToPath(currentFilePath, onSuccess);
+    writeToPath(currentFilePath, onSuccess, opts);
+  }
+
+  function autosaveModeLabel(mode) {
+    if (mode === 'blur') return uiT('autosaveModeBlur');
+    if (mode === 'interval:30') return uiT('autosaveModeInterval30');
+    if (mode === 'interval:60') return uiT('autosaveModeInterval60');
+    return uiT('autosaveModeOff');
+  }
+
+  function clearAutosaveTimer() {
+    if (autosaveTimer) {
+      clearInterval(autosaveTimer);
+      autosaveTimer = null;
+    }
+  }
+
+  function tryAutosave() {
+    if (autosaveSaving) return;
+    if (autosavePref === 'off') return;
+    if (docState !== 'open' || !currentFilePath || !dirty || !editorEl) return;
+    autosaveSaving = true;
+    writeToPath(currentFilePath, function () { autosaveSaving = false; }, { quiet: true });
+  }
+
+  function restartAutosaveTimer() {
+    clearAutosaveTimer();
+    var sec = 0;
+    if (autosavePref === 'interval:30') sec = 30;
+    else if (autosavePref === 'interval:60') sec = 60;
+    if (sec > 0) {
+      autosaveTimer = setInterval(tryAutosave, sec * 1000);
+    }
+  }
+
+  function applyAutosavePref(mode, opts) {
+    opts = opts || {};
+    var next = String(mode || 'off');
+    if (['off', 'blur', 'interval:30', 'interval:60'].indexOf(next) < 0) next = 'off';
+    autosavePref = next;
+    try { localStorage.setItem('mda-autosave', next); } catch (e) { /* ignore */ }
+    restartAutosaveTimer();
+    if (opts.persist && api.setAutosavePref) api.setAutosavePref(next);
+    if (opts.toast) showToast(uiT('toastAutosaveOn', { mode: autosaveModeLabel(next) }));
+  }
+
+  function initAutosave() {
+    var stored = 'off';
+    try { stored = localStorage.getItem('mda-autosave') || 'off'; } catch (e) { /* ignore */ }
+    applyAutosavePref(stored, { persist: true, toast: false });
+    if (editorEl && !editorEl.dataset.autosaveBlurBound) {
+      editorEl.dataset.autosaveBlurBound = '1';
+      editorEl.addEventListener('blur', function () {
+        if (autosavePref === 'blur') tryAutosave();
+      });
+    }
   }
 
   function handleAppCloseRequest() {
@@ -2996,7 +3074,7 @@
   }
 
   async function runExportJob(kind, writeFn) {
-    var label = kind === 'pdf' ? 'PDF' : 'HTML';
+    var label = kind === 'pdf' ? 'PDF' : (kind === 'docx' ? 'Word' : 'HTML');
     showExportBusy(uiT('exportBusyLabel', { label: label }));
     try {
       setExportBusyMessage(uiT('exportBusyPrepare'));
@@ -3071,6 +3149,37 @@
       if (!dlg || !dlg.success || dlg.canceled || !dlg.filePath) return;
       await runExportJob('pdf', function (doc) {
         return api.exportPdf(dlg.filePath, doc);
+      });
+    } catch (err) {
+      hideExportBusy();
+      uiAlert(uiT('alertExportFail', { error: (err && err.message) ? err.message : String(err) }));
+    }
+  }
+
+  async function exportPreviewDocx() {
+    if (!previewEl || !previewEl.textContent.trim()) {
+      uiAlert(uiT('alertPreviewEmpty'));
+      return;
+    }
+    if (!api.exportDocx) {
+      uiAlert(uiT('alertExportNoDocx'));
+      return;
+    }
+    try {
+      var base = exportBaseName();
+      var dlgOpts = {
+        title: uiT('exportDocxTitle'),
+        suggestedName: base + '.docx',
+        filters: [{ name: 'Word', extensions: ['docx'] }],
+      };
+      if (workspaceRoot) dlgOpts.defaultPath = workspaceRoot;
+      else if (currentFilePath && api.resolvePath) {
+        dlgOpts.defaultPath = api.resolvePath(currentFilePath, '.');
+      }
+      var dlg = await api.showSaveDialog(dlgOpts);
+      if (!dlg || !dlg.success || dlg.canceled || !dlg.filePath) return;
+      await runExportJob('docx', function (doc) {
+        return api.exportDocx(dlg.filePath, doc);
       });
     } catch (err) {
       hideExportBusy();
