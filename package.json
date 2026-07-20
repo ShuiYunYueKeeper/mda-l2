@@ -44,6 +44,7 @@
     "commander": "^12.1.0",
     "electron-updater": "^6.8.9",
     "highlight.js": "^11.11.1",
+    "html-to-docx": "^1.8.0",
     "katex": "^0.17.0",
     "markdown-it": "^14.1.0",
     "markdown-it-katex": "^2.0.3",

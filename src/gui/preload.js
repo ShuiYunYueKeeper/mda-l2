@@ -172,6 +172,14 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   onMenuExportPdf: (callback) => {
     ipcRenderer.on('menu-export-pdf', () => callback());
   },
+  onMenuExportDocx: (callback) => {
+    ipcRenderer.on('menu-export-docx', () => callback());
+  },
+  onMenuAutosave: (callback) => {
+    ipcRenderer.on('menu-autosave', (_event, mode) => callback(mode));
+  },
+  getAutosavePref: () => ipcRenderer.invoke('get-autosave-pref'),
+  setAutosavePref: (mode) => ipcRenderer.invoke('set-autosave-pref', mode),
   onAppCloseRequest: (callback) => {
     ipcRenderer.on('app-close-request', () => callback());
   },
@@ -223,6 +231,7 @@ contextBridge.exposeInMainWorld('mdaAPI', {
 
   writeTextFile: (filePath, content) => ipcRenderer.invoke('write-text-file', filePath, content),
   exportPdf: (filePath, html) => ipcRenderer.invoke('export-pdf', { filePath, html }),
+  exportDocx: (filePath, html) => ipcRenderer.invoke('export-docx', { filePath, html }),
 
   // 保存前校验：返回疑似批注但格式不正确的行号数组（供渲染层提示用户）
   findMalformedAnnotations: (text) => findMalformedAnnotations(text),
