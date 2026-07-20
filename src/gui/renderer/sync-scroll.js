@@ -73,13 +73,15 @@
     return best;
   }
 
-  /** 块是否已完整落在预览可视区内 */
+  /** 块是否已在预览可视区内（不必再滚） */
   function isPreviewBlockVisible(previewPane, entry) {
     if (!previewPane || !entry || !entry.el) return false;
     var paneRect = previewPane.getBoundingClientRect();
     var r = entry.el.getBoundingClientRect();
-    var margin = 8;
-    return r.top >= paneRect.top + margin && r.bottom <= paneRect.bottom - margin;
+    // 标题块常很高（后接表格）：只要顶部落在视口内，或与视口有明显交集，即视为已可见
+    if (r.top >= paneRect.top - 2 && r.top <= paneRect.bottom - 24) return true;
+    var overlap = Math.min(r.bottom, paneRect.bottom) - Math.max(r.top, paneRect.top);
+    return overlap > Math.min(56, Math.max(24, r.height * 0.25));
   }
 
   /**
@@ -119,7 +121,11 @@
     }
 
     function withSyncLock(fn) {
-      if (syncing) return;
+      if (syncing) {
+        // 排队而非丢弃：连续定位（批注→预览+编辑）时否则第二次会被吃掉，表现为「要点两次」
+        requestAnimationFrame(function () { withSyncLock(fn); });
+        return;
+      }
       syncing = true;
       try {
         fn();
@@ -141,12 +147,14 @@
       });
     }
 
-    function syncPreviewToCaret() {
+    function syncPreviewToCaret(opts) {
+      opts = opts || {};
       withSyncLock(function () {
         if (!blockMap.length) refreshMap();
         var line = lineAtCaret(editor);
-        // 强制滚入视口（源码→预览时用户期望看到对应块）
-        var entry = scrollPreviewToLine(previewPane, line, blockMap, { onlyIfNeeded: false });
+        // 已在视口内则不挪预览滚动条（避免点同一行微调跳动）
+        var onlyIfNeeded = opts.onlyIfNeeded !== false;
+        var entry = scrollPreviewToLine(previewPane, line, blockMap, { onlyIfNeeded: onlyIfNeeded });
         notifyLocate(line, entry);
       });
     }
@@ -159,10 +167,10 @@
     function onEditorKeyup(e) {
       if (!e) return;
       var k = e.key || '';
+      // 仅导航键定位预览；Enter/Backspace/Delete 是编辑操作，强制滚预览会把视口拽到标题块（编辑中误跳）
       if (
         k === 'ArrowUp' || k === 'ArrowDown' || k === 'ArrowLeft' || k === 'ArrowRight' ||
-        k === 'Home' || k === 'End' || k === 'PageUp' || k === 'PageDown' ||
-        k === 'Enter' || k === 'Backspace' || k === 'Delete'
+        k === 'Home' || k === 'End' || k === 'PageUp' || k === 'PageDown'
       ) {
         syncPreviewToCaret();
       }

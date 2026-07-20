@@ -13,9 +13,11 @@
 
   var editorVisible = false;      // 左侧源码编辑栏是否展开
   var editorUserDismissed = false; // 用户手动收起后，切换文档不再自动展开
-  var panelVisible = false;       // 右侧批注栏默认收起（偏辅助；预览点击定位仍可用）
+  var panelVisible = false;       // 右侧批注栏（习惯记忆，见 mda-panel-visible）
+  var expandedAnnoIds = {};       // 批注列表长文展开状态（会话内）
   var dirty = false;              // 编辑器内容是否有未保存修改
   var previewTimer = null;        // 实时预览防抖
+  var pinEditorScroll = null;     // Enter/删改时钉住编辑区滚动，防止浏览器/重渲拽飞
   var closePromptOpen = false;    // 防止重复弹出关闭确认框
   var autosavePref = 'off';       // off | blur | interval:30 | interval:60
   var autosaveTimer = null;
@@ -659,8 +661,62 @@
     return api.buildCodeFenceMask(editorEl.value.split('\n'));
   }
 
+  // 实时重渲期间冻结编辑区滚动，防止高亮层替换 / Mermaid 异步撑高把 scrollTop 拽飞
+  var editorScrollFreeze = null;
+  var liveEditGen = 0;
+
+  function freezeEditorScroll(snapshot) {
+    if (!editorEl) return;
+    editorScrollFreeze = snapshot || {
+      top: editorEl.scrollTop,
+      left: editorEl.scrollLeft || 0,
+    };
+  }
+
+  function applyEditorScrollFreeze() {
+    if (!editorScrollFreeze || !editorEl) return;
+    if (editorEl.scrollTop !== editorScrollFreeze.top) {
+      editorEl.scrollTop = editorScrollFreeze.top;
+    }
+    if ((editorEl.scrollLeft || 0) !== (editorScrollFreeze.left || 0)) {
+      editorEl.scrollLeft = editorScrollFreeze.left || 0;
+    }
+  }
+
+  function unfreezeEditorScroll() {
+    applyEditorScrollFreeze();
+    editorScrollFreeze = null;
+  }
+
+  /** 指定 scrollTop 下，1-based 行是否仍在编辑区可视范围内 */
+  function isEditorLineVisibleAt(scrollTop, line) {
+    if (!editorEl || line < 1) return false;
+    var pad = 0;
+    try { pad = parseFloat(window.getComputedStyle(editorEl).paddingTop) || 0; } catch (e) { /* ignore */ }
+    var first = Math.floor(Math.max(0, scrollTop - pad) / 21) + 1;
+    var visible = Math.max(1, Math.floor(editorEl.clientHeight / 21));
+    var last = first + visible - 1;
+    return line >= first && line <= last;
+  }
+
+  function applyPinnedEditorScroll() {
+    if (!pinEditorScroll || !editorEl) return false;
+    var line = 1;
+    if (window.MDASyncScroll) line = window.MDASyncScroll.lineAtCaret(editorEl);
+    if (!isEditorLineVisibleAt(pinEditorScroll.top, line)) return false;
+    editorEl.scrollTop = pinEditorScroll.top;
+    editorEl.scrollLeft = pinEditorScroll.left || 0;
+    if (editorScrollFreeze) {
+      editorScrollFreeze.top = pinEditorScroll.top;
+      editorScrollFreeze.left = pinEditorScroll.left || 0;
+    }
+    syncEditorScrollLayers();
+    return true;
+  }
+
   function syncEditorScrollLayers() {
     if (!editorEl) return;
+    applyEditorScrollFreeze();
     var hp = srcHighlightEl ? srcHighlightEl.parentNode : null;
     if (hp) {
       hp.scrollTop = editorEl.scrollTop;
@@ -720,7 +776,8 @@
     return editorEl.value.slice(0, m.start).split('\n').length;
   }
 
-  function updateFindPreviewHighlights() {
+  function updateFindPreviewHighlights(hlOpts) {
+    hlOpts = hlOpts || {};
     clearPreviewFindHighlights();
     if (!previewEl || !findMatchState || !findMatchState.query) return;
     if (!window.MDAFindReplace || !window.MDAFindReplace.findAll) return;
@@ -747,6 +804,8 @@
       highlightPreviewTextNode(nodes[n], query, opts, activeLine, activeRef);
     }
 
+    // 实时编辑重渲时禁止 scrollIntoView，否则会拖动预览/连带布局抖动
+    if (hlOpts.skipScroll) return;
     if (activeRef.el) {
       activeRef.el.scrollIntoView({ block: 'center', behavior: 'auto' });
     } else if (activeLine) {
@@ -1780,6 +1839,9 @@
     tbFileNameEl = document.getElementById('tb-filename');
     addBtn = document.getElementById('btn-add');
 
+    // 恢复批注栏展开习惯（与大纲/文件列表一致走 localStorage）
+    applyPanelVisible(readPanelVisiblePref());
+
     setupDomCopyShortcuts();
 
     addBtn.addEventListener('click', function () { showEditDialog('add', null, cursorLine); });
@@ -1787,17 +1849,52 @@
     tbEditBtn.addEventListener('click', function () { toggleEditor(); });
     tbPanelBtn.addEventListener('click', function () { togglePanel(); });
 
+    // Enter/Backspace/Delete：先记下滚动；input 时若光标仍在原视口内则钉回（避免浏览器「保光标可见」微调）
+    editorEl.addEventListener('keydown', function (e) {
+      if (!e) return;
+      var k = e.key || '';
+      if (k === 'Enter' || k === 'Backspace' || k === 'Delete') {
+        pinEditorScroll = {
+          top: editorEl.scrollTop,
+          left: editorEl.scrollLeft || 0,
+        };
+      }
+    });
+
     // 编辑器输入 → 按与磁盘内容是否一致决定 dirty（Ctrl+Z 撤回原点后自动取消标脏）
     editorEl.addEventListener('input', function () {
       setDirtyState(editorEl.value !== currentText);
       refreshEditorDecorations();
+      applyPinnedEditorScroll();
+      // 浏览器常在 input 之后才做「保光标可见」滚动，再钉一次
+      requestAnimationFrame(function () {
+        applyPinnedEditorScroll();
+      });
       if (previewTimer) clearTimeout(previewTimer);
       previewTimer = setTimeout(function () {
-        parseAndRender(editorEl.value, currentFilePath);
+        applyPinnedEditorScroll();
+        var saved = captureViewScroll();
+        // 编辑键入：用钉住的编辑区滚动，预览滚动保持 capture 值
+        if (pinEditorScroll) {
+          saved.editorTop = pinEditorScroll.top;
+          saved.editorLeft = pinEditorScroll.left || 0;
+          saved.gutterTop = pinEditorScroll.top;
+          saved.findMarkTop = pinEditorScroll.top;
+        }
+        var gen = ++liveEditGen;
+        freezeEditorScroll({ top: saved.editorTop, left: saved.editorLeft || 0 });
+        parseAndRender(editorEl.value, currentFilePath, {
+          preserveScroll: true,
+          savedScroll: saved,
+          liveEdit: true,
+          liveEditGen: gen,
+        });
+        pinEditorScroll = null;
       }, 250);
     });
     // 滚动同步：textarea 为可交互滚动层，高亮层与行号槽跟随
     editorEl.addEventListener('scroll', function () {
+      if (editorScrollFreeze) applyEditorScrollFreeze();
       syncEditorScrollLayers();
     });
 
@@ -1907,11 +2004,18 @@
     };
   }
 
-  function restoreViewScroll(s) {
+  function restoreViewScroll(s, opts) {
+    opts = opts || {};
     if (!s) return;
+    // 实时编辑：以 debounce 时捕获的编辑区滚动为准强制回写（并更新 freeze 快照），
+    // 抵消高亮替换 / Mermaid 撑高 / scrollIntoView 造成的视口漂移。
     if (editorEl) {
       editorEl.scrollTop = s.editorTop;
       editorEl.scrollLeft = s.editorLeft || 0;
+      if (editorScrollFreeze) {
+        editorScrollFreeze.top = s.editorTop;
+        editorScrollFreeze.left = s.editorLeft || 0;
+      }
     }
     if (srcGutterEl) srcGutterEl.scrollTop = s.gutterTop;
     if (srcHighlightEl && srcHighlightEl.parentNode) {
@@ -2036,16 +2140,35 @@
     updateToolbar();
   }
 
-  function togglePanel() {
-    panelVisible = !panelVisible;
-    panelPaneEl.classList.toggle('hidden', !panelVisible);
-    splitRightEl.classList.toggle('hidden', !panelVisible);
+  function readPanelVisiblePref() {
+    try { return localStorage.getItem('mda-panel-visible') === '1'; } catch (e) { return false; }
+  }
+
+  function savePanelVisiblePref(vis) {
+    try {
+      if (vis) localStorage.setItem('mda-panel-visible', '1');
+      else localStorage.removeItem('mda-panel-visible');
+    } catch (e) { /* ignore */ }
+  }
+
+  function applyPanelVisible(vis) {
+    panelVisible = !!vis;
+    if (panelPaneEl) panelPaneEl.classList.toggle('hidden', !panelVisible);
+    if (splitRightEl) splitRightEl.classList.toggle('hidden', !panelVisible);
     updateToolbar();
+  }
+
+  function togglePanel() {
+    applyPanelVisible(!panelVisible);
+    savePanelVisiblePref(panelVisible);
   }
 
   // 刷新编辑器语法高亮层与行号槽（与 textarea 内容对齐）
   function refreshEditorDecorations() {
     var text = editorEl.value;
+    // 替换高亮 DOM 时钉住滚动，避免视口被瞬间拽走
+    var keepTop = editorEl.scrollTop;
+    var keepLeft = editorEl.scrollLeft || 0;
     if (srcHighlightEl) {
       srcHighlightEl.innerHTML = (api.highlightSource ? api.highlightSource(text) : escHtml(text));
     }
@@ -2055,6 +2178,12 @@
       var nums = new Array(n);
       for (var i = 0; i < n; i++) nums[i] = i + 1;
       srcGutterEl.textContent = nums.join('\n');
+    }
+    editorEl.scrollTop = keepTop;
+    editorEl.scrollLeft = keepLeft;
+    if (editorScrollFreeze) {
+      editorScrollFreeze.top = keepTop;
+      editorScrollFreeze.left = keepLeft;
     }
     syncEditorScrollLayers();
   }
@@ -2461,37 +2590,80 @@
   function selectAnnotation(id, scrollPreview) {
     selectedAnnotationId = id;
     renderPanel();
-    var item = annoListEl.querySelector('[data-anno-id="' + id + '"]');
+    var item = annoListEl ? annoListEl.querySelector('[data-anno-id="' + id + '"]') : null;
     if (item) item.scrollIntoView({ block: 'nearest' });
     if (!scrollPreview) return;
+    locateAnnotationViews(id);
+  }
 
-    var anno = null;
-    for (var i = 0; i < annotations.length; i++) {
-      if (annotations[i].id === id) { anno = annotations[i]; break; }
-    }
-
-    if (anno && anno.anchor && selAnchor && selAnchor.validateAnchor(getSourceText(), anno.anchor)) {
-      var domRange = selAnchor.anchorToPreviewRange(previewEl, getSourceText(), anno.anchor);
-      if (domRange) scrollPreviewToRange(domRange);
-      if (!editorVisible) showEditorPane(true);
-      selAnchor.scrollEditorToAnchor(editorEl, anno.anchor, syncEditorScrollLayers);
-      return;
-    }
-
+  /**
+   * 将预览 + 编辑定位到批注所属段落。
+   * 不走 attach 内 withSyncLock 串行（避免第二次被排队延迟/冲掉）；
+   * 布局未稳时多试几次（开编辑栏 / 图片高度）。
+   */
+  function locateAnnotationViews(id) {
+    var anno = findAnno(id);
     var p = findParagraphByAnnotationId(id);
-    var el = paragraphElement(p);
-    if (el) {
-      el.scrollIntoView({ block: 'center' });
-      highlightCursorBlock(el);
-    }
-    if (p) {
-      cursorLine = p.startLine;
-      if (!editorVisible) showEditorPane(true);
+    if (!anno && !p) return;
+
+    var needOpenEditor = !editorVisible;
+    if (needOpenEditor) showEditorPane(true);
+
+    var tries = 0;
+    var maxTries = needOpenEditor ? 4 : 3;
+
+    function scrollOnce() {
+      tries++;
+      if (anno && anno.anchor && selAnchor && selAnchor.validateAnchor(getSourceText(), anno.anchor)) {
+        var domRange = selAnchor.anchorToPreviewRange(previewEl, getSourceText(), anno.anchor);
+        if (domRange) scrollPreviewToRange(domRange);
+        if (editorVisible || needOpenEditor) {
+          if (!editorVisible) showEditorPane(true);
+          selAnchor.scrollEditorToAnchor(editorEl, anno.anchor, syncEditorScrollLayers);
+        }
+        return;
+      }
+
+      var previewLine = p ? p.startLine : (anno && anno.line);
       // 面板展示的是批注行 a.line；跳到段落 startLine 会在「批注紧贴正文」时刚好多 1 行
-      var editorLine = (anno && anno.line) ? anno.line : p.startLine;
-      if (syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(editorLine, { skipPreview: true });
-      else jumpEditorToLine(editorLine);
+      var editorLine = (anno && anno.line) ? anno.line : previewLine;
+      if (!previewLine && !editorLine) return;
+
+      cursorLine = previewLine || editorLine || null;
+
+      // 直接几何定位预览，强制滚入（onlyIfNeeded:false），避开 sync 锁与「已可见」误判
+      if (previewLine && previewScrollEl && previewEl && window.MDASyncScroll) {
+        var map = window.MDASyncScroll.buildBlockMap(previewEl);
+        if (syncScrollCtrl && syncScrollCtrl.refreshMap) syncScrollCtrl.refreshMap();
+        window.MDASyncScroll.scrollPreviewToLine(previewScrollEl, previewLine, map, { onlyIfNeeded: false });
+        var entry = null;
+        for (var i = 0; i < map.length; i++) {
+          if (map[i].line <= previewLine) entry = map[i];
+          else break;
+        }
+        if (entry && entry.el) highlightCursorBlock(entry.el);
+        updateOutlineActiveFromLine(previewLine, { skipScroll: true });
+      }
+
+      if (editorLine) {
+        if (syncScrollCtrl) {
+          syncScrollCtrl.scrollEditorToLine(editorLine, { skipPreview: true });
+        } else {
+          jumpEditorToLine(editorLine);
+        }
+      }
     }
+
+    scrollOnce();
+    requestAnimationFrame(function () {
+      scrollOnce();
+      if (tries < maxTries) {
+        setTimeout(function () {
+          scrollOnce();
+          if (tries < maxTries) setTimeout(scrollOnce, 120);
+        }, 50);
+      }
+    });
   }
 
   // ---- 文件操作 ----
@@ -2527,7 +2699,7 @@
     if (shouldAutoOpenEditor() && !editorVisible) showEditorPane(true);
     else if (editorVisible) refreshEditorDecorations();
     setTitle(filePath);
-    parseAndRender(result.content, filePath);
+    parseAndRender(result.content, filePath, { selectAnnoId: opts.selectAnnoId || null });
     updateToolbar();
     if (api.addRecentFile && allowAddRecent) {
       api.addRecentFile(filePath).then(function () { refreshWelcomeRecents(); });
@@ -2570,7 +2742,10 @@
     }
   }
 
-  function reloadFile() { if (currentFilePath) openFile(currentFilePath, { scrollToTop: false }); }
+  function reloadFile(opts) {
+    opts = opts || {};
+    if (currentFilePath) openFile(currentFilePath, { scrollToTop: false, selectAnnoId: opts.selectAnnoId || null });
+  }
 
   function parseAndRender(text, filePath, opts) {
     opts = opts || {};
@@ -2589,6 +2764,9 @@
   // ---- Markdown 渲染 ----
   function renderMarkdownContent(text, opts) {
     opts = opts || {};
+    var liveEdit = !!opts.liveEdit;
+    var myGen = opts.liveEditGen || 0;
+    var selectAnnoId = opts.selectAnnoId || null;
     var savedScroll = opts.preserveScroll
       ? (opts.savedScroll || captureViewScroll())
       : null;
@@ -2596,6 +2774,7 @@
     if (!result.success) {
       previewEl.innerHTML = '<p style="color:var(--danger)">' + escHtml(uiT('alertRenderError', { error: result.error })) + '</p>';
       updateToolbar();
+      if (liveEdit) unfreezeEditorScroll();
       return;
     }
     htmlContent = result.html;
@@ -2604,23 +2783,55 @@
     resolveImages();       // 相对/本地图片 → 绝对 file:// URL
     setupImageFallback();
     updateToolbar();
+    // 清空预览 DOM 后立刻钉回滚动，避免中间帧视口跳到顶部
+    if (savedScroll) restoreViewScroll(savedScroll);
     renderMermaidBlocks().then(function () {
+      // 过期的实时重渲：勿解冻/勿改滚动（已被更新一代接管）
+      if (liveEdit && myGen !== liveEditGen) return;
       enhanceCodeBlocks();
       decorateParagraphs();
       wrapPreviewTables();
       if (savedScroll) {
         restoreViewScroll(savedScroll);
-        // Mermaid 布局可能再撑高内容，下一帧再恢复一次
-        requestAnimationFrame(function () { restoreViewScroll(savedScroll); });
+        requestAnimationFrame(function () {
+          if (liveEdit && myGen !== liveEditGen) return;
+          restoreViewScroll(savedScroll);
+          if (liveEdit) unfreezeEditorScroll();
+        });
         if (syncScrollCtrl) syncScrollCtrl.refreshMap();
       } else if (syncScrollCtrl) {
-        // 点击同步模式：重渲后只刷新块图，不强制拽预览跟编辑滚动条
         syncScrollCtrl.refreshMap();
+        if (liveEdit) unfreezeEditorScroll();
+      } else if (liveEdit) {
+        unfreezeEditorScroll();
       }
-      if (findMatchState && findMatchState.query) updateFindPreviewHighlights();
+      if (findMatchState && findMatchState.query) {
+        updateFindPreviewHighlights({ skipScroll: liveEdit });
+      }
       applyAnchorHighlights();
       updateToolbar();
-      requestAnimationFrame(updateOutlineActiveFromScroll);
+      requestAnimationFrame(function () {
+        if (liveEdit && myGen !== liveEditGen) return;
+        if (liveEdit) {
+          var caretLine = 1;
+          if (window.MDASyncScroll && editorEl) {
+            caretLine = window.MDASyncScroll.lineAtCaret(editorEl);
+          }
+          updateOutlineActiveFromLine(caretLine, { skipScroll: true });
+        } else {
+          updateOutlineActiveFromScroll();
+        }
+        // 新建/编辑批注后：预览 DOM 与色条就绪再选中定位
+        if (selectAnnoId) {
+          if (!panelVisible) {
+            applyPanelVisible(true);
+            savePanelVisiblePref(true);
+          }
+          selectAnnotation(selectAnnoId, true);
+        }
+      });
+    }).catch(function () {
+      if (liveEdit && myGen === liveEditGen) unfreezeEditorScroll();
     });
   }
 
@@ -3456,6 +3667,13 @@
     }).sort(function (a, b) { return (a.line || 0) - (b.line || 0); });
   }
 
+  function annoContentNeedsToggle(text) {
+    var s = String(text || '');
+    if (!s) return false;
+    if (s.indexOf('\n') >= 0) return true;
+    return s.length > 72;
+  }
+
   function renderPanel() {
     renderStatusFilterUI();
     renderLevelFilterUI();
@@ -3467,11 +3685,19 @@
     for (var i = 0; i < filtered.length; i++) {
       var a = filtered[i];
       var selCls = a.id === selectedAnnotationId ? ' selected' : '';
-      var content = (a.content || '').length > 50 ? a.content.slice(0, 50) + '…' : (a.content || '');
+      var full = a.content || '';
+      var needsToggle = annoContentNeedsToggle(full);
+      var expanded = !!(expandedAnnoIds && expandedAnnoIds[a.id]);
+      var bodyCls = 'anno-content' + (needsToggle && !expanded ? ' is-collapsed' : '');
       var stale = selAnchor && selAnchor.isAnchorStale(getSourceText(), a);
       var anchorBadge = a.anchor
         ? '<span style="font-size:10px;color:var(--text-muted);margin-left:4px">' + uiT('selBadge') + '</span>' : '';
       var staleBadge = stale ? '<span class="anno-stale-badge">' + uiT('staleBadge') + '</span>' : '';
+      var toggleBtn = needsToggle
+        ? ('<button type="button" class="anno-expand-toggle" data-id="' + escHtml(a.id) + '">' +
+            (expanded ? uiT('annoCollapse') : uiT('annoExpand')) +
+          '</button>')
+        : '';
 
       html += '<div class="anno-item' + selCls + '" data-anno-id="' + escHtml(a.id) + '">' +
         '<div class="anno-meta">' +
@@ -3480,7 +3706,8 @@
         '<span style="color:' + LEVEL_COLORS[a.level] + ';font-weight:bold">' + a.level + '</span> · ' +
         '<span>' + a.status + '</span> · ' + (a.created_at || '').slice(0, 10) +
         '</div>' +
-        '<div class="anno-content">' + escHtml(content) + '</div>' +
+        '<div class="' + bodyCls + '">' + escHtml(full) + '</div>' +
+        toggleBtn +
         '<div class="anno-tags">' +
         (a.tags || []).map(function (t) { return '<span class="anno-tag">' + escHtml(t) + '</span>'; }).join('') +
         '</div>' +
@@ -3500,6 +3727,16 @@
       items[j].addEventListener('click', function (e) {
         if (e.target.closest('button')) return;
         selectAnnotation(this.dataset.annoId, true);
+      });
+    }
+    var toggles = annoListEl.querySelectorAll('.anno-expand-toggle');
+    for (var t = 0; t < toggles.length; t++) {
+      toggles[t].addEventListener('click', function (e) {
+        e.stopPropagation();
+        var aid = this.dataset.id;
+        if (expandedAnnoIds[aid]) delete expandedAnnoIds[aid];
+        else expandedAnnoIds[aid] = true;
+        renderPanel();
       });
     }
     var edits = annoListEl.querySelectorAll('.btn-edit');
@@ -3763,7 +4000,7 @@
       closeEdit();
     });
 
-    overlay.addEventListener('click', function (e) { if (e.target === overlay) closeEdit(); });
+    // 点遮罩不关闭：避免误触丢失未保存的批注草稿（取消 / Esc 仍可关）
     requestAnimationFrame(function () {
       var first = document.getElementById(isAdd && !pendingAnchor ? 'ed-line' : 'ed-content');
       if (first) first.focus();
@@ -3780,12 +4017,19 @@
       };
     }
     api.addAnnotation(currentFilePath, line, input)
-      .then(function (r) { if (r.success) reloadFile(); else uiAlert(uiT('alertSaveFail', { error: r.error })); });
+      .then(function (r) {
+        if (!r.success) { uiAlert(uiT('alertSaveFail', { error: r.error })); return; }
+        var newId = r.value && r.value.id;
+        reloadFile({ selectAnnoId: newId || null });
+      });
   }
 
   function doEdit(id, content, tags, level, status) {
     api.editAnnotation(currentFilePath, id, { content: content, tags: tags, level: level, status: status })
-      .then(function (r) { if (r.success) reloadFile(); else uiAlert(uiT('alertSaveFail', { error: r.error })); });
+      .then(function (r) {
+        if (!r.success) { uiAlert(uiT('alertSaveFail', { error: r.error })); return; }
+        reloadFile({ selectAnnoId: id });
+      });
   }
 
   function escHtml(s) {
