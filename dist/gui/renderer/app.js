@@ -1,4 +1,4 @@
-// MDA Renderer — Markdown 工作台 GUI
+﻿// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -249,6 +249,7 @@
     mountFileUi();
     mountM3Modules();
     mountM4Modules();
+    syncRememberLayoutToMain();
     initRememberSession().then(function () {
       if (rememberSessionPref) restoreSavedWorkspace();
       refreshWelcomeRecents();
@@ -1220,9 +1221,14 @@
         clearLayoutHabits();
       }
     } catch (e) { /* ignore */ }
+    if (api.setRememberLayout) api.setRememberLayout(next);
     if (opts.toast) {
       showToast(next ? uiT('toastRememberLayoutOn') : uiT('toastRememberLayoutOff'));
     }
+  }
+
+  function syncRememberLayoutToMain() {
+    if (api.setRememberLayout) api.setRememberLayout(isRememberLayout());
   }
 
   function readPaneWidth(key, minW) {

@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+﻿const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 // 复用编译后的 @mda/core（dist/core），消除 GUI 与核心库的重复实现。
 // 需 sandbox: false 才能在 preload 中 require 第三方/本地模块。
@@ -198,6 +198,8 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   setWorkspaceRoot: (folderPath) => ipcRenderer.invoke('set-workspace-root', folderPath),
   getRememberSession: () => ipcRenderer.invoke('get-remember-session'),
   setRememberSession: (on) => ipcRenderer.invoke('set-remember-session', !!on),
+  getRememberLayout: () => ipcRenderer.invoke('get-remember-layout'),
+  setRememberLayout: (on) => ipcRenderer.invoke('set-remember-layout', !!on),
   getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
   addRecentFile: (filePath) => ipcRenderer.invoke('add-recent-file', filePath),
   clearRecentFiles: () => ipcRenderer.invoke('clear-recent-files'),

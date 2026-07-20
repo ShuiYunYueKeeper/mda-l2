@@ -1,4 +1,4 @@
-// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
+﻿// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
 (function (global) {
   var STRINGS = {
     zh: {
@@ -67,7 +67,7 @@
       settingsAutosave: '自动保存',
       settingsAutosaveDesc: '仅已保存到磁盘的文件生效；未命名文档不会自动另存为。',
       settingsRememberLayout: '记住界面习惯',
-      settingsRememberLayoutDesc: '记住批注栏、编辑栏、大纲、文件侧栏的展开/收起与分栏宽度。关闭后清除已存布局，下次启动使用默认布局。',
+      settingsRememberLayoutDesc: '记住窗口大小与位置，以及批注栏、编辑栏、大纲、文件侧栏的展开/收起与分栏宽度。关闭后清除已存布局，下次启动使用默认布局。',
       settingsRememberSession: '记住上次会话',
       settingsRememberSessionDesc: '记住文件列表（工作区侧栏）与上次打开的文件。关闭后清除已存会话，下次启动进入欢迎页。',
       toastRememberLayoutOn: '已开启：记住界面习惯',
@@ -262,7 +262,7 @@
       settingsAutosave: 'Auto save',
       settingsAutosaveDesc: 'Applies only to files already saved on disk; untitled documents never auto Save As.',
       settingsRememberLayout: 'Remember layout',
-      settingsRememberLayoutDesc: 'Remember open/closed state and widths for notes, editor, outline, and file sidebar. Turning off clears saved layout; next launch uses defaults.',
+      settingsRememberLayoutDesc: 'Remember window size and position, plus open/closed state and widths for notes, editor, outline, and file sidebar. Turning off clears saved layout; next launch uses defaults.',
       settingsRememberSession: 'Remember last session',
       settingsRememberSessionDesc: 'Remember the file sidebar workspace and the last opened file. Turning off clears the saved session; next launch opens the welcome page.',
       toastRememberLayoutOn: 'Remember layout: on',
