@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard } = require('electron');
+﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -8,6 +8,10 @@ const {
   setWorkspaceRoot,
   getRememberSession,
   setRememberSession,
+  getRememberLayout,
+  setRememberLayout,
+  getWindowBounds,
+  setWindowBounds,
 } = require('./main/workspace-prefs');
 const { copyFileToDir, moveFileToDir, fileExists, renameFileConflict } = require('./main/file-ops');
 const { listMarkdownTree } = require('./main/markdown-tree');
@@ -651,6 +655,27 @@ function registerIpcHandlers() {
     }
   });
 
+  ipcMain.handle('get-remember-layout', async () => {
+    try {
+      return { success: true, value: getRememberLayout(app.getPath('userData')) };
+    } catch (err) {
+      return { success: false, error: err.message, value: true };
+    }
+  });
+
+  ipcMain.handle('set-remember-layout', async (_event, on) => {
+    try {
+      const ud = app.getPath('userData');
+      const value = setRememberLayout(ud, !!on);
+      if (value && mainWindow && !mainWindow.isDestroyed()) {
+        persistMainWindowBounds();
+      }
+      return { success: true, value };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('get-recent-files', async () => {
     try {
       return { success: true, files: getRecents(app.getPath('userData')) };
@@ -704,10 +729,60 @@ function registerIpcHandlers() {
   });
 }
 
+function isWindowBoundsOnScreen(bounds) {
+  if (!bounds) return false;
+  try {
+    const displays = screen.getAllDisplays();
+    if (!displays.length) return true;
+    const x = typeof bounds.x === 'number' ? bounds.x : 0;
+    const y = typeof bounds.y === 'number' ? bounds.y : 0;
+    const w = bounds.width;
+    const h = bounds.height;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    return displays.some((d) => {
+      const a = d.workArea || d.bounds;
+      return cx >= a.x && cy >= a.y && cx < a.x + a.width && cy < a.y + a.height;
+    });
+  } catch {
+    return false;
+  }
+}
+
+let boundsSaveTimer = null;
+
+function persistMainWindowBounds() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const ud = app.getPath('userData');
+  if (!getRememberLayout(ud)) return;
+  try {
+    const isMaximized = mainWindow.isMaximized();
+    const b = typeof mainWindow.getNormalBounds === 'function'
+      ? mainWindow.getNormalBounds()
+      : mainWindow.getBounds();
+    setWindowBounds(ud, {
+      x: b.x,
+      y: b.y,
+      width: b.width,
+      height: b.height,
+      isMaximized,
+    });
+  } catch (_) { /* ignore */ }
+}
+
+function schedulePersistMainWindowBounds() {
+  if (boundsSaveTimer) clearTimeout(boundsSaveTimer);
+  boundsSaveTimer = setTimeout(() => {
+    boundsSaveTimer = null;
+    persistMainWindowBounds();
+  }, 300);
+}
+
 function createWindow(initialFile) {
   allowClose = false;
   rendererDirty = false;
-  mainWindow = new BrowserWindow({
+  const ud = app.getPath('userData');
+  const winOpts = {
     width: 1200,
     height: 750,
     minWidth: 900,
@@ -719,9 +794,28 @@ function createWindow(initialFile) {
       nodeIntegration: false,
       sandbox: false,
     },
-  });
+  };
+  let restoreMaximized = false;
+  if (getRememberLayout(ud)) {
+    const saved = getWindowBounds(ud);
+    if (saved && isWindowBoundsOnScreen(saved)) {
+      winOpts.width = saved.width;
+      winOpts.height = saved.height;
+      if (typeof saved.x === 'number') winOpts.x = saved.x;
+      if (typeof saved.y === 'number') winOpts.y = saved.y;
+      restoreMaximized = !!saved.isMaximized;
+    }
+  }
+  mainWindow = new BrowserWindow(winOpts);
 
   rebuildApplicationMenu();
+
+  if (restoreMaximized) mainWindow.maximize();
+
+  mainWindow.on('resize', schedulePersistMainWindowBounds);
+  mainWindow.on('move', schedulePersistMainWindowBounds);
+  mainWindow.on('maximize', schedulePersistMainWindowBounds);
+  mainWindow.on('unmaximize', schedulePersistMainWindowBounds);
 
   mainWindow.on('close', (e) => {
     if (settingsModalOpen) {
@@ -729,6 +823,7 @@ function createWindow(initialFile) {
       sendToRenderer('settings-modal-blocked-close');
       return;
     }
+    persistMainWindowBounds();
     if (!allowClose && rendererDirty) {
       e.preventDefault();
       sendToRenderer('app-close-request');
@@ -754,7 +849,6 @@ function createWindow(initialFile) {
       sendToRenderer('file-opened', initialFile);
       return;
     }
-    const ud = app.getPath('userData');
     // 未记住会话 → 欢迎页（不恢复当前文件；工作区由渲染层按同开关决定）
     if (!getRememberSession(ud)) {
       sendToRenderer('session-welcome');

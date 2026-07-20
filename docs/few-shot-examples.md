@@ -1,4 +1,4 @@
-# Few-shot 正反例资产（AI 协作易错点）
+﻿# Few-shot 正反例资产（AI 协作易错点）
 
 > 本文件为「可被 AI 直接复用的 few-shot 资产」：针对 MDA 项目中反复出现、且仅靠
 > 自然语言规则不易约束的易错点，给出成对的 **✅ 正确 / ❌ 错误** 示例。
@@ -507,7 +507,7 @@ node dist/cli/main.js scan path/to.md --format json
 **规则**：
 - 自动保存只在「视图 → 设置…」配置，键仍为 `mda-autosave`；勿在文件菜单再放 radio。
 - 「记住上次会话」写入 `workspace-prefs.json` 的 `rememberSession`（默认开）；关时清除工作区根与最近文件，启动进欢迎页；命令行初始文件仍可打开。
-- 「记住界面习惯」键 `mda-remember-layout`（默认开）；关时不读写布局习惯并清除已存键；主题/语言/自动保存不受影响。
+- 「记住界面习惯」键 `mda-remember-layout` + `workspace-prefs.rememberLayout`（默认开；含窗口大小/位置）；关时不读写布局习惯并清除已存键；主题/语言/自动保存不受影响。
 - 批注状态筛选默认仅 `open`；级别默认全选。
 - `clearAllAnnotations` 须源文件保护 + 原子写入；GUI 确认后调用，dirty 禁用。
 
