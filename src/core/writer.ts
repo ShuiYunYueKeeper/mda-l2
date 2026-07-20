@@ -1,4 +1,4 @@
-﻿import * as fs from 'fs/promises';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import {
@@ -277,4 +277,31 @@ export async function removeAnnotation(filePath: string, id: string): Promise<vo
   }
 
   await atomicWrite(filePath, newText);
+}
+
+/** 清空文件中全部批注行（围栏外）；返回删除条数。正文经源文件保护校验不变。 */
+export async function clearAllAnnotations(filePath: string): Promise<number> {
+  const rawText = await fs.readFile(filePath, 'utf-8');
+  const eol = detectEol(rawText);
+  const lines = rawText.split(/\r?\n/);
+  const { annotations } = parseAnnotations(rawText);
+  if (annotations.length === 0) return 0;
+
+  const idxs = annotations
+    .map(a => (a.line ?? 0) - 1)
+    .filter(i => i >= 0 && i < lines.length)
+    .sort((a, b) => b - a);
+
+  for (const idx of idxs) {
+    lines.splice(idx, 1);
+    compressEmptyLinesAfterRemove(lines, idx);
+  }
+
+  const newText = lines.join(eol);
+  if (!verifySourceProtection(rawText, newText)) {
+    throw new Error('源文件保护检查失败：非批注行被意外修改');
+  }
+
+  await atomicWrite(filePath, newText);
+  return idxs.length;
 }

@@ -3,7 +3,12 @@ const path = require('path');
 const fs = require('fs');
 
 const { getRecents, addRecent, clearRecents } = require('./main/recent-files');
-const { getWorkspaceRoot, setWorkspaceRoot } = require('./main/workspace-prefs');
+const {
+  getWorkspaceRoot,
+  setWorkspaceRoot,
+  getRememberSession,
+  setRememberSession,
+} = require('./main/workspace-prefs');
 const { copyFileToDir, moveFileToDir, fileExists, renameFileConflict } = require('./main/file-ops');
 const { listMarkdownTree } = require('./main/markdown-tree');
 const { setupAutoUpdater } = require('./main/updater');
@@ -52,18 +57,42 @@ function normalizeAutosavePref(mode) {
 
 function setAutosavePref(mode) {
   autosavePref = normalizeAutosavePref(mode);
-  rebuildApplicationMenu();
-  sendToRenderer('menu-autosave', autosavePref);
+  // 自动保存已迁入设置弹窗；此处仅同步主进程内存，不再改菜单 radio / 回推 renderer
   return autosavePref;
 }
 let allowClose = false;
 let ipcHandlersRegistered = false;
 let autoUpdaterApi = null;
+/** 设置弹窗打开时：菜单不可点（保留顶栏标签），并拦截窗口关闭 */
+let settingsModalOpen = false;
 
 function sendToRenderer(channel, ...args) {
+  if (settingsModalOpen && typeof channel === 'string' && channel.indexOf('menu-') === 0) {
+    return;
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, ...args);
   }
+}
+
+/** 设置打开：顶栏保留「文件/视图/帮助」，去掉 submenu + enabled:false，点不开下拉 */
+function applyApplicationMenu() {
+  if (!app.isReady()) return;
+  const recents = getRecents(app.getPath('userData'));
+  if (settingsModalOpen) {
+    const locked = buildMenuTemplate(recents).map((item) => ({
+      label: item.label || ' ',
+      enabled: false,
+    }));
+    Menu.setApplicationMenu(Menu.buildFromTemplate(locked));
+    return;
+  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate(recents)));
+}
+
+function setSettingsModalOpen(open) {
+  settingsModalOpen = !!open;
+  applyApplicationMenu();
 }
 
 function buildRecentSubmenu(recents) {
@@ -169,35 +198,6 @@ function buildMenuTemplate(recents) {
           label: t('menuExportDocx'),
           click: () => sendToRenderer('menu-export-docx'),
         },
-        {
-          label: t('menuAutosave'),
-          submenu: [
-            {
-              label: t('menuAutosaveOff'),
-              type: 'radio',
-              checked: autosavePref === 'off',
-              click: () => setAutosavePref('off'),
-            },
-            {
-              label: t('menuAutosaveBlur'),
-              type: 'radio',
-              checked: autosavePref === 'blur',
-              click: () => setAutosavePref('blur'),
-            },
-            {
-              label: t('menuAutosaveInterval30'),
-              type: 'radio',
-              checked: autosavePref === 'interval:30',
-              click: () => setAutosavePref('interval:30'),
-            },
-            {
-              label: t('menuAutosaveInterval60'),
-              type: 'radio',
-              checked: autosavePref === 'interval:60',
-              click: () => setAutosavePref('interval:60'),
-            },
-          ],
-        },
         { type: 'separator' },
         { role: 'quit', label: t('menuQuit') },
       ],
@@ -219,6 +219,11 @@ function buildMenuTemplate(recents) {
           label: t('menuDarkMode'),
           accelerator: 'CmdOrCtrl+Shift+D',
           click: () => sendToRenderer('menu-toggle-theme'),
+        },
+        {
+          label: t('menuSettings'),
+          accelerator: 'CmdOrCtrl+,',
+          click: () => sendToRenderer('menu-settings'),
         },
         {
           label: t('menuLanguage'),
@@ -280,8 +285,7 @@ function buildMenuTemplate(recents) {
 }
 
 function rebuildApplicationMenu() {
-  const recents = getRecents(app.getPath('userData'));
-  Menu.setApplicationMenu(Menu.buildFromTemplate(buildMenuTemplate(recents)));
+  applyApplicationMenu();
 }
 
 function applyLangPref(pref) {
@@ -567,8 +571,12 @@ function registerIpcHandlers() {
 
   ipcMain.handle('set-autosave-pref', async (_event, mode) => {
     autosavePref = normalizeAutosavePref(mode);
-    rebuildApplicationMenu();
     return autosavePref;
+  });
+
+  ipcMain.handle('set-settings-modal', async (_event, open) => {
+    setSettingsModalOpen(!!open);
+    return { success: true, open: settingsModalOpen };
   });
 
   ipcMain.handle('show-open-folder-dialog', async (event) => {
@@ -604,8 +612,40 @@ function registerIpcHandlers() {
 
   ipcMain.handle('set-workspace-root', async (_event, folderPath) => {
     try {
-      setWorkspaceRoot(app.getPath('userData'), folderPath || null);
+      const ud = app.getPath('userData');
+      // 未开启「记住上次会话」时不落盘，避免下次仍恢复文件列表
+      if (!getRememberSession(ud)) {
+        if (!folderPath) setWorkspaceRoot(ud, null);
+        return { success: true, skipped: true };
+      }
+      setWorkspaceRoot(ud, folderPath || null);
       return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('get-remember-session', async () => {
+    try {
+      return { success: true, value: getRememberSession(app.getPath('userData')) };
+    } catch (err) {
+      return { success: false, error: err.message, value: true };
+    }
+  });
+
+  ipcMain.handle('set-remember-session', async (_event, on) => {
+    try {
+      const ud = app.getPath('userData');
+      const value = setRememberSession(ud, !!on);
+      if (!value) {
+        clearRecents(ud);
+        try {
+          if (typeof app.clearRecentDocuments === 'function') app.clearRecentDocuments();
+        } catch (_) { /* ignore */ }
+        rebuildApplicationMenu();
+        sendToRenderer('recent-files-cleared');
+      }
+      return { success: true, value };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -622,7 +662,11 @@ function registerIpcHandlers() {
   ipcMain.handle('add-recent-file', async (_event, filePath) => {
     try {
       if (!filePath) return { success: false, error: '路径为空' };
-      const files = addRecent(app.getPath('userData'), filePath);
+      const ud = app.getPath('userData');
+      if (!getRememberSession(ud)) {
+        return { success: true, files: getRecents(ud), skipped: true };
+      }
+      const files = addRecent(ud, filePath);
       rebuildApplicationMenu();
       return { success: true, files };
     } catch (err) {
@@ -680,6 +724,11 @@ function createWindow(initialFile) {
   rebuildApplicationMenu();
 
   mainWindow.on('close', (e) => {
+    if (settingsModalOpen) {
+      e.preventDefault();
+      sendToRenderer('settings-modal-blocked-close');
+      return;
+    }
     if (!allowClose && rendererDirty) {
       e.preventDefault();
       sendToRenderer('app-close-request');
@@ -689,6 +738,7 @@ function createWindow(initialFile) {
     mainWindow = null;
     allowClose = false;
     rendererDirty = false;
+    settingsModalOpen = false;
   });
 
   mainWindow.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -704,7 +754,13 @@ function createWindow(initialFile) {
       sendToRenderer('file-opened', initialFile);
       return;
     }
-    const recents = getRecents(app.getPath('userData'));
+    const ud = app.getPath('userData');
+    // 未记住会话 → 欢迎页（不恢复当前文件；工作区由渲染层按同开关决定）
+    if (!getRememberSession(ud)) {
+      sendToRenderer('session-welcome');
+      return;
+    }
+    const recents = getRecents(ud);
     const last = recents[0];
     // 历史为空（或首条文件已不存在）→ 起始页，勿自动打开其它文档
     if (last && last.path && fs.existsSync(last.path)) {

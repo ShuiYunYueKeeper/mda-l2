@@ -1,4 +1,4 @@
-﻿// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
+// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
 (function (global) {
   var STRINGS = {
     zh: {
@@ -56,6 +56,26 @@
       welcomeRecent: '最近打开',
       welcomeRecentEmpty: '暂无最近文件',
       btnAddAnno: '+ 添加批注',
+      btnClearAllAnnos: '清空全部批注',
+      alertClearAllAnnos: '确认清空当前文件的全部批注？此操作不可撤销。',
+      alertClearAllFail: '清空失败: {error}',
+      toastClearAllOk: '已清空 {count} 条批注',
+      settingsTitle: '设置',
+      settingsNavGeneral: '通用',
+      settingsNavPro: 'Pro',
+      settingsProSoon: '即将推出',
+      settingsAutosave: '自动保存',
+      settingsAutosaveDesc: '仅已保存到磁盘的文件生效；未命名文档不会自动另存为。',
+      settingsRememberLayout: '记住界面习惯',
+      settingsRememberLayoutDesc: '记住批注栏、编辑栏、大纲、文件侧栏的展开/收起与分栏宽度。关闭后清除已存布局，下次启动使用默认布局。',
+      settingsRememberSession: '记住上次会话',
+      settingsRememberSessionDesc: '记住文件列表（工作区侧栏）与上次打开的文件。关闭后清除已存会话，下次启动进入欢迎页。',
+      toastRememberLayoutOn: '已开启：记住界面习惯',
+      toastRememberLayoutOff: '已关闭：下次启动使用默认布局',
+      toastRememberSessionOn: '已开启：记住上次会话',
+      toastRememberSessionOff: '已关闭：下次启动进入欢迎页',
+      settingsSave: '保存',
+      settingsCancel: '取消',
       filterStatus: '状态',
       filterLevel: '级别',
       filterTags: '标签',
@@ -65,6 +85,7 @@
       untitled: '未命名.md',
       editorPlaceholder: '在此编辑 Markdown 源码…',
       ok: '确定',
+      confirm: '确认',
       cancel: '取消',
       close: '关闭',
       save: '保存',
@@ -230,6 +251,26 @@
       welcomeRecent: 'Recent',
       welcomeRecentEmpty: 'No recent files',
       btnAddAnno: '+ Add note',
+      btnClearAllAnnos: 'Clear all notes',
+      alertClearAllAnnos: 'Clear all annotations in this file? This cannot be undone.',
+      alertClearAllFail: 'Clear failed: {error}',
+      toastClearAllOk: 'Cleared {count} annotation(s)',
+      settingsTitle: 'Settings',
+      settingsNavGeneral: 'General',
+      settingsNavPro: 'Pro',
+      settingsProSoon: 'Coming soon',
+      settingsAutosave: 'Auto save',
+      settingsAutosaveDesc: 'Applies only to files already saved on disk; untitled documents never auto Save As.',
+      settingsRememberLayout: 'Remember layout',
+      settingsRememberLayoutDesc: 'Remember open/closed state and widths for notes, editor, outline, and file sidebar. Turning off clears saved layout; next launch uses defaults.',
+      settingsRememberSession: 'Remember last session',
+      settingsRememberSessionDesc: 'Remember the file sidebar workspace and the last opened file. Turning off clears the saved session; next launch opens the welcome page.',
+      toastRememberLayoutOn: 'Remember layout: on',
+      toastRememberLayoutOff: 'Remember layout: off (defaults next launch)',
+      toastRememberSessionOn: 'Remember last session: on',
+      toastRememberSessionOff: 'Remember last session: off (welcome next launch)',
+      settingsSave: 'Save',
+      settingsCancel: 'Cancel',
       filterStatus: 'Status',
       filterLevel: 'Level',
       filterTags: 'Tags',
@@ -239,6 +280,7 @@
       untitled: 'Untitled.md',
       editorPlaceholder: 'Edit Markdown source…',
       ok: 'OK',
+      confirm: 'Confirm',
       cancel: 'Cancel',
       close: 'Close',
       save: 'Save',
@@ -398,6 +440,7 @@
         '<ul class="mda-help-list">' +
           '<li>Left color bars show level (critical / major / minor / info)</li>' +
           '<li>Click preview ↔ annotation list for two-way locate</li>' +
+          '<li>Status filter defaults to open only; clear-all removes every note in the current file</li>' +
           '<li>Filter by status / level / tags; add / edit / remove notes (body lines protected)</li>' +
           '<li>Annotation writes are disabled while source edits are unsaved</li>' +
         '</ul>' +
@@ -411,7 +454,7 @@
           '<li>Dark mode; relative images; Mermaid; KaTeX; click image/diagram to zoom — toolbar or Ctrl+C copies (image → clipboard image; diagram → Mermaid source)</li>' +
           '<li><strong>Copy preview</strong>: menu or <kbd>Ctrl+Shift+C</kbd> for WeChat-ready rich text</li>' +
           '<li><strong>Export</strong>: File → Export HTML / PDF / Word (progress UI; ~60s timeout)</li>' +
-          '<li><strong>Auto-save</strong>: File → Auto Save — Off / On blur / Every 30s / Every 60s (saved files only; untitled never auto Save As)</li>' +
+          '<li><strong>Auto-save</strong>: View → Settings… — Off / On blur / Every 30s / Every 60s (saved files only; untitled never auto Save As)</li>' +
           '<li>Panes are resizable; double-click splitter to reset</li>' +
         '</ul>' +
         '<h3>CLI / MCP</h3>' +
@@ -443,6 +486,7 @@
           '<tr><td>Duplicate line</td><td><kbd>Alt+Shift+↓</kbd></td></tr>' +
           '<tr><td>Indent / outdent</td><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td></tr>' +
           '<tr><td>Dark mode</td><td><kbd>Ctrl+Shift+D</kbd></td></tr>' +
+          '<tr><td>Settings</td><td><kbd>Ctrl+,</kbd></td></tr>' +
           '<tr><td>Check for updates</td><td>Help → Check for Updates</td></tr>' +
           '<tr><td>This help</td><td><kbd>F1</kbd></td></tr>' +
           '<tr><td>DevTools</td><td><kbd>F12</kbd></td></tr>' +
@@ -464,6 +508,7 @@
       '<ul class="mda-help-list">' +
         '<li>段落左侧色条表示批注级别（critical / major / minor / info）</li>' +
         '<li>点击预览段落 ↔ 点击批注列表，双向定位</li>' +
+        '<li>状态筛选默认仅勾选 open；可一键清空当前文件全部批注</li>' +
         '<li>按状态、级别、标签筛选；增 / 删 / 改批注（写操作保护正文，仅改批注行）</li>' +
         '<li>存在未保存的源码编辑时，批注写操作会暂时禁用</li>' +
       '</ul>' +
@@ -477,7 +522,7 @@
         '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放，工具栏或 Ctrl+C 可复制（图片→剪贴板图片，流程图→Mermaid 源码）</li>' +
         '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片与流程图）</li>' +
         '<li><strong>导出</strong>：菜单「文件 → 导出 HTML / PDF / Word」（导出会显示进度；大文档约 60s 超时）</li>' +
-        '<li><strong>自动保存</strong>：菜单「文件 → 自动保存」— 关闭 / 失焦 / 每 30 秒 / 每 60 秒（仅已保存过的磁盘文件；未命名不自动另存）</li>' +
+        '<li><strong>自动保存</strong>：菜单「视图 → 设置…」— 关闭 / 失焦 / 每 30 秒 / 每 60 秒（仅已保存过的磁盘文件；未命名不自动另存）</li>' +
         '<li>分栏可拖拽调宽，双击分隔条复位</li>' +
       '</ul>' +
       '<h3>CLI / MCP</h3>' +
@@ -509,6 +554,7 @@
         '<tr><td>重复行</td><td><kbd>Alt+Shift+↓</kbd></td></tr>' +
         '<tr><td>缩进 / 反缩进</td><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td></tr>' +
         '<tr><td>切换深色模式</td><td><kbd>Ctrl+Shift+D</kbd></td></tr>' +
+        '<tr><td>设置</td><td><kbd>Ctrl+,</kbd></td></tr>' +
         '<tr><td>检查更新</td><td>菜单「帮助 → 检查更新」</td></tr>' +
         '<tr><td>功能与快捷键（本页）</td><td><kbd>F1</kbd></td></tr>' +
         '<tr><td>开发者工具</td><td><kbd>F12</kbd></td></tr>' +

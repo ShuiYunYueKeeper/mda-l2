@@ -43,7 +43,11 @@
 | [`prompts/prompt-13-zoom-copy.md`](prompts/prompt-13-zoom-copy.md) | P4：缩放层复制（图片 / 流程图源码） |
 | [`prompts/prompt-14-path-tooltip-workspace-brand.md`](prompts/prompt-14-path-tooltip-workspace-brand.md) | P4：全路径悬停 + Markdown 工作台定位 |
 | [`prompts/prompt-15-docx-autosave-welcome.md`](prompts/prompt-15-docx-autosave-welcome.md) | P4：导出 Word、自动保存、欢迎页叙事 |
-| [`prompts/prompt-16-scroll-anno-panel.md`](prompts/prompt-16-scroll-anno-panel.md) | **本轮 P4**：编辑滚动稳定、批注定位与面板习惯 |
+| [`prompts/prompt-16-scroll-anno-panel.md`](prompts/prompt-16-scroll-anno-panel.md) | P4：编辑滚动稳定、批注定位与面板习惯 |
+| [`prompts/prompt-17-batch-anno-line-shift.md`](prompts/prompt-17-batch-anno-line-shift.md) | 同文件批量 `mda_add` 行号漂移翻车与沉淀 |
+| [`prompts/prompt-18-settings-clear-annos.md`](prompts/prompt-18-settings-clear-annos.md) | **本轮 P4**：设置入口、状态默认 open、一键清空批注 |
+| [`few-shot-examples.md`](few-shot-examples.md) §19 | 批量 add 批注：自下而上 / 禁并行 / 空行不可作 line |
+| [`few-shot-examples.md`](few-shot-examples.md) §20 | 设置入口与清空全部批注 |
 | `demo/` | 团队分享草稿（**暂不入库**，见 `.gitignore`） |
 
 ## 工作流

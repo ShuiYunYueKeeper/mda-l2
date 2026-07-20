@@ -1,4 +1,4 @@
-﻿// 文档大纲（TOC）面板 — 预览区左侧，可收起；滚动预览时同步高亮当前标题
+// 文档大纲（TOC）面板 — 预览区左侧，可收起；滚动预览时同步高亮当前标题
 (function (global) {
   function escHtml(s) {
     return String(s)
@@ -62,7 +62,12 @@
     var flatHeadings = [];
     var activeLine = null;
 
+    function rememberLayout() {
+      try { return localStorage.getItem('mda-remember-layout') !== '0'; } catch (e) { return true; }
+    }
+
     function readCollapsedPref() {
+      if (!rememberLayout()) return false;
       try { return localStorage.getItem('mda-outline-collapsed') === '1'; } catch (e) { return false; }
     }
 
@@ -74,7 +79,9 @@
     function setCollapsed(val, skipNotify) {
       collapsed = !!val;
       container.classList.toggle('collapsed', collapsed);
-      try { localStorage.setItem('mda-outline-collapsed', collapsed ? '1' : '0'); } catch (e) { /* ignore */ }
+      if (rememberLayout()) {
+        try { localStorage.setItem('mda-outline-collapsed', collapsed ? '1' : '0'); } catch (e) { /* ignore */ }
+      }
       applyLang();
       if (!skipNotify && onCollapsedChange) onCollapsedChange(collapsed);
     }

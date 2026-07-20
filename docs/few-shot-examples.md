@@ -1,4 +1,4 @@
-﻿# Few-shot 正反例资产（AI 协作易错点）
+# Few-shot 正反例资产（AI 协作易错点）
 
 > 本文件为「可被 AI 直接复用的 few-shot 资产」：针对 MDA 项目中反复出现、且仅靠
 > 自然语言规则不易约束的易错点，给出成对的 **✅ 正确 / ❌ 错误** 示例。
@@ -468,3 +468,64 @@ reloadFile({ selectAnnoId: r.value.id }); // mermaid.then → selectAnnotation
 - ❌ `el.scrollIntoView` 后再 `showEditorPane` → 预览宽度变了，第一次定位不准。
 - ❌ `withSyncLock` 内连续两次定位且第二次被 `if (syncing) return` 丢掉 → 「要点两次」。
 - ❌ 键入时 `skipMermaid` 再 450ms 全量补渲 → 预览先下后上闪烁。
+
+---
+
+## 19. 同文件批量 `add` 批注（CLI / MCP / Agent）
+
+**规则**（来自分享稿批注实操翻车）：
+- 每次 `addAnnotation` / `mda_add` 会在目标段落**上方插入 1 行**，该行及**之后**所有行号 +1。
+- `line` 必须落在某段落内（`findParagraphByLine`）；**空行不属于任何段落** → 报「未找到第 N 行所属的段落」。
+- 同一文件上的多次 `add` **禁止并行**；并行或沿用过期行号会写错段或直接失败。
+
+### ✅ 正确：自下而上串行，或每次按关键词重定位
+
+```text
+1. 列出待挂载段落（按正文关键词 / 标题），记下当前 startLine
+2. 按 startLine **从大到小** 依次 mda_add（下方插入不影响上方行号）
+3. 若必须自上而下：每成功一条后重新 parse / mda_scan，再解析下一条的行号
+4. 空行、纯分隔线 `---` 勿当 line；改用相邻正文/标题的 startLine
+```
+
+```bash
+# 取纯净 JSON：直接跑 dist，避免 npm 脚本横幅混进 stdout
+node dist/cli/main.js scan path/to.md --format json
+# 或用 MCP mda_scan / mda_add（推荐 Agent）
+```
+
+### ❌ 错误
+
+- ❌ 事先算好一串行号后 **并行** 多次 `mda_add` → 竞态；实测出现「未找到第 442 行所属的段落」（行号已被另一插入顶歪，或命中空行）。
+- ❌ 用「标题与列表之间的空行」当 `line` → 无段落归属，必失败。
+- ❌ `npm run cli -- scan … --format json` 再 `JSON.parse` 管道：npm 可能把 `> mda@…` 打进 stdout → 解析失败；应 `node dist/cli/main.js` 或 MCP。
+- ❌ 只改正文不走 writer/MCP，手搓 `@anno` 行 → 违反源文件保护与枚举校验约定。
+
+---
+
+## 20. 设置入口与清空全部批注（GUI）
+
+**规则**：
+- 自动保存只在「视图 → 设置…」配置，键仍为 `mda-autosave`；勿在文件菜单再放 radio。
+- 「记住上次会话」写入 `workspace-prefs.json` 的 `rememberSession`（默认开）；关时清除工作区根与最近文件，启动进欢迎页；命令行初始文件仍可打开。
+- 「记住界面习惯」键 `mda-remember-layout`（默认开）；关时不读写布局习惯并清除已存键；主题/语言/自动保存不受影响。
+- 批注状态筛选默认仅 `open`；级别默认全选。
+- `clearAllAnnotations` 须源文件保护 + 原子写入；GUI 确认后调用，dirty 禁用。
+
+### ✅ 正确
+
+```javascript
+applyAutosavePref(mode, { toast: true, persist: true }); // 设置弹窗保存
+applyRememberSessionPref(false, { toast: true }); // 关会话：清 workspace + recents
+applyRememberLayoutPref(false, { toast: true }); // 关习惯并 clearLayoutHabits
+filterStatus = { open: true, resolved: false, wontfix: false };
+await clearAllAnnotations(filePath); // 返回删除条数
+```
+
+### ❌ 错误
+
+- ❌ 设置点遮罩即关且未保存 → 偏好丢失（应与批注编辑框一致：遮罩不关）。
+- ❌ 关闭「记住上次会话」后仍 `addRecent` / `setWorkspaceRoot` 落盘，或启动仍自动打开 `recents[0]`。
+- ❌ 先关会话记忆再打开文件、后开启开关却不补写当前文件 → 下次仍欢迎页（开启时须立刻 `addRecentFile(currentFilePath)` / `setWorkspaceRoot`）。
+- ❌ 关闭「记住界面习惯」后仍写入 `mda-panel-visible` 等键。
+- ❌ 循环 `removeAnnotation` 且中间无保护校验聚合 → 可用，但不如一次 `clearAllAnnotations`。
+- ❌ dirty 时仍允许清空 → 重载会丢掉未保存正文编辑。
