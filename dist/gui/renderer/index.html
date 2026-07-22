@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -327,9 +327,28 @@
       position: fixed; inset: 0; z-index: 4000; background: rgba(0,0,0,0.8);
       display: flex; align-items: center; justify-content: center; overflow: hidden;
     }
-    .mda-zoom-stage { transform-origin: center center; cursor: grab; }
+    /* 禁止 will-change / translateZ：会先栅格化再缩放，SVG 文字发糊 */
+    .mda-zoom-stage { transform-origin: center center; cursor: grab; position: relative; }
     .mda-zoom-stage:active { cursor: grabbing; }
-    .mda-zoom-stage img, .mda-zoom-stage svg { max-width: 90vw; max-height: 90vh; display: block; background: #fff; border-radius: 4px; }
+    .mda-zoom-stage img, .mda-zoom-stage svg {
+      /* 默认约 1/2 视口，留边距；放大仍可用滚轮/+ */
+      max-width: 50vw; max-height: 50vh; display: block;
+      background: #fff; border-radius: 4px;
+    }
+    /* JS 按视口拟合宽高后去掉 max，避免与矢量放大打架 */
+    .mda-zoom-stage svg.mda-zoom-svg-fit {
+      max-width: none;
+      max-height: none;
+    }
+    /* 深色：流程图按 dark 主题渲出（浅色字），缩放层须深色底，否则白底+浅字发灰发糊 */
+    [data-theme="dark"] .mda-zoom-stage svg {
+      background: #1e1e1e;
+    }
+    .mda-zoom-stage svg {
+      /* 矢量缩放时优先几何精度，减轻文字糊边 */
+      shape-rendering: geometricPrecision;
+      text-rendering: geometricPrecision;
+    }
     .mda-zoom-bar { position: fixed; top: 14px; right: 16px; display: flex; gap: 6px; z-index: 4002; }
     .mda-zoom-bar button {
       width: 34px; height: 34px; font-size: 18px; line-height: 1; cursor: pointer;
@@ -384,8 +403,62 @@
     #preview-content table tr:nth-child(2n) td { background: var(--table-alt); }
 
     /* ================= 流程图 (mermaid) ================= */
-    .mda-mermaid { margin: 12px 0; text-align: center; overflow-x: auto; }
-    .mda-mermaid svg { max-width: 100%; height: auto; }
+    .mda-mermaid { margin: 12px 0; text-align: center; overflow: visible; }
+    .mda-mermaid svg {
+      max-width: 100%;
+      height: auto;
+      overflow: visible;
+    }
+    /* C4：去掉挤压后的文字仍可能偏挤，保证可读 */
+    .mda-mermaid svg text {
+      paint-order: stroke fill;
+    }
+    .mda-mermaid svg .relationshipLabel,
+    .mda-mermaid svg .messageText,
+    .mda-mermaid svg .label Text {
+      font-size: 12px;
+    }
+    /* 深色预览下给 SVG 轻微衬底，避免过暗节点完全融进背景 */
+    [data-theme="dark"] .mda-mermaid svg {
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 6px;
+    }
+    /* Sankey：连接带是粗 stroke + multiply；深色下 multiply 会乘成近黑 */
+    [data-theme="dark"] .mda-mermaid g.links,
+    [data-theme="dark"] .mda-mermaid g.link,
+    [data-theme="dark"] .mda-mermaid .link {
+      mix-blend-mode: normal !important;
+      stroke-opacity: 0.7 !important;
+    }
+    [data-theme="dark"] .mda-mermaid g.links path,
+    [data-theme="dark"] .mda-mermaid g.link path {
+      mix-blend-mode: normal !important;
+      stroke: #94a3b8 !important;
+      stroke-opacity: 0.7 !important;
+    }
+    [data-theme="dark"] .mda-mermaid line,
+    [data-theme="dark"] .mda-mermaid .timeline-link,
+    [data-theme="dark"] .mda-mermaid path[stroke="#000"],
+    [data-theme="dark"] .mda-mermaid path[stroke="#000000"],
+    [data-theme="dark"] .mda-mermaid path[stroke="black"] {
+      stroke: #cbd5e1 !important;
+    }
+    /* Timeline：覆盖 Mermaid 按 section 着色的虚线/轴线（预览 + 全屏克隆） */
+    [data-theme="dark"] .mda-mermaid .task-line,
+    [data-theme="dark"] .mda-mermaid .lineWrapper line,
+    [data-theme="dark"] .mda-mermaid [class*="section-"] line,
+    [data-theme="dark"] .mda-zoom-stage .task-line,
+    [data-theme="dark"] .mda-zoom-stage .lineWrapper line,
+    [data-theme="dark"] .mda-zoom-stage [class*="section-"] line {
+      stroke: #cbd5e1 !important;
+    }
+    [data-theme="dark"] .mda-mermaid marker[id*="arrowhead"] path,
+    [data-theme="dark"] .mda-mermaid marker[id*="arrowhead"] polygon,
+    [data-theme="dark"] .mda-zoom-stage marker[id*="arrowhead"] path,
+    [data-theme="dark"] .mda-zoom-stage marker[id*="arrowhead"] polygon {
+      fill: #cbd5e1 !important;
+      stroke: #cbd5e1 !important;
+    }
     .mda-mermaid-error {
       margin: 12px 0; padding: 10px 12px; border: 1px solid var(--danger);
       border-radius: 6px; color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent);

@@ -2174,10 +2174,56 @@
     return null;
   }
 
+  /** 深色下默认 dark 主题会把亮黄等压成近黑，节点融进背景；显式给出中等饱和分段色。 */
+  function mermaidInitOptions() {
+    var base = { startOnLoad: false, securityLevel: 'strict' };
+    if (!isDark()) {
+      base.theme = 'default';
+      // 浅色保持默认；显式 gradient 以免被上次深色配置残留影响
+      base.sankey = { linkColor: 'gradient' };
+      return base;
+    }
+    base.theme = 'dark';
+    // 固定浅灰连接带：source/gradient 在 dark 下仍常接近背景色
+    base.sankey = { linkColor: '#94a3b8' };
+    base.themeVariables = {
+      darkMode: true,
+      background: '#1e1e1e',
+      primaryColor: '#3d5a80',
+      primaryTextColor: '#e8eaed',
+      primaryBorderColor: '#8ab4f8',
+      secondaryColor: '#4a5568',
+      tertiaryColor: '#2d3748',
+      lineColor: '#cbd5e1',
+      textColor: '#e8eaed',
+      mainBkg: '#2d3748',
+      nodeBkg: '#2d3748',
+      clusterBkg: '#1a202c',
+      titleColor: '#e8eaed',
+      edgeLabelBackground: '#1a202c',
+      actorLineColor: '#cbd5e1',
+      signalColor: '#cbd5e1',
+      // mindmap / timeline / pie 等分段色：琥珀代替刺眼亮黄，避免被压成近黑
+      cScale0: '#4a6fa5',
+      cScale1: '#c9a227',
+      cScale2: '#2f855a',
+      cScale3: '#805ad5',
+      cScale4: '#dd6b20',
+      cScale5: '#3182ce',
+      cScale6: '#d69e2e',
+      cScale7: '#38a169',
+      cScale8: '#9f7aea',
+      cScale9: '#ed8936',
+      cScale10: '#4299e1',
+      cScale11: '#ecc94b',
+    };
+    return base;
+  }
+
   function initMermaid() {
     var m = getMermaid();
     if (m) {
-      try { m.initialize({ startOnLoad: false, theme: isDark() ? 'dark' : 'default', securityLevel: 'strict' }); } catch (e) { /* ignore */ }
+      try { m.initialize(mermaidInitOptions()); } catch (e) { /* ignore */ }
     }
   }
 
@@ -2200,11 +2246,13 @@
       var src = code.textContent.replace(/\n$/, '');
       var id = 'mmd-' + Date.now() + '-' + i;
       try {
-        try { m.initialize({ startOnLoad: false, theme: isDark() ? 'dark' : 'default', securityLevel: 'strict' }); } catch (e) { /* ignore */ }
+        try { m.initialize(mermaidInitOptions()); } catch (e) { /* ignore */ }
         var out = await m.render(id, src);
         holder.setAttribute('data-mermaid-src', src);
         holder.innerHTML = out.svg;
         if (out.bindFunctions) out.bindFunctions(holder);
+        fixMermaidSvgLayout(holder);
+        tuneMermaidSvgContrast(holder);
         holder.addEventListener('click', function () {
           var svg = this.querySelector('svg');
           var mermaidSrc = this.getAttribute('data-mermaid-src') || '';
@@ -2215,6 +2263,251 @@
         holder.textContent = uiT('mermaidFail', { error: (err && err.message) ? err.message : String(err) });
       }
     }
+  }
+
+  /**
+   * 布局修复（深浅色通用）：
+   * - C4 等图用 textLength 强行压字宽 → 中文/<<stereotype>> 挤压变形，去掉该属性
+   * - Radar/Venn 标题常画出 viewBox → 扩边距并允许 overflow
+   */
+  function fixMermaidSvgLayout(holder) {
+    var svg = holder && holder.querySelector('svg');
+    if (!svg) return;
+
+    var texts = svg.querySelectorAll('text[textLength], tspan[textLength]');
+    for (var i = 0; i < texts.length; i++) {
+      texts[i].removeAttribute('textLength');
+      texts[i].removeAttribute('lengthAdjust');
+    }
+
+    // Architecture：服务标签叠在同一位置时，给 text 加一点可换行空间意义不大；
+    // 主要靠样例简化。这里确保 group 内文字不被 clip-path 裁掉。
+    var clips = svg.querySelectorAll('[clip-path]');
+    for (var c = 0; c < clips.length; c++) {
+      // 保留 clip，但外层 svg 允许溢出标题
+    }
+
+    padMermaidViewBox(svg, 16);
+    svg.style.overflow = 'visible';
+    holder.style.overflow = 'visible';
+  }
+
+  function padMermaidViewBox(svg, pad) {
+    var vb = svg.getAttribute('viewBox');
+    if (!vb) {
+      try {
+        var box = svg.getBBox();
+        if (box && box.width && box.height) {
+          svg.setAttribute(
+            'viewBox',
+            [box.x - pad, box.y - pad, box.width + 2 * pad, box.height + 2 * pad].join(' ')
+          );
+        }
+      } catch (e) { /* getBBox 可能在未插入时失败 */ }
+      return;
+    }
+    var parts = vb.trim().split(/[\s,]+/).map(Number);
+    if (parts.length !== 4 || parts.some(function (n) { return isNaN(n); })) return;
+    svg.setAttribute(
+      'viewBox',
+      [parts[0] - pad, parts[1] - pad, parts[2] + 2 * pad, parts[3] + 2 * pad].join(' ')
+    );
+  }
+
+  /** 深色模式下统一抬对比度：轴线/虚线、Sankey 带、过暗填充、黄底深字。 */
+  function tuneMermaidSvgContrast(holder) {
+    if (!isDark() || !holder) return;
+    var svg = holder.querySelector('svg');
+    if (!svg) return;
+
+    tuneDarkStrokes(svg);
+    tuneTimelineConnectors(svg);
+    tuneSankeyLinks(svg);
+
+    var nodes = svg.querySelectorAll('[fill], rect, polygon, circle, path, ellipse');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (el.getAttribute('data-mda-sankey-link') === '1') continue;
+      var fill = el.getAttribute('fill');
+      if (!fill || fill === 'none' || fill === 'transparent' || fill.indexOf('url(') === 0) continue;
+      var rgb = parseCssColor(fill);
+      if (!rgb) continue;
+      var lum = relativeLuminance(rgb.r, rgb.g, rgb.b);
+      if (lum < 0.06) {
+        var isYellowish = rgb.r > rgb.b + 20 && rgb.g > rgb.b;
+        el.setAttribute('fill', isYellowish ? '#c9a227' : '#4a5568');
+        rgb = isYellowish ? { r: 201, g: 162, b: 39 } : { r: 74, g: 85, b: 104 };
+        lum = relativeLuminance(rgb.r, rgb.g, rgb.b);
+      }
+      if (lum > 0.45 && rgb.r > 180 && rgb.g > 140 && rgb.b < 120) {
+        var textEls = findMermaidLabelTexts(el);
+        for (var t = 0; t < textEls.length; t++) {
+          textEls[t].setAttribute('fill', '#1a202c');
+          if (textEls[t].style) textEls[t].style.fill = '#1a202c';
+        }
+      }
+    }
+  }
+
+  /**
+   * Timeline：Mermaid 用 `.section-N line { stroke: cScaleInv }` 按段着色，
+   * 且 `.lineWrapper line` 可能落到深色 nodeBorder / 末段 label 色 → 全屏/深色下虚线与轴线深浅不一。
+   * 统一成浅灰连接色（属性 + !important 样式，覆盖内联 `<style>`）。
+   */
+  function tuneTimelineConnectors(svg) {
+    if (!svg) return;
+    var isTimeline = !!(
+      svg.querySelector('.task-line, .lineWrapper, line.task-line') ||
+      (svg.getAttribute('aria-roledescription') || '').toLowerCase().indexOf('timeline') >= 0
+    );
+    if (!isTimeline) {
+      // 部分版本无 class，靠虚线 line 兜底：存在 stroke-dasharray 的竖线即视为 timeline 连接
+      var dashed = svg.querySelectorAll('line[stroke-dasharray]');
+      if (!dashed.length) return;
+      isTimeline = true;
+    }
+
+    var STROKE = '#cbd5e1';
+    var STYLE_ID = 'mda-timeline-stroke-fix';
+    var prev = svg.querySelector('#' + STYLE_ID);
+    if (prev) prev.remove();
+    var style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    style.setAttribute('id', STYLE_ID);
+    style.textContent = [
+      '.task-line,',
+      '.lineWrapper line,',
+      'g[class*="section-"] > line,',
+      '[class*="section-"] line {',
+      '  stroke: ' + STROKE + ' !important;',
+      '}',
+      'marker#arrowhead path, marker[id*="arrowhead"] path,',
+      'marker#arrowhead polygon, marker[id*="arrowhead"] polygon {',
+      '  fill: ' + STROKE + ' !important;',
+      '  stroke: ' + STROKE + ' !important;',
+      '}'
+    ].join('\n');
+    svg.insertBefore(style, svg.firstChild);
+
+    var lines = svg.querySelectorAll('line');
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      // 表情 mouth 等装饰线跳过
+      var cls = line.getAttribute('class') || '';
+      if (/\bmouth\b/.test(cls)) continue;
+      var inConnector =
+        /\btask-line\b/.test(cls) ||
+        !!(line.closest && (line.closest('.lineWrapper') || line.closest('[class*="section-"]'))) ||
+        line.hasAttribute('stroke-dasharray');
+      if (!inConnector) continue;
+      line.setAttribute('stroke', STROKE);
+      if (line.style) line.style.stroke = STROKE;
+    }
+
+    // 轴线（无 dash）在 lineWrapper 内
+    var axisLines = svg.querySelectorAll('.lineWrapper line');
+    for (var a = 0; a < axisLines.length; a++) {
+      axisLines[a].setAttribute('stroke', STROKE);
+      if (axisLines[a].style) axisLines[a].style.stroke = STROKE;
+    }
+
+    var markers = svg.querySelectorAll('marker[id*="arrowhead"] path, marker[id*="arrowhead"] polygon');
+    for (var m = 0; m < markers.length; m++) {
+      markers[m].setAttribute('fill', STROKE);
+      markers[m].setAttribute('stroke', STROKE);
+    }
+  }
+
+  /** Timeline / flowchart：近黑 stroke 在深色背景不可见 → 浅灰。 */
+  function tuneDarkStrokes(svg) {
+    var els = svg.querySelectorAll('[stroke], line, polyline, path, polygon');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      var stroke = el.getAttribute('stroke');
+      if ((!stroke || stroke === 'none') && el.style) stroke = el.style.stroke;
+      if (!stroke || stroke === 'none' || stroke.indexOf('url(') === 0) continue;
+      var rgb = parseCssColor(stroke);
+      if (!rgb) continue;
+      if (relativeLuminance(rgb.r, rgb.g, rgb.b) < 0.22) {
+        el.setAttribute('stroke', '#cbd5e1');
+        if (el.style) el.style.stroke = '#cbd5e1';
+      }
+    }
+  }
+
+  function tuneSankeyLinks(svg) {
+    // Mermaid Sankey：g.links[fill=none] + path[stroke] + mix-blend-mode:multiply
+    // multiply 在深色背景上会把彩色描边乘成近黑 → 必须关掉
+    var linkGroups = svg.querySelectorAll('g.links, g.link, .links, .link');
+    for (var g = 0; g < linkGroups.length; g++) {
+      var grp = linkGroups[g];
+      grp.style.mixBlendMode = 'normal';
+      if (grp.getAttribute('stroke-opacity') != null || grp.style.strokeOpacity) {
+        grp.setAttribute('stroke-opacity', '0.65');
+        grp.style.strokeOpacity = '0.65';
+      }
+    }
+
+    var paths = svg.querySelectorAll('g.links path, g.link path, path.link');
+    if (!paths.length) {
+      // 兜底：无 fill 但有粗 stroke 的 path
+      var all = svg.querySelectorAll('path');
+      var acc = [];
+      for (var j = 0; j < all.length; j++) {
+        var cand = all[j];
+        var f = cand.getAttribute('fill');
+        var sw = parseFloat(cand.getAttribute('stroke-width') || '0');
+        if ((f === 'none' || !f) && sw >= 2) acc.push(cand);
+      }
+      paths = acc;
+    }
+    for (var i = 0; i < paths.length; i++) {
+      var p = paths[i];
+      p.style.mixBlendMode = 'normal';
+      var stroke = p.getAttribute('stroke') || (p.style && p.style.stroke) || '';
+      // gradient url 或过深实色 → 换成可见浅灰（或保留较亮的 source 色）
+      var useFixed = !stroke || stroke.indexOf('url(') === 0;
+      if (!useFixed) {
+        var rgb = parseCssColor(stroke);
+        if (rgb && relativeLuminance(rgb.r, rgb.g, rgb.b) < 0.35) useFixed = true;
+      }
+      if (useFixed) {
+        p.setAttribute('stroke', '#94a3b8');
+        if (p.style) p.style.stroke = '#94a3b8';
+      }
+      p.setAttribute('stroke-opacity', '0.7');
+      if (p.style) p.style.strokeOpacity = '0.7';
+      p.setAttribute('data-mda-sankey-link', '1');
+    }
+  }
+
+  function parseCssColor(s) {
+    s = String(s).trim();
+    if (s.charAt(0) === '#') {
+      var h = s.slice(1);
+      if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+      if (h.length !== 6) return null;
+      return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+    }
+    var m = s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+    if (m) return { r: +m[1], g: +m[2], b: +m[3] };
+    return null;
+  }
+
+  function relativeLuminance(r, g, b) {
+    function chan(c) {
+      c /= 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+    return 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(b);
+  }
+
+  function findMermaidLabelTexts(shapeEl) {
+    var out = [];
+    var g = shapeEl.closest && shapeEl.closest('g');
+    if (!g) return out;
+    var texts = g.querySelectorAll('text, tspan');
+    for (var i = 0; i < texts.length; i++) out.push(texts[i]);
+    return out;
   }
 
   // ---- 文件列表 / 编辑栏 / 批注栏（独立开关）----
@@ -2429,6 +2722,33 @@
     img.src = imageSrc;
   }
 
+  /** 深色全屏预览：去掉 SVG 内近白铺底，避免浅色字落在白底上发灰发糊。 */
+  function neutralizeZoomSvgBg(svg) {
+    if (!svg) return;
+    var vw = 0, vh = 0;
+    if (svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width) {
+      vw = svg.viewBox.baseVal.width;
+      vh = svg.viewBox.baseVal.height;
+    }
+    var rects = svg.querySelectorAll('rect');
+    var limit = Math.min(rects.length, 12);
+    for (var i = 0; i < limit; i++) {
+      var r = rects[i];
+      var fill = r.getAttribute('fill') || (r.style && r.style.fill) || '';
+      if (!fill || fill === 'none' || fill === 'transparent') continue;
+      var rgb = parseCssColor(fill);
+      if (!rgb || relativeLuminance(rgb.r, rgb.g, rgb.b) < 0.82) continue;
+      var rw = parseFloat(r.getAttribute('width'));
+      var rh = parseFloat(r.getAttribute('height'));
+      if (!isFinite(rw) || !isFinite(rh)) continue;
+      // 接近整图的铺底 rect（Mermaid 部分图型会画一块浅底）
+      if (vw && vh && rw >= vw * 0.85 && rh >= vh * 0.85) {
+        r.setAttribute('fill', '#1e1e1e');
+        if (r.style) r.style.fill = '#1e1e1e';
+      }
+    }
+  }
+
   function openZoom(node, opts) {
     opts = opts || {};
     var ov = document.createElement('div');
@@ -2449,6 +2769,51 @@
 
     var MIN_SCALE = 0.3, MAX_SCALE = 8;
     var scale = 1, tx = 0, ty = 0;
+    // SVG：用改 width/height 缩放（矢量重排），避免 transform:scale 在部分 GPU 路径上栅格化发糊
+    var isSvgZoom = !!(node && node.tagName && String(node.tagName).toLowerCase() === 'svg');
+    var baseW = 0, baseH = 0;
+    if (isSvgZoom) {
+      node.classList.add('mda-zoom-svg-fit');
+      node.removeAttribute('width');
+      node.removeAttribute('height');
+      node.style.maxWidth = 'none';
+      node.style.maxHeight = 'none';
+      // 深色：浅色字必须配深色底；顺带改掉 Mermaid 画在 SVG 内的近白铺底 rect
+      if (isDark()) {
+        ov.classList.add('mda-zoom-dark');
+        node.style.background = '#1e1e1e';
+        neutralizeZoomSvgBg(node);
+        // 克隆后再次统一 Timeline 连接线（覆盖 SVG 内嵌 section 色）
+        tuneTimelineConnectors(node);
+        tuneDarkStrokes(node);
+      }
+    }
+
+    function measureSvgBase() {
+      if (!isSvgZoom || baseW > 0) return;
+      var vw = 0, vh = 0;
+      if (node.viewBox && node.viewBox.baseVal && node.viewBox.baseVal.width) {
+        vw = node.viewBox.baseVal.width;
+        vh = node.viewBox.baseVal.height;
+      }
+      if (!vw || !vh) {
+        try {
+          var box = node.getBBox();
+          if (box && box.width && box.height) { vw = box.width; vh = box.height; }
+        } catch (e) { /* 未布局 */ }
+      }
+      if (vw && vh) {
+        // 默认约 72% 视口，避免一打开就铺满显得过大
+        var fit = Math.min((window.innerWidth * 0.50) / vw, (window.innerHeight * 0.50) / vh);
+        baseW = vw * fit;
+        baseH = vh * fit;
+        return;
+      }
+      var rect = node.getBoundingClientRect();
+      baseW = rect.width || node.clientWidth || 0;
+      baseH = rect.height || node.clientHeight || 0;
+    }
+
     // 平移边界：保证内容中心始终留在视口内，避免被拖到不可见区域
     function clampPan() {
       var maxX = window.innerWidth / 2;
@@ -2456,9 +2821,30 @@
       tx = Math.max(-maxX, Math.min(maxX, tx));
       ty = Math.max(-maxY, Math.min(maxY, ty));
     }
-    function apply() { clampPan(); stage.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')'; }
+    function apply() {
+      clampPan();
+      measureSvgBase();
+      if (isSvgZoom && baseW > 0 && baseH > 0) {
+        node.style.width = (baseW * scale) + 'px';
+        node.style.height = (baseH * scale) + 'px';
+        // SVG 路径：平移用 left/top，舞台不加任何 transform（含 translate 也可能促栅格化糊字）
+        stage.style.transform = 'none';
+        stage.style.left = tx + 'px';
+        stage.style.top = ty + 'px';
+      } else {
+        stage.style.left = '';
+        stage.style.top = '';
+        stage.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
+      }
+    }
     function zoom(factor) { scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor)); apply(); }
     function reset() { scale = 1; tx = 0; ty = 0; apply(); }
+
+    // 首帧测尺寸后再 apply，保证 1× 已按视口适配
+    requestAnimationFrame(function () {
+      measureSvgBase();
+      apply();
+    });
 
     ov.addEventListener('wheel', function (e) {
       e.preventDefault();

@@ -248,6 +248,9 @@ editorEl.addEventListener('scroll', function () {
 
 **规则**：
 - 舞台元素**禁止** `will-change: transform`（会先栅格化再缩放 → 放大模糊，SVG 亦然）。
+- 流程图（SVG）放大须改 **`width`/`height`**，平移用 **`left`/`top`**；勿对舞台 `transform: scale` / `translate`（易糊字）。
+- 深色模式：缩放层 SVG 须**深色底**（匹配 Mermaid dark 浅色字）；中和 SVG 内近白铺底 rect；默认适配约 **72%–75%** 视口（勿一打开就 90% 铺满）。
+- Timeline：Mermaid 按 `.section-N line { stroke: cScaleInv }` 分段着色会导致虚线/轴线深浅不一 → 须统一浅灰连接色（如 `#cbd5e1`）。
 - 缩放钳制 **0.3×–8×**；平移钳制内容中心留在视口内。
 - `+/-` 按钮须 `stopPropagation`，**仅内容本身双击**才复位（避免连点按钮触发 `dblclick` 误复位）。
 - 工具栏按钮用深色实底，避免白底图片遮挡。
@@ -255,11 +258,16 @@ editorEl.addEventListener('scroll', function () {
 ### ✅ 正确
 
 ```css
-.mda-zoom-stage { transform-origin: center center; cursor: grab; }
+.mda-zoom-stage { transform-origin: center center; cursor: grab; position: relative; }
 /* 不加 will-change: transform */
+[data-theme="dark"] .mda-zoom-stage svg { background: #1e1e1e; }
 ```
 
 ```javascript
+// SVG：改宽高矢量放大；舞台只用 left/top 平移
+node.style.width = (baseW * scale) + 'px';
+stage.style.transform = 'none';
+stage.style.left = tx + 'px';
 bar.addEventListener('click', function (e) { e.stopPropagation(); zoom(...); });
 bar.addEventListener('dblclick', function (e) { e.stopPropagation(); });
 stage.addEventListener('dblclick', function (e) { e.stopPropagation(); reset(); });
@@ -268,9 +276,12 @@ stage.addEventListener('dblclick', function (e) { e.stopPropagation(); reset(); 
 ### ❌ 错误
 
 - ❌ `.mda-zoom-stage { will-change: transform; }` → 流程图/图片放大后**全糊**。
+- ❌ 深色主题下缩放层强制白底 → 浅色字发灰，看起来像糊。
+- ❌ 舞台 `transform: scale(...)` 放大 SVG → 文字栅格化发糊。
 - ❌ 遮罩层 `dblclick` 监听在任意子元素上复位 → 连点 `−` 两次触发复位。
 - ❌ 半透明白色按钮浮在白图上 → **看不见** +/- 控制。
 - ❌ 无平移边界 → 内容被拖到视口外**找不回来**。
+- ❌ 依赖 Mermaid 默认 Timeline section 描边 → 全屏下各段虚线颜色不一致。
 
 ---
 

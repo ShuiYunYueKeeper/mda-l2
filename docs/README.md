@@ -45,7 +45,9 @@
 | [`prompts/prompt-15-docx-autosave-welcome.md`](prompts/prompt-15-docx-autosave-welcome.md) | P4：导出 Word、自动保存、欢迎页叙事 |
 | [`prompts/prompt-16-scroll-anno-panel.md`](prompts/prompt-16-scroll-anno-panel.md) | P4：编辑滚动稳定、批注定位与面板习惯 |
 | [`prompts/prompt-17-batch-anno-line-shift.md`](prompts/prompt-17-batch-anno-line-shift.md) | 同文件批量 `mda_add` 行号漂移翻车与沉淀 |
-| [`prompts/prompt-18-settings-clear-annos.md`](prompts/prompt-18-settings-clear-annos.md) | **本轮 P4**：设置入口、状态默认 open、一键清空批注 |
+| [`prompts/prompt-18-settings-clear-annos.md`](prompts/prompt-18-settings-clear-annos.md) | P4：设置入口、状态默认 open、一键清空批注 |
+| [`prompts/prompt-19-mermaid-dark-zoom.md`](prompts/prompt-19-mermaid-dark-zoom.md) | **本轮 P4**：Mermaid 暗黑全屏清晰度 / Timeline 连线 / 默认尺寸 |
+| [`few-shot-examples.md`](few-shot-examples.md) §10 | 缩放遮罩：矢量放大、深色底、Timeline 统一色 |
 | [`few-shot-examples.md`](few-shot-examples.md) §19 | 批量 add 批注：自下而上 / 禁并行 / 空行不可作 line |
 | [`few-shot-examples.md`](few-shot-examples.md) §20 | 设置入口与清空全部批注 |
 | `demo/` | 团队分享草稿（**暂不入库**，见 `.gitignore`） |
