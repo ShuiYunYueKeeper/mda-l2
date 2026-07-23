@@ -29,6 +29,7 @@ const files = [
   ['src/gui/renderer/outline-panel.js', 'dist/gui/renderer/outline-panel.js'],
   ['src/gui/renderer/selection-anchor.js', 'dist/gui/renderer/selection-anchor.js'],
   ['src/gui/renderer/anchor-highlights.js', 'dist/gui/renderer/anchor-highlights.js'],
+  ['src/gui/renderer/katex-export.js', 'dist/gui/renderer/katex-export.js'],
   ['src/config/annotation-schema.json', 'dist/config/annotation-schema.json'],
 ];
 

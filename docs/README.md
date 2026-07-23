@@ -27,7 +27,7 @@
 | [`M4-acceptance-checklist.md`](M4-acceptance-checklist.md) | 选区批注 F3 | ✅ 已验收 |
 | [`M5-acceptance-checklist.md`](M5-acceptance-checklist.md) | MCP / 导出 / 更新 | ✅ 已验收 |
 | [`M6-acceptance-checklist.md`](M6-acceptance-checklist.md) | Phase A 集成 / Free 门禁 | ✅ 已通过（2026-07-15） |
-| [`M6b-acceptance-checklist.md`](M6b-acceptance-checklist.md) | Free 后基础体验：流程图双拷贝 / 侧栏大纲 / 调图（公式项延后） | ✅ 已通过（2026-07-23） |
+| [`M6b-acceptance-checklist.md`](M6b-acceptance-checklist.md) | Free 后基础体验：流程图双拷贝 / 侧栏大纲 / 调图；公式预览与复制本轮搁置 | ✅ M6b-1/3/4 已通过（2026-07-23）；M6b-2/5 ⏸ 搁置 |
 | [`M7-acceptance-checklist.md`](M7-acceptance-checklist.md) | Phase B Pro AI | 待开工 |
 
 ## AI 协作资产
@@ -50,9 +50,11 @@
 | [`prompts/prompt-19-mermaid-dark-zoom.md`](prompts/prompt-19-mermaid-dark-zoom.md) | **本轮 P4**：Mermaid 暗黑全屏清晰度 / Timeline 连线 / 默认尺寸 |
 | [`prompts/prompt-20-m6b-preview-media-scale.md`](prompts/prompt-20-m6b-preview-media-scale.md) | M6b：图片/流程图默认缩放与预览调宽 |
 | [`prompts/prompt-21-overall-code-review-adjustments.md`](prompts/prompt-21-overall-code-review-adjustments.md) | 整体代码审查、修复原因与后续风险 |
+| [`prompts/prompt-22-m6b-katex-closure.md`](prompts/prompt-22-m6b-katex-closure.md) | M6b：KaTeX 预览/复制闭环（实机残留已搁置，见文内结论） |
 | [`few-shot-examples.md`](few-shot-examples.md) §10 | 缩放遮罩：矢量放大、深色底、Timeline 统一色 |
 | [`few-shot-examples.md`](few-shot-examples.md) §19 | 批量 add 批注：自下而上 / 禁并行 / 空行不可作 line |
 | [`few-shot-examples.md`](few-shot-examples.md) §20 | 设置入口与清空全部批注 |
+| [`few-shot-examples.md`](few-shot-examples.md) §22 | KaTeX 预览清晰度与复制预览公式转图（含整表导出、禁 Blob 污染） |
 | `demo/` | 团队分享草稿（**暂不入库**，见 `.gitignore`） |
 
 ## 工作流

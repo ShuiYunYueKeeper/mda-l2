@@ -411,6 +411,45 @@
     #preview-content table th { font-weight: 600; background: var(--bg-tertiary); }
     #preview-content table tr:nth-child(2n) td { background: var(--table-alt); }
 
+    /* ================= 数学公式 (KaTeX) ================= */
+    #preview-content .katex {
+      color: var(--text);
+      font-size: 1.05em;
+      line-height: 1.2;
+      vertical-align: -0.04em;
+      text-rendering: geometricPrecision;
+      -webkit-font-smoothing: antialiased;
+      font-synthesis: none;
+    }
+    #preview-content .katex-block {
+      margin: 0 0 16px;
+      overflow: visible;
+    }
+    #preview-content .katex-display {
+      display: block;
+      width: max-content;
+      max-width: 100%;
+      margin: 16px auto;
+      padding: 10px 14px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      box-sizing: border-box;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-secondary);
+      color: var(--text);
+      text-align: center;
+    }
+    #preview-content .katex-display > .katex {
+      display: inline-block;
+      min-width: max-content;
+      vertical-align: baseline;
+    }
+    [data-theme="dark"] #preview-content .katex-display {
+      border-color: var(--border-light);
+      background: var(--bg-tertiary);
+    }
+
     /* ================= 流程图 (mermaid) ================= */
     .mda-mermaid { margin: 12px 0; text-align: center; overflow: visible; position: relative; }
     .mda-mermaid svg {
@@ -858,6 +897,7 @@
   <script src="./outline-panel.js"></script>
   <script src="./selection-anchor.js"></script>
   <script src="./anchor-highlights.js"></script>
+  <script src="./katex-export.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

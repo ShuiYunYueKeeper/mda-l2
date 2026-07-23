@@ -314,6 +314,7 @@ npm test               # jest（含覆盖率）
 | GUI i18n | `main/i18n.js`、`renderer/i18n.js` |
 | GUI 工作区文件 IPC | `main/file-ops.js`（复制/移动/重名）、`main/workspace-prefs.js` |
 | GUI 选区/高亮/滚动/查找 | `renderer/selection-anchor.js`、`anchor-highlights.js`、`sync-scroll.js`、`find-replace.js` |
+| GUI 公式复制导出 | `renderer/katex-export.js`（纯 SVG payload）+ `renderer/app.js`（离屏栅格化与剪贴板编排） |
 | GUI 文件/欢迎/大纲 | `renderer/welcome.js`、`file-sidebar.js`、`outline-panel.js` |
 | 设计文档 | `docs/P0..P3-*.md`、`docs/README.md` |
 | 里程碑验收 | `docs/M2–M4-acceptance-checklist.md` |

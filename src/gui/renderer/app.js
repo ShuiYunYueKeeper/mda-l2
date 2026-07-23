@@ -2292,6 +2292,60 @@
     }
   }
 
+  function measureKatexVisualBox(renderEl) {
+    var layout = renderEl.getBoundingClientRect();
+    var minLeft = layout.left;
+    var minTop = layout.top;
+    var maxRight = layout.right;
+    var maxBottom = layout.bottom;
+    var visualRoot = renderEl.querySelector('.katex-html') || renderEl;
+    var nodes = [visualRoot].concat(Array.from(visualRoot.querySelectorAll('*')));
+    nodes.forEach(function (node) {
+      var rect = node.getBoundingClientRect();
+      if (!(rect.width > 0 && rect.height > 0)) return;
+      minLeft = Math.min(minLeft, rect.left);
+      minTop = Math.min(minTop, rect.top);
+      maxRight = Math.max(maxRight, rect.right);
+      maxBottom = Math.max(maxBottom, rect.bottom);
+    });
+    var overflowLeft = Math.max(0, layout.left - minLeft);
+    var overflowRight = Math.max(0, maxRight - layout.right);
+    var overflowTop = Math.max(0, layout.top - minTop);
+    var overflowBottom = Math.max(0, maxBottom - layout.bottom);
+    return {
+      width: Math.max(layout.width + overflowLeft + overflowRight, renderEl.scrollWidth || 0),
+      height: Math.max(layout.height + overflowTop + overflowBottom, renderEl.scrollHeight || 0),
+      offsetX: (overflowLeft - overflowRight) / 2,
+      offsetY: (overflowTop - overflowBottom) / 2,
+    };
+  }
+
+  function svgPayloadToPng(payload) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var canvas = document.createElement('canvas');
+          canvas.width = payload.pixelWidth;
+          canvas.height = payload.pixelHeight;
+          var ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, payload.pixelWidth, payload.pixelHeight);
+          ctx.drawImage(img, 0, 0, payload.pixelWidth, payload.pixelHeight);
+          var dataUrl = canvas.toDataURL('image/png');
+          if (!isValidPngDataUrl(dataUrl)) reject(new Error('formula export failed'));
+          else resolve({
+            dataUrl: dataUrl,
+            width: payload.logicalWidth,
+            height: payload.logicalHeight,
+          });
+        } catch (err) { reject(err); }
+      };
+      img.onerror = function () { reject(new Error('formula export failed')); };
+      img.src = window.MDAKatexExport.svgToDataUrl(payload.svg);
+    });
+  }
+
   /**
    * 布局修复（深浅色通用）：
    * - C4 等图用 textLength 强行压字宽 → 中文/<<stereotype>> 挤压变形，去掉该属性
@@ -3579,6 +3633,10 @@
         if (!r.ok) throw new Error('katex.css ' + r.status);
         return r.text();
       });
+      // Chromium 支持 woff2；去掉 woff/ttf 备用源，避免每个公式 PNG 重复内联三套字体。
+      if (window.MDAKatexExport && window.MDAKatexExport.preferWoff2Sources) {
+        css = window.MDAKatexExport.preferWoff2Sources(css);
+      }
       var re = /url\((['"]?)([^)'"]+)\1\)/g;
       var found = {};
       var m;
@@ -3588,6 +3646,7 @@
         found[url] = true;
       }
       var map = {};
+      var missing = [];
       var urls = Object.keys(found);
       for (var i = 0; i < urls.length; i++) {
         var u = urls[i];
@@ -3596,15 +3655,16 @@
         else if (u.indexOf('./') !== 0 && u.indexOf('/') !== 0 && u.indexOf('file:') !== 0) resolved = './' + u;
         try {
           var resp = await fetch(resolved);
-          if (!resp.ok) continue;
+          if (!resp.ok) { missing.push(u); continue; }
           var ab = await resp.arrayBuffer();
           var mime = /\.woff2$/i.test(u) ? 'font/woff2'
             : /\.woff$/i.test(u) ? 'font/woff'
               : /\.ttf$/i.test(u) ? 'font/ttf'
                 : 'application/octet-stream';
           map[u] = 'url(data:' + mime + ';base64,' + arrayBufferToBase64(ab) + ')';
-        } catch (e) { /* keep original url */ }
+        } catch (e) { missing.push(u); }
       }
+      if (missing.length) throw new Error('KaTeX fonts unavailable: ' + missing.join(', '));
       return css.replace(/url\((['"]?)([^)'"]+)\1\)/g, function (full, q, url) {
         return map[url] || full;
       });
@@ -3620,68 +3680,141 @@
    */
   async function katexElToPngDataUrl(liveEl) {
     if (!liveEl) throw new Error('formula export failed');
+    if (!window.MDAKatexExport || !window.MDAKatexExport.buildSvgPayload) {
+      throw new Error('formula export helper unavailable');
+    }
     var css = await loadKatexCssForExport();
-    var clone = liveEl.cloneNode(true);
+    // display 节点通常占满整行；只按内部公式本体采样，避免导出大块空白。
+    var renderEl = liveEl.classList.contains('katex-display')
+      ? (liveEl.querySelector('.katex') || liveEl)
+      : liveEl;
+    if (document.fonts && document.fonts.ready) {
+      await withTimeout(document.fonts.ready, 2000, null);
+    }
+    var computed = window.getComputedStyle(renderEl);
+    var clone = renderEl.cloneNode(true);
     clone.querySelectorAll('.katex-mathml').forEach(function (m) { m.remove(); });
+    // 导出 CSS 的默认字号为 1.21em；锁定预览 computed size，避免内容比测量框更大而被裁切。
+    clone.style.fontSize = computed.fontSize;
+    clone.style.lineHeight = computed.lineHeight;
+    clone.style.color = '#222222';
+    clone.style.display = 'inline-block';
+    clone.style.maxWidth = 'none';
+    clone.style.verticalAlign = 'baseline';
 
-    var rect = liveEl.getBoundingClientRect();
-    var w = Math.ceil(rect.width || liveEl.offsetWidth || liveEl.scrollWidth || 0);
-    var h = Math.ceil(rect.height || liveEl.offsetHeight || liveEl.scrollHeight || 0);
-    if (w < 2) w = Math.ceil(liveEl.scrollWidth) || 200;
-    if (h < 2) h = Math.ceil(liveEl.scrollHeight) || 40;
-    var padX = 10;
-    var padY = 8;
+    var visualBox = measureKatexVisualBox(renderEl);
+    var w = Math.ceil(Math.max(visualBox.width || 0, renderEl.offsetWidth || 0));
+    var h = Math.ceil(Math.max(visualBox.height || 0, renderEl.offsetHeight || 0));
+    if (w < 2) w = Math.ceil(renderEl.scrollWidth) || 200;
+    if (h < 2) h = Math.ceil(renderEl.scrollHeight) || 40;
+    var isBlock = liveEl.classList.contains('katex-display');
+    var padding = window.MDAKatexExport.formulaPadding
+      ? window.MDAKatexExport.formulaPadding(isBlock)
+      : (isBlock ? { x: 16, y: 12 } : { x: 4, y: 4 });
+    var padX = padding.x;
+    var padY = padding.y;
     var tw = w + padX * 2;
     var th = h + padY * 2;
 
-    // 转义 style 内可能破坏 foreignObject 的序列
-    var safeCss = String(css).replace(/<\/style/gi, '<\\/style');
-    var inner = clone.outerHTML;
-    var svgStr = '<svg xmlns="http://www.w3.org/2000/svg" width="' + tw + '" height="' + th + '">'
-      + '<foreignObject width="100%" height="100%">'
-      + '<div xmlns="http://www.w3.org/1999/xhtml" style="margin:0;padding:'
-      + padY + 'px ' + padX + 'px;background:#ffffff;color:#222222;display:inline-block;line-height:1.4;">'
-      + '<style type="text/css">' + safeCss + '</style>'
-      + inner
-      + '</div></foreignObject></svg>';
-
-    var svg64 = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
-    return new Promise(function (resolve, reject) {
-      var img = new Image();
-      img.onload = function () {
-        try {
-          var canvas = document.createElement('canvas');
-          canvas.width = tw;
-          canvas.height = th;
-          var ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, tw, th);
-          ctx.drawImage(img, 0, 0, tw, th);
-          var dataUrl = canvas.toDataURL('image/png');
-          if (!isValidPngDataUrl(dataUrl)) reject(new Error('formula export failed'));
-          else resolve(dataUrl);
-        } catch (err) { reject(err); }
-      };
-      img.onerror = function () { reject(new Error('formula export failed')); };
-      img.src = svg64;
-    });
+    var payloadOptions = {
+      html: clone.outerHTML,
+      css: css,
+      width: tw,
+      height: th,
+      padX: padX,
+      padY: padY,
+      offsetX: visualBox.offsetX,
+      offsetY: visualBox.offsetY,
+      scale: 2,
+    };
+    try {
+      return await svgPayloadToPng(window.MDAKatexExport.buildSvgPayload(payloadOptions));
+    } catch (error) {
+      // 极复杂公式在部分 Chromium/显卡组合下无法创建 2× canvas，仅该公式降到 1×，避免回退为 TeX。
+      payloadOptions.scale = 1;
+      return svgPayloadToPng(window.MDAKatexExport.buildSvgPayload(payloadOptions));
+    }
   }
 
-  function replaceKatexNodeWithImg(node, dataUrl, isBlock) {
+  async function katexTableToPngDataUrl(liveTable) {
+    var css = await loadKatexCssForExport();
+    if (document.fonts && document.fonts.ready) {
+      await withTimeout(document.fonts.ready, 2000, null);
+    }
+    var rect = liveTable.getBoundingClientRect();
+    var width = Math.ceil(Math.max(rect.width || 0, liveTable.scrollWidth || 0));
+    var height = Math.ceil(Math.max(rect.height || 0, liveTable.scrollHeight || 0));
+    if (width < 2 || height < 2) throw new Error('table export failed');
+
+    var clone = liveTable.cloneNode(true);
+    clone.querySelectorAll('.katex-mathml').forEach(function (node) { node.remove(); });
+    clone.setAttribute('style', 'border-collapse:collapse;table-layout:auto;width:' + width
+      + 'px;margin:0;background:#ffffff;color:#222222;font-size:15px;line-height:1.5;white-space:normal;');
+    clone.querySelectorAll('th,td').forEach(function (cell) {
+      cell.setAttribute('style', 'border:1px solid #d8dee4;padding:8px 12px;background:#ffffff;'
+        + 'color:#222222;text-align:left;vertical-align:middle;white-space:normal;');
+    });
+    clone.querySelectorAll('th').forEach(function (cell) {
+      cell.style.fontWeight = 'bold';
+      cell.style.background = '#f6f8fa';
+    });
+
+    var liveKatex = liveTable.querySelectorAll('.katex');
+    var cloneKatex = clone.querySelectorAll('.katex');
+    for (var i = 0; i < cloneKatex.length; i++) {
+      var source = liveKatex[i];
+      if (!source) continue;
+      var computed = window.getComputedStyle(source);
+      cloneKatex[i].style.fontSize = computed.fontSize;
+      cloneKatex[i].style.lineHeight = computed.lineHeight;
+      cloneKatex[i].style.color = '#222222';
+    }
+
+    var padX = 8;
+    var padY = 8;
+    var payloadOptions = {
+      html: clone.outerHTML,
+      css: css,
+      width: width + padX * 2,
+      height: height + padY * 2,
+      padX: padX,
+      padY: padY,
+      scale: 2,
+    };
+    try {
+      return await svgPayloadToPng(window.MDAKatexExport.buildSvgPayload(payloadOptions));
+    } catch (error) {
+      payloadOptions.scale = 1;
+      return svgPayloadToPng(window.MDAKatexExport.buildSvgPayload(payloadOptions));
+    }
+  }
+
+  function replaceKatexNodeWithImg(node, exported, isBlock) {
+    var dataUrl = typeof exported === 'string' ? exported : exported.dataUrl;
+    var logicalWidth = typeof exported === 'object' ? exported.width : 0;
+    var logicalHeight = typeof exported === 'object' ? exported.height : 0;
     var img = document.createElement('img');
     img.src = dataUrl;
     img.setAttribute('alt', uiT('formula'));
     img.className = isBlock ? 'mda-formula-img mda-formula-img-block' : 'mda-formula-img mda-formula-img-inline';
+    if (logicalWidth > 0) {
+      img.setAttribute('data-mda-display-width', String(logicalWidth));
+      img.setAttribute('width', String(logicalWidth));
+    }
+    if (logicalHeight > 0) img.setAttribute('height', String(logicalHeight));
     img.setAttribute('style', isBlock
-      ? 'display:block;margin:12px auto;max-width:100%;height:auto;'
-      : 'display:inline;vertical-align:middle;margin:0 2px;max-width:100%;height:auto;');
+      ? 'display:block;margin:12px auto;width:' + logicalWidth + 'px;max-width:100%;height:auto;'
+      : 'display:inline;vertical-align:middle;margin:0 2px;width:' + logicalWidth + 'px;max-width:100%;height:auto;');
+    var target = isBlock && node.parentElement && node.parentElement.classList.contains('katex-block')
+      ? node.parentElement
+      : node;
     if (isBlock) {
       var p = document.createElement('p');
       p.setAttribute('style', 'text-align:center;margin:16px 0;');
       p.appendChild(img);
-      if (node.parentNode) node.parentNode.replaceChild(p, node);
-    } else if (node.parentNode) {
-      node.parentNode.replaceChild(img, node);
+      if (target.parentNode) target.parentNode.replaceChild(p, target);
+    } else if (target.parentNode) {
+      target.parentNode.replaceChild(img, target);
     }
   }
 
@@ -3764,7 +3897,7 @@
       LI: 'font-size:16px;line-height:1.75;margin:4px 0;',
       PRE: 'margin:0 0 16px;padding:12px;background:#f6f8fa;border-radius:4px;overflow-x:auto;font-size:14px;line-height:1.6;',
       CODE: 'font-family:Consolas,Monaco,monospace;font-size:14px;',
-      TABLE: 'border-collapse:collapse;width:100%;margin:0 0 16px;font-size:15px;',
+      TABLE: 'border-collapse:collapse;width:auto;max-width:100%;margin:0 0 16px;font-size:15px;',
       TH: 'border:1px solid #ddd;padding:8px 12px;background:#f6f8fa;font-weight:bold;',
       TD: 'border:1px solid #ddd;padding:8px 12px;',
       HR: 'border:none;border-top:1px solid #ddd;margin:24px 0;',
@@ -3778,9 +3911,11 @@
       var el = all[i];
       var tag = el.tagName;
       if (tag === 'IMG' && el.classList && el.classList.contains('mda-formula-img')) {
+        var formulaWidth = parseInt(el.getAttribute('data-mda-display-width') || '', 10);
+        var formulaWidthStyle = formulaWidth > 0 ? 'width:' + formulaWidth + 'px;' : '';
         el.setAttribute('style', el.classList.contains('mda-formula-img-inline')
-          ? 'display:inline;vertical-align:middle;margin:0 2px;max-width:100%;height:auto;'
-          : 'display:block;margin:12px auto;max-width:100%;height:auto;');
+          ? 'display:inline;vertical-align:-0.12em;margin:0 1px;' + formulaWidthStyle + 'max-width:100%;height:auto;'
+          : 'display:block;margin:12px auto;' + formulaWidthStyle + 'max-width:100%;height:auto;');
         continue;
       }
       if (tag === 'IMG') {
@@ -3922,33 +4057,78 @@
       if (el.parentNode) el.parentNode.replaceChild(p, el);
     });
 
-    // KaTeX → PNG：公式复制预览延后（M6b-5）；关闭以免未完成体验干扰本轮验收
-    var ENABLE_KATEX_ARTICLE_EXPORT = false;
-    if (ENABLE_KATEX_ARTICLE_EXPORT) {
-      var liveKatex = listTopKatexNodes(previewEl);
-      var cloneKatex = listTopKatexNodes(root);
-      var katexCount = Math.min(liveKatex.length, cloneKatex.length);
-      for (var ki = 0; ki < katexCount; ki++) {
-        var liveK = liveKatex[ki];
-        var cloneK = cloneKatex[ki];
-        var isBlock = !!(cloneK && cloneK.classList && cloneK.classList.contains('katex-display'));
-        try {
-          var kPng = await katexElToPngDataUrl(liveK);
-          replaceKatexNodeWithImg(cloneK, kPng, isBlock);
-        } catch (e) {
-          var fallback = document.createElement(isBlock ? 'p' : 'span');
-          fallback.setAttribute('style', isBlock
-            ? 'text-align:center;color:#999;font-style:italic;margin:12px 0;'
-            : 'color:#999;font-style:italic;');
-          var tex = katexAnnotationTeX(liveK) || katexAnnotationTeX(cloneK);
-          fallback.textContent = tex ? ('$' + tex + '$') : uiT('formulaBracket');
-          if (cloneK.parentNode) cloneK.parentNode.replaceChild(fallback, cloneK);
-        }
-      }
-      root.querySelectorAll('.katex-mathml, .katex-display, .katex').forEach(function (el) {
-        if (el.parentNode) el.parentNode.removeChild(el);
-      });
+    // 含公式表格整体转图，避免目标编辑器把单元格内多个公式图片重新换行。
+    var liveTables = previewEl.querySelectorAll('table');
+    var cloneTables = root.querySelectorAll('table');
+    var groupedLiveTables = new WeakSet();
+    var groupedCloneTables = new WeakSet();
+    var tableCount = Math.min(liveTables.length, cloneTables.length);
+    for (var ti = 0; ti < tableCount; ti++) {
+      if (!liveTables[ti].querySelector('.katex')) continue;
+      try {
+        var tablePng = await katexTableToPngDataUrl(liveTables[ti]);
+        var tableImg = document.createElement('img');
+        tableImg.src = tablePng.dataUrl;
+        tableImg.alt = uiT('formulaTable');
+        tableImg.className = 'mda-formula-table-img';
+        tableImg.setAttribute('data-mda-display-width', String(tablePng.width));
+        tableImg.setAttribute('width', String(tablePng.width));
+        tableImg.setAttribute('height', String(tablePng.height));
+        tableImg.setAttribute('style', 'display:block;margin:12px auto;width:' + tablePng.width
+          + 'px;max-width:100%;height:auto;');
+        groupedLiveTables.add(liveTables[ti]);
+        groupedCloneTables.add(cloneTables[ti]);
+        cloneTables[ti].parentNode.replaceChild(tableImg, cloneTables[ti]);
+      } catch (e) { /* 整表失败时继续逐公式导出 */ }
     }
+
+    // KaTeX → PNG：纯离屏 foreignObject，不滚动预览、不插入视口节点。
+    var liveKatex = listTopKatexNodes(previewEl).filter(function (node) {
+      var table = node.closest('table');
+      return !table || !groupedLiveTables.has(table);
+    });
+    var cloneKatex = listTopKatexNodes(root).filter(function (node) {
+      var table = node.closest('table');
+      return !table || !groupedCloneTables.has(table);
+    });
+    var katexCount = Math.min(liveKatex.length, cloneKatex.length);
+    for (var ki = 0; ki < katexCount; ki++) {
+      var liveK = liveKatex[ki];
+      var cloneK = cloneKatex[ki];
+      var isBlock = !!(cloneK && cloneK.classList && cloneK.classList.contains('katex-display'));
+      try {
+        var kPng = await katexElToPngDataUrl(liveK);
+        replaceKatexNodeWithImg(cloneK, kPng, isBlock);
+      } catch (e) {
+        var fallback = document.createElement(isBlock ? 'p' : 'span');
+        fallback.setAttribute('style', isBlock
+          ? 'text-align:center;color:#999;font-style:italic;margin:12px 0;'
+          : 'color:#999;font-style:italic;');
+        var tex = katexAnnotationTeX(liveK) || katexAnnotationTeX(cloneK);
+        fallback.textContent = tex ? ('$' + tex + '$') : uiT('formulaBracket');
+        var fallbackTarget = isBlock && cloneK.parentElement && cloneK.parentElement.classList.contains('katex-block')
+          ? cloneK.parentElement
+          : cloneK;
+        if (fallbackTarget.parentNode) fallbackTarget.parentNode.replaceChild(fallback, fallbackTarget);
+      }
+    }
+    for (var kr = katexCount; kr < cloneKatex.length; kr++) {
+      var unmatched = cloneKatex[kr];
+      var unmatchedBlock = unmatched.classList && unmatched.classList.contains('katex-display');
+      var unmatchedFallback = document.createElement(unmatchedBlock ? 'p' : 'span');
+      unmatchedFallback.setAttribute('style', unmatchedBlock
+        ? 'text-align:center;color:#999;font-style:italic;margin:12px 0;'
+        : 'color:#999;font-style:italic;');
+      var unmatchedTex = katexAnnotationTeX(unmatched);
+      unmatchedFallback.textContent = unmatchedTex ? ('$' + unmatchedTex + '$') : uiT('formulaBracket');
+      var unmatchedTarget = unmatchedBlock && unmatched.parentElement && unmatched.parentElement.classList.contains('katex-block')
+        ? unmatched.parentElement
+        : unmatched;
+      if (unmatchedTarget.parentNode) unmatchedTarget.parentNode.replaceChild(unmatchedFallback, unmatchedTarget);
+    }
+    root.querySelectorAll('.katex-mathml, .katex-display, .katex, .katex-block').forEach(function (el) {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    });
 
     var imgs = root.querySelectorAll('img');
     for (var ii = 0; ii < imgs.length; ii++) {

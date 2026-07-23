@@ -142,6 +142,7 @@
       toastZoomCopiedMermaid: '已复制流程图源码（含围栏）',
       alertZoomCopyFail: '复制失败: {error}',
       formula: '公式',
+      formulaTable: '公式表格',
       formulaBracket: '[公式]',
       filenameCopyHint: '{name}（可选中后 Ctrl+C 拷贝）',
       toastNoCopy: '没有可拷贝的内容',
@@ -350,6 +351,7 @@
       toastZoomCopiedMermaid: 'Mermaid source copied (fenced)',
       alertZoomCopyFail: 'Copy failed: {error}',
       formula: 'Formula',
+      formulaTable: 'Formula table',
       formulaBracket: '[Formula]',
       filenameCopyHint: '{name} (select then Ctrl+C to copy)',
       toastNoCopy: 'Nothing to copy',
@@ -478,7 +480,7 @@
           '<li><kbd>Ctrl+F</kbd> find, <kbd>Ctrl+H</kbd> replace, <kbd>Ctrl+G</kbd> go to line</li>' +
           '<li><kbd>Ctrl+B/I/`</kbd> bold/italic/code; <kbd>Ctrl+Shift+]/[</kbd> heading level</li>' +
           '<li>Dark mode; relative images; Mermaid; KaTeX; click image/diagram to zoom — diagram zoom: Copy image / Copy source (<code>```mermaid</code> fence); Ctrl+C copies image; image zoom copies bitmap</li>' +
-          '<li><strong>Copy preview</strong>: menu or <kbd>Ctrl+Shift+C</kbd> for WeChat-ready rich text (embedded images and diagrams; formula-to-image export is deferred)</li>' +
+          '<li><strong>Copy preview</strong>: menu or <kbd>Ctrl+Shift+C</kbd> for WeChat-ready rich text (images, diagrams, and KaTeX formulas are embedded as PNG)</li>' +
           '<li><strong>Export</strong>: File → Export HTML / PDF / Word (progress UI; ~60s timeout)</li>' +
           '<li><strong>Auto-save</strong>: View → Settings… — Off / On blur / Every 30s / Every 60s (saved files only; untitled never auto Save As)</li>' +
           '<li>Panes are resizable; double-click splitter to reset</li>' +
@@ -546,7 +548,7 @@
         '<li><kbd>Ctrl+F</kbd> 查找、<kbd>Ctrl+H</kbd> 替换、<kbd>Ctrl+G</kbd> 跳转到行</li>' +
         '<li><kbd>Ctrl+B/I/`</kbd> 粗体/斜体/代码；<kbd>Ctrl+Shift+]/[</kbd> 标题升降级</li>' +
         '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放 — 流程图工具栏「复制图片 / 复制源码」（源码含 <code>```mermaid</code> 围栏），Ctrl+C 默认复制图片；普通图片复制为位图</li>' +
-        '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片与流程图；公式转图片已延后）</li>' +
+        '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（图片、流程图与 KaTeX 公式均内嵌为 PNG）</li>' +
         '<li><strong>导出</strong>：菜单「文件 → 导出 HTML / PDF / Word」（导出会显示进度；大文档约 60s 超时）</li>' +
         '<li><strong>自动保存</strong>：菜单「视图 → 设置…」— 关闭 / 失焦 / 每 30 秒 / 每 60 秒（仅已保存过的磁盘文件；未命名不自动另存）</li>' +
         '<li>分栏可拖拽调宽，双击分隔条复位</li>' +

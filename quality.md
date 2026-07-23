@@ -16,7 +16,7 @@
 | outline 单元测试 | `tests/core/outline.test.ts` | `extractHeadings` 标题树 |
 | 配置一致性测试 | `tests/core/config.test.ts` | 锁定外置规则（枚举/配色/严重度/正则）与 core 派生值一致，防止漂移 |
 | CLI 集成测试 | `tests/cli/commands.test.ts` | 四命令端到端；**`add --anchor` JSON 校验** |
-| GUI 辅助单测 | `tests/gui/*.test.ts` | `selection-anchor` 围栏映射、`editor-assist` 标题/列表快捷键、文件操作 symlink/junction 越界 |
+| GUI 辅助单测 | `tests/gui/*.test.ts` | 选区/编辑辅助、文件操作边界、KaTeX 行内/块级/围栏/安全渲染、2× foreignObject 导出纯函数 |
 | MCP 集成测试 | `tests/mcp/handlers.test.ts` | 六 tools 与 CLI scan 对齐、真实路径工作区边界、空字段编辑 |
 
 运行：
@@ -25,7 +25,7 @@
 npm test          # jest，含覆盖率
 ```
 
-**当前状态：128 用例全部通过（11 套件）。**
+**当前状态：138 用例全部通过（13 套件）。**
 
 ---
 
@@ -74,6 +74,7 @@ npm test          # jest，含覆盖率
 | **深色 / mermaid / 图片** | 改动主题、流程图或图片解析 | 深色切换与流程图配色联动；mindmap/timeline 等勿出现近黑「黄」节点；Timeline 虚线/轴线颜色一致；`samples/mermaid-diagrams.md` 深色+全屏抽检；预览图可拖拽调宽且复制预览宽度一致 |
 | **默认缩放设置** | 改动 `mda-preview-media-default-width` / 预览调宽 | 档位 `自动/25%/50%/75%`：**显示宽 = 自动固有宽 × 系数**（Class 在 50% 须变小）；拖动时仅当前图蓝角标；双击还原当前设置；设置构建失败须解锁菜单 |
 | **文件列表 / 大纲** | 改动侧栏或大纲 UI | 字号/行距可读；收起钮明显；大纲子标题可 ▸/▾ 折叠，高亮时自动展开祖先 |
+| **KaTeX 公式预览** | 改动 KaTeX 插件/字体/CSS | `samples/katex.md`：行内基线、块级紧凑卡片、复杂/超宽公式、代码围栏负例；浅/深主题与 Windows 100%/125% 显示缩放均清晰 |
 | **复制预览（微信公众号）** | 改动 `copyPreviewForArticle` / Mermaid·公式导出 / 剪贴板 IPC | 实机：`Ctrl+Shift+C` 粘贴公众号编辑器，正文+图+流程图+**公式图**齐全；复制过程无滚动跳动/闪烁 |
 | **同步滚动 / 查找替换** | 改动 `sync-scroll.js` / `find-replace.js` | **点击双向定位**（滚动互不跟随）；点预览只滚源码且预览视口不变；点源码/方向键才滚预览；大纲/Ctrl+G 仍可双边定位；查找高亮与 ↑/↓ 跳转；IME 焦点不丢失 |
 | **选区批注** | 改动 `selection-anchor.js` / `anchor-highlights.js` / anchor 写入 | 预览/源码双路径选区→`anchor`；插入批注行后偏移不失效；代码块/表格可批注；orphan 标记 |

@@ -574,3 +574,40 @@ applyDefaultScaleToMermaid(holder);
 - ❌ `body.mda-img-resizing` 下给**所有** `.mda-img-resize-handle` 提亮 → 拖一张图时满屏蓝角标。
 - ❌ 设置里先 `setSettingsModal(true)` 再引用已删变量名 → 弹窗失败、菜单永久锁死（须 try/catch 解锁）。
 - ❌ 双击还原只清样式不清 `mermaidDisplayWidths` / `imageDisplayWidths` → 下次渲染又套回手动宽。
+
+---
+
+## 22. KaTeX 预览与复制预览转图（GUI）
+
+**规则**：
+- GUI preload 使用与 `katex.min.css` / `fonts/` 同版本的 KaTeX；`trust:false`，不把公式插件放入 core renderer。
+- 行内公式只微调字号与基线；块级公式使用紧凑居中卡片，超宽内容在卡片内横向滚动。
+- 复制预览按公式本体尺寸构造 SVG `foreignObject`，内联 KaTeX CSS/字体后以 **2× 像素密度**离屏栅格化；HTML 中仍写逻辑宽高。
+- 内联字体会显著放大 SVG，须用 UTF-8 Base64 data URL 交给离屏 `Image` 加载；尺寸须覆盖 `.katex-html` 全部可见子节点并补偿不对称溢出，行内公式仅保留紧凑安全边距，块级公式再使用较大留白。
+- 含公式表格整体转为一张 2× PNG，避免目标编辑器重新排列单元格内的多个公式图片；整表失败再回退逐公式导出。
+- 公式导出禁止滚动预览、插入临时视口节点或调用 `capturePageRect`；单个导出失败须回退 TeX/`[公式]`，不阻断整篇复制。
+
+### ✅ 正确
+
+```javascript
+var payload = MDAKatexExport.buildSvgPayload({
+  html: katexClone.outerHTML,
+  css: inlinedKatexCss,
+  width: logicalWidth,
+  height: logicalHeight,
+  scale: 2,
+});
+canvas.width = payload.pixelWidth; // 清晰像素
+img.setAttribute('width', String(payload.logicalWidth)); // 粘贴显示尺寸
+// clone 须锁定 live 公式的 computed font-size/line-height，测量取 rect/offset/scroll 最大值。
+```
+
+### ❌ 错误
+
+- ❌ 截取 `.katex-display` 的整行宽度 → 粘贴后公式图带大块左右空白。
+- ❌ canvas 只按 CSS 逻辑尺寸生成 1× PNG → Windows 高 DPI / 公众号缩放后模糊。
+- ❌ 用预览 `1.05em` 的尺寸装载导出 CSS 默认 `1.21em` 公式，或在 foreignObject 内固定宽高并 `overflow:hidden` → 长公式/分式被裁切。
+- ❌ 用 Blob URL 加载含 `foreignObject` 的 SVG 后再画入 canvas → Chromium 可能判为跨源污染，`toDataURL()` 失败并让全部公式回退为 TeX。
+- ❌ 行内公式与块级公式共用大留白，或复制表格强制 `width:100%` → 单元格内公式频繁换行、行高膨胀。
+- ❌ 把临时公式节点插到页面再 `capturePage` → 复制时闪白、滚动跳动。
+- ❌ 字体内联失败后继续引用 `file://.../fonts` → foreignObject 中缺字或空白；应抛错走文本回退。
