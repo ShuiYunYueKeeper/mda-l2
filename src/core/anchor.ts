@@ -13,11 +13,12 @@ export function parseAnchor(raw: unknown): AnnotationAnchor | undefined {
 }
 
 export function validateAnchor(text: string, anchor: AnnotationAnchor): boolean {
-  return (
+  const inBounds =
     anchor.start >= 0 &&
     anchor.end <= text.length &&
-    anchor.start < anchor.end
-  );
+    anchor.start < anchor.end;
+  if (!inBounds) return false;
+  return anchor.quote === undefined || text.slice(anchor.start, anchor.end) === anchor.quote;
 }
 
 export function sliceUtf16(text: string, start: number, end: number): string {

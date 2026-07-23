@@ -11,7 +11,7 @@ import {
   handleMdaScan,
   scanAnnotationsForTest,
 } from '../../src/mcp/handlers';
-import { isPathInsideRoot } from '../../src/mcp/workspace';
+import { isPathInsideRoot, resolveWorkspacePath } from '../../src/mcp/workspace';
 
 describe('MCP handlers', () => {
   let tmpDir: string;
@@ -103,6 +103,21 @@ describe('MCP handlers', () => {
     expect(anno.status).toBe('resolved');
   });
 
+  test('mda_edit allows clearing content and tags', async () => {
+    const add = await handleMdaAdd(
+      { workspace: tmpDir },
+      { file: 'doc.md', line: 3, content: 'original', tags: ['x'] },
+    );
+    const id = JSON.parse(add.content[0].text).annotation.id as string;
+    const edited = await handleMdaEdit(
+      { workspace: tmpDir },
+      { file: 'doc.md', id, content: '', tags: [] },
+    );
+    const anno = JSON.parse(edited.content[0].text).annotation;
+    expect(anno.content).toBe('');
+    expect(anno.tags).toEqual([]);
+  });
+
   test('mda_scan filters by level', async () => {
     fs.writeFileSync(path.join(tmpDir, 'a.md'), '# A\n\nPara A\n', 'utf-8');
     fs.writeFileSync(path.join(tmpDir, 'b.md'), '# B\n\nPara B\n', 'utf-8');
@@ -124,5 +139,16 @@ describe('MCP handlers', () => {
     const child = path.join(tmpDir, 'sub', 'a.md');
     expect(isPathInsideRoot(tmpDir, child)).toBe(true);
     expect(isPathInsideRoot(tmpDir, path.join(os.tmpdir(), 'other.md'))).toBe(false);
+  });
+
+  test('workspace path rejects symlink/junction escaping root', () => {
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mda-mcp-outside-'));
+    const link = path.join(tmpDir, 'outside-link');
+    try {
+      fs.symlinkSync(outsideDir, link, process.platform === 'win32' ? 'junction' : 'dir');
+      expect(() => resolveWorkspacePath(tmpDir, path.join(link, 'x.md'))).toThrow(/工作区/);
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
   });
 });

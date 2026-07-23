@@ -224,6 +224,19 @@ describe('错误处理', () => {
     await expect(addAnnotation(f, 999, { content: 'test' })).rejects.toThrow('未找到');
   });
 
+  test('core API 拒绝非法枚举值', async () => {
+    const f = tmpFile('invalid-enum.md');
+    await writeFile(f, '# Title\n\n正文。\n');
+    await expect(
+      addAnnotation(f, 3, { content: 'x', level: 'bogus' as any }),
+    ).rejects.toThrow('无效批注级别');
+
+    const created = await addAnnotation(f, 3, { content: 'ok' });
+    await expect(
+      editAnnotation(f, created.id, { status: 'bogus' as any }),
+    ).rejects.toThrow('无效批注状态');
+  });
+
   test('add 带 anchor 写入 JSON 且源文件保护', async () => {
     const f = tmpFile('anchor.md');
     const body = '# Title\n\n正文段落。';
@@ -243,6 +256,59 @@ describe('错误处理', () => {
     const parsed = parseAnnotations(disk);
     expect(parsed.annotations[0].anchor?.quote).toBe('正文');
     expect(isAnchorStale(disk.replace(/\r\n/g, '\n'), parsed.annotations[0])).toBe(false);
+  });
+});
+
+describe('围栏与 anchor 稳定性', () => {
+  test('add 不修改代码围栏内的字面批注样例', async () => {
+    const f = tmpFile('fenced-literal.md');
+    const literal = makeAnnoLine({
+      id: 'sample',
+      content: 'literal',
+      anchor: { start: 999, end: 1001, quote: 'xx' },
+    });
+    await writeFile(f, ['```md', literal, '```', '', '正文。', ''].join('\n'));
+
+    await addAnnotation(f, 5, { content: 'real' });
+    const content = await readFile(f);
+    expect(content).toContain(['```md', literal, '```'].join('\n'));
+  });
+
+  test('编辑前置批注后，后续选区 anchor 仍有效且不序列化派生字段', async () => {
+    const f = tmpFile('anchor-edit.md');
+    const body = '# Title\n\n第一段。\n\n第二段。\n';
+    await writeFile(f, body);
+    const start = body.indexOf('第二段');
+    const anchored = await addAnnotation(f, 5, {
+      content: 'anchored',
+      anchor: { start, end: start + 3, quote: '第二段' },
+    });
+    const earlier = await addAnnotation(f, 3, { content: 'short' });
+
+    await editAnnotation(f, earlier.id, { content: 'a much longer annotation content' });
+    const content = await readFile(f);
+    const parsed = parseAnnotations(content);
+    const after = parsed.annotations.find(a => a.id === anchored.id)!;
+    expect(isAnchorStale(content, after)).toBe(false);
+    expect(content).not.toContain('"line":');
+    expect(content).not.toContain('"file":');
+  });
+
+  test('删除前置批注后，后续选区 anchor 仍有效', async () => {
+    const f = tmpFile('anchor-remove.md');
+    const body = '# Title\n\n第一段。\n\n第二段。\n';
+    await writeFile(f, body);
+    const start = body.indexOf('第二段');
+    const anchored = await addAnnotation(f, 5, {
+      content: 'anchored',
+      anchor: { start, end: start + 3, quote: '第二段' },
+    });
+    const earlier = await addAnnotation(f, 3, { content: 'remove me' });
+
+    await removeAnnotation(f, earlier.id);
+    const content = await readFile(f);
+    const after = parseAnnotations(content).annotations.find(a => a.id === anchored.id)!;
+    expect(isAnchorStale(content, after)).toBe(false);
   });
 });
 

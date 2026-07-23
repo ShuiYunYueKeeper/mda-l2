@@ -77,10 +77,7 @@
       settingsMermaidWidth: '图片与流程图默认缩放',
       settingsMermaidWidthDesc: '以「自动」固有显示尺寸为基准乘以比例（如 50% = 缩小一半）。拖拽后可双击图片还原为当前设置比例。',
       settingsMermaidWidthAuto: '自动（100%）',
-      settingsMermaidWidthMin: '最小',
-      settingsMermaidWidthFull: '最大',
       settingsMermaidWidthPct: '{n}%',
-      settingsMermaidWidthPx: '{n} 像素',
       toastRememberLayoutOn: '已开启：记住界面习惯',
       toastRememberLayoutOff: '已关闭：下次启动使用默认布局',
       toastRememberSessionOn: '已开启：记住上次会话',
@@ -288,10 +285,7 @@
       settingsMermaidWidth: 'Image & diagram default scale',
       settingsMermaidWidthDesc: 'Multiply each image/diagram’s auto size by a factor (e.g. 50% = half). Double-click a resized image to restore the current setting.',
       settingsMermaidWidthAuto: 'Auto (100%)',
-      settingsMermaidWidthMin: 'Minimum',
-      settingsMermaidWidthFull: 'Maximum',
       settingsMermaidWidthPct: '{n}%',
-      settingsMermaidWidthPx: '{n} px',
       toastRememberLayoutOn: 'Remember layout: on',
       toastRememberLayoutOff: 'Remember layout: off (defaults next launch)',
       toastRememberSessionOn: 'Remember last session: on',
@@ -484,7 +478,7 @@
           '<li><kbd>Ctrl+F</kbd> find, <kbd>Ctrl+H</kbd> replace, <kbd>Ctrl+G</kbd> go to line</li>' +
           '<li><kbd>Ctrl+B/I/`</kbd> bold/italic/code; <kbd>Ctrl+Shift+]/[</kbd> heading level</li>' +
           '<li>Dark mode; relative images; Mermaid; KaTeX; click image/diagram to zoom — diagram zoom: Copy image / Copy source (<code>```mermaid</code> fence); Ctrl+C copies image; image zoom copies bitmap</li>' +
-          '<li><strong>Copy preview</strong>: menu or <kbd>Ctrl+Shift+C</kbd> for WeChat-ready rich text (embedded images, diagrams, and formulas as images)</li>' +
+          '<li><strong>Copy preview</strong>: menu or <kbd>Ctrl+Shift+C</kbd> for WeChat-ready rich text (embedded images and diagrams; formula-to-image export is deferred)</li>' +
           '<li><strong>Export</strong>: File → Export HTML / PDF / Word (progress UI; ~60s timeout)</li>' +
           '<li><strong>Auto-save</strong>: View → Settings… — Off / On blur / Every 30s / Every 60s (saved files only; untitled never auto Save As)</li>' +
           '<li>Panes are resizable; double-click splitter to reset</li>' +
@@ -552,7 +546,7 @@
         '<li><kbd>Ctrl+F</kbd> 查找、<kbd>Ctrl+H</kbd> 替换、<kbd>Ctrl+G</kbd> 跳转到行</li>' +
         '<li><kbd>Ctrl+B/I/`</kbd> 粗体/斜体/代码；<kbd>Ctrl+Shift+]/[</kbd> 标题升降级</li>' +
         '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放 — 流程图工具栏「复制图片 / 复制源码」（源码含 <code>```mermaid</code> 围栏），Ctrl+C 默认复制图片；普通图片复制为位图</li>' +
-        '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片、流程图与公式图）</li>' +
+        '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片与流程图；公式转图片已延后）</li>' +
         '<li><strong>导出</strong>：菜单「文件 → 导出 HTML / PDF / Word」（导出会显示进度；大文档约 60s 超时）</li>' +
         '<li><strong>自动保存</strong>：菜单「视图 → 设置…」— 关闭 / 失焦 / 每 30 秒 / 每 60 秒（仅已保存过的磁盘文件；未命名不自动另存）</li>' +
         '<li>分栏可拖拽调宽，双击分隔条复位</li>' +

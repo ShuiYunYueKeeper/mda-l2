@@ -131,6 +131,12 @@ describe('add — 校验与回环', () => {
     expect(rows[0].level).toBe('major');
     expect(rows[0].tags).toEqual(['bug', 'ui']);
   });
+
+  test('小数或混杂字符行号被拒绝', async () => {
+    const f = writeMd('a.md', ['# 标题', '', '正文段落。']);
+    await expect(addCommand(f, '3abc', 'note', {})).rejects.toThrow(ExitError);
+    expect(stderr).toContain('正整数');
+  });
 });
 
 describe('edit — 校验', () => {
@@ -150,5 +156,16 @@ describe('edit — 校验', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe('resolved');
     expect(rows[0].content).toBe('new');
+  });
+
+  test('允许清空 content 和 tags', async () => {
+    const f = writeMd('a.md', [makeAnnoLine({ id: 'a1', content: 'old', tags: ['x'] }), '正文。']);
+    await editCommand(f, 'a1', { content: '', tags: '' });
+
+    stdout = '';
+    scanCommand(f, { format: 'json' });
+    const rows = JSON.parse(stdout) as Annotation[];
+    expect(rows[0].content).toBe('');
+    expect(rows[0].tags).toEqual([]);
   });
 });

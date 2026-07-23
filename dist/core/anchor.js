@@ -24,9 +24,12 @@ function parseAnchor(raw) {
     return anchor;
 }
 function validateAnchor(text, anchor) {
-    return (anchor.start >= 0 &&
+    const inBounds = anchor.start >= 0 &&
         anchor.end <= text.length &&
-        anchor.start < anchor.end);
+        anchor.start < anchor.end;
+    if (!inBounds)
+        return false;
+    return anchor.quote === undefined || text.slice(anchor.start, anchor.end) === anchor.quote;
 }
 function sliceUtf16(text, start, end) {
     return text.slice(start, end);

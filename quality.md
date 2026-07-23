@@ -16,8 +16,8 @@
 | outline 单元测试 | `tests/core/outline.test.ts` | `extractHeadings` 标题树 |
 | 配置一致性测试 | `tests/core/config.test.ts` | 锁定外置规则（枚举/配色/严重度/正则）与 core 派生值一致，防止漂移 |
 | CLI 集成测试 | `tests/cli/commands.test.ts` | 四命令端到端；**`add --anchor` JSON 校验** |
-| GUI 辅助单测 | `tests/gui/*.test.ts` | `selection-anchor` 围栏映射、`editor-assist` 标题/列表快捷键 |
-| MCP 集成测试 | `tests/mcp/handlers.test.ts` | 六 tools 与 CLI scan 对齐、工作区路径校验 |
+| GUI 辅助单测 | `tests/gui/*.test.ts` | `selection-anchor` 围栏映射、`editor-assist` 标题/列表快捷键、文件操作 symlink/junction 越界 |
+| MCP 集成测试 | `tests/mcp/handlers.test.ts` | 六 tools 与 CLI scan 对齐、真实路径工作区边界、空字段编辑 |
 
 运行：
 
@@ -25,7 +25,7 @@
 npm test          # jest，含覆盖率
 ```
 
-**当前状态：117 用例全部通过（10 套件）。**
+**当前状态：128 用例全部通过（11 套件）。**
 
 ---
 
@@ -33,11 +33,12 @@ npm test          # jest，含覆盖率
 
 | 指标 | 数值 |
 |------|------|
-| Statements | 85.36% |
-| Lines | 88.81% |
-| Functions | 92.20% |
+| Statements | 88.63% |
+| Lines | 91.33% |
+| Functions | 95.69% |
 
-> 以 `npm test`（jest --coverage）实测为准；core 模块覆盖率最高（model 100% / renderer 100%）。
+> 以 `npm test`（jest --coverage）实测为准；core 行覆盖率 95.98%，renderer 行覆盖率 100%。
+> 当前 Jest 统计仅收集 `src/**/*.ts`；主要 GUI JS 与打包脚本不在上述百分比内，仍以实机验收和后续 GUI 集成测试补足。
 
 ---
 

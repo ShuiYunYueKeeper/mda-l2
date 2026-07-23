@@ -44,9 +44,21 @@ function resolveWorkspaceRoot(explicit) {
     const raw = explicit || process.env.MDA_WORKSPACE || process.cwd();
     return path.resolve(raw);
 }
+function realpathWithMissing(absPath) {
+    let current = path.resolve(absPath);
+    const missing = [];
+    while (!fs.existsSync(current)) {
+        const parent = path.dirname(current);
+        if (parent === current)
+            return path.resolve(absPath);
+        missing.unshift(path.basename(current));
+        current = parent;
+    }
+    return path.join(fs.realpathSync.native(current), ...missing);
+}
 function isPathInsideRoot(root, target) {
-    const base = path.resolve(root);
-    const abs = path.resolve(target);
+    const base = realpathWithMissing(root);
+    const abs = realpathWithMissing(target);
     if (abs === base)
         return true;
     const rel = path.relative(base, abs);

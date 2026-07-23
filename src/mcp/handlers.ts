@@ -25,7 +25,7 @@ function jsonText(data: unknown): { content: Array<{ type: 'text'; text: string 
 }
 
 function parseTags(tags?: string | string[]): string[] | undefined {
-  if (!tags) return undefined;
+  if (tags === undefined) return undefined;
   if (Array.isArray(tags)) return tags.map(t => String(t).trim()).filter(Boolean);
   return String(tags).split(',').map(t => t.trim()).filter(Boolean);
 }
@@ -108,7 +108,12 @@ export async function handleMdaEdit(
     status?: string;
   },
 ): Promise<{ content: Array<{ type: 'text'; text: string }> }> {
-  if (!args.content && !args.tags && !args.level && !args.status) {
+  if (
+    args.content === undefined &&
+    args.tags === undefined &&
+    args.level === undefined &&
+    args.status === undefined
+  ) {
     throw new Error('至少需要提供一个修改字段: content, tags, level, status');
   }
   if (args.level !== undefined && !isAnnotationLevel(args.level)) {

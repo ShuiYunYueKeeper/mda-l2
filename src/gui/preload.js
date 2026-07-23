@@ -12,10 +12,15 @@ const md = core.createMarkdownIt();
 
 // GUI 预览：KaTeX 数学公式（仅 preload md 实例，不污染 core.renderer）
 try {
-  const katexPlugin = require('markdown-it-katex');
-  md.use(katexPlugin, { throwOnError: false, errorColor: '#cc0000' });
+  const katexPlugin = require('@vscode/markdown-it-katex').default;
+  md.use(katexPlugin, {
+    katex: require('katex'),
+    throwOnError: false,
+    errorColor: '#cc0000',
+    trust: false,
+  });
 } catch (e) {
-  console.warn('[mda] markdown-it-katex 未加载，数学公式将不渲染:', e.message);
+  console.warn('[mda] KaTeX 插件未加载，数学公式将不渲染:', e.message);
 }
 
 // GUI 专属：代码块语法高亮（highlight.js）。core.renderMarkdown 用的是各自实例，

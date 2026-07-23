@@ -52,7 +52,7 @@ function jsonText(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
 }
 function parseTags(tags) {
-    if (!tags)
+    if (tags === undefined)
         return undefined;
     if (Array.isArray(tags))
         return tags.map(t => String(t).trim()).filter(Boolean);
@@ -106,7 +106,10 @@ async function handleMdaAdd(ctx, args) {
     return jsonText({ annotation });
 }
 async function handleMdaEdit(ctx, args) {
-    if (!args.content && !args.tags && !args.level && !args.status) {
+    if (args.content === undefined &&
+        args.tags === undefined &&
+        args.level === undefined &&
+        args.status === undefined) {
         throw new Error('至少需要提供一个修改字段: content, tags, level, status');
     }
     if (args.level !== undefined && !(0, model_1.isAnnotationLevel)(args.level)) {

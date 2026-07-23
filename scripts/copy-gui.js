@@ -9,6 +9,7 @@ fs.mkdirSync(path.join(__dirname, '..', 'dist', 'gui', 'main'), { recursive: tru
 fs.mkdirSync(path.join(__dirname, '..', 'dist', 'config'), { recursive: true });
 
 const files = [
+  ['src/gui/launcher.js', 'dist/gui/launcher.js'],
   ['src/gui/main.js', 'dist/gui/main.js'],
   ['src/gui/preload.js', 'dist/gui/preload.js'],
   ['src/gui/main/recent-files.js', 'dist/gui/main/recent-files.js'],
@@ -50,7 +51,7 @@ try {
   fs.copyFileSync(mermaidSrc, mermaidDst);
   console.log('  copied: dist/gui/renderer/mermaid.min.js');
 } catch (e) {
-  console.warn('  [warn] 未找到 mermaid，流程图渲染将不可用：' + e.message);
+  throw new Error('缺少必需的 Mermaid GUI 资源：' + e.message);
 }
 
 try {
@@ -64,7 +65,9 @@ try {
   if (fs.existsSync(fontsSrc)) {
     fs.cpSync(fontsSrc, fontsDst, { recursive: true });
     console.log('  copied: dist/gui/renderer/fonts/');
+  } else {
+    throw new Error('缺少必需的 KaTeX 字体目录：' + fontsSrc);
   }
 } catch (e) {
-  console.warn('  [warn] 未找到 katex CSS：' + e.message);
+  throw new Error('缺少必需的 KaTeX GUI 资源：' + e.message);
 }

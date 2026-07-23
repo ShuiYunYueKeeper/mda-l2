@@ -14,8 +14,8 @@ export async function addCommand(
   content: string,
   opts: AddOptions,
 ): Promise<void> {
-  const lineNum = parseInt(line, 10);
-  if (isNaN(lineNum) || lineNum <= 0) {
+  const lineNum = Number(line);
+  if (!Number.isInteger(lineNum) || lineNum <= 0) {
     process.stderr.write(`错误: 行号必须为正整数，收到: ${line}\n`);
     process.exit(1);
   }

@@ -5,8 +5,8 @@ const writer_1 = require("../../core/writer");
 const model_1 = require("../../core/model");
 const anchor_1 = require("../../core/anchor");
 async function addCommand(file, line, content, opts) {
-    const lineNum = parseInt(line, 10);
-    if (isNaN(lineNum) || lineNum <= 0) {
+    const lineNum = Number(line);
+    if (!Number.isInteger(lineNum) || lineNum <= 0) {
         process.stderr.write(`错误: 行号必须为正整数，收到: ${line}\n`);
         process.exit(1);
     }

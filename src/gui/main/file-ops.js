@@ -1,11 +1,24 @@
 ﻿const fs = require('fs');
 const path = require('path');
 
+function realpathWithMissing(targetPath) {
+  let current = path.resolve(targetPath);
+  const missing = [];
+  while (!fs.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) return path.resolve(targetPath);
+    missing.unshift(path.basename(current));
+    current = parent;
+  }
+  return path.join(fs.realpathSync.native(current), ...missing);
+}
+
 function resolveInWorkspace(targetPath, workspaceRoot) {
   if (!workspaceRoot) return null;
-  const absWs = path.resolve(workspaceRoot);
+  const absWs = realpathWithMissing(workspaceRoot);
   const abs = path.resolve(targetPath);
-  const rel = path.relative(absWs, abs);
+  const real = realpathWithMissing(abs);
+  const rel = path.relative(absWs, real);
   if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
   return abs;
 }

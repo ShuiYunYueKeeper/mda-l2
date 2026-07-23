@@ -35,47 +35,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.scanCommand = scanCommand;
 const fs = __importStar(require("fs"));
-const path = __importStar(require("path"));
-const parser_1 = require("../../core/parser");
 const model_1 = require("../../core/model");
-function scanFile(filePath) {
-    const text = fs.readFileSync(filePath, 'utf-8');
-    const { annotations, paragraphs } = (0, parser_1.parseAnnotations)(text);
-    // 建立 批注 id → 所属段落文本 的映射
-    const paraById = new Map();
-    for (const p of paragraphs) {
-        for (const a of p.annotations) {
-            paraById.set(a.id, p.text);
-        }
-    }
-    return annotations.map(a => {
-        a.file = filePath;
-        return { anno: a, paragraphText: paraById.get(a.id) ?? '' };
-    });
-}
-function scanDir(dirPath, recursive) {
-    const results = [];
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name);
-        if (entry.isDirectory() && recursive) {
-            results.push(...scanDir(fullPath, recursive));
-        }
-        else if (entry.isFile() && (0, model_1.isMarkdownPath)(entry.name)) {
-            results.push(...scanFile(fullPath));
-        }
-    }
-    return results;
-}
-function filterRows(rows, opts) {
-    return rows.filter(({ anno }) => {
-        if (opts.status && anno.status !== opts.status)
-            return false;
-        if (opts.level && anno.level !== opts.level)
-            return false;
-        return true;
-    });
-}
+const scan_service_1 = require("../scan-service");
 // ---------- 显示宽度工具（CJK 全角字符按 2 列计算） ----------
 function isWide(cp) {
     return (cp >= 0x1100 &&
@@ -132,22 +93,18 @@ function scanCommand(target, opts) {
         process.stderr.write(`错误: 文件或目录不存在: ${target}\n`);
         process.exit(1);
     }
-    let rows;
-    if (stat.isDirectory()) {
-        if (!opts.recursive && opts.format !== 'json') {
-            process.stderr.write('提示: 使用 -r 递归扫描目录\n');
-        }
-        rows = scanDir(target, opts.recursive ?? false);
+    if (stat.isDirectory() && !opts.recursive && opts.format !== 'json') {
+        process.stderr.write('提示: 使用 -r 递归扫描目录\n');
     }
-    else {
-        rows = scanFile(target);
-    }
-    rows = filterRows(rows, opts);
+    const rows = (0, scan_service_1.collectScanRows)(target, {
+        recursive: opts.recursive,
+        status: opts.status,
+        level: opts.level,
+    });
     if (opts.format === 'json') {
         process.stdout.write(JSON.stringify(rows.map(r => r.anno), null, 2) + '\n');
         return;
     }
-    // 表格格式
     if (rows.length === 0) {
         process.stdout.write('(无批注)\n');
         return;

@@ -27,6 +27,8 @@ describe('anchor', () => {
     const text = 'abc';
     expect(validateAnchor(text, { start: 0, end: 3 })).toBe(true);
     expect(validateAnchor(text, { start: 0, end: 4 })).toBe(false);
+    expect(validateAnchor(text, { start: 0, end: 3, quote: 'abc' })).toBe(true);
+    expect(validateAnchor(text, { start: 0, end: 3, quote: 'ABC' })).toBe(false);
   });
 
   test('E29: anchorToLine', () => {

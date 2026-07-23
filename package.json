@@ -1,14 +1,20 @@
 {
   "name": "mda",
   "version": "2.0.0-alpha",
-  "description": "Markdown 工作台 — 预览 · 编辑 · 批注 · 文件（CLI / GUI / MCP）",
-  "author": "MDA",
+  "description": "Markdown 工作台 — 预览 · 编辑 · 批注 · 文件管理（CLI / GUI / MCP）",
+  "author": "MDA <mda.markdown@gmail.com>",
+  "desktopName": "mda.desktop",
   "main": "dist/gui/main.js",
   "bin": {
-    "mda": "dist/gui/main.js",
+    "mda": "dist/gui/launcher.js",
     "mda-cli": "dist/cli/main.js",
     "mda-mcp": "dist/mcp/server.js"
   },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build:ts": "tsc",
     "build:gui": "node scripts/copy-gui.js",
@@ -41,13 +47,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@vscode/markdown-it-katex": "^1.1.2",
     "commander": "^12.1.0",
+    "electron": "^31.7.7",
     "electron-updater": "^6.8.9",
     "highlight.js": "^11.11.1",
     "html-to-docx": "^1.8.0",
     "katex": "^0.17.0",
     "markdown-it": "^14.1.0",
-    "markdown-it-katex": "^2.0.3",
     "mermaid": "^11.16.0",
     "uuid": "^10.0.0",
     "zod": "^3.23.8"
@@ -60,7 +67,6 @@
     "@types/react-dom": "^18.3.0",
     "@types/uuid": "^10.0.0",
     "c8": "^10.1.2",
-    "electron": "^31.1.0",
     "electron-builder": "^26.15.3",
     "jest": "^29.7.0",
     "react": "^18.3.1",
@@ -154,7 +160,11 @@
         "AppImage",
         "deb"
       ],
-      "category": "Office"
+      "category": "Office",
+      "maintainer": "MDA <mda.markdown@gmail.com>",
+      "syncDesktopName": true,
+      "synopsis": "Markdown 工作台 — 预览 · 编辑 · 批注 · 文件管理",
+      "description": "本地优先的 Markdown 工作台，支持预览、编辑、结构化批注、导出，以及 CLI / MCP 入口。"
     },
     "publish": {
       "provider": "github",

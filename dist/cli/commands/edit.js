@@ -4,7 +4,10 @@ exports.editCommand = editCommand;
 const writer_1 = require("../../core/writer");
 const model_1 = require("../../core/model");
 async function editCommand(file, id, opts) {
-    if (!opts.content && !opts.tags && !opts.level && !opts.status) {
+    if (opts.content === undefined &&
+        opts.tags === undefined &&
+        opts.level === undefined &&
+        opts.status === undefined) {
         process.stderr.write('错误: 至少需要提供一个修改选项 (--content, --tags, --level, --status)\n');
         process.exit(1);
     }
@@ -16,9 +19,9 @@ async function editCommand(file, id, opts) {
         process.stderr.write(`错误: 无效状态 "${opts.status}"，可选: ${model_1.ANNOTATION_STATUSES.join(', ')}\n`);
         process.exit(1);
     }
-    const tags = opts.tags
-        ? opts.tags.split(',').map(t => t.trim()).filter(Boolean)
-        : undefined;
+    const tags = opts.tags === undefined
+        ? undefined
+        : opts.tags.split(',').map(t => t.trim()).filter(Boolean);
     try {
         const anno = await (0, writer_1.editAnnotation)(file, id, {
             content: opts.content,

@@ -7,9 +7,21 @@ export function resolveWorkspaceRoot(explicit?: string): string {
   return path.resolve(raw);
 }
 
+function realpathWithMissing(absPath: string): string {
+  let current = path.resolve(absPath);
+  const missing: string[] = [];
+  while (!fs.existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) return path.resolve(absPath);
+    missing.unshift(path.basename(current));
+    current = parent;
+  }
+  return path.join(fs.realpathSync.native(current), ...missing);
+}
+
 export function isPathInsideRoot(root: string, target: string): boolean {
-  const base = path.resolve(root);
-  const abs = path.resolve(target);
+  const base = realpathWithMissing(root);
+  const abs = realpathWithMissing(target);
   if (abs === base) return true;
   const rel = path.relative(base, abs);
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);

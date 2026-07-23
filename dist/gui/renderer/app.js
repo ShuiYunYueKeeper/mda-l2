@@ -1512,7 +1512,7 @@
         '<div class="modal-box" style="min-width:320px">' +
           '<h3>' + uiT('fsConflictTitle') + '</h3>' +
           '<div style="font-size:14px;margin-bottom:20px;line-height:1.6">' +
-            uiT('fsConflictMsg', { name: fileName }) +
+            escHtml(uiT('fsConflictMsg', { name: fileName })) +
           '</div>' +
           '<div class="modal-actions" style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">' +
             '<button id="fs-conflict-cancel" class="btn-ghost">' + uiT('cancel') + '</button>' +
@@ -1934,6 +1934,7 @@
     previewEl = document.getElementById('preview-content');
     previewPaneEl = document.getElementById('preview-pane');
     previewScrollEl = document.getElementById('preview-scroll');
+    setupMediaDefaultWidthResizeObserver();
     outlineFloatBtn = document.getElementById('outline-float-toggle');
     outlineExpandRail = document.getElementById('outline-expand-rail');
     leftRailEl = document.getElementById('left-rail');
@@ -2255,11 +2256,12 @@
         tuneMermaidSvgContrast(holder);
         ensureMermaidResizeChrome(holder);
         holder.addEventListener('click', function (e) {
-          if (e.target && e.target.closest && e.target.closest('.mda-img-resize-handle')) return;
-          if (this.dataset.skipZoomOnce === '1') {
-            delete this.dataset.skipZoomOnce;
-            return;
+          var suppressUntil = parseInt(this.dataset.suppressZoomUntil || '0', 10);
+          if (suppressUntil) {
+            delete this.dataset.suppressZoomUntil;
+            if (Date.now() <= suppressUntil) return;
           }
+          if (e.target && e.target.closest && e.target.closest('.mda-img-resize-handle')) return;
           var self = this;
           if (self._zoomClickTimer) {
             clearTimeout(self._zoomClickTimer);
@@ -3135,7 +3137,8 @@
   function handleLinkClick(href) {
     if (!href) return;
     if (href.charAt(0) === '#') return;
-    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) { api.openExternal(href); return; }
+    if (/^(https?:|mailto:|file:)/i.test(href)) { api.openExternal(href); return; }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return;
     var clean = href.split('#')[0].split('?')[0];
     try { clean = decodeURIComponent(clean); } catch (e) { /* keep */ }
     if (!clean) return;
@@ -3498,6 +3501,7 @@
       try {
         var fromSvg = await svgToPngDataUrl(svg);
         var dw = parseInt(liveHolder.getAttribute('data-mda-display-width') || '', 10);
+        if (!(dw > 0)) dw = renderedWidthPx(liveHolder);
         if (dw > 0 && isValidPngDataUrl(fromSvg)) {
           fromSvg = await scalePngDataUrlToWidth(fromSvg, dw);
         }
@@ -3505,6 +3509,12 @@
       } catch (e) { /* fallback */ }
     }
     throw new Error('diagram export failed');
+  }
+
+  function renderedWidthPx(el) {
+    if (!el || !el.getBoundingClientRect) return 0;
+    var rect = el.getBoundingClientRect();
+    return rect && rect.width > 0 ? Math.round(rect.width) : 0;
   }
 
   function scalePngDataUrlToWidth(dataUrl, targetW) {
@@ -3846,6 +3856,17 @@
     var root = document.createElement('div');
     root.innerHTML = previewEl.innerHTML;
 
+    // 克隆节点脱离布局后无法获知 auto/max-width 的实际显示宽；先从 live DOM 固化。
+    var clonedPreviewImages = root.querySelectorAll('img');
+    var livePreviewImages = previewEl.querySelectorAll('img');
+    for (var li = 0; li < clonedPreviewImages.length; li++) {
+      var liveImg = livePreviewImages[li];
+      var renderedW = renderedWidthPx(liveImg);
+      if (renderedW > 0) {
+        clonedPreviewImages[li].setAttribute('data-mda-display-width', String(renderedW));
+      }
+    }
+
     root.querySelectorAll('.mda-code-copy, .mda-code-gutter, .md-image-alt').forEach(function (el) { el.remove(); });
     root.querySelectorAll('.mda-code').forEach(function (box) {
       var pre = box.querySelector('pre');
@@ -3878,6 +3899,7 @@
           var mmdW = liveHolder
             ? parseInt(liveHolder.getAttribute('data-mda-display-width') || '', 10)
             : 0;
+          if (!(mmdW > 0) && liveHolder) mmdW = renderedWidthPx(liveHolder);
           if (mmdW > 0) {
             mmdImg.setAttribute('data-mda-display-width', String(mmdW));
             mmdImg.setAttribute('width', String(mmdW));
@@ -4490,7 +4512,8 @@
     }
     document.body.classList.remove('mda-img-resizing');
     if (activePreviewResize.moved && activePreviewResize.el) {
-      activePreviewResize.el.dataset.skipZoomOnce = '1';
+      // 仅抑制拖拽松手紧接着合成的 click；超时后不吞掉下一次正常单击。
+      activePreviewResize.el.dataset.suppressZoomUntil = String(Date.now() + 400);
     }
     activePreviewResize = null;
   }
@@ -4507,9 +4530,14 @@
       reapplyMediaDefaultWidths();
     }, 120);
   }
-  if (typeof ResizeObserver !== 'undefined' && previewEl) {
+  var mediaDefaultWidthResizeObserver = null;
+  function setupMediaDefaultWidthResizeObserver() {
+    if (mediaDefaultWidthResizeObserver || typeof ResizeObserver === 'undefined' || !previewEl) return;
     try {
-      new ResizeObserver(function () { scheduleReapplyMediaDefaultWidths(); }).observe(previewEl);
+      mediaDefaultWidthResizeObserver = new ResizeObserver(function () {
+        scheduleReapplyMediaDefaultWidths();
+      });
+      mediaDefaultWidthResizeObserver.observe(previewEl);
     } catch (e) { /* ignore */ }
   }
 
@@ -4609,7 +4637,6 @@
           img._zoomClickTimer = null;
         }
         restoreMediaToSettingsScale(img, 'img');
-        img.dataset.skipZoomOnce = '1';
       });
     }
     if (wrap.querySelector('.mda-img-resize-handle')) return;
@@ -4654,9 +4681,10 @@
         img.dataset.zoomReady = '1';
         img.addEventListener('click', function (e) {
           e.stopPropagation();
-          if (this.dataset.skipZoomOnce === '1') {
-            delete this.dataset.skipZoomOnce;
-            return;
+          var suppressUntil = parseInt(this.dataset.suppressZoomUntil || '0', 10);
+          if (suppressUntil) {
+            delete this.dataset.suppressZoomUntil;
+            if (Date.now() <= suppressUntil) return;
           }
           var self = this;
           if (self._zoomClickTimer) {
@@ -5213,6 +5241,17 @@
   // ---- DOM 弹窗 ----
   /** 将 Tab 循环限制在 overlay 内，避免焦点逃到源码编辑器触发缩进/改脏 */
   function trapModalFocus(overlay, onEscape) {
+    var disposed = false;
+    var removalObserver = null;
+
+    function dispose() {
+      if (disposed) return;
+      disposed = true;
+      document.removeEventListener('keydown', onKey, true);
+      if (removalObserver) removalObserver.disconnect();
+      removalObserver = null;
+    }
+
     function focusableList() {
       var nodes = overlay.querySelectorAll(
         'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -5228,7 +5267,7 @@
 
     function onKey(e) {
       if (!overlay.isConnected) {
-        document.removeEventListener('keydown', onKey, true);
+        dispose();
         return;
       }
       if (e.key === 'Escape') {
@@ -5271,6 +5310,13 @@
 
     // 用捕获阶段挂到 document：早于编辑器辅助键，且焦点已跑出框时仍能拦回
     document.addEventListener('keydown', onKey, true);
+    if (typeof MutationObserver !== 'undefined' && document.body) {
+      removalObserver = new MutationObserver(function () {
+        if (!overlay.isConnected) dispose();
+      });
+      removalObserver.observe(document.body, { childList: true, subtree: true });
+    }
+    return dispose;
   }
 
   function uiModal(message, withCancel, opts) {

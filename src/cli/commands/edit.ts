@@ -18,7 +18,12 @@ export async function editCommand(
   id: string,
   opts: EditOptions,
 ): Promise<void> {
-  if (!opts.content && !opts.tags && !opts.level && !opts.status) {
+  if (
+    opts.content === undefined &&
+    opts.tags === undefined &&
+    opts.level === undefined &&
+    opts.status === undefined
+  ) {
     process.stderr.write('错误: 至少需要提供一个修改选项 (--content, --tags, --level, --status)\n');
     process.exit(1);
   }
@@ -32,9 +37,9 @@ export async function editCommand(
     process.exit(1);
   }
 
-  const tags = opts.tags
-    ? opts.tags.split(',').map(t => t.trim()).filter(Boolean)
-    : undefined;
+  const tags = opts.tags === undefined
+    ? undefined
+    : opts.tags.split(',').map(t => t.trim()).filter(Boolean);
 
   try {
     const anno = await editAnnotation(file, id, {

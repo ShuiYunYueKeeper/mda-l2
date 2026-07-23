@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 "use strict";
 // CLI 主入口
 // 必须将警告/错误输出到 stderr，stdout 仅用于命令结果
@@ -8,11 +9,12 @@ const scan_1 = require("./commands/scan");
 const add_1 = require("./commands/add");
 const edit_1 = require("./commands/edit");
 const remove_1 = require("./commands/remove");
+const { version: packageVersion } = require('../../package.json');
 const program = new commander_1.Command();
 program
     .name('mda-cli')
     .description('MDA Markdown 工作台 - CLI')
-    .version('1.0.0');
+    .version(packageVersion);
 program
     .command('scan <target>')
     .description('扫描文件或目录，列出所有批注')
@@ -49,5 +51,7 @@ function run(argv) {
         program.parse();
     }
 }
-run();
+if (require.main === module) {
+    run();
+}
 //# sourceMappingURL=main.js.map

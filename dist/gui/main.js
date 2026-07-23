@@ -312,6 +312,9 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('open-external', async (_event, url) => {
+    if (typeof url !== 'string' || !/^(https?:|mailto:|file:)/i.test(url)) {
+      throw new Error(t('errUnsupportedProtocol'));
+    }
     await shell.openExternal(url);
   });
 

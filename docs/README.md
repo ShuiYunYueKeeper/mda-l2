@@ -48,6 +48,8 @@
 | [`prompts/prompt-17-batch-anno-line-shift.md`](prompts/prompt-17-batch-anno-line-shift.md) | 同文件批量 `mda_add` 行号漂移翻车与沉淀 |
 | [`prompts/prompt-18-settings-clear-annos.md`](prompts/prompt-18-settings-clear-annos.md) | P4：设置入口、状态默认 open、一键清空批注 |
 | [`prompts/prompt-19-mermaid-dark-zoom.md`](prompts/prompt-19-mermaid-dark-zoom.md) | **本轮 P4**：Mermaid 暗黑全屏清晰度 / Timeline 连线 / 默认尺寸 |
+| [`prompts/prompt-20-m6b-preview-media-scale.md`](prompts/prompt-20-m6b-preview-media-scale.md) | M6b：图片/流程图默认缩放与预览调宽 |
+| [`prompts/prompt-21-overall-code-review-adjustments.md`](prompts/prompt-21-overall-code-review-adjustments.md) | 整体代码审查、修复原因与后续风险 |
 | [`few-shot-examples.md`](few-shot-examples.md) §10 | 缩放遮罩：矢量放大、深色底、Timeline 统一色 |
 | [`few-shot-examples.md`](few-shot-examples.md) §19 | 批量 add 批注：自下而上 / 禁并行 / 空行不可作 line |
 | [`few-shot-examples.md`](few-shot-examples.md) §20 | 设置入口与清空全部批注 |
