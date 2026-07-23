@@ -45,9 +45,13 @@
       fsConflictOverwrite: '覆盖',
       fsConflictRename: '自动重命名',
       outlineTitle: '大纲',
-      outlineCollapse: '收起',
-      outlineExpand: '展开',
+      outlineCollapse: '收起大纲',
+      outlineExpand: '展开大纲',
+      outlineCollapseChildren: '收起子标题',
+      outlineExpandChildren: '展开子标题',
       outlineEmpty: '无标题',
+      imgResizeHandle: '拖拽调整宽度',
+      mermaidResizeHandle: '拖拽调整流程图宽度',
       welcomeLead: '本地优先的 Markdown 工作台 — 预览 · 编辑 · 批注 · 文件',
       welcomePitch: '把 AI 产出的 .md 打开、看懂、轻改、批注，再导出或交给 Agent',
       welcomeNew: '新建文档',
@@ -70,12 +74,20 @@
       settingsRememberLayoutDesc: '记住窗口大小与位置，以及批注栏、编辑栏、大纲、文件侧栏的展开/收起与分栏宽度。关闭后清除已存布局，下次启动使用默认布局。',
       settingsRememberSession: '记住上次会话',
       settingsRememberSessionDesc: '记住文件列表（工作区侧栏）与上次打开的文件。关闭后清除已存会话，下次启动进入欢迎页。',
+      settingsMermaidWidth: '图片与流程图默认缩放',
+      settingsMermaidWidthDesc: '以「自动」固有显示尺寸为基准乘以比例（如 50% = 缩小一半）。拖拽后可双击图片还原为当前设置比例。',
+      settingsMermaidWidthAuto: '自动（100%）',
+      settingsMermaidWidthMin: '最小',
+      settingsMermaidWidthFull: '最大',
+      settingsMermaidWidthPct: '{n}%',
+      settingsMermaidWidthPx: '{n} 像素',
       toastRememberLayoutOn: '已开启：记住界面习惯',
       toastRememberLayoutOff: '已关闭：下次启动使用默认布局',
       toastRememberSessionOn: '已开启：记住上次会话',
       toastRememberSessionOff: '已关闭：下次启动进入欢迎页',
       settingsSave: '保存',
       settingsCancel: '取消',
+      alertSettingsFail: '打开设置失败：{error}',
       filterStatus: '状态',
       filterLevel: '级别',
       filterTags: '标签',
@@ -127,9 +139,13 @@
       zoomReset: '复位',
       zoomClose: '关闭',
       zoomCopy: '复制',
+      zoomCopyImage: '复制图片',
+      zoomCopySource: '复制源码',
       toastZoomCopiedImage: '已复制图片',
-      toastZoomCopiedMermaid: '已复制流程图源码',
+      toastZoomCopiedMermaid: '已复制流程图源码（含围栏）',
       alertZoomCopyFail: '复制失败: {error}',
+      formula: '公式',
+      formulaBracket: '[公式]',
       filenameCopyHint: '{name}（可选中后 Ctrl+C 拷贝）',
       toastNoCopy: '没有可拷贝的内容',
       toastCopied: '拷贝成功',
@@ -240,9 +256,13 @@
       fsConflictOverwrite: 'Overwrite',
       fsConflictRename: 'Auto-rename',
       outlineTitle: 'Outline',
-      outlineCollapse: 'Collapse',
-      outlineExpand: 'Expand',
+      outlineCollapse: 'Collapse outline',
+      outlineExpand: 'Expand outline',
+      outlineCollapseChildren: 'Collapse subheadings',
+      outlineExpandChildren: 'Expand subheadings',
       outlineEmpty: 'No headings',
+      imgResizeHandle: 'Drag to resize width',
+      mermaidResizeHandle: 'Drag to resize diagram width',
       welcomeLead: 'Local-first Markdown workspace — preview · edit · annotate · files',
       welcomePitch: 'Open AI-generated .md, skim, tweak, annotate — then export or hand off to an Agent',
       welcomeNew: 'New Document',
@@ -265,12 +285,20 @@
       settingsRememberLayoutDesc: 'Remember window size and position, plus open/closed state and widths for notes, editor, outline, and file sidebar. Turning off clears saved layout; next launch uses defaults.',
       settingsRememberSession: 'Remember last session',
       settingsRememberSessionDesc: 'Remember the file sidebar workspace and the last opened file. Turning off clears the saved session; next launch opens the welcome page.',
+      settingsMermaidWidth: 'Image & diagram default scale',
+      settingsMermaidWidthDesc: 'Multiply each image/diagram’s auto size by a factor (e.g. 50% = half). Double-click a resized image to restore the current setting.',
+      settingsMermaidWidthAuto: 'Auto (100%)',
+      settingsMermaidWidthMin: 'Minimum',
+      settingsMermaidWidthFull: 'Maximum',
+      settingsMermaidWidthPct: '{n}%',
+      settingsMermaidWidthPx: '{n} px',
       toastRememberLayoutOn: 'Remember layout: on',
       toastRememberLayoutOff: 'Remember layout: off (defaults next launch)',
       toastRememberSessionOn: 'Remember last session: on',
       toastRememberSessionOff: 'Remember last session: off (welcome next launch)',
       settingsSave: 'Save',
       settingsCancel: 'Cancel',
+      alertSettingsFail: 'Failed to open settings: {error}',
       filterStatus: 'Status',
       filterLevel: 'Level',
       filterTags: 'Tags',
@@ -322,9 +350,13 @@
       zoomReset: 'Reset',
       zoomClose: 'Close',
       zoomCopy: 'Copy',
+      zoomCopyImage: 'Copy image',
+      zoomCopySource: 'Copy source',
       toastZoomCopiedImage: 'Image copied',
-      toastZoomCopiedMermaid: 'Mermaid source copied',
+      toastZoomCopiedMermaid: 'Mermaid source copied (fenced)',
       alertZoomCopyFail: 'Copy failed: {error}',
+      formula: 'Formula',
+      formulaBracket: '[Formula]',
       filenameCopyHint: '{name} (select then Ctrl+C to copy)',
       toastNoCopy: 'Nothing to copy',
       toastCopied: 'Copied',
@@ -451,8 +483,8 @@
           '<li>Syntax highlight + line numbers; <kbd>Ctrl+S</kbd> save; unsaved close prompts</li>' +
           '<li><kbd>Ctrl+F</kbd> find, <kbd>Ctrl+H</kbd> replace, <kbd>Ctrl+G</kbd> go to line</li>' +
           '<li><kbd>Ctrl+B/I/`</kbd> bold/italic/code; <kbd>Ctrl+Shift+]/[</kbd> heading level</li>' +
-          '<li>Dark mode; relative images; Mermaid; KaTeX; click image/diagram to zoom — toolbar or Ctrl+C copies (image → clipboard image; diagram → Mermaid source)</li>' +
-          '<li><strong>Copy preview</strong>: menu or <kbd>Ctrl+Shift+C</kbd> for WeChat-ready rich text</li>' +
+          '<li>Dark mode; relative images; Mermaid; KaTeX; click image/diagram to zoom — diagram zoom: Copy image / Copy source (<code>```mermaid</code> fence); Ctrl+C copies image; image zoom copies bitmap</li>' +
+          '<li><strong>Copy preview</strong>: menu or <kbd>Ctrl+Shift+C</kbd> for WeChat-ready rich text (embedded images, diagrams, and formulas as images)</li>' +
           '<li><strong>Export</strong>: File → Export HTML / PDF / Word (progress UI; ~60s timeout)</li>' +
           '<li><strong>Auto-save</strong>: View → Settings… — Off / On blur / Every 30s / Every 60s (saved files only; untitled never auto Save As)</li>' +
           '<li>Panes are resizable; double-click splitter to reset</li>' +
@@ -519,8 +551,8 @@
         '<li>源码语法高亮 + 行号；<kbd>Ctrl+S</kbd> 保存；关闭时未保存会提示</li>' +
         '<li><kbd>Ctrl+F</kbd> 查找、<kbd>Ctrl+H</kbd> 替换、<kbd>Ctrl+G</kbd> 跳转到行</li>' +
         '<li><kbd>Ctrl+B/I/`</kbd> 粗体/斜体/代码；<kbd>Ctrl+Shift+]/[</kbd> 标题升降级</li>' +
-        '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放，工具栏或 Ctrl+C 可复制（图片→剪贴板图片，流程图→Mermaid 源码）</li>' +
-        '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片与流程图）</li>' +
+        '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放 — 流程图工具栏「复制图片 / 复制源码」（源码含 <code>```mermaid</code> 围栏），Ctrl+C 默认复制图片；普通图片复制为位图</li>' +
+        '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（含内嵌图片、流程图与公式图）</li>' +
         '<li><strong>导出</strong>：菜单「文件 → 导出 HTML / PDF / Word」（导出会显示进度；大文档约 60s 超时）</li>' +
         '<li><strong>自动保存</strong>：菜单「视图 → 设置…」— 关闭 / 失焦 / 每 30 秒 / 每 60 秒（仅已保存过的磁盘文件；未命名不自动另存）</li>' +
         '<li>分栏可拖拽调宽，双击分隔条复位</li>' +

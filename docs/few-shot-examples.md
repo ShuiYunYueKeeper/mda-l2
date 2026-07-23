@@ -434,24 +434,30 @@ function refreshWorkspaceTree(opts) {
 
 ---
 
-## 17. 缩放层复制：流程图须为源码（GUI）
+## 17. 缩放层复制：流程图图片 + 围栏源码（GUI）
 
-**规则**：缩放遮罩「复制」/ `Ctrl+C` — 图片写入剪贴板位图；流程图复制 Mermaid **源码文本**（`data-mermaid-src`），不要当成「复制预览」去抓 PNG。
+**规则**：
+- 普通图片：工具栏「复制」/ `Ctrl+C` → 剪贴板**位图**。
+- 流程图：工具栏分「复制图片」「复制源码」；**Ctrl+C 默认复制图片**。
+- 「复制源码」须带 ` ```mermaid ` 围栏（可直接粘贴回 Markdown）。
 
 ### ✅ 正确
 
 ```javascript
-if (opts.kind === 'mermaid') {
-  copyTextWithToast(opts.mermaidSrc, uiT('toastZoomCopiedMermaid'));
-} else {
-  api.copyClipboardImage({ filePath: localPath }); // 或 dataUrl
+function fenceMermaidSource(src) {
+  return '```mermaid\n' + String(src).trim() + '\n```';
 }
+// Ctrl+C / 复制图片
+api.copyClipboardImage({ dataUrl: await svgToPngDataUrl(opts.svgNode) });
+// 复制源码
+copyTextWithToast(fenceMermaidSource(opts.mermaidSrc), ...);
 ```
 
 ### ❌ 错误
 
-- ❌ 流程图也走 `writeImage` / `capturePageRect` → 粘贴进编辑器是图，无法改图语法。
-- ❌ 打开缩放时未传入 `data-mermaid-src` → 复制空内容。
+- ❌ 流程图 `Ctrl+C` 只复制裸源码（无围栏）→ 粘贴后不能直接当代码块用。
+- ❌ 只有源码按钮、无法复制图片 → 无法贴进公众号/文档当插图。
+- ❌ 打开缩放时未传入 `mermaidSrc` / `svgNode` → 复制空内容或失败。
 
 ---
 
@@ -540,3 +546,31 @@ await clearAllAnnotations(filePath); // 返回删除条数
 - ❌ 关闭「记住界面习惯」后仍写入 `mda-panel-visible` 等键。
 - ❌ 循环 `removeAnnotation` 且中间无保护校验聚合 → 可用，但不如一次 `clearAllAnnotations`。
 - ❌ dirty 时仍允许清空 → 重载会丢掉未保存正文编辑。
+
+---
+
+## 21. 图片/流程图默认缩放与预览调宽（GUI）
+
+**规则**：
+- 设置键 `mda-preview-media-default-width`：`auto` / `25` / `50` / `75`（100%=自动）。
+- **显示宽 = 各图「自动」固有宽 × 系数**，不是压成预览栏同一绝对宽度（否则宽 Sequence 变化大、窄 Class 几乎不变）。
+- 用户拖拽覆盖写入会话表；拖动中仅当前图显示蓝角标；双击还原为当前设置比例。
+- 复制预览读 `data-mda-display-width`，不写回 Markdown。
+
+### ✅ 正确
+
+```javascript
+var autoW = getMermaidAutoWidthPx(holder); // min(natural, previewMax)
+var w = Math.round(autoW * getMediaScaleFactor()); // 50% → ×0.5
+applyMermaidDisplayWidth(holder, w, { skipRemember: true });
+// 双击还原：
+delete mermaidDisplayWidths[key];
+applyDefaultScaleToMermaid(holder);
+```
+
+### ❌ 错误
+
+- ❌ 把 50% 当成「预览栏宽的 50%」强制套到所有图 → Class 等小图几乎不变或被撑大。
+- ❌ `body.mda-img-resizing` 下给**所有** `.mda-img-resize-handle` 提亮 → 拖一张图时满屏蓝角标。
+- ❌ 设置里先 `setSettingsModal(true)` 再引用已删变量名 → 弹窗失败、菜单永久锁死（须 try/catch 解锁）。
+- ❌ 双击还原只清样式不清 `mermaidDisplayWidths` / `imageDisplayWidths` → 下次渲染又套回手动宽。

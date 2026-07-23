@@ -1,4 +1,4 @@
-// 文档大纲（TOC）面板 — 预览区左侧，可收起；滚动预览时同步高亮当前标题
+﻿// 文档大纲（TOC）面板 — 预览区左侧，可收起；支持子标题折叠；滚动预览时同步高亮当前标题
 (function (global) {
   function escHtml(s) {
     return String(s)
@@ -18,24 +18,6 @@
       }
     }
     return out;
-  }
-
-  function renderNodes(nodes, depth) {
-    depth = depth || 0;
-    if (!nodes || !nodes.length) return '';
-    var html = '<ul class="mda-outline-list">';
-    for (var i = 0; i < nodes.length; i++) {
-      var n = nodes[i];
-      html +=
-        '<li class="mda-outline-item" style="padding-left:' + (depth * 12) + 'px">' +
-          '<button type="button" class="mda-outline-link" data-line="' + n.line + '">' +
-            escHtml(n.title) +
-          '</button>';
-      if (n.children && n.children.length) html += renderNodes(n.children, depth + 1);
-      html += '</li>';
-    }
-    html += '</ul>';
-    return html;
   }
 
   function mount(container, onJump, opts) {
@@ -60,6 +42,8 @@
     var titleEl = container.querySelector('.mda-outline-title');
     var collapsed = false;
     var flatHeadings = [];
+    var lastRoots = [];
+    var folded = {}; // line -> true 表示子树收起
     var activeLine = null;
 
     function rememberLayout() {
@@ -86,11 +70,74 @@
       if (!skipNotify && onCollapsedChange) onCollapsedChange(collapsed);
     }
 
+    function renderNodes(nodes, depth) {
+      depth = depth || 0;
+      if (!nodes || !nodes.length) return '';
+      var html = '<ul class="mda-outline-list">';
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i];
+        var hasKids = !!(n.children && n.children.length);
+        var isFolded = hasKids && !!folded[n.line];
+        html +=
+          '<li class="mda-outline-item' + (hasKids ? ' has-children' : '') + (isFolded ? ' is-folded' : '') + '">' +
+            '<div class="mda-outline-row" style="padding-left:' + (depth * 14) + 'px">' +
+              (hasKids
+                ? '<button type="button" class="mda-outline-fold" data-fold-line="' + n.line + '"' +
+                  ' aria-expanded="' + (isFolded ? 'false' : 'true') + '"' +
+                  ' title="' + escHtml(isFolded ? tr('outlineExpandChildren') : tr('outlineCollapseChildren')) + '">' +
+                  (isFolded ? '\u25B8' : '\u25BE') +
+                  '</button>'
+                : '<span class="mda-outline-fold-spacer" aria-hidden="true"></span>') +
+              '<button type="button" class="mda-outline-link" data-line="' + n.line + '">' +
+                escHtml(n.title) +
+              '</button>' +
+            '</div>';
+        if (hasKids && !isFolded) html += renderNodes(n.children, depth + 1);
+        html += '</li>';
+      }
+      html += '</ul>';
+      return html;
+    }
+
+    function paint() {
+      if (!lastRoots || !lastRoots.length) {
+        body.innerHTML = '<div class="mda-outline-empty">' + tr('outlineEmpty') + '</div>';
+        return;
+      }
+      body.innerHTML = renderNodes(lastRoots, 0);
+    }
+
+    /** 高亮目标若在折叠子树内，展开祖先后重绘 */
+    function ensureAncestorsExpanded(line) {
+      var changed = false;
+      function walk(nodes, ancestors) {
+        for (var i = 0; i < nodes.length; i++) {
+          var n = nodes[i];
+          if (n.line === line) {
+            for (var a = 0; a < ancestors.length; a++) {
+              if (folded[ancestors[a].line]) {
+                delete folded[ancestors[a].line];
+                changed = true;
+              }
+            }
+            return true;
+          }
+          if (n.children && n.children.length) {
+            if (walk(n.children, ancestors.concat([n]))) return true;
+          }
+        }
+        return false;
+      }
+      if (lastRoots && lastRoots.length) walk(lastRoots, []);
+      return changed;
+    }
+
     function setActiveLine(line, opts2) {
       opts2 = opts2 || {};
       if (line == null || isNaN(line)) return;
       if (!opts2.force && activeLine === line) return;
       activeLine = line;
+      if (ensureAncestorsExpanded(line)) paint();
       var links = body.querySelectorAll('.mda-outline-link');
       for (var i = 0; i < links.length; i++) {
         var ln = parseInt(links[i].getAttribute('data-line'), 10);
@@ -115,7 +162,19 @@
     });
 
     body.addEventListener('click', function (e) {
-      var btn = e.target.closest('[data-line]');
+      var foldBtn = e.target.closest('[data-fold-line]');
+      if (foldBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        var fl = parseInt(foldBtn.getAttribute('data-fold-line'), 10);
+        if (isNaN(fl)) return;
+        if (folded[fl]) delete folded[fl];
+        else folded[fl] = true;
+        paint();
+        if (activeLine != null) setActiveLine(activeLine, { force: true, skipScroll: true });
+        return;
+      }
+      var btn = e.target.closest('.mda-outline-link[data-line]');
       if (!btn) return;
       var line = parseInt(btn.getAttribute('data-line'), 10);
       if (isNaN(line) || !onJump) return;
@@ -126,13 +185,20 @@
     });
 
     function setHeadings(roots) {
-      flatHeadings = flattenHeadings(roots, []);
+      lastRoots = roots || [];
+      flatHeadings = flattenHeadings(lastRoots, []);
       activeLine = null;
-      if (!roots || !roots.length) {
-        body.innerHTML = '<div class="mda-outline-empty">' + tr('outlineEmpty') + '</div>';
-        return;
+      // 丢弃已不存在的折叠键
+      if (lastRoots.length) {
+        var alive = {};
+        for (var i = 0; i < flatHeadings.length; i++) alive[flatHeadings[i].line] = true;
+        Object.keys(folded).forEach(function (k) {
+          if (!alive[k]) delete folded[k];
+        });
+      } else {
+        folded = {};
       }
-      body.innerHTML = renderNodes(roots, 0);
+      paint();
     }
 
     return {

@@ -68,10 +68,12 @@ npm test          # jest，含覆盖率
 | GUI 实机验证（硬约束） | 任何 `src/gui/**` 改动 | 自动化测试 + `build` 通过 ≠ 验证完成；渲染、双向定位、拖拽、原生模态失焦、代码块右键/快捷键等缺陷只有实机能暴露。详见 `.cursor/workflow.md` / `.claude/workflow.md` Step 4 |
 | **编辑器三层对齐** | 改动源码编辑栏（高亮层/行号槽/textarea） | 字体/行高/padding/`tab-size`/`white-space:pre` 不一致会导致光标与着色错位；须实机输入、滚动、换行验证 |
 | **坏批注容错隐藏** | 改动 `ANNO_ISH` / `hideLooseAnnotations` / 保存校验 | 故意删掉 `[comment]` 的 `]` 或改坏 JSON：预览不得泄漏、保存须弹窗提示、围栏内样例仍原样显示 |
-| **缩放遮罩** | 改动图片/流程图缩放逻辑 | 矢量清晰（SVG 用改宽高放大，勿舞台 `scale`/`will-change`）；深色全屏预览 SVG 深色底+字可读；默认约 72%–75% 视口；0.3×–8×；连点 +/- 不误复位；**复制**：图→位图，流程图→源码 |
+| **缩放遮罩** | 改动图片/流程图缩放逻辑 | 矢量清晰（SVG 用改宽高放大，勿舞台 `scale`/`will-change`）；深色全屏预览 SVG 深色底+字可读；默认约 72%–75% 视口；0.3×–8×；连点 +/- 不误复位；**复制**：图→位图；流程图→「图片」+「源码」（围栏），Ctrl+C 默认图片 |
 | **分栏拖拽** | 改动三栏布局/手柄 | 拖拽调宽、双击手柄复位默认宽度（编辑 380px / 批注 320px） |
-| **深色 / mermaid / 图片** | 改动主题、流程图或图片解析 | 深色切换与流程图配色联动；mindmap/timeline 等勿出现近黑「黄」节点；Timeline 虚线/轴线颜色一致；`samples/mermaid-diagrams.md` 深色+全屏抽检 |
-| **复制预览（微信公众号）** | 改动 `copyPreviewForArticle` / Mermaid 导出 / 剪贴板 IPC | 实机：`Ctrl+Shift+C` 粘贴公众号编辑器，正文+图+流程图齐全；复制过程无滚动跳动/闪烁 |
+| **深色 / mermaid / 图片** | 改动主题、流程图或图片解析 | 深色切换与流程图配色联动；mindmap/timeline 等勿出现近黑「黄」节点；Timeline 虚线/轴线颜色一致；`samples/mermaid-diagrams.md` 深色+全屏抽检；预览图可拖拽调宽且复制预览宽度一致 |
+| **默认缩放设置** | 改动 `mda-preview-media-default-width` / 预览调宽 | 档位 `自动/25%/50%/75%`：**显示宽 = 自动固有宽 × 系数**（Class 在 50% 须变小）；拖动时仅当前图蓝角标；双击还原当前设置；设置构建失败须解锁菜单 |
+| **文件列表 / 大纲** | 改动侧栏或大纲 UI | 字号/行距可读；收起钮明显；大纲子标题可 ▸/▾ 折叠，高亮时自动展开祖先 |
+| **复制预览（微信公众号）** | 改动 `copyPreviewForArticle` / Mermaid·公式导出 / 剪贴板 IPC | 实机：`Ctrl+Shift+C` 粘贴公众号编辑器，正文+图+流程图+**公式图**齐全；复制过程无滚动跳动/闪烁 |
 | **同步滚动 / 查找替换** | 改动 `sync-scroll.js` / `find-replace.js` | **点击双向定位**（滚动互不跟随）；点预览只滚源码且预览视口不变；点源码/方向键才滚预览；大纲/Ctrl+G 仍可双边定位；查找高亮与 ↑/↓ 跳转；IME 焦点不丢失 |
 | **选区批注** | 改动 `selection-anchor.js` / `anchor-highlights.js` / anchor 写入 | 预览/源码双路径选区→`anchor`；插入批注行后偏移不失效；代码块/表格可批注；orphan 标记 |
 | **MCP / 导出** | 改动 `src/mcp/**` 或导出/更新 IPC | `mda_scan` 与 CLI JSON 一致；HTML/PDF/**Word** 导出（docx 用 WPS/Word 打开抽检）；打包版检查更新 |

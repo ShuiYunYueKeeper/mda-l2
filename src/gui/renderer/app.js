@@ -2253,10 +2253,35 @@
         if (out.bindFunctions) out.bindFunctions(holder);
         fixMermaidSvgLayout(holder);
         tuneMermaidSvgContrast(holder);
-        holder.addEventListener('click', function () {
-          var svg = this.querySelector('svg');
-          var mermaidSrc = this.getAttribute('data-mermaid-src') || '';
-          if (svg) openZoom(svg.cloneNode(true), { kind: 'mermaid', mermaidSrc: mermaidSrc });
+        ensureMermaidResizeChrome(holder);
+        holder.addEventListener('click', function (e) {
+          if (e.target && e.target.closest && e.target.closest('.mda-img-resize-handle')) return;
+          if (this.dataset.skipZoomOnce === '1') {
+            delete this.dataset.skipZoomOnce;
+            return;
+          }
+          var self = this;
+          if (self._zoomClickTimer) {
+            clearTimeout(self._zoomClickTimer);
+            self._zoomClickTimer = null;
+            return;
+          }
+          self._zoomClickTimer = setTimeout(function () {
+            self._zoomClickTimer = null;
+            var svg = self.querySelector('svg');
+            var mermaidSrc = self.getAttribute('data-mermaid-src') || '';
+            if (svg) openZoom(svg.cloneNode(true), { kind: 'mermaid', mermaidSrc: mermaidSrc });
+          }, 280);
+        });
+        holder.addEventListener('dblclick', function (e) {
+          if (e.target && e.target.closest && e.target.closest('.mda-img-resize-handle')) return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (this._zoomClickTimer) {
+            clearTimeout(this._zoomClickTimer);
+            this._zoomClickTimer = null;
+          }
+          restoreMediaToSettingsScale(this, 'mermaid');
         });
       } catch (err) {
         holder.className = 'mda-mermaid-error';
@@ -2288,8 +2313,38 @@
     }
 
     padMermaidViewBox(svg, 16);
+    normalizeMermaidSvgIntrinsicSize(svg);
+    rememberMermaidNaturalWidth(holder);
     svg.style.overflow = 'visible';
     holder.style.overflow = 'visible';
+  }
+
+  /**
+   * Mermaid 常输出 width="100%"。父级若非「整列 block」，百分比会按塌缩宽度解析，图会变得特别小。
+   * 用 viewBox 写成像素宽高，再靠 max-width:100% 适配栏宽 —— 恢复默认观感。
+   */
+  function normalizeMermaidSvgIntrinsicSize(svg) {
+    if (!svg) return;
+    var vb = svg.viewBox && svg.viewBox.baseVal;
+    var vw = vb && vb.width ? vb.width : 0;
+    var vh = vb && vb.height ? vb.height : 0;
+    if (!vw || !vh) {
+      try {
+        var box = svg.getBBox();
+        if (box && box.width && box.height) { vw = box.width; vh = box.height; }
+      } catch (e) { /* ignore */ }
+    }
+    var attrW = svg.getAttribute('width') || '';
+    var attrH = svg.getAttribute('height') || '';
+    if (vw > 0 && (!attrW || /%$/.test(String(attrW)))) {
+      svg.setAttribute('width', String(Math.ceil(vw)));
+    }
+    if (vh > 0 && (!attrH || /%$/.test(String(attrH)))) {
+      svg.setAttribute('height', String(Math.ceil(vh)));
+    }
+    svg.style.width = '';
+    svg.style.height = 'auto';
+    svg.style.maxWidth = '100%';
   }
 
   function padMermaidViewBox(svg, pad) {
@@ -2656,15 +2711,48 @@
   }
 
   // ---- 缩放遮罩（图片 / 流程图共用）----
-  function copyZoomContent(opts) {
+  function fenceMermaidSource(src) {
+    var body = String(src || '').replace(/\r\n/g, '\n').replace(/^\n+|\n+$/g, '');
+    return '```mermaid\n' + body + '\n```';
+  }
+
+  function copyZoomMermaidSource(opts) {
+    var src = (opts && opts.mermaidSrc) || '';
+    if (!src) {
+      showToast(uiT('toastNoCopy'));
+      return;
+    }
+    copyTextWithToast(fenceMermaidSource(src), uiT('toastZoomCopiedMermaid'));
+  }
+
+  function copyZoomMermaidImage(opts) {
+    function fail(err) {
+      uiAlert(uiT('alertZoomCopyFail', { error: err || uiT('unknownError') }));
+    }
+    if (!api.copyClipboardImage) { fail(uiT('unknownError')); return; }
+    var svg = (opts && opts.svgNode) || null;
+    if (!svg) { fail(uiT('unknownError')); return; }
+    Promise.resolve()
+      .then(function () { return svgToPngDataUrl(svg); })
+      .then(function (dataUrl) {
+        if (!isValidPngDataUrl(dataUrl)) throw new Error(uiT('unknownError'));
+        return api.copyClipboardImage({ dataUrl: dataUrl });
+      })
+      .then(function (r) {
+        if (r && r.success) showToast(uiT('toastZoomCopiedImage'));
+        else fail(r && r.error);
+      })
+      .catch(function (e) {
+        fail(e && e.message ? e.message : String(e));
+      });
+  }
+
+  /** mode: 'image' | 'source'；流程图默认 image（Ctrl+C） */
+  function copyZoomContent(opts, mode) {
     opts = opts || {};
     if (opts.kind === 'mermaid') {
-      var src = opts.mermaidSrc || '';
-      if (!src) {
-        showToast(uiT('toastNoCopy'));
-        return;
-      }
-      copyTextWithToast(src, uiT('toastZoomCopiedMermaid'));
+      if (mode === 'source') copyZoomMermaidSource(opts);
+      else copyZoomMermaidImage(opts);
       return;
     }
     var imageSrc = opts.imageSrc || '';
@@ -2751,6 +2839,7 @@
 
   function openZoom(node, opts) {
     opts = opts || {};
+    if (opts.kind === 'mermaid' && node) opts.svgNode = node;
     var ov = document.createElement('div');
     ov.className = 'mda-zoom';
     var stage = document.createElement('div');
@@ -2758,7 +2847,11 @@
     stage.appendChild(node);
     var bar = document.createElement('div');
     bar.className = 'mda-zoom-bar';
-    bar.innerHTML = '<button data-z="copy" title="' + uiT('zoomCopy') + '">' + uiT('copyBtn') + '</button>' +
+    var copyBtns = opts.kind === 'mermaid'
+      ? '<button data-z="copy-img" title="' + uiT('zoomCopyImage') + '">' + uiT('zoomCopyImage') + '</button>' +
+        '<button data-z="copy-src" title="' + uiT('zoomCopySource') + '">' + uiT('zoomCopySource') + '</button>'
+      : '<button data-z="copy" title="' + uiT('zoomCopy') + '">' + uiT('copyBtn') + '</button>';
+    bar.innerHTML = copyBtns +
       '<button data-z="in" title="' + uiT('zoomIn') + '">+</button>' +
       '<button data-z="out" title="' + uiT('zoomOut') + '">\u2212</button>' +
       '<button data-z="reset" title="' + uiT('zoomReset') + '">\u21ba</button>' +
@@ -2881,7 +2974,8 @@
       if (!b) return;
       e.stopPropagation();
       var z = b.getAttribute('data-z');
-      if (z === 'copy') copyZoomContent(opts);
+      if (z === 'copy' || z === 'copy-img') copyZoomContent(opts, 'image');
+      else if (z === 'copy-src') copyZoomContent(opts, 'source');
       else if (z === 'in') zoom(1.2);
       else if (z === 'out') zoom(1 / 1.2);
       else if (z === 'reset') reset();
@@ -3398,15 +3492,187 @@
   async function mermaidHolderToPngDataUrl(liveHolder) {
     // 不滚动、不改布局：仅对已在视口内的元素截图，否则回退 SVG→PNG
     var png = await captureElementPng(liveHolder);
-    if (png) return png;
+    if (isValidPngDataUrl(png)) return png;
     var svg = liveHolder.querySelector('svg');
     if (svg) {
       try {
         var fromSvg = await svgToPngDataUrl(svg);
+        var dw = parseInt(liveHolder.getAttribute('data-mda-display-width') || '', 10);
+        if (dw > 0 && isValidPngDataUrl(fromSvg)) {
+          fromSvg = await scalePngDataUrlToWidth(fromSvg, dw);
+        }
         if (isValidPngDataUrl(fromSvg)) return fromSvg;
       } catch (e) { /* fallback */ }
     }
     throw new Error('diagram export failed');
+  }
+
+  function scalePngDataUrlToWidth(dataUrl, targetW) {
+    return new Promise(function (resolve) {
+      var tw = Math.round(targetW);
+      if (!(tw > 0) || !dataUrl) { resolve(dataUrl); return; }
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var nw = img.naturalWidth || img.width || 0;
+          var nh = img.naturalHeight || img.height || 0;
+          if (!nw || !nh) { resolve(dataUrl); return; }
+          var th = Math.max(1, Math.round(nh * tw / nw));
+          var c = document.createElement('canvas');
+          c.width = tw;
+          c.height = th;
+          c.getContext('2d').drawImage(img, 0, 0, tw, th);
+          resolve(c.toDataURL('image/png'));
+        } catch (e) { resolve(dataUrl); }
+      };
+      img.onerror = function () { resolve(dataUrl); };
+      img.src = dataUrl;
+    });
+  }
+
+  /** 收集顶层 KaTeX 节点（块级 .katex-display 或非其内的 .katex） */
+  function listTopKatexNodes(root) {
+    var out = [];
+    if (!root) return out;
+    var all = root.querySelectorAll('.katex-display, .katex');
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el.classList.contains('katex-display')) out.push(el);
+      else if (el.classList.contains('katex') && !el.closest('.katex-display')) out.push(el);
+    }
+    return out;
+  }
+
+  function katexAnnotationTeX(el) {
+    if (!el) return '';
+    var ann = el.querySelector('annotation[encoding="application/x-tex"]');
+    return ann && ann.textContent ? String(ann.textContent).trim() : '';
+  }
+
+  function arrayBufferToBase64(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var binary = '';
+    var chunk = 0x8000;
+    for (var i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+    }
+    return btoa(binary);
+  }
+
+  var katexExportCssPromise = null;
+
+  /** 将 katex.min.css 中的 fonts/ 引用内联为 data URL，供离屏 SVG foreignObject 使用（不挂 DOM、不闪屏）。 */
+  function loadKatexCssForExport() {
+    if (katexExportCssPromise) return katexExportCssPromise;
+    katexExportCssPromise = (async function () {
+      var css = await fetch('./katex.min.css').then(function (r) {
+        if (!r.ok) throw new Error('katex.css ' + r.status);
+        return r.text();
+      });
+      var re = /url\((['"]?)([^)'"]+)\1\)/g;
+      var found = {};
+      var m;
+      while ((m = re.exec(css))) {
+        var url = m[2];
+        if (!url || url.indexOf('data:') === 0) continue;
+        found[url] = true;
+      }
+      var map = {};
+      var urls = Object.keys(found);
+      for (var i = 0; i < urls.length; i++) {
+        var u = urls[i];
+        var resolved = u;
+        if (u.indexOf('fonts/') === 0) resolved = './' + u;
+        else if (u.indexOf('./') !== 0 && u.indexOf('/') !== 0 && u.indexOf('file:') !== 0) resolved = './' + u;
+        try {
+          var resp = await fetch(resolved);
+          if (!resp.ok) continue;
+          var ab = await resp.arrayBuffer();
+          var mime = /\.woff2$/i.test(u) ? 'font/woff2'
+            : /\.woff$/i.test(u) ? 'font/woff'
+              : /\.ttf$/i.test(u) ? 'font/ttf'
+                : 'application/octet-stream';
+          map[u] = 'url(data:' + mime + ';base64,' + arrayBufferToBase64(ab) + ')';
+        } catch (e) { /* keep original url */ }
+      }
+      return css.replace(/url\((['"]?)([^)'"]+)\1\)/g, function (full, q, url) {
+        return map[url] || full;
+      });
+    })().catch(function (err) {
+      katexExportCssPromise = null;
+      throw err;
+    });
+    return katexExportCssPromise;
+  }
+
+  /**
+   * KaTeX → PNG：纯离屏 foreignObject 栅格化（白底），不 capturePage、不往视口插节点 → 复制预览不闪烁。
+   */
+  async function katexElToPngDataUrl(liveEl) {
+    if (!liveEl) throw new Error('formula export failed');
+    var css = await loadKatexCssForExport();
+    var clone = liveEl.cloneNode(true);
+    clone.querySelectorAll('.katex-mathml').forEach(function (m) { m.remove(); });
+
+    var rect = liveEl.getBoundingClientRect();
+    var w = Math.ceil(rect.width || liveEl.offsetWidth || liveEl.scrollWidth || 0);
+    var h = Math.ceil(rect.height || liveEl.offsetHeight || liveEl.scrollHeight || 0);
+    if (w < 2) w = Math.ceil(liveEl.scrollWidth) || 200;
+    if (h < 2) h = Math.ceil(liveEl.scrollHeight) || 40;
+    var padX = 10;
+    var padY = 8;
+    var tw = w + padX * 2;
+    var th = h + padY * 2;
+
+    // 转义 style 内可能破坏 foreignObject 的序列
+    var safeCss = String(css).replace(/<\/style/gi, '<\\/style');
+    var inner = clone.outerHTML;
+    var svgStr = '<svg xmlns="http://www.w3.org/2000/svg" width="' + tw + '" height="' + th + '">'
+      + '<foreignObject width="100%" height="100%">'
+      + '<div xmlns="http://www.w3.org/1999/xhtml" style="margin:0;padding:'
+      + padY + 'px ' + padX + 'px;background:#ffffff;color:#222222;display:inline-block;line-height:1.4;">'
+      + '<style type="text/css">' + safeCss + '</style>'
+      + inner
+      + '</div></foreignObject></svg>';
+
+    var svg64 = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var canvas = document.createElement('canvas');
+          canvas.width = tw;
+          canvas.height = th;
+          var ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, tw, th);
+          ctx.drawImage(img, 0, 0, tw, th);
+          var dataUrl = canvas.toDataURL('image/png');
+          if (!isValidPngDataUrl(dataUrl)) reject(new Error('formula export failed'));
+          else resolve(dataUrl);
+        } catch (err) { reject(err); }
+      };
+      img.onerror = function () { reject(new Error('formula export failed')); };
+      img.src = svg64;
+    });
+  }
+
+  function replaceKatexNodeWithImg(node, dataUrl, isBlock) {
+    var img = document.createElement('img');
+    img.src = dataUrl;
+    img.setAttribute('alt', uiT('formula'));
+    img.className = isBlock ? 'mda-formula-img mda-formula-img-block' : 'mda-formula-img mda-formula-img-inline';
+    img.setAttribute('style', isBlock
+      ? 'display:block;margin:12px auto;max-width:100%;height:auto;'
+      : 'display:inline;vertical-align:middle;margin:0 2px;max-width:100%;height:auto;');
+    if (isBlock) {
+      var p = document.createElement('p');
+      p.setAttribute('style', 'text-align:center;margin:16px 0;');
+      p.appendChild(img);
+      if (node.parentNode) node.parentNode.replaceChild(p, node);
+    } else if (node.parentNode) {
+      node.parentNode.replaceChild(img, node);
+    }
   }
 
   function svgToPngDataUrl(svg) {
@@ -3501,6 +3767,19 @@
     for (var i = 0; i < all.length; i++) {
       var el = all[i];
       var tag = el.tagName;
+      if (tag === 'IMG' && el.classList && el.classList.contains('mda-formula-img')) {
+        el.setAttribute('style', el.classList.contains('mda-formula-img-inline')
+          ? 'display:inline;vertical-align:middle;margin:0 2px;max-width:100%;height:auto;'
+          : 'display:block;margin:12px auto;max-width:100%;height:auto;');
+        continue;
+      }
+      if (tag === 'IMG') {
+        var dw = parseInt(el.getAttribute('data-mda-display-width') || '', 10);
+        if (dw > 0) {
+          el.setAttribute('style', 'width:' + dw + 'px;max-width:100%;height:auto;display:block;margin:12px auto;');
+          continue;
+        }
+      }
       if (styleMap[tag]) el.setAttribute('style', styleMap[tag]);
     }
     root.querySelectorAll('code').forEach(function (c) {
@@ -3515,6 +3794,19 @@
   }
 
   function ensureImgDimensions(img) {
+    var dw = parseInt(img.getAttribute('data-mda-display-width') || '', 10);
+    if (dw > 0) {
+      img.setAttribute('width', String(dw));
+      img.style.width = dw + 'px';
+      img.style.maxWidth = '100%';
+      img.style.height = 'auto';
+      var nh = img.naturalHeight || 0;
+      var nw = img.naturalWidth || 0;
+      if (nw > 0 && nh > 0) {
+        img.setAttribute('height', String(Math.round(dw * nh / nw)));
+      }
+      return Promise.resolve();
+    }
     if (img.getAttribute('width') && img.getAttribute('height')) return Promise.resolve();
     var src = img.getAttribute('src') || '';
     if (!/^data:/i.test(src)) return Promise.resolve();
@@ -3583,6 +3875,14 @@
             ? await mermaidHolderToPngDataUrl(liveHolder)
             : await svgToPngDataUrl(svg);
           mmdImg.setAttribute('alt', uiT('diagram'));
+          var mmdW = liveHolder
+            ? parseInt(liveHolder.getAttribute('data-mda-display-width') || '', 10)
+            : 0;
+          if (mmdW > 0) {
+            mmdImg.setAttribute('data-mda-display-width', String(mmdW));
+            mmdImg.setAttribute('width', String(mmdW));
+            mmdImg.setAttribute('style', 'width:' + mmdW + 'px;max-width:100%;height:auto;');
+          }
           p.appendChild(mmdImg);
         } catch (e) {
           p.textContent = uiT('diagramBracket');
@@ -3599,6 +3899,34 @@
       p.textContent = el.textContent || uiT('diagramFailBracket');
       if (el.parentNode) el.parentNode.replaceChild(p, el);
     });
+
+    // KaTeX → PNG：公式复制预览延后（M6b-5）；关闭以免未完成体验干扰本轮验收
+    var ENABLE_KATEX_ARTICLE_EXPORT = false;
+    if (ENABLE_KATEX_ARTICLE_EXPORT) {
+      var liveKatex = listTopKatexNodes(previewEl);
+      var cloneKatex = listTopKatexNodes(root);
+      var katexCount = Math.min(liveKatex.length, cloneKatex.length);
+      for (var ki = 0; ki < katexCount; ki++) {
+        var liveK = liveKatex[ki];
+        var cloneK = cloneKatex[ki];
+        var isBlock = !!(cloneK && cloneK.classList && cloneK.classList.contains('katex-display'));
+        try {
+          var kPng = await katexElToPngDataUrl(liveK);
+          replaceKatexNodeWithImg(cloneK, kPng, isBlock);
+        } catch (e) {
+          var fallback = document.createElement(isBlock ? 'p' : 'span');
+          fallback.setAttribute('style', isBlock
+            ? 'text-align:center;color:#999;font-style:italic;margin:12px 0;'
+            : 'color:#999;font-style:italic;');
+          var tex = katexAnnotationTeX(liveK) || katexAnnotationTeX(cloneK);
+          fallback.textContent = tex ? ('$' + tex + '$') : uiT('formulaBracket');
+          if (cloneK.parentNode) cloneK.parentNode.replaceChild(fallback, cloneK);
+        }
+      }
+      root.querySelectorAll('.katex-mathml, .katex-display, .katex').forEach(function (el) {
+        if (el.parentNode) el.parentNode.removeChild(el);
+      });
+    }
 
     var imgs = root.querySelectorAll('img');
     for (var ii = 0; ii < imgs.length; ii++) {
@@ -3914,7 +4242,395 @@
     }
   }
 
-  // ---- 图片：相对/本地路径 → 绝对 file://，并绑定点击放大 ----
+  // ---- 图片 / 流程图：预览内拖拽调宽（仅预览态，复制预览跟尺寸）----
+  var imageDisplayWidths = {}; // src → 宽度（用户拖拽覆盖；不含设置默认）
+  var mermaidDisplayWidths = {}; // mermaidSrc → 宽度（用户拖拽覆盖；不含设置默认）
+  // auto | 25 | 50 | 75 —— 相对「自动」固有显示宽度的放大系数（pct/100；auto=100%）
+  var mediaDefaultWidthPref = 'auto';
+  var activePreviewResize = null; // { el, kind, startX, startW, moved, chromeHost }
+  var MEDIA_SCALE_PCTS = { 25: true, 50: true, 75: true };
+  var MEDIA_DRAG_MIN_PX = 80;
+
+  function getPreviewMediaDragMaxWidthPx() {
+    return (previewEl && previewEl.clientWidth)
+      ? Math.max(MEDIA_DRAG_MIN_PX, previewEl.clientWidth - 32)
+      : 0;
+  }
+
+  function normalizeMediaDefaultWidthPref(raw) {
+    var v = String(raw == null ? 'auto' : raw);
+    if (v === 'auto' || v === '100') return 'auto';
+    if (MEDIA_SCALE_PCTS[v]) return v;
+    // 旧档位兼容
+    if (v === 'min') return '25';
+    if (v === 'full' || v === '125' || v === '150') return 'auto';
+    var n = parseInt(v, 10);
+    if (n === 480 || n === 560) return '50';
+    if (n === 640) return '75';
+    if (n === 720) return 'auto';
+    if (MEDIA_SCALE_PCTS[String(n)]) return String(n);
+    return 'auto';
+  }
+
+  function readMediaDefaultWidthPref() {
+    try {
+      var v = localStorage.getItem('mda-preview-media-default-width')
+        || localStorage.getItem('mda-mermaid-default-width');
+      return normalizeMediaDefaultWidthPref(v);
+    } catch (e) { /* ignore */ }
+    return 'auto';
+  }
+  mediaDefaultWidthPref = readMediaDefaultWidthPref();
+
+  function applyMediaDefaultWidthPref(mode, opts) {
+    opts = opts || {};
+    var next = normalizeMediaDefaultWidthPref(mode);
+    mediaDefaultWidthPref = next;
+    try {
+      localStorage.setItem('mda-preview-media-default-width', next);
+      localStorage.setItem('mda-mermaid-default-width', next);
+    } catch (e) { /* ignore */ }
+    if (opts.reapply !== false) reapplyMediaDefaultWidths();
+  }
+
+  /** 相对自动尺寸的放大系数；auto → 1 */
+  function getMediaScaleFactor() {
+    if (mediaDefaultWidthPref === 'auto' || !mediaDefaultWidthPref) return 1;
+    var pct = parseInt(mediaDefaultWidthPref, 10);
+    if (MEDIA_SCALE_PCTS[String(pct)]) return pct / 100;
+    return 1;
+  }
+
+  function readSvgNaturalWidthPx(svg) {
+    if (!svg) return 0;
+    var raw = svg.getAttribute('width') || '';
+    if (raw && !/%$/.test(String(raw))) {
+      var n = parseFloat(raw);
+      if (n > 0) return n;
+    }
+    var vb = svg.viewBox && svg.viewBox.baseVal;
+    if (vb && vb.width > 0) return vb.width;
+    try {
+      var box = svg.getBBox();
+      if (box && box.width > 0) return box.width;
+    } catch (e) { /* ignore */ }
+    return 0;
+  }
+
+  function rememberMermaidNaturalWidth(holder) {
+    if (!holder) return 0;
+    var svg = holder.querySelector('svg');
+    var natural = readSvgNaturalWidthPx(svg);
+    if (natural > 0) {
+      holder.setAttribute('data-mda-natural-width', String(Math.round(natural)));
+    }
+    return natural;
+  }
+
+  /** 「自动」基准宽 = min(固有像素, 预览可拖上限) */
+  function getMermaidAutoWidthPx(holder) {
+    var natural = parseFloat(holder.getAttribute('data-mda-natural-width') || '0');
+    if (!(natural > 0)) natural = rememberMermaidNaturalWidth(holder);
+    var maxW = getPreviewMediaDragMaxWidthPx();
+    if (natural > 0 && maxW > 0) return Math.min(natural, maxW);
+    return natural || 0;
+  }
+
+  function getImageAutoWidthPx(img) {
+    var nw = img.naturalWidth || 0;
+    if (!(nw > 0)) {
+      var stored = parseFloat(img.getAttribute('data-mda-natural-width') || '0');
+      if (stored > 0) nw = stored;
+    } else {
+      img.setAttribute('data-mda-natural-width', String(nw));
+    }
+    var maxW = getPreviewMediaDragMaxWidthPx();
+    if (nw > 0 && maxW > 0) return Math.min(nw, maxW);
+    if (nw > 0) return nw;
+    var rect = img.getBoundingClientRect();
+    return rect.width > 1 ? rect.width : 0;
+  }
+
+  function scaledWidthFromAuto(autoW, scale, minW) {
+    if (!(autoW > 0)) return 0;
+    var maxW = getPreviewMediaDragMaxWidthPx() || autoW;
+    var w = Math.round(autoW * scale);
+    var floor = minW != null ? minW : 16;
+    return Math.max(floor, Math.min(maxW, w));
+  }
+
+  function applyDefaultScaleToMermaid(holder) {
+    var scale = getMediaScaleFactor();
+    if (scale === 1) {
+      resetMermaidToIntrinsic(holder);
+      return;
+    }
+    var autoW = getMermaidAutoWidthPx(holder);
+    var w = scaledWidthFromAuto(autoW, scale, 24);
+    if (w > 0) applyMermaidDisplayWidth(holder, w, { skipRemember: true });
+  }
+
+  function applyDefaultScaleToImage(img) {
+    var scale = getMediaScaleFactor();
+    if (scale === 1) {
+      resetImageToIntrinsic(img);
+      return;
+    }
+    function go() {
+      var autoW = getImageAutoWidthPx(img);
+      var w = scaledWidthFromAuto(autoW, scale, 16);
+      if (w > 0) applyImageDisplayWidth(img, w, { skipRemember: true });
+    }
+    if (img.complete && img.naturalWidth) go();
+    else img.addEventListener('load', go, { once: true });
+  }
+
+  function applyImageDisplayWidth(img, widthPx, opts) {
+    opts = opts || {};
+    var w = Math.round(widthPx);
+    if (!img || !(w > 16)) return;
+    img.style.width = w + 'px';
+    img.style.maxWidth = '100%';
+    img.style.height = 'auto';
+    img.setAttribute('data-mda-display-width', String(w));
+    if (!opts.skipRemember) {
+      var key = img.getAttribute('src') || '';
+      if (key) imageDisplayWidths[key] = w;
+    }
+  }
+
+  function applyMermaidDisplayWidth(holder, widthPx, opts) {
+    opts = opts || {};
+    var w = Math.round(widthPx);
+    if (!holder || !(w > 16)) return;
+    holder.style.width = w + 'px';
+    holder.style.maxWidth = '100%';
+    holder.style.marginLeft = 'auto';
+    holder.style.marginRight = 'auto';
+    holder.setAttribute('data-mda-display-width', String(w));
+    var svg = holder.querySelector('svg');
+    if (svg) {
+      svg.style.width = '100%';
+      svg.style.maxWidth = '100%';
+      svg.style.height = 'auto';
+    }
+    if (!opts.skipRemember) {
+      var key = holder.getAttribute('data-mermaid-src') || '';
+      if (key) mermaidDisplayWidths[key] = w;
+    }
+  }
+
+  function resetMermaidToIntrinsic(holder) {
+    if (!holder) return;
+    holder.style.width = '';
+    holder.style.maxWidth = '100%';
+    holder.removeAttribute('data-mda-display-width');
+    var svg = holder.querySelector('svg');
+    if (svg) {
+      svg.style.width = '';
+      svg.style.maxWidth = '100%';
+      svg.style.height = 'auto';
+      normalizeMermaidSvgIntrinsicSize(svg);
+    }
+  }
+
+  function resetImageToIntrinsic(img) {
+    if (!img) return;
+    img.style.width = '';
+    img.style.maxWidth = '100%';
+    img.style.height = 'auto';
+    img.removeAttribute('data-mda-display-width');
+  }
+
+  function reapplyMediaDefaultWidths() {
+    if (!previewEl) return;
+    var holders = previewEl.querySelectorAll('.mda-mermaid');
+    for (var i = 0; i < holders.length; i++) {
+      var h = holders[i];
+      var mKey = h.getAttribute('data-mermaid-src') || '';
+      if (mKey && Object.prototype.hasOwnProperty.call(mermaidDisplayWidths, mKey)) continue;
+      applyDefaultScaleToMermaid(h);
+    }
+
+    var imgs = previewEl.querySelectorAll('img');
+    for (var j = 0; j < imgs.length; j++) {
+      var img = imgs[j];
+      var iKey = img.getAttribute('src') || '';
+      if (iKey && Object.prototype.hasOwnProperty.call(imageDisplayWidths, iKey)) continue;
+      applyDefaultScaleToImage(img);
+    }
+  }
+
+  // 旧名兼容
+  function applyMermaidDefaultWidthPref(mode, opts) {
+    applyMediaDefaultWidthPref(mode, opts);
+  }
+  function getMermaidDefaultWidthPx() {
+    return 0;
+  }
+  function reapplyMermaidDefaultWidths() {
+    reapplyMediaDefaultWidths();
+  }
+
+  function onPreviewResizeMove(e) {
+    if (!activePreviewResize) return;
+    var dx = e.clientX - activePreviewResize.startX;
+    if (Math.abs(dx) < 3) return; // 忽略点击抖动，避免误把宽度写成「满列」
+    activePreviewResize.moved = true;
+    var maxW = getPreviewMediaDragMaxWidthPx() || window.innerWidth;
+    var minW = activePreviewResize.kind === 'mermaid' ? MEDIA_DRAG_MIN_PX : 48;
+    var next = Math.max(minW, Math.min(maxW, activePreviewResize.startW + dx));
+    if (activePreviewResize.kind === 'mermaid') applyMermaidDisplayWidth(activePreviewResize.el, next);
+    else applyImageDisplayWidth(activePreviewResize.el, next);
+  }
+  function onPreviewResizeUp() {
+    if (!activePreviewResize) return;
+    if (activePreviewResize.chromeHost) {
+      activePreviewResize.chromeHost.classList.remove('mda-img-resize-active');
+    }
+    document.body.classList.remove('mda-img-resizing');
+    if (activePreviewResize.moved && activePreviewResize.el) {
+      activePreviewResize.el.dataset.skipZoomOnce = '1';
+    }
+    activePreviewResize = null;
+  }
+  window.addEventListener('mousemove', onPreviewResizeMove);
+  window.addEventListener('mouseup', onPreviewResizeUp);
+
+  // 分栏变化时，「自动」基准宽可能变（宽图受预览栏约束），需按系数重算
+  var mediaDefaultWidthResizeTimer = null;
+  function scheduleReapplyMediaDefaultWidths() {
+    if (mediaDefaultWidthPref === 'auto') return;
+    if (mediaDefaultWidthResizeTimer) clearTimeout(mediaDefaultWidthResizeTimer);
+    mediaDefaultWidthResizeTimer = setTimeout(function () {
+      mediaDefaultWidthResizeTimer = null;
+      reapplyMediaDefaultWidths();
+    }, 120);
+  }
+  if (typeof ResizeObserver !== 'undefined' && previewEl) {
+    try {
+      new ResizeObserver(function () { scheduleReapplyMediaDefaultWidths(); }).observe(previewEl);
+    } catch (e) { /* ignore */ }
+  }
+
+  function measurePreviewResizeStartWidth(el, kind) {
+    var saved = parseInt(el.getAttribute('data-mda-display-width') || '', 10);
+    if (saved > 0) return saved;
+    if (kind === 'mermaid') {
+      var svg = el.querySelector('svg');
+      if (svg) {
+        var sw = svg.getBoundingClientRect().width;
+        if (sw > 1) return sw;
+      }
+    }
+    var rect = el.getBoundingClientRect();
+    if (rect.width > 1) return rect.width;
+    return el.clientWidth || 200;
+  }
+
+  function startPreviewResize(el, kind, e) {
+    var chromeHost = kind === 'mermaid' ? el : (el.closest('.md-image-wrapper') || el);
+    if (chromeHost && chromeHost.classList) chromeHost.classList.add('mda-img-resize-active');
+    activePreviewResize = {
+      el: el,
+      kind: kind,
+      startX: e.clientX,
+      startW: measurePreviewResizeStartWidth(el, kind),
+      moved: false,
+      chromeHost: chromeHost,
+    };
+    document.body.classList.add('mda-img-resizing');
+  }
+
+  /** 清除手动拖拽覆盖，恢复为当前设置比例 */
+  function restoreMediaToSettingsScale(el, kind) {
+    if (!el) return;
+    if (kind === 'mermaid') {
+      var mKey = el.getAttribute('data-mermaid-src') || '';
+      if (mKey) delete mermaidDisplayWidths[mKey];
+      applyDefaultScaleToMermaid(el);
+    } else {
+      var iKey = el.getAttribute('src') || '';
+      if (iKey) delete imageDisplayWidths[iKey];
+      applyDefaultScaleToImage(el);
+    }
+  }
+
+  function ensureMermaidResizeChrome(holder) {
+    if (!holder || holder.dataset.resizeReady === '1') return;
+    holder.dataset.resizeReady = '1';
+    holder.classList.add('mda-mermaid-resizable');
+    rememberMermaidNaturalWidth(holder);
+    var key = holder.getAttribute('data-mermaid-src') || '';
+    if (key && Object.prototype.hasOwnProperty.call(mermaidDisplayWidths, key)) {
+      applyMermaidDisplayWidth(holder, mermaidDisplayWidths[key]);
+    } else {
+      applyDefaultScaleToMermaid(holder);
+    }
+    if (holder.querySelector('.mda-img-resize-handle')) return;
+    var handle = document.createElement('span');
+    handle.className = 'mda-img-resize-handle';
+    handle.title = uiT('mermaidResizeHandle');
+    holder.appendChild(handle);
+    handle.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      startPreviewResize(holder, 'mermaid', e);
+    });
+    handle.addEventListener('dblclick', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      restoreMediaToSettingsScale(holder, 'mermaid');
+    });
+  }
+
+  function ensureImageResizeChrome(img) {
+    if (!img || img.dataset.resizeReady === '1') return;
+    img.dataset.resizeReady = '1';
+
+    var wrap = img.closest('.md-image-wrapper');
+    if (!wrap) {
+      wrap = document.createElement('span');
+      wrap.className = 'md-image-wrapper mda-img-resizable';
+      if (img.parentNode) {
+        img.parentNode.insertBefore(wrap, img);
+        wrap.appendChild(img);
+      }
+    } else {
+      wrap.classList.add('mda-img-resizable');
+    }
+    if (!img.dataset.resetScaleReady) {
+      img.dataset.resetScaleReady = '1';
+      img.addEventListener('dblclick', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (img._zoomClickTimer) {
+          clearTimeout(img._zoomClickTimer);
+          img._zoomClickTimer = null;
+        }
+        restoreMediaToSettingsScale(img, 'img');
+        img.dataset.skipZoomOnce = '1';
+      });
+    }
+    if (wrap.querySelector('.mda-img-resize-handle')) return;
+
+    var handle = document.createElement('span');
+    handle.className = 'mda-img-resize-handle';
+    handle.title = uiT('imgResizeHandle');
+    wrap.appendChild(handle);
+
+    handle.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      startPreviewResize(img, 'img', e);
+    });
+    handle.addEventListener('dblclick', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      restoreMediaToSettingsScale(img, 'img');
+    });
+  }
+
   function resolveImages() {
     var imgs = previewEl.querySelectorAll('img');
     for (var i = 0; i < imgs.length; i++) {
@@ -3922,15 +4638,38 @@
       var src = img.getAttribute('src') || '';
       if (src && !/^(https?:|data:|file:)/i.test(src) && currentFilePath) {
         var abs = api.resolvePath(currentFilePath, src);
-        if (abs) img.setAttribute('src', 'file:///' + abs.replace(/\\/g, '/').replace(/^\/+/, ''));
+        if (abs) {
+          src = 'file:///' + abs.replace(/\\/g, '/').replace(/^\/+/, '');
+          img.setAttribute('src', src);
+        }
       }
+      var key = img.getAttribute('src') || '';
+      if (key && Object.prototype.hasOwnProperty.call(imageDisplayWidths, key)) {
+        applyImageDisplayWidth(img, imageDisplayWidths[key]);
+      } else {
+        applyDefaultScaleToImage(img);
+      }
+      ensureImageResizeChrome(img);
       if (!img.dataset.zoomReady) {
         img.dataset.zoomReady = '1';
         img.addEventListener('click', function (e) {
           e.stopPropagation();
-          var z = new Image();
-          z.src = this.src;
-          openZoom(z, { kind: 'image', imageSrc: this.src });
+          if (this.dataset.skipZoomOnce === '1') {
+            delete this.dataset.skipZoomOnce;
+            return;
+          }
+          var self = this;
+          if (self._zoomClickTimer) {
+            clearTimeout(self._zoomClickTimer);
+            self._zoomClickTimer = null;
+            return;
+          }
+          self._zoomClickTimer = setTimeout(function () {
+            self._zoomClickTimer = null;
+            var z = new Image();
+            z.src = self.src;
+            openZoom(z, { kind: 'image', imageSrc: self.src });
+          }, 280);
         });
       }
     }
@@ -4308,117 +5047,149 @@
   function showSettingsDialog() {
     var existing = document.getElementById('settings-dialog');
     if (existing) return;
-    // 锁定菜单动作 / 窗口关闭（不卸载菜单栏）
+    // 锁定菜单动作 / 窗口关闭（不卸载菜单栏）；构建失败必须解锁，否则菜单永久无响应
     if (api.setSettingsModal) api.setSettingsModal(true);
+    var overlay = null;
+    try {
+      var cur = autosavePref || 'off';
+      var modes = [
+        { id: 'off', label: uiT('autosaveModeOff') },
+        { id: 'blur', label: uiT('autosaveModeBlur') },
+        { id: 'interval:30', label: uiT('autosaveModeInterval30') },
+        { id: 'interval:60', label: uiT('autosaveModeInterval60') },
+      ];
+      var options = modes.map(function (m) {
+        return '<option value="' + m.id + '"' + (cur === m.id ? ' selected' : '') + '>' +
+          escHtml(m.label) + '</option>';
+      }).join('');
+      var rememberOn = isRememberLayout();
+      var sessionOn = isRememberSession();
+      var mermaidW = mediaDefaultWidthPref || 'auto';
+      var mermaidWidthModes = [
+        { id: 'auto', label: uiT('settingsMermaidWidthAuto') },
+        { id: '25', label: uiT('settingsMermaidWidthPct', { n: 25 }) },
+        { id: '50', label: uiT('settingsMermaidWidthPct', { n: 50 }) },
+        { id: '75', label: uiT('settingsMermaidWidthPct', { n: 75 }) },
+      ];
+      var mermaidWidthOptions = mermaidWidthModes.map(function (m) {
+        return '<option value="' + m.id + '"' + (mermaidW === m.id ? ' selected' : '') + '>' +
+          escHtml(m.label) + '</option>';
+      }).join('');
 
-    var cur = autosavePref || 'off';
-    var modes = [
-      { id: 'off', label: uiT('autosaveModeOff') },
-      { id: 'blur', label: uiT('autosaveModeBlur') },
-      { id: 'interval:30', label: uiT('autosaveModeInterval30') },
-      { id: 'interval:60', label: uiT('autosaveModeInterval60') },
-    ];
-    var options = modes.map(function (m) {
-      return '<option value="' + m.id + '"' + (cur === m.id ? ' selected' : '') + '>' +
-        escHtml(m.label) + '</option>';
-    }).join('');
-    var rememberOn = isRememberLayout();
-    var sessionOn = isRememberSession();
-
-    var overlay = document.createElement('div');
-    overlay.id = 'settings-dialog';
-    overlay.className = 'modal-overlay mda-settings-overlay';
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.innerHTML =
-      '<div class="mda-settings-shell" role="dialog" aria-modal="true" aria-label="' +
-        escHtml(uiT('settingsTitle')) + '">' +
-        '<aside class="mda-settings-nav">' +
-          '<div class="mda-settings-brand">' + escHtml(uiT('settingsTitle')) + '</div>' +
-          '<button type="button" class="mda-settings-nav-item active" data-pane="general">' +
-            escHtml(uiT('settingsNavGeneral')) +
-          '</button>' +
-          '<button type="button" class="mda-settings-nav-item is-soon" data-pane="pro" disabled title="' +
-            escHtml(uiT('settingsProSoon')) + '">' +
-            escHtml(uiT('settingsNavPro')) +
-            '<span class="mda-settings-soon">' + escHtml(uiT('settingsProSoon')) + '</span>' +
-          '</button>' +
-        '</aside>' +
-        '<div class="mda-settings-main">' +
-          '<div class="mda-settings-body" data-pane-panel="general">' +
-            '<h2 class="mda-settings-heading">' + escHtml(uiT('settingsNavGeneral')) + '</h2>' +
-            '<div class="mda-settings-group">' +
-              '<div class="mda-settings-row">' +
-                '<div class="mda-settings-row-text">' +
-                  '<div class="mda-settings-row-title">' + escHtml(uiT('settingsAutosave')) + '</div>' +
-                  '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsAutosaveDesc')) + '</div>' +
+      overlay = document.createElement('div');
+      overlay.id = 'settings-dialog';
+      overlay.className = 'modal-overlay mda-settings-overlay';
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.innerHTML =
+        '<div class="mda-settings-shell" role="dialog" aria-modal="true" aria-label="' +
+          escHtml(uiT('settingsTitle')) + '">' +
+          '<aside class="mda-settings-nav">' +
+            '<div class="mda-settings-brand">' + escHtml(uiT('settingsTitle')) + '</div>' +
+            '<button type="button" class="mda-settings-nav-item active" data-pane="general">' +
+              escHtml(uiT('settingsNavGeneral')) +
+            '</button>' +
+            '<button type="button" class="mda-settings-nav-item is-soon" data-pane="pro" disabled title="' +
+              escHtml(uiT('settingsProSoon')) + '">' +
+              escHtml(uiT('settingsNavPro')) +
+              '<span class="mda-settings-soon">' + escHtml(uiT('settingsProSoon')) + '</span>' +
+            '</button>' +
+          '</aside>' +
+          '<div class="mda-settings-main">' +
+            '<div class="mda-settings-body" data-pane-panel="general">' +
+              '<h2 class="mda-settings-heading">' + escHtml(uiT('settingsNavGeneral')) + '</h2>' +
+              '<div class="mda-settings-group">' +
+                '<div class="mda-settings-row">' +
+                  '<div class="mda-settings-row-text">' +
+                    '<div class="mda-settings-row-title">' + escHtml(uiT('settingsAutosave')) + '</div>' +
+                    '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsAutosaveDesc')) + '</div>' +
+                  '</div>' +
+                  '<div class="mda-settings-row-ctrl">' +
+                    '<select id="settings-autosave" class="mda-settings-select">' + options + '</select>' +
+                  '</div>' +
                 '</div>' +
-                '<div class="mda-settings-row-ctrl">' +
-                  '<select id="settings-autosave" class="mda-settings-select">' + options + '</select>' +
+                '<div class="mda-settings-row">' +
+                  '<div class="mda-settings-row-text">' +
+                    '<div class="mda-settings-row-title">' + escHtml(uiT('settingsMermaidWidth')) + '</div>' +
+                    '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsMermaidWidthDesc')) + '</div>' +
+                  '</div>' +
+                  '<div class="mda-settings-row-ctrl">' +
+                    '<select id="settings-mermaid-width" class="mda-settings-select">' + mermaidWidthOptions + '</select>' +
+                  '</div>' +
                 '</div>' +
-              '</div>' +
-              '<div class="mda-settings-row">' +
-                '<div class="mda-settings-row-text">' +
-                  '<div class="mda-settings-row-title">' + escHtml(uiT('settingsRememberSession')) + '</div>' +
-                  '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsRememberSessionDesc')) + '</div>' +
+                '<div class="mda-settings-row">' +
+                  '<div class="mda-settings-row-text">' +
+                    '<div class="mda-settings-row-title">' + escHtml(uiT('settingsRememberSession')) + '</div>' +
+                    '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsRememberSessionDesc')) + '</div>' +
+                  '</div>' +
+                  '<div class="mda-settings-row-ctrl">' +
+                    '<label class="mda-settings-switch" title="' + escHtml(uiT('settingsRememberSession')) + '">' +
+                      '<input type="checkbox" id="settings-remember-session"' +
+                        (sessionOn ? ' checked' : '') + ' />' +
+                      '<span class="mda-settings-switch-track" aria-hidden="true"></span>' +
+                    '</label>' +
+                  '</div>' +
                 '</div>' +
-                '<div class="mda-settings-row-ctrl">' +
-                  '<label class="mda-settings-switch" title="' + escHtml(uiT('settingsRememberSession')) + '">' +
-                    '<input type="checkbox" id="settings-remember-session"' +
-                      (sessionOn ? ' checked' : '') + ' />' +
-                    '<span class="mda-settings-switch-track" aria-hidden="true"></span>' +
-                  '</label>' +
-                '</div>' +
-              '</div>' +
-              '<div class="mda-settings-row">' +
-                '<div class="mda-settings-row-text">' +
-                  '<div class="mda-settings-row-title">' + escHtml(uiT('settingsRememberLayout')) + '</div>' +
-                  '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsRememberLayoutDesc')) + '</div>' +
-                '</div>' +
-                '<div class="mda-settings-row-ctrl">' +
-                  '<label class="mda-settings-switch" title="' + escHtml(uiT('settingsRememberLayout')) + '">' +
-                    '<input type="checkbox" id="settings-remember-layout"' +
-                      (rememberOn ? ' checked' : '') + ' />' +
-                    '<span class="mda-settings-switch-track" aria-hidden="true"></span>' +
-                  '</label>' +
+                '<div class="mda-settings-row">' +
+                  '<div class="mda-settings-row-text">' +
+                    '<div class="mda-settings-row-title">' + escHtml(uiT('settingsRememberLayout')) + '</div>' +
+                    '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsRememberLayoutDesc')) + '</div>' +
+                  '</div>' +
+                  '<div class="mda-settings-row-ctrl">' +
+                    '<label class="mda-settings-switch" title="' + escHtml(uiT('settingsRememberLayout')) + '">' +
+                      '<input type="checkbox" id="settings-remember-layout"' +
+                        (rememberOn ? ' checked' : '') + ' />' +
+                      '<span class="mda-settings-switch-track" aria-hidden="true"></span>' +
+                    '</label>' +
+                  '</div>' +
                 '</div>' +
               '</div>' +
             '</div>' +
+            '<div class="mda-settings-footer">' +
+              '<button type="button" id="settings-cancel" class="mda-settings-btn">' + escHtml(uiT('settingsCancel')) + '</button>' +
+              '<button type="button" id="settings-save" class="mda-settings-btn mda-settings-btn-primary">' +
+                escHtml(uiT('settingsSave')) +
+              '</button>' +
+            '</div>' +
           '</div>' +
-          '<div class="mda-settings-footer">' +
-            '<button type="button" id="settings-cancel" class="mda-settings-btn">' + escHtml(uiT('settingsCancel')) + '</button>' +
-            '<button type="button" id="settings-save" class="mda-settings-btn mda-settings-btn-primary">' +
-              escHtml(uiT('settingsSave')) +
-            '</button>' +
-          '</div>' +
-        '</div>' +
-      '</div>';
-    document.body.appendChild(overlay);
+        '</div>';
+      document.body.appendChild(overlay);
 
-    function close() {
-      overlay.remove();
+      function close() {
+        if (overlay && overlay.isConnected) overlay.remove();
+        if (api.setSettingsModal) api.setSettingsModal(false);
+      }
+      trapModalFocus(overlay, close);
+      overlay.querySelector('#settings-cancel').addEventListener('click', close);
+      overlay.querySelector('#settings-save').addEventListener('click', function () {
+        var sel = overlay.querySelector('#settings-autosave');
+        var mode = sel ? sel.value : 'off';
+        var rem = overlay.querySelector('#settings-remember-layout');
+        var nextRemember = !!(rem && rem.checked);
+        var remSess = overlay.querySelector('#settings-remember-session');
+        var nextSession = !!(remSess && remSess.checked);
+        var mwSel = overlay.querySelector('#settings-mermaid-width');
+        var nextMermaidW = mwSel ? mwSel.value : 'auto';
+        var rememberChanged = nextRemember !== isRememberLayout();
+        var sessionChanged = nextSession !== isRememberSession();
+        var mermaidChanged = nextMermaidW !== mediaDefaultWidthPref;
+        var toastOther = !rememberChanged && !sessionChanged && !mermaidChanged;
+        applyAutosavePref(mode, { toast: toastOther, persist: true });
+        applyMediaDefaultWidthPref(nextMermaidW, { reapply: true });
+        applyRememberLayoutPref(nextRemember, { toast: rememberChanged && !sessionChanged });
+        applyRememberSessionPref(nextSession, { toast: sessionChanged });
+        close();
+      });
+      requestAnimationFrame(function () {
+        var sel = overlay.querySelector('#settings-autosave');
+        if (sel) sel.focus();
+      });
+    } catch (err) {
+      if (overlay && overlay.isConnected) overlay.remove();
       if (api.setSettingsModal) api.setSettingsModal(false);
+      uiAlert(uiT('alertSettingsFail', {
+        error: (err && err.message) ? err.message : String(err),
+      }));
     }
-    trapModalFocus(overlay, close);
-    overlay.querySelector('#settings-cancel').addEventListener('click', close);
-    overlay.querySelector('#settings-save').addEventListener('click', function () {
-      var sel = overlay.querySelector('#settings-autosave');
-      var mode = sel ? sel.value : 'off';
-      var rem = overlay.querySelector('#settings-remember-layout');
-      var nextRemember = !!(rem && rem.checked);
-      var remSess = overlay.querySelector('#settings-remember-session');
-      var nextSession = !!(remSess && remSess.checked);
-      var rememberChanged = nextRemember !== isRememberLayout();
-      var sessionChanged = nextSession !== isRememberSession();
-      var toastOther = !rememberChanged && !sessionChanged;
-      applyAutosavePref(mode, { toast: toastOther, persist: true });
-      applyRememberLayoutPref(nextRemember, { toast: rememberChanged && !sessionChanged });
-      applyRememberSessionPref(nextSession, { toast: sessionChanged });
-      close();
-    });
-    requestAnimationFrame(function () {
-      var sel = overlay.querySelector('#settings-autosave');
-      if (sel) sel.focus();
-    });
   }
 
   function deleteAnnotation(id) {

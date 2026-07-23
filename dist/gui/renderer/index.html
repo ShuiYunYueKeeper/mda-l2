@@ -139,14 +139,21 @@
     }
     .mda-file-sidebar-actions { display: flex; align-items: center; gap: 2px; }
     .mda-file-sidebar-icon {
-      border: none; background: transparent; cursor: pointer; color: var(--text-muted);
-      font-size: 14px; padding: 2px 6px; border-radius: 4px; line-height: 1;
+      border: 1px solid transparent; background: transparent; cursor: pointer; color: var(--text-muted);
+      font-size: 15px; padding: 0; width: 28px; height: 28px; border-radius: 6px; line-height: 1;
+      display: inline-flex; align-items: center; justify-content: center;
     }
-    .mda-file-sidebar-icon:hover { color: var(--accent); background: var(--bg-tertiary); }
-    .mda-file-tree { flex: 1; overflow: auto; padding: 6px 0; font-size: 12px; outline: none; }
+    .mda-file-sidebar-icon:hover { color: var(--accent); background: var(--bg-tertiary); border-color: var(--border); }
+    #fs-collapse.mda-file-sidebar-icon {
+      border-color: var(--border); background: var(--bg-secondary); font-size: 16px; font-weight: 600;
+    }
+    #fs-collapse.mda-file-sidebar-icon:hover {
+      color: var(--accent); border-color: var(--accent); background: var(--sel-bg);
+    }
+    .mda-file-tree { flex: 1; overflow: auto; padding: 8px 0; font-size: 13px; outline: none; line-height: 1.45; }
     .mda-file-tree:focus { box-shadow: inset 0 0 0 1px var(--accent); }
     .mda-fs-row {
-      display: flex; align-items: center; gap: 4px; padding: 4px 8px 4px 4px;
+      display: flex; align-items: center; gap: 6px; padding: 7px 10px 7px 6px;
       cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .mda-fs-row:hover { background: var(--sel-bg); }
@@ -161,7 +168,7 @@
     .mda-fs-row.dir { color: var(--text-muted); font-weight: 600; }
     .mda-fs-chevron { flex: 0 0 12px; font-size: 10px; color: var(--text-muted); }
     .mda-fs-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; }
-    .mda-fs-empty { padding: 12px; color: var(--text-muted); font-size: 12px; }
+    .mda-fs-empty { padding: 12px; color: var(--text-muted); font-size: 13px; line-height: 1.5; }
 
     /* ================= 欢迎页（WELCOME 空态）================= */
     .mda-welcome {
@@ -354,7 +361,9 @@
       width: 34px; height: 34px; font-size: 18px; line-height: 1; cursor: pointer;
       color: #fff; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.45); border-radius: 6px;
     }
-    .mda-zoom-bar button[data-z="copy"] {
+    .mda-zoom-bar button[data-z="copy"],
+    .mda-zoom-bar button[data-z="copy-img"],
+    .mda-zoom-bar button[data-z="copy-src"] {
       width: auto; min-width: 34px; padding: 0 10px; font-size: 13px;
     }
     .mda-zoom-bar button:hover { background: rgba(0,0,0,0.82); border-color: #fff; }
@@ -403,12 +412,31 @@
     #preview-content table tr:nth-child(2n) td { background: var(--table-alt); }
 
     /* ================= 流程图 (mermaid) ================= */
-    .mda-mermaid { margin: 12px 0; text-align: center; overflow: visible; }
+    .mda-mermaid { margin: 12px 0; text-align: center; overflow: visible; position: relative; }
     .mda-mermaid svg {
       max-width: 100%;
       height: auto;
       overflow: visible;
     }
+    .mda-mermaid.mda-mermaid-resizable {
+      /* max-content：按 SVG 固有宽度居中；勿用 inline-block+百分比宽（会塌缩变小） */
+      display: block;
+      width: max-content;
+      max-width: 100%;
+      margin-left: auto;
+      margin-right: auto;
+      box-sizing: border-box;
+    }
+    .mda-mermaid .mda-img-resize-handle {
+      position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px;
+      border-radius: 2px; cursor: nwse-resize; opacity: 0; z-index: 2;
+      background: linear-gradient(135deg, transparent 50%, var(--accent) 50%);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.55);
+      transition: opacity .12s ease;
+    }
+    .mda-mermaid.mda-mermaid-resizable:hover .mda-img-resize-handle { opacity: 0.95; }
+    body.mda-img-resizing .mda-img-resize-handle { opacity: 0 !important; }
+    body.mda-img-resizing .mda-img-resize-active > .mda-img-resize-handle { opacity: 0.95 !important; }
     /* C4：去掉挤压后的文字仍可能偏挤，保证可读 */
     .mda-mermaid svg text {
       paint-order: stroke fill;
@@ -526,7 +554,7 @@
     .filter-box { padding: 8px; border-bottom: 1px solid var(--border-light); font-size: 12px; background: var(--bg); }
 
     /* ================= 设置（Cursor 风格双栏）================= */
-    .mda-settings-overlay {
+    .modal-overlay.mda-settings-overlay {
       padding: 24px; align-items: stretch; justify-content: center;
       z-index: 3000;
     }
@@ -713,24 +741,56 @@
     .mda-help-note { margin: 12px 0 0; font-size: 12px; color: var(--text-muted); }
 
     /* ================= 大纲面板 ================= */
-    .mda-outline-panel { font-size: 12px; display: flex; flex-direction: column; height: 100%; flex: 1; min-height: 0; overflow: hidden; }
+    .mda-outline-panel { font-size: 13px; display: flex; flex-direction: column; height: 100%; flex: 1; min-height: 0; overflow: hidden; }
     .mda-outline-head {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 6px 10px; font-weight: 600; color: var(--text-muted);
+      padding: 8px 10px; font-weight: 600; color: var(--text-muted);
       background: transparent; flex: 0 0 auto;
     }
-    .mda-outline-toggle { border: none; background: transparent; cursor: pointer; color: var(--text-muted); padding: 2px 6px; font-size: 14px; }
-    .mda-outline-toggle:hover { color: var(--accent); }
-    .mda-outline-body { flex: 1 1 auto; min-height: 0; padding: 4px 0 8px; overflow: auto; }
+    .mda-outline-toggle {
+      border: 1px solid var(--border); background: var(--bg-secondary); cursor: pointer;
+      color: var(--text-muted); width: 28px; height: 28px; padding: 0; border-radius: 6px;
+      font-size: 16px; font-weight: 600; line-height: 1;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .mda-outline-toggle:hover { color: var(--accent); border-color: var(--accent); background: var(--sel-bg); }
+    .mda-outline-body { flex: 1 1 auto; min-height: 0; padding: 6px 0 10px; overflow: auto; }
     .mda-outline-list { list-style: none; margin: 0; padding: 0; }
+    .mda-outline-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+    .mda-outline-fold, .mda-outline-fold-spacer {
+      flex: 0 0 18px; width: 18px; height: 22px; padding: 0; border: none; background: transparent;
+      color: var(--text-muted); font-size: 12px; line-height: 22px; text-align: center; cursor: pointer;
+    }
+    .mda-outline-fold:hover { color: var(--accent); }
+    .mda-outline-fold-spacer { cursor: default; visibility: hidden; }
     .mda-outline-link {
-      display: block; width: 100%; text-align: left; border: none; background: transparent;
-      padding: 3px 8px; cursor: pointer; color: var(--text); font-size: 12px;
+      flex: 1; min-width: 0; text-align: left; border: none; background: transparent;
+      padding: 6px 8px 6px 2px; cursor: pointer; color: var(--text); font-size: 13px; line-height: 1.45;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .mda-outline-link:hover { background: var(--sel-bg); color: var(--accent); }
     .mda-outline-link.active { color: var(--accent); font-weight: 600; background: transparent; }
-    .mda-outline-empty { padding: 8px 12px; color: var(--text-muted); }
+    .mda-outline-empty { padding: 10px 12px; color: var(--text-muted); line-height: 1.5; }
+
+    /* 预览内图片可拖拽调宽 */
+    .md-image-wrapper.mda-img-resizable {
+      position: relative; display: inline-block; max-width: 100%; vertical-align: top;
+    }
+    .md-image-wrapper.mda-img-resizable img {
+      display: block; max-width: 100%; height: auto;
+    }
+    .mda-img-resize-handle {
+      position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px;
+      border-radius: 2px; cursor: nwse-resize; opacity: 0;
+      background: linear-gradient(135deg, transparent 50%, var(--accent) 50%);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.55);
+      transition: opacity .12s ease;
+    }
+    .md-image-wrapper.mda-img-resizable:hover .mda-img-resize-handle { opacity: 0.95; }
+    body.mda-img-resizing .mda-img-resize-handle { opacity: 0 !important; }
+    body.mda-img-resizing .mda-img-resize-active > .mda-img-resize-handle { opacity: 0.95 !important; }
+    body.mda-img-resizing { cursor: nwse-resize !important; user-select: none !important; }
+    body.mda-img-resizing img { pointer-events: none; }
 
     /* ================= 查找替换 ================= */
     #editor-pane { position: relative; }

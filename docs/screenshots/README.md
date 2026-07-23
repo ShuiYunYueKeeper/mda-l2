@@ -58,8 +58,12 @@
 | `9d-zoom-timeline-lines.png` | 深色全屏 Timeline（虚线/轴线同色） | 建议补；暂不强制 |
 | `18-export-docx.png` | 导出 Word | 建议补；暂不强制 |
 | `19-autosave-menu.png` | ~~文件菜单自动保存~~（已迁入设置） | 改为补设置弹窗即可 |
-| `20-settings-dialog.png` | 视图 → 设置…（自动保存 / 记住会话 / 界面习惯） | 建议补；暂不强制 |
+| `20-settings-dialog.png` | 视图 → 设置…（自动保存 / 记住会话 / 界面习惯 / **默认缩放**） | 建议补；暂不强制 |
+| `20b-media-scale-50.png` | 设置默认缩放 50%：Sequence 与 Class 相对自动尺寸均缩小 | 建议补（M6b-4） |
+| `20c-preview-resize-handle.png` | 预览图右下角拖拽调宽（仅悬停/当前拖动显示蓝角标） | 建议补（M6b-4） |
 | `21-clear-all-annos.png` | 批注栏「清空全部批注」确认 | 建议补；暂不强制 |
+| `13c-outline-fold.png` | 大纲子标题 ▸/▾ 折叠 | 建议补（M6b-3）；暂不强制 |
+| `9e-zoom-copy-mermaid.png` | 流程图全屏「复制图片」「复制源码」双按钮 | 建议补（M6b-1）；暂不强制 |
 | `10b-welcome-pitch.png` | 欢迎页副文案 | 建议更新 `10-welcome.png`；暂不强制 |
 
 录屏建议场景仍可选补，见下表；当前以静态截图为主。

@@ -27,6 +27,7 @@
 | [`M4-acceptance-checklist.md`](M4-acceptance-checklist.md) | 选区批注 F3 | ✅ 已验收 |
 | [`M5-acceptance-checklist.md`](M5-acceptance-checklist.md) | MCP / 导出 / 更新 | ✅ 已验收 |
 | [`M6-acceptance-checklist.md`](M6-acceptance-checklist.md) | Phase A 集成 / Free 门禁 | ✅ 已通过（2026-07-15） |
+| [`M6b-acceptance-checklist.md`](M6b-acceptance-checklist.md) | Free 后基础体验：流程图双拷贝 / 侧栏大纲 / 调图（公式项延后） | ✅ 已通过（2026-07-23） |
 | [`M7-acceptance-checklist.md`](M7-acceptance-checklist.md) | Phase B Pro AI | 待开工 |
 
 ## AI 协作资产
