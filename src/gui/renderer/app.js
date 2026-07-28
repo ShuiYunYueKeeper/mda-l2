@@ -44,6 +44,8 @@
   var outlineJumpLock = false;
   var outlineScrollRaf = null;
   var assist = null;
+  var aiPanel = null;
+  var settingsOpenPane = 'general';
   var selAnchor = null;
   var anchorHl = null;
   var selectionMenuDismiss = null;
@@ -68,6 +70,28 @@
 
   function uiT(key, vars) {
     return (window.MDAI18n && window.MDAI18n.t) ? window.MDAI18n.t(key, vars) : key;
+  }
+
+  /** 文本框内的常用编辑快捷键（勿被设置模态的全局拦截吞掉） */
+  function isEditableFieldShortcut(e) {
+    var el = e.target;
+    if (!el) return false;
+    var tag = (el.tagName || '').toLowerCase();
+    var isField = tag === 'textarea' || el.isContentEditable;
+    if (tag === 'input') {
+      var type = String(el.type || 'text').toLowerCase();
+      isField = type === 'text' || type === 'password' || type === 'search' ||
+        type === 'url' || type === 'email' || type === 'tel' || type === 'number' || type === '';
+    }
+    if (!isField) return false;
+    var mod = e.ctrlKey || e.metaKey;
+    var k = (e.key || '').toLowerCase();
+    if (mod && !e.altKey && (k === 'c' || k === 'v' || k === 'x' || k === 'a' || k === 'z' || k === 'y')) {
+      return true;
+    }
+    // 部分键盘布局：Shift+Insert 粘贴、Ctrl+Insert 复制
+    if (e.key === 'Insert' && (e.shiftKey || mod)) return true;
+    return false;
   }
 
   function applyUiLang() {
@@ -159,8 +183,18 @@
     api.onMenuExportPdf(function () { exportPreviewPdf(); });
     api.onMenuExportDocx(function () { exportPreviewDocx(); });
     if (api.onMenuSettings) {
-      api.onMenuSettings(function () { showSettingsDialog(); });
+      api.onMenuSettings(function () { showSettingsDialog('general'); });
     }
+    if (api.onMenuAiContinue) {
+      api.onMenuAiContinue(function () { if (aiPanel) aiPanel.runContinue(); });
+    }
+    if (api.onMenuAiComplete) {
+      api.onMenuAiComplete(function () { if (aiPanel) aiPanel.runComplete(); });
+    }
+    if (api.onMenuAiBeautify) {
+      api.onMenuAiBeautify(function () { if (aiPanel) aiPanel.runBeautify(); });
+    }
+    setupAiPanel();
     api.onAppCloseRequest(function () {
       if (document.getElementById('settings-dialog')) return;
       handleAppCloseRequest();
@@ -179,7 +213,9 @@
     setupDragAndDrop();
     window.addEventListener('keydown', function (e) {
       // 设置模态打开时不响应应用级快捷键（菜单加速键由主进程禁用）
+      // 但输入框内须放行复制/粘贴/剪切/全选/撤销，否则激活码与 API Key 无法编辑
       if (document.getElementById('settings-dialog')) {
+        if (isEditableFieldShortcut(e)) return;
         if (e.key === 'F1' || e.ctrlKey || e.metaKey || e.altKey) {
           e.preventDefault();
           e.stopPropagation();
@@ -335,6 +371,91 @@
       );
     }
     setupEditorAssistKeys();
+    setupAiEditorKeys();
+  }
+
+  function setupAiPanel() {
+    if (!window.MDAAiPanel || !api.checkAiAccess) return;
+    aiPanel = window.MDAAiPanel.create({
+      api: api,
+      getEditor: function () { return editorEl; },
+      getFileName: function () {
+        if (!currentFilePath) return uiT('untitled');
+        var parts = String(currentFilePath).split(/[/\\]/);
+        return parts[parts.length - 1] || currentFilePath;
+      },
+      toast: showToast,
+      alert: uiAlert,
+      openSettings: function (pane) { showSettingsDialog(pane || 'pro'); },
+      applyInsert: applyAiInsert,
+    });
+  }
+
+  function setupAiEditorKeys() {
+    if (!editorEl) return;
+    editorEl.addEventListener('keydown', function (e) {
+      if (document.querySelector('.modal-overlay') || (aiPanel && aiPanel.isOpen())) return;
+      var mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      // Ctrl+Space 补全（不与 editor-assist 冲突）
+      if (!e.shiftKey && (e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar')) {
+        e.preventDefault();
+        if (aiPanel) aiPanel.runComplete();
+        return;
+      }
+      if (e.shiftKey && e.key === 'Enter') {
+        e.preventDefault();
+        if (aiPanel) aiPanel.runContinue();
+        return;
+      }
+      if (e.shiftKey && (e.key === 'm' || e.key === 'M')) {
+        e.preventDefault();
+        if (aiPanel) aiPanel.runBeautify();
+      }
+    });
+  }
+
+  function applyAiInsert(text, mode, range) {
+    if (!editorEl || text == null) return;
+    var insert = String(text);
+    var start = editorEl.selectionStart;
+    var end = editorEl.selectionEnd;
+    var val = editorEl.value;
+    var result;
+    if (mode === 'replaceDocument') {
+      result = { value: insert, selectionStart: insert.length, selectionEnd: insert.length };
+    } else if (mode === 'replaceRange' && range) {
+      result = {
+        value: val.slice(0, range.start) + insert + val.slice(range.end),
+        selectionStart: range.start,
+        selectionEnd: range.start + insert.length,
+      };
+    } else if (mode === 'replaceSelection') {
+      result = {
+        value: val.slice(0, start) + insert + val.slice(end),
+        selectionStart: start,
+        selectionEnd: start + insert.length,
+      };
+    } else {
+      // insert at cursor / after selection
+      result = {
+        value: val.slice(0, end) + insert + val.slice(end),
+        selectionStart: end + insert.length,
+        selectionEnd: end + insert.length,
+      };
+    }
+    if (assist && assist.applyEdit) {
+      assist.applyEdit(editorEl, result);
+    } else {
+      editorEl.value = result.value;
+      editorEl.selectionStart = result.selectionStart;
+      editorEl.selectionEnd = result.selectionEnd;
+      editorEl.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (!editorVisible) {
+      // 展开编辑栏以便用户看到插入结果（toggleEditor 无参数，勿在已展开时调用）
+      toggleEditor();
+    }
   }
 
   function getSourceText() {
@@ -5252,12 +5373,30 @@
     });
   }
 
-  function showSettingsDialog() {
+  function showSettingsDialog(initialPane) {
     var existing = document.getElementById('settings-dialog');
-    if (existing) return;
+    if (existing) {
+      if (initialPane) switchSettingsPane(existing, initialPane);
+      return;
+    }
+    settingsOpenPane = initialPane === 'pro' ? 'pro' : 'general';
     // 锁定菜单动作 / 窗口关闭（不卸载菜单栏）；构建失败必须解锁，否则菜单永久无响应
     if (api.setSettingsModal) api.setSettingsModal(true);
     var overlay = null;
+    var licenseP = api.getLicenseStatus ? api.getLicenseStatus() : Promise.resolve({ success: true, value: {} });
+    var aiP = api.getAiSettings ? api.getAiSettings() : Promise.resolve({ success: true, value: {} });
+    Promise.all([licenseP, aiP]).then(function (pair) {
+      var lic = (pair[0] && pair[0].success && pair[0].value) ? pair[0].value : {};
+      var ai = (pair[1] && pair[1].success && pair[1].value) ? pair[1].value : {};
+      buildSettingsDialog(lic, ai);
+    }).catch(function (err) {
+      if (api.setSettingsModal) api.setSettingsModal(false);
+      uiAlert(uiT('alertSettingsFail', {
+        error: (err && err.message) ? err.message : String(err),
+      }));
+    });
+
+    function buildSettingsDialog(lic, ai) {
     try {
       var cur = autosavePref || 'off';
       var modes = [
@@ -5284,6 +5423,10 @@
           escHtml(m.label) + '</option>';
       }).join('');
 
+      var proHtml = (window.MDASettingsAi && window.MDASettingsAi.buildProPaneHtml)
+        ? window.MDASettingsAi.buildProPaneHtml({ license: lic, ai: ai })
+        : '';
+
       overlay = document.createElement('div');
       overlay.id = 'settings-dialog';
       overlay.className = 'modal-overlay mda-settings-overlay';
@@ -5293,13 +5436,11 @@
           escHtml(uiT('settingsTitle')) + '">' +
           '<aside class="mda-settings-nav">' +
             '<div class="mda-settings-brand">' + escHtml(uiT('settingsTitle')) + '</div>' +
-            '<button type="button" class="mda-settings-nav-item active" data-pane="general">' +
+            '<button type="button" class="mda-settings-nav-item" data-pane="general">' +
               escHtml(uiT('settingsNavGeneral')) +
             '</button>' +
-            '<button type="button" class="mda-settings-nav-item is-soon" data-pane="pro" disabled title="' +
-              escHtml(uiT('settingsProSoon')) + '">' +
+            '<button type="button" class="mda-settings-nav-item" data-pane="pro">' +
               escHtml(uiT('settingsNavPro')) +
-              '<span class="mda-settings-soon">' + escHtml(uiT('settingsProSoon')) + '</span>' +
             '</button>' +
           '</aside>' +
           '<div class="mda-settings-main">' +
@@ -5352,6 +5493,7 @@
                 '</div>' +
               '</div>' +
             '</div>' +
+            proHtml +
             '<div class="mda-settings-footer">' +
               '<button type="button" id="settings-cancel" class="mda-settings-btn">' + escHtml(uiT('settingsCancel')) + '</button>' +
               '<button type="button" id="settings-save" class="mda-settings-btn mda-settings-btn-primary">' +
@@ -5368,6 +5510,20 @@
       }
       trapModalFocus(overlay, close);
       overlay.querySelector('#settings-cancel').addEventListener('click', close);
+      overlay.querySelectorAll('.mda-settings-nav-item').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          switchSettingsPane(overlay, btn.getAttribute('data-pane') || 'general');
+        });
+      });
+      if (window.MDASettingsAi && window.MDASettingsAi.wireProPane) {
+        window.MDASettingsAi.wireProPane(overlay, {
+          api: api,
+          toast: showToast,
+          alert: uiAlert,
+          confirm: uiConfirm,
+        });
+      }
+      switchSettingsPane(overlay, settingsOpenPane);
       overlay.querySelector('#settings-save').addEventListener('click', function () {
         var sel = overlay.querySelector('#settings-autosave');
         var mode = sel ? sel.value : 'off';
@@ -5385,11 +5541,30 @@
         applyMediaDefaultWidthPref(nextMermaidW, { reapply: true });
         applyRememberLayoutPref(nextRemember, { toast: rememberChanged && !sessionChanged });
         applyRememberSessionPref(nextSession, { toast: sessionChanged });
-        close();
+        var aiPatch = window.MDASettingsAi && window.MDASettingsAi.collectAiSettingsPatch
+          ? window.MDASettingsAi.collectAiSettingsPatch(overlay)
+          : null;
+        var finish = function () { close(); };
+        if (aiPatch && api.saveAiSettings) {
+          api.saveAiSettings(aiPatch).then(function (r) {
+            if (!r || !r.success) {
+              uiAlert(uiT('aiErrorGeneric', { error: (r && r.error) || '' }));
+              return;
+            }
+            finish();
+          });
+        } else {
+          finish();
+        }
       });
       requestAnimationFrame(function () {
         var sel = overlay.querySelector('#settings-autosave');
-        if (sel) sel.focus();
+        if (settingsOpenPane === 'pro') {
+          var keyInput = overlay.querySelector('#settings-license-key');
+          if (keyInput) keyInput.focus();
+        } else if (sel) {
+          sel.focus();
+        }
       });
     } catch (err) {
       if (overlay && overlay.isConnected) overlay.remove();
@@ -5398,6 +5573,20 @@
         error: (err && err.message) ? err.message : String(err),
       }));
     }
+    }
+  }
+
+  function switchSettingsPane(overlay, pane) {
+    var id = pane === 'pro' ? 'pro' : 'general';
+    settingsOpenPane = id;
+    overlay.querySelectorAll('.mda-settings-nav-item').forEach(function (btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-pane') === id);
+    });
+    overlay.querySelectorAll('[data-pane-panel]').forEach(function (panel) {
+      var match = panel.getAttribute('data-pane-panel') === id;
+      if (match) panel.removeAttribute('hidden');
+      else panel.setAttribute('hidden', '');
+    });
   }
 
   function deleteAnnotation(id) {
@@ -5503,7 +5692,8 @@
     opts = opts || {};
     return new Promise(function (resolve) {
       var overlay = document.createElement('div');
-      overlay.className = 'modal-overlay';
+      // 高于设置 / AI 面板，避免嵌套时提示框被挡住无法点「确定」
+      overlay.className = 'modal-overlay mda-ui-modal';
       var preferCancel = !!(withCancel && opts.preferCancel);
       var okLabel = opts.okLabel || uiT('ok');
       var cancelLabel = opts.cancelLabel || uiT('cancel');

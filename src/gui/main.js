@@ -1,6 +1,16 @@
-﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen } = require('electron');
+﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+
+const { getLicenseStatus, activateLicense, clearLicense } = require('../pro/license');
+const { checkAiAccess } = require('../pro/feature-gate');
+const { createAiSettingsStore } = require('../pro/ai/settings');
+const { streamChat, completeChat, sanitizeAiError } = require('../pro/ai/provider');
+const {
+  buildContinueMessages,
+  buildCompleteMessages,
+  buildBeautifyMessages,
+} = require('../pro/ai/prompts');
 
 const { getRecents, addRecent, clearRecents } = require('./main/recent-files');
 const {
@@ -42,6 +52,7 @@ app.commandLine.appendSwitch('disable-features', 'PartitionAllocBackupRefPtr,Par
 const schema = require(path.join(__dirname, '..', 'config', 'annotation-schema.json'));
 const MD_EXTENSIONS = schema.fileExtensions || ['md', 'markdown', 'txt', 'mdc'];
 
+
 function isMarkdownPath(filePath) {
   const ext = path.extname(filePath).slice(1).toLowerCase();
   return MD_EXTENSIONS.includes(ext);
@@ -69,6 +80,31 @@ let ipcHandlersRegistered = false;
 let autoUpdaterApi = null;
 /** 设置弹窗打开时：菜单不可点（保留顶栏标签），并拦截窗口关闭 */
 let settingsModalOpen = false;
+/** @type {ReturnType<typeof createAiSettingsStore>|null} */
+let aiSettingsStore = null;
+/** @type {AbortController|null} */
+let aiAbortController = null;
+
+function getAiStore() {
+  if (!aiSettingsStore) {
+    aiSettingsStore = createAiSettingsStore({
+      userDataPath: app.getPath('userData'),
+      safeStorage,
+    });
+  }
+  return aiSettingsStore;
+}
+
+function userData() {
+  return app.getPath('userData');
+}
+
+function cancelAiRequest() {
+  if (aiAbortController) {
+    try { aiAbortController.abort(); } catch (_) { /* ignore */ }
+    aiAbortController = null;
+  }
+}
 
 function sendToRenderer(channel, ...args) {
   if (settingsModalOpen && typeof channel === 'string' && channel.indexOf('menu-') === 0) {
@@ -79,15 +115,18 @@ function sendToRenderer(channel, ...args) {
   }
 }
 
-/** 设置打开：顶栏保留「文件/视图/帮助」，去掉 submenu + enabled:false，点不开下拉 */
+/** 设置打开：顶栏保留「文件/视图/帮助」标签但不可点；编辑菜单保留（输入框复制粘贴依赖 role） */
 function applyApplicationMenu() {
   if (!app.isReady()) return;
   const recents = getRecents(app.getPath('userData'));
   if (settingsModalOpen) {
-    const locked = buildMenuTemplate(recents).map((item) => ({
-      label: item.label || ' ',
-      enabled: false,
-    }));
+    const locked = buildMenuTemplate(recents).map((item) => {
+      if (item && item.id === 'mda-edit-menu') return item;
+      return {
+        label: item.label || ' ',
+        enabled: false,
+      };
+    });
     Menu.setApplicationMenu(Menu.buildFromTemplate(locked));
     return;
   }
@@ -207,6 +246,20 @@ function buildMenuTemplate(recents) {
       ],
     },
     {
+      // Electron 依赖 Edit roles 绑定输入框的撤销/复制/粘贴；设置打开时此菜单仍保持可用
+      id: 'mda-edit-menu',
+      label: t('menuEdit'),
+      submenu: [
+        { role: 'undo', label: t('menuUndo') },
+        { role: 'redo', label: t('menuRedo') },
+        { type: 'separator' },
+        { role: 'cut', label: t('menuCut') },
+        { role: 'copy', label: t('menuCopy') },
+        { role: 'paste', label: t('menuPaste') },
+        { role: 'selectAll', label: t('menuSelectAll') },
+      ],
+    },
+    {
       label: t('menuView'),
       submenu: [
         {
@@ -228,6 +281,22 @@ function buildMenuTemplate(recents) {
           label: t('menuSettings'),
           accelerator: 'CmdOrCtrl+,',
           click: () => sendToRenderer('menu-settings'),
+        },
+        { type: 'separator' },
+        {
+          label: t('menuAiContinue'),
+          accelerator: 'CmdOrCtrl+Shift+Enter',
+          click: () => sendToRenderer('menu-ai-continue'),
+        },
+        {
+          label: t('menuAiComplete'),
+          accelerator: 'CmdOrCtrl+Space',
+          click: () => sendToRenderer('menu-ai-complete'),
+        },
+        {
+          label: t('menuAiBeautify'),
+          accelerator: 'CmdOrCtrl+Shift+M',
+          click: () => sendToRenderer('menu-ai-beautify'),
         },
         {
           label: t('menuLanguage'),
@@ -269,6 +338,14 @@ function buildMenuTemplate(recents) {
           label: t('menuHelpShortcuts'),
           accelerator: 'F1',
           click: () => sendToRenderer('menu-show-help'),
+        },
+        {
+          label: t('menuProActivation'),
+          click: () => {
+            shell.openExternal(
+              'https://github.com/ShuiYunYueKeeper/mda-l2/blob/main/docs/pro-activation.md',
+            );
+          },
         },
         {
           label: t('menuCheckUpdate'),
@@ -584,6 +661,165 @@ function registerIpcHandlers() {
   ipcMain.handle('set-settings-modal', async (_event, open) => {
     setSettingsModalOpen(!!open);
     return { success: true, open: settingsModalOpen };
+  });
+
+  // ---- Pro License / AI (Phase B M7) ----
+  ipcMain.handle('get-license-status', async () => {
+    try {
+      return { success: true, value: getLicenseStatus(userData()) };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('activate-license', async (_event, key) => {
+    try {
+      return activateLicense(userData(), key);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('clear-license', async () => {
+    try {
+      return clearLicense(userData());
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('get-ai-settings', async () => {
+    try {
+      return { success: true, value: getAiStore().getPublicSettings() };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('save-ai-settings', async (_event, patch) => {
+    try {
+      return getAiStore().saveSettings(patch || {});
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('check-ai-access', async () => {
+    try {
+      const status = getLicenseStatus(userData());
+      const pub = getAiStore().getPublicSettings();
+      return { success: true, value: checkAiAccess(status, pub) };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('ai-cancel', async () => {
+    cancelAiRequest();
+    return { success: true };
+  });
+
+  ipcMain.handle('ai-continue', async (event, payload) => {
+    try {
+      const status = getLicenseStatus(userData());
+      const store = getAiStore();
+      const pub = store.getPublicSettings();
+      const access = checkAiAccess(status, pub);
+      if (!access.allowed) {
+        return { success: false, error: access.reason === 'upgrade' ? '需要 Pro 激活' : '请先配置 API Key' };
+      }
+      const apiKey = store.getApiKeyPlain();
+      if (!apiKey) return { success: false, error: '请先配置 API Key' };
+
+      cancelAiRequest();
+      aiAbortController = new AbortController();
+      const messages = buildContinueMessages(payload || {});
+      const wc = event.sender;
+      // 异步流式；先返回已启动，chunk 经事件回传
+      streamChat({
+        baseUrl: pub.baseUrl,
+        apiKey,
+        model: pub.model,
+        messages,
+        signal: aiAbortController.signal,
+        onChunk: (text) => {
+          if (!wc.isDestroyed()) wc.send('ai-chunk', text);
+        },
+        onDone: (full) => {
+          aiAbortController = null;
+          if (!wc.isDestroyed()) wc.send('ai-done', full || '');
+        },
+        onError: (message) => {
+          aiAbortController = null;
+          if (!wc.isDestroyed()) wc.send('ai-error', sanitizeAiError({ message }));
+        },
+      }).catch(() => { /* onError 已处理 */ });
+      return { success: true, started: true };
+    } catch (err) {
+      return { success: false, error: sanitizeAiError(err) };
+    }
+  });
+
+  ipcMain.handle('ai-complete', async (_event, payload) => {
+    try {
+      const status = getLicenseStatus(userData());
+      const store = getAiStore();
+      const pub = store.getPublicSettings();
+      const access = checkAiAccess(status, pub);
+      if (!access.allowed) {
+        return { success: false, error: access.reason === 'upgrade' ? '需要 Pro 激活' : '请先配置 API Key' };
+      }
+      const apiKey = store.getApiKeyPlain();
+      if (!apiKey) return { success: false, error: '请先配置 API Key' };
+
+      cancelAiRequest();
+      aiAbortController = new AbortController();
+      const text = await completeChat({
+        baseUrl: pub.baseUrl,
+        apiKey,
+        model: pub.model,
+        messages: buildCompleteMessages(payload || {}),
+        signal: aiAbortController.signal,
+        temperature: 0.2,
+      });
+      aiAbortController = null;
+      return { success: true, value: { text: String(text || '').trim() } };
+    } catch (err) {
+      aiAbortController = null;
+      if (err && err.canceled) return { success: false, error: '已取消' };
+      return { success: false, error: sanitizeAiError(err) };
+    }
+  });
+
+  ipcMain.handle('ai-beautify', async (_event, payload) => {
+    try {
+      const status = getLicenseStatus(userData());
+      const store = getAiStore();
+      const pub = store.getPublicSettings();
+      const access = checkAiAccess(status, pub);
+      if (!access.allowed) {
+        return { success: false, error: access.reason === 'upgrade' ? '需要 Pro 激活' : '请先配置 API Key' };
+      }
+      const apiKey = store.getApiKeyPlain();
+      if (!apiKey) return { success: false, error: '请先配置 API Key' };
+
+      cancelAiRequest();
+      aiAbortController = new AbortController();
+      const text = await completeChat({
+        baseUrl: pub.baseUrl,
+        apiKey,
+        model: pub.model,
+        messages: buildBeautifyMessages(payload || {}),
+        signal: aiAbortController.signal,
+        temperature: 0.3,
+      });
+      aiAbortController = null;
+      return { success: true, value: { text: String(text || '').trim() } };
+    } catch (err) {
+      aiAbortController = null;
+      if (err && err.canceled) return { success: false, error: '已取消' };
+      return { success: false, error: sanitizeAiError(err) };
+    }
   });
 
   ipcMain.handle('show-open-folder-dialog', async (event) => {

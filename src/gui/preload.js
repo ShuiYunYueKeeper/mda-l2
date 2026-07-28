@@ -183,6 +183,40 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   onMenuSettings: (callback) => {
     ipcRenderer.on('menu-settings', () => callback());
   },
+  onMenuAiContinue: (callback) => {
+    ipcRenderer.on('menu-ai-continue', () => callback());
+  },
+  onMenuAiComplete: (callback) => {
+    ipcRenderer.on('menu-ai-complete', () => callback());
+  },
+  onMenuAiBeautify: (callback) => {
+    ipcRenderer.on('menu-ai-beautify', () => callback());
+  },
+  getLicenseStatus: () => ipcRenderer.invoke('get-license-status'),
+  activateLicense: (key) => ipcRenderer.invoke('activate-license', key),
+  clearLicense: () => ipcRenderer.invoke('clear-license'),
+  getAiSettings: () => ipcRenderer.invoke('get-ai-settings'),
+  saveAiSettings: (patch) => ipcRenderer.invoke('save-ai-settings', patch || {}),
+  checkAiAccess: () => ipcRenderer.invoke('check-ai-access'),
+  aiContinue: (payload) => ipcRenderer.invoke('ai-continue', payload || {}),
+  aiComplete: (payload) => ipcRenderer.invoke('ai-complete', payload || {}),
+  aiBeautify: (payload) => ipcRenderer.invoke('ai-beautify', payload || {}),
+  aiCancel: () => ipcRenderer.invoke('ai-cancel'),
+  onAiChunk: (callback) => {
+    const handler = (_e, text) => callback(text);
+    ipcRenderer.on('ai-chunk', handler);
+    return () => ipcRenderer.removeListener('ai-chunk', handler);
+  },
+  onAiDone: (callback) => {
+    const handler = (_e, text) => callback(text);
+    ipcRenderer.on('ai-done', handler);
+    return () => ipcRenderer.removeListener('ai-done', handler);
+  },
+  onAiError: (callback) => {
+    const handler = (_e, message) => callback(message);
+    ipcRenderer.on('ai-error', handler);
+    return () => ipcRenderer.removeListener('ai-error', handler);
+  },
   getAutosavePref: () => ipcRenderer.invoke('get-autosave-pref'),
   setAutosavePref: (mode) => ipcRenderer.invoke('set-autosave-pref', mode),
   setSettingsModal: (open) => ipcRenderer.invoke('set-settings-modal', !!open),

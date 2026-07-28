@@ -690,6 +690,67 @@
     .mda-settings-btn-primary:hover {
       background: var(--accent); color: #fff; filter: brightness(1.08);
     }
+
+    /* Pro AI 面板 */
+    .mda-ai-overlay {
+      position: fixed; inset: 0; z-index: 12000;
+      background: rgba(0,0,0,0.35);
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .mda-ai-overlay-popup { background: rgba(0,0,0,0.25); }
+    .mda-ai-panel {
+      width: min(640px, 100%);
+      max-height: min(80vh, 720px);
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .mda-ai-panel-wide { width: min(920px, 100%); }
+    .mda-ai-popup {
+      width: min(480px, 100%);
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+      padding: 12px 14px;
+    }
+    .mda-ai-popup-label { font-weight: 650; margin-bottom: 8px; }
+    .mda-ai-panel-head, .mda-ai-panel-foot {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; border-bottom: 1px solid var(--border);
+    }
+    .mda-ai-panel-foot {
+      border-bottom: 0; border-top: 1px solid var(--border); justify-content: flex-end;
+    }
+    .mda-ai-panel-head strong { flex: 1; }
+    .mda-ai-stream {
+      margin: 0; padding: 12px 14px; overflow: auto; flex: 1;
+      white-space: pre-wrap; word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 13px; line-height: 1.5; max-height: 48vh;
+      background: var(--bg-secondary, var(--border-light));
+    }
+    textarea.mda-ai-edit {
+      width: 100%; min-height: 220px; border: 1px solid var(--border);
+      border-radius: 6px; resize: vertical; color: inherit; background: var(--bg);
+    }
+    .mda-ai-diff {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+      padding: 12px 14px; overflow: auto;
+    }
+    .mda-ai-diff-label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+    .mda-ai-btn {
+      border: 1px solid var(--border); background: var(--bg);
+      color: var(--text); border-radius: 6px; padding: 6px 12px; cursor: pointer;
+    }
+    .mda-ai-btn:hover:not(:disabled) { background: var(--border-light); }
+    .mda-ai-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .mda-ai-btn-primary {
+      background: var(--accent); border-color: var(--accent); color: #fff;
+    }
+    .mda-ai-hint { flex: 1; font-size: 12px; color: var(--text-muted); }
+
     .filter-box b { color: var(--text); }
     .filter-box label { color: var(--text); }
     #anno-list { flex: 1; overflow: auto; }
@@ -723,6 +784,8 @@
 
     /* ================= 弹窗 ================= */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.45); display: flex; justify-content: center; align-items: center; z-index: 2000; }
+    /* alert/confirm 须盖过设置(3000)与 AI 面板(12000)，否则会埋在下层无法点击 */
+    .modal-overlay.mda-ui-modal { z-index: 13000; }
     .mda-toast {
       position: fixed;
       left: 50%;
@@ -898,6 +961,8 @@
   <script src="./selection-anchor.js"></script>
   <script src="./anchor-highlights.js"></script>
   <script src="./katex-export.js"></script>
+  <script src="./settings-ai.js"></script>
+  <script src="./ai-panel.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
