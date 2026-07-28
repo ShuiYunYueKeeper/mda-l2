@@ -14,6 +14,7 @@
 | [`P1-architecture.md`](P1-architecture.md) | 1.0 架构设计（分层、模块边界、数据流） |
 | [`P1-architecture-v2.md`](P1-architecture-v2.md) | **2.0 架构设计**（已确认 2026-07-13） |
 | [`P2-detailed-design-v2.md`](P2-detailed-design-v2.md) | **2.0 详细设计**（已确认 2026-07-13） |
+| [`P0-requirements-v3-wysiwyg.md`](P0-requirements-v3-wysiwyg.md) | **3.0 需求：预览直接编辑（WYSIWYG）+ 源码模式**（已确认 2026-07-28） |
 | [`RELEASE-2.0.0-alpha.md`](RELEASE-2.0.0-alpha.md) | **Phase A Free 发版说明**（tag `v2.0.0-alpha`） |
 | [`P2-detailed-design.md`](P2-detailed-design.md) | 详细设计（算法、接口、批注语法） |
 | [`P3-implementation-plan.md`](P3-implementation-plan.md) | 实现计划（Phase 任务 DAG、人机分工） |
@@ -28,7 +29,8 @@
 | [`M5-acceptance-checklist.md`](M5-acceptance-checklist.md) | MCP / 导出 / 更新 | ✅ 已验收 |
 | [`M6-acceptance-checklist.md`](M6-acceptance-checklist.md) | Phase A 集成 / Free 门禁 | ✅ 已通过（2026-07-15） |
 | [`M6b-acceptance-checklist.md`](M6b-acceptance-checklist.md) | Free 后基础体验：流程图双拷贝 / 侧栏大纲 / 调图；公式预览与复制本轮搁置 | ✅ M6b-1/3/4 已通过（2026-07-23）；M6b-2/5 ⏸ 搁置 |
-| [`M7-acceptance-checklist.md`](M7-acceptance-checklist.md) | Phase B Pro AI | 待开工 |
+| [`M7-acceptance-checklist.md`](M7-acceptance-checklist.md) | Phase B Pro AI | ⏸ 暂停验收（并入 3.0 F14） |
+| [`pro-activation.md`](pro-activation.md) | Pro 购买与离线激活说明 | M7-6 |
 
 ## AI 协作资产
 
