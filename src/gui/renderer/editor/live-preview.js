@@ -33,7 +33,6 @@ const { CodeFenceWidget } = require('./widgets/code');
 const { MermaidWidget } = require('./widgets/mermaid');
 const { createAnnoGutterField } = require('./anno-gutter');
 const { createClickCollapseExtension } = require('./click-collapse');
-const { createInlineSelectionStyleExtension } = require('./inline-selection-style');
 const {
   createImageSelectionSyncPlugin,
 } = require('./widgets/image-selection');
@@ -920,7 +919,6 @@ function livePreview(opts) {
     .concat([
       linkClick,
       createClickCollapseExtension(),
-      createInlineSelectionStyleExtension(),
       theme,
       EditorView.domEventHandlers({
         paste: createImagePasteHandler(liveOpts),

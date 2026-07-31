@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const { parseFencedCode } = require('../model/parse-fence');
 const { createBlockToolbar, copyText, uiT, clearMediaSelection, clearBlockWidgetSelection } = require('./widget-common');
@@ -89,12 +89,15 @@ class MermaidWidget extends BlockReplaceWidget {
 
     const sourcePanel = document.createElement('div');
     sourcePanel.className = 'mda-cm-mermaid-source';
-    const sourceEditor = document.createElement('textarea');
+    const sourceEditor = document.createElement('div');
     sourceEditor.className = 'mda-cm-mermaid-source-input';
-    sourceEditor.spellcheck = false;
+    sourceEditor.setAttribute('contenteditable', 'true');
+    sourceEditor.setAttribute('role', 'textbox');
+    sourceEditor.setAttribute('aria-multiline', 'true');
+    sourceEditor.setAttribute('spellcheck', 'false');
     sourceEditor.setAttribute('data-i18n-aria', 'widgetCodeSource');
     sourceEditor.setAttribute('aria-label', uiT('widgetCodeSource', t));
-    sourceEditor.value = self.code;
+    sourceEditor.textContent = self.code;
     sourcePanel.appendChild(sourceEditor);
     frame.appendChild(sourcePanel);
 
@@ -109,8 +112,12 @@ class MermaidWidget extends BlockReplaceWidget {
     let showingSource = false;
     const sourceBtn = toolbar.querySelector('[data-action="source"]');
 
+    function readSourceText() {
+      return (sourceEditor.innerText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    }
+
     function commitSourceEdit() {
-      const next = sourceEditor.value.replace(/\r\n/g, '\n');
+      const next = readSourceText();
       if (next === self.code) return;
       if (typeof opts.onEditMermaidBlock === 'function') {
         opts.onEditMermaidBlock({
@@ -132,7 +139,7 @@ class MermaidWidget extends BlockReplaceWidget {
         sourceBtn.title = label;
       }
       if (showingSource) {
-        sourceEditor.value = self.code;
+        sourceEditor.textContent = self.code;
         requestAnimationFrame(function () {
           sourceEditor.focus();
         });
@@ -180,12 +187,28 @@ class MermaidWidget extends BlockReplaceWidget {
     sourceEditor.addEventListener('mousedown', function (e) {
       e.stopPropagation();
     });
+    sourceEditor.addEventListener('paste', function (e) {
+      e.preventDefault();
+      const text = e.clipboardData && e.clipboardData.getData('text/plain');
+      if (text == null) return;
+      document.execCommand('insertText', false, text);
+    });
+    sourceEditor.addEventListener('focus', function () {
+      try {
+        if (!view) return;
+        const pos = view.state.selection.main.head;
+        view.dispatch({ selection: { anchor: pos, head: pos } });
+      } catch (_) {
+        /* ignore */
+      }
+    });
     sourceEditor.addEventListener('blur', commitSourceEdit);
 
     root.addEventListener('mousedown', function (e) {
       if (e.button !== 0) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-mermaid-source-input')) return;
-      if (e.target && e.target.closest && e.target.closest('.mda-cm-block-toolbar')) return;
+      // 顶栏空白/标签区点击也应选中块；仅工具按钮保留原行为
+      if (e.target && e.target.closest && e.target.closest('.mda-cm-block-toolbar [data-action]')) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-mermaid-handle-br')) return;
       if (isNearFrameResizeCorner(frame, e.clientX, e.clientY)) return;

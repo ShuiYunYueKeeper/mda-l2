@@ -617,22 +617,36 @@ img.setAttribute('width', String(payload.logicalWidth)); // 粘贴显示尺寸
 ## 23. CM6 内联装饰与文字拖选可见性（GUI 编辑面）
 
 **规则**：
-- CM6 选区层（`.cm-selectionBackground`）画在内容**下方**；行内代码 `.mda-cm-code` 等内联装饰若有不透明 `background`，会挡住选区高亮——**实际已选中但视觉上看不到**。
-- 修复：`inline-selection-style.js` 在 `selectionSet` 时为与选区重叠的内联 DOM 打 `mda-cm-in-selection`，CSS 用 `--cm-inline-sel-bg` 绘制与普通文字一致的选中背景。
+- CM6 选区层（`.cm-selectionBackground`）画在内容**下方**，**只覆盖实际选中字符**；禁止给整段内联装饰 span 打选中 class（会看起来像「整块都被选中」）。
+- 行内代码 `.mda-cm-code` 等内联装饰须用**半透明** `background`（`color-mix`），否则不透明底色会挡住选区层——实际已选中但视觉上看不到。
+- 引用块仅保留左侧 `--blockquote-bar` 竖条，**勿**给整行加不透明选中色背景。
+- 表格单元格 / 流程图源码编辑器等 widget 内文字拖选：用 `[contenteditable]::selection` + `--table-text-sel`（`#b8d4fe`）；**勿**用 `<textarea>`（Electron 内 `::selection` 常回落为系统深蓝）。
+- 流程图源码聚焦时须收起 CM6 文档选区并隐藏 `.cm-cursor`，避免底层选区叠色。
 - **禁止**为修选中态去改 `click-collapse`、hide-mark、`atomicRanges` 或装饰层 `selectionSet` 指纹（见 `AGENTS.md` §8.13、`§9` 4l）。
 
 ### ✅ 正确
 
-```javascript
-// live-preview.js 挂载
-createInlineSelectionStyleExtension()
+```css
+/* index.html — 仅字符级选区高亮 */
+.mda-cm6-host .cm-selectionBackground { background: var(--cm-sel-bg) !important; }
+.mda-cm6-host .mda-cm-code { background: color-mix(in srgb, var(--code-bg) 42%, transparent); }
 
-// index.html — 选中态覆盖内联背景
-.mda-cm-in-selection.mda-cm-code { background: var(--cm-inline-sel-bg); }
+/* 表格 / Mermaid 源码 — contenteditable + 与表格一致的选区色 */
+.mda-cm-mermaid-source-input[contenteditable="true"]::selection {
+  background-color: var(--table-text-sel) !important;
+}
+```
+
+```javascript
+// mermaid.js — 源码用 contenteditable，勿用 textarea
+const sourceEditor = document.createElement('div');
+sourceEditor.setAttribute('contenteditable', 'true');
 ```
 
 ### ❌ 错误
 
-- ❌ 只靠 `.cm-selectionBackground` 指望行内 code 胶囊也变色 → 不透明背景盖住选区层，用户以为没选中。
+- ❌ `inline-selection-style.js` 给重叠选区的整段 span 打 `mda-cm-in-selection` → 引用块/标题/粗体看起来像整段选中。
+- ❌ 只靠 `.cm-selectionBackground` 却不把行内 code 背景改半透明 → 不透明胶囊盖住选区层，用户以为没选中。
+- ❌ 流程图源码用 `<textarea>` 指望 `::selection` 变色 → Electron 仍显示系统深蓝选区。
 - ❌ 用 `display:none` / `font-size:0` 隐藏语法标记 → 破坏 `posAtCoords`（须 `Decoration.replace` 零宽 widget）。
 - ❌ 为修选中态顺带改 `mouseup placeCaret` 或装饰层全量重建 → 光标错位、标题拖选闪烁。

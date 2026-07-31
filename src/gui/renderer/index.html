@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -27,6 +27,10 @@
       --danger: #e74c3c;
       --tag-bg: #e8e8e8;
       --sel-bg: #e8f0fe;
+      --blockquote-bar: #d9dde3;
+      --table-sel-accent: #b8d4fe;
+      --table-cell-sel-bg: #e8f2ff;
+      --table-text-sel: #b8d4fe;
     }
     [data-theme="dark"] {
       --bg: #0d1117;
@@ -47,6 +51,10 @@
       --danger: #f85149;
       --tag-bg: #30363d;
       --sel-bg: #1f2a3d;
+      --blockquote-bar: #484f58;
+      --table-sel-accent: rgba(88, 166, 255, 0.32);
+      --table-cell-sel-bg: rgba(88, 166, 255, 0.10);
+      --table-text-sel: rgba(88, 166, 255, 0.32);
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -395,7 +403,7 @@
     #preview-content li > ul, #preview-content li > ol { margin: .25em 0; }
     #preview-content blockquote {
       margin: 0 0 16px; padding: 0 1em; color: var(--text-muted);
-      border-left: .25em solid var(--border);
+      border-left: .25em solid var(--blockquote-bar, var(--border));
     }
     #preview-content blockquote > :last-child { margin-bottom: 0; }
     #preview-content hr { height: 1px; margin: 24px 0; background: var(--border-light); border: 0; }
@@ -1017,7 +1025,7 @@
     .mda-cm6-host .mda-cm-em { font-style: italic; }
     .mda-cm6-host .mda-cm-strike { text-decoration: line-through; opacity: 0.85; }
     .mda-cm6-host .mda-cm-code {
-      background: var(--code-bg, #f3f4f6);
+      background: color-mix(in srgb, var(--code-bg, #f3f4f6) 42%, transparent);
       border-radius: 4px;
       padding: 1px 5px;
       font-size: 0.9em;
@@ -1025,36 +1033,23 @@
       font-variant-ligatures: none;
       font-feature-settings: "liga" 0, "calt" 0;
     }
-    [data-theme="dark"] .mda-cm6-host .mda-cm-code { background: var(--code-bg, #161b22); }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code {
+      background: color-mix(in srgb, var(--code-bg, #161b22) 50%, transparent);
+    }
     .mda-cm6-host .mda-cm-link { color: var(--link); text-decoration: none; cursor: pointer; }
     .mda-cm6-host .mda-cm-link:hover { text-decoration: underline; }
-    /* 内联装饰有不透明背景时会挡住 CM6 选区层；重叠选区由 inline-selection-style.js 打 mda-cm-in-selection */
+    /* CM6 选区层：仅覆盖实际选中字符，不用整段装饰 class */
     .mda-cm6-host {
-      --cm-inline-sel-bg: rgba(56, 139, 253, 0.35);
+      --cm-sel-bg: rgba(56, 139, 253, 0.28);
     }
     [data-theme="dark"] .mda-cm6-host {
-      --cm-inline-sel-bg: rgba(56, 139, 253, 0.42);
+      --cm-sel-bg: rgba(88, 166, 255, 0.32);
     }
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-code,
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-link,
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-strong,
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-em,
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-strike,
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-h1,
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-h2,
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-h3,
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-h4,
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-h5,
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-h6 {
-      background: var(--cm-inline-sel-bg);
-      box-decoration-break: clone;
-      -webkit-box-decoration-break: clone;
+    .mda-cm6-host .cm-selectionBackground {
+      background: var(--cm-sel-bg) !important;
     }
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-code {
-      border-radius: 4px;
-    }
-    .mda-cm6-host .mda-cm-in-selection.mda-cm-link {
-      border-radius: 2px;
+    .mda-cm6-host .cm-activeLine {
+      background: transparent !important;
     }
     .mda-cm6-host .mda-cm-bullet {
       display: inline-block; width: 2ch; text-align: left;
@@ -1064,9 +1059,9 @@
     .mda-cm6-host .mda-cm-hr { border: none; border-top: 1px solid var(--border); }
     .mda-cm6-host .cm-line:has(.mda-cm-blockquote-line),
     .mda-cm6-host .cm-line.mda-cm-blockquote-line {
-      border-left: 3px solid var(--accent);
+      border-left: 3px solid var(--blockquote-bar);
       padding-left: 12px;
-      background: var(--blockquote-bg, rgba(56, 139, 253, 0.06));
+      background: transparent;
       color: var(--text-muted);
     }
     .mda-cm6-host .cm-editor { flex: 1; min-height: 0; outline: none; display: flex; flex-direction: column; }
@@ -1260,14 +1255,44 @@
       border: none;
       outline: none;
       resize: vertical;
-      background: transparent;
+      overflow: auto;
+      background: var(--code-block-bg, var(--bg-tertiary));
       font-family: 'Consolas', 'Courier New', 'Microsoft YaHei', monospace;
       font-size: 13px;
       line-height: 21px;
       color: var(--text);
-      white-space: pre;
+      white-space: pre-wrap;
       overflow-wrap: normal;
       box-sizing: border-box;
+      -webkit-user-select: text;
+      user-select: text;
+      cursor: text;
+    }
+    .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"]::selection,
+    .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection {
+      background-color: var(--table-text-sel) !important;
+      color: #24292f !important;
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"]::selection,
+    [data-theme="dark"] .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection {
+      background-color: var(--table-text-sel) !important;
+      color: #c9d1d9 !important;
+    }
+    .mda-cm6-host .mda-cm-code-body ::selection {
+      background-color: var(--table-text-sel) !important;
+      color: #24292f !important;
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-body ::selection {
+      background-color: var(--table-text-sel) !important;
+      color: #c9d1d9 !important;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-mermaid-frame.mda-cm-mermaid-source-mode) .cm-selectionBackground,
+    .mda-cm6-host .cm-editor:has(.mda-cm-mermaid-source-input:focus) .cm-selectionBackground {
+      background: transparent !important;
+    }
+    .mda-cm6-host .cm-editor:has(.mda-cm-mermaid-source-input:focus) .cm-cursor,
+    .mda-cm6-host .cm-editor:has(.mda-cm-mermaid-source-input:focus) .cm-dropCursor {
+      display: none !important;
     }
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-mermaid-source-mode .mda-cm-mermaid-stage {
       display: none;
@@ -1475,7 +1500,7 @@
     }
     .mda-cm6-host .mda-cm-table-col-resize-handle:hover::after,
     .mda-cm6-host .mda-cm-table-col-resize-handle.mda-cm-table-resize-dragging::after {
-      background: var(--accent);
+      background: var(--table-sel-accent);
     }
     .mda-cm6-host .mda-cm-table-col-resize-handle:hover,
     .mda-cm6-host .mda-cm-table-col-resize-handle.mda-cm-table-resize-dragging {
@@ -1501,7 +1526,7 @@
     }
     .mda-cm6-host .mda-cm-table-row-resize-handle:hover::after,
     .mda-cm6-host .mda-cm-table-row-resize-handle.mda-cm-table-resize-dragging::after {
-      background: var(--accent);
+      background: var(--table-sel-accent);
     }
     .mda-cm6-host .mda-cm-table-row-resize-handle:hover,
     .mda-cm6-host .mda-cm-table-row-resize-handle.mda-cm-table-resize-dragging {
@@ -1554,7 +1579,7 @@
     .mda-cm6-host .mda-cm-table th[contenteditable]:focus,
     .mda-cm6-host .mda-cm-table td[contenteditable]:focus {
       outline: none;
-      box-shadow: inset 0 0 0 2px var(--accent);
+      box-shadow: inset 0 0 0 2px var(--table-sel-accent);
       background: var(--bg);
     }
     .mda-cm6-host .cm-editor:has(.mda-cm-table th[contenteditable]:focus, .mda-cm-table td[contenteditable]:focus) .cm-cursor,
@@ -1563,8 +1588,18 @@
     }
     .mda-cm6-host .mda-cm-table th.mda-cm-table-cell-selected,
     .mda-cm6-host .mda-cm-table td.mda-cm-table-cell-selected {
-      background: color-mix(in srgb, var(--accent) 14%, var(--bg)) !important;
-      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+      background: var(--table-cell-sel-bg) !important;
+      box-shadow: inset 0 0 0 1px var(--table-sel-accent);
+    }
+    .mda-cm6-host .mda-cm-table [contenteditable="true"]::selection,
+    .mda-cm6-host .mda-cm-table [contenteditable="true"] *::selection {
+      background-color: var(--table-text-sel) !important;
+      color: #24292f !important;
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-table [contenteditable="true"]::selection,
+    [data-theme="dark"] .mda-cm6-host .mda-cm-table [contenteditable="true"] *::selection {
+      background-color: var(--table-text-sel) !important;
+      color: #c9d1d9 !important;
     }
     .mda-cm6-host .mda-cm-table-add-btn {
       display: flex;

@@ -35435,12 +35435,15 @@ var MDAEditorBundle = (() => {
           frame.appendChild(stage);
           const sourcePanel = document.createElement("div");
           sourcePanel.className = "mda-cm-mermaid-source";
-          const sourceEditor = document.createElement("textarea");
+          const sourceEditor = document.createElement("div");
           sourceEditor.className = "mda-cm-mermaid-source-input";
-          sourceEditor.spellcheck = false;
+          sourceEditor.setAttribute("contenteditable", "true");
+          sourceEditor.setAttribute("role", "textbox");
+          sourceEditor.setAttribute("aria-multiline", "true");
+          sourceEditor.setAttribute("spellcheck", "false");
           sourceEditor.setAttribute("data-i18n-aria", "widgetCodeSource");
           sourceEditor.setAttribute("aria-label", uiT("widgetCodeSource", t));
-          sourceEditor.value = self.code;
+          sourceEditor.textContent = self.code;
           sourcePanel.appendChild(sourceEditor);
           frame.appendChild(sourcePanel);
           const handles = document.createElement("span");
@@ -35452,8 +35455,11 @@ var MDAEditorBundle = (() => {
           frame.appendChild(handles);
           let showingSource = false;
           const sourceBtn = toolbar.querySelector('[data-action="source"]');
+          function readSourceText() {
+            return (sourceEditor.innerText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+          }
           function commitSourceEdit() {
-            const next = sourceEditor.value.replace(/\r\n/g, "\n");
+            const next = readSourceText();
             if (next === self.code) return;
             if (typeof opts.onEditMermaidBlock === "function") {
               opts.onEditMermaidBlock({
@@ -35474,7 +35480,7 @@ var MDAEditorBundle = (() => {
               sourceBtn.title = label;
             }
             if (showingSource) {
-              sourceEditor.value = self.code;
+              sourceEditor.textContent = self.code;
               requestAnimationFrame(function() {
                 sourceEditor.focus();
               });
@@ -35517,11 +35523,25 @@ var MDAEditorBundle = (() => {
           sourceEditor.addEventListener("mousedown", function(e) {
             e.stopPropagation();
           });
+          sourceEditor.addEventListener("paste", function(e) {
+            e.preventDefault();
+            const text = e.clipboardData && e.clipboardData.getData("text/plain");
+            if (text == null) return;
+            document.execCommand("insertText", false, text);
+          });
+          sourceEditor.addEventListener("focus", function() {
+            try {
+              if (!view) return;
+              const pos = view.state.selection.main.head;
+              view.dispatch({ selection: { anchor: pos, head: pos } });
+            } catch (_) {
+            }
+          });
           sourceEditor.addEventListener("blur", commitSourceEdit);
           root.addEventListener("mousedown", function(e) {
             if (e.button !== 0) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-mermaid-source-input")) return;
-            if (e.target && e.target.closest && e.target.closest(".mda-cm-block-toolbar")) return;
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-block-toolbar [data-action]")) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-mermaid-handle-br")) return;
             if (isNearFrameResizeCorner(frame, e.clientX, e.clientY)) return;
@@ -35763,94 +35783,6 @@ var MDAEditorBundle = (() => {
         createClickCollapseExtension,
         posAtClick,
         placeCaret
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/inline-selection-style.js
-  var require_inline_selection_style = __commonJS({
-    "src/gui/renderer/editor/inline-selection-style.js"(exports, module) {
-      "use strict";
-      var { ViewPlugin } = require_dist4();
-      var INLINE_SEL = ".mda-cm-code,.mda-cm-link,.mda-cm-strong,.mda-cm-em,.mda-cm-strike,.mda-cm-h1,.mda-cm-h2,.mda-cm-h3,.mda-cm-h4,.mda-cm-h5,.mda-cm-h6";
-      function rangesOverlap(a, b) {
-        return a.from < b.to && a.to > b.from;
-      }
-      function selectionDocRange(view) {
-        const main = view.state.selection.main;
-        const from = Math.min(main.anchor, main.head);
-        const to = Math.max(main.anchor, main.head);
-        if (from === to) return null;
-        return { from, to };
-      }
-      function elementDocRange(view, el) {
-        try {
-          const from = view.posAtDOM(el, 0);
-          const to = view.posAtDOM(el, 1);
-          if (typeof from === "number" && typeof to === "number" && to > from) {
-            return { from, to };
-          }
-        } catch (_) {
-        }
-        try {
-          const from = view.posAtDOM(el);
-          const len = el.textContent ? el.textContent.length : 0;
-          if (typeof from === "number" && len > 0) return { from, to: from + len };
-        } catch (_) {
-          return null;
-        }
-        return null;
-      }
-      function syncInlineSelection(view) {
-        const sel = selectionDocRange(view);
-        const root = view.dom;
-        const prev = root.querySelectorAll(INLINE_SEL + ".mda-cm-in-selection");
-        for (let i = 0; i < prev.length; i++) {
-          prev[i].classList.remove("mda-cm-in-selection");
-        }
-        if (!sel) return;
-        const nodes = root.querySelectorAll(INLINE_SEL);
-        for (let i = 0; i < nodes.length; i++) {
-          const el = nodes[i];
-          const range = elementDocRange(view, el);
-          if (range && rangesOverlap(sel, range)) {
-            el.classList.add("mda-cm-in-selection");
-          }
-        }
-      }
-      function createInlineSelectionStyleExtension() {
-        return ViewPlugin.fromClass(
-          class {
-            /** @param {import('@codemirror/view').EditorView} view */
-            constructor(view) {
-              this.raf = 0;
-              this.schedule(view);
-            }
-            /** @param {import('@codemirror/view').EditorView} view */
-            schedule(view) {
-              const self = this;
-              if (self.raf) cancelAnimationFrame(self.raf);
-              self.raf = requestAnimationFrame(function() {
-                self.raf = 0;
-                syncInlineSelection(view);
-              });
-            }
-            /** @param {import('@codemirror/view').ViewUpdate} update */
-            update(update) {
-              if (update.docChanged || update.selectionSet || update.viewportChanged) {
-                this.schedule(update.view);
-              }
-            }
-            destroy() {
-              if (this.raf) cancelAnimationFrame(this.raf);
-            }
-          }
-        );
-      }
-      module.exports = {
-        createInlineSelectionStyleExtension,
-        rangesOverlap,
-        INLINE_SEL
       };
     }
   });
@@ -36293,7 +36225,6 @@ var MDAEditorBundle = (() => {
       var { MermaidWidget } = require_mermaid();
       var { createAnnoGutterField } = require_anno_gutter();
       var { createClickCollapseExtension } = require_click_collapse();
-      var { createInlineSelectionStyleExtension } = require_inline_selection_style();
       var {
         createImageSelectionSyncPlugin
       } = require_image_selection();
@@ -37029,7 +36960,6 @@ var MDAEditorBundle = (() => {
         ].concat(makeLayerPlugin("hide", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("style", liveOpts, {}, blockFocusField)).concat(makeLayerPlugin("widget", liveOpts, {}, blockFocusField)).concat(makeLayerPlugin("line", liveOpts, {}, blockFocusField)).concat([
           linkClick,
           createClickCollapseExtension(),
-          createInlineSelectionStyleExtension(),
           theme,
           EditorView.domEventHandlers({
             paste: createImagePasteHandler(liveOpts)
