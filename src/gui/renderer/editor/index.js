@@ -1,10 +1,10 @@
-/**
+﻿/**
  * MDA 3.0 编辑面入口（M8）。
  * 启用：`localStorage mda-cm6=1` 后重启 GUI。
  */
 'use strict';
 
-const { createEditor, refreshDecorations } = require('./mount');
+const { createEditor, refreshDecorations, refreshWidgetI18n } = require('./mount');
 const imageBlockOps = require('./widgets/image-block-ops');
 const { serializeImageMarkdown } = require('./model/parse-image');
 const { clearSelectedImageBlock } = require('./widgets/image-selection');
@@ -33,6 +33,7 @@ function setEnabledPref(on) {
 module.exports = {
   createEditor: createEditor,
   refreshDecorations: refreshDecorations,
+  refreshWidgetI18n: refreshWidgetI18n,
   deleteBlockRange: imageBlockOps.deleteBlockRange,
   deleteImageBlock: imageBlockOps.deleteImageBlock,
   resolveBlockRange: imageBlockOps.resolveBlockRange,

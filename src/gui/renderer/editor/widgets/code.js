@@ -48,13 +48,16 @@ class CodeFenceWidget extends BlockReplaceWidget {
     root.className = 'mda-cm-code-block';
     root.setAttribute('contenteditable', 'false');
 
-    const toolbar = createBlockToolbar(root, {
-      label: this.lang || uiT('widgetCodeLangPlain', t),
+    const toolbarSpec = {
+      t: t,
       buttons: [
-        { id: 'copy', label: uiT('copyBtn', t), title: uiT('copyBtn', t) },
-        { id: 'source', label: uiT('widgetCodeSource', t), title: uiT('widgetCodeSource', t) },
+        { id: 'copy', i18nKey: 'copyBtn' },
+        { id: 'source', i18nKey: 'widgetCodeSource' },
       ],
-    });
+    };
+    if (this.lang) toolbarSpec.label = this.lang;
+    else toolbarSpec.labelKey = 'widgetCodeLangPlain';
+    const toolbar = createBlockToolbar(root, toolbarSpec);
 
     const body = document.createElement('pre');
     body.className = 'mda-cm-code-body';

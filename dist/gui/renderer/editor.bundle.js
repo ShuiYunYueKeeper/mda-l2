@@ -31838,9 +31838,16 @@ var MDAEditorBundle = (() => {
         }
       }
       function createBlockToolbar(root, spec) {
+        const t = spec.t;
         const bar = document.createElement("div");
         bar.className = "mda-cm-block-toolbar";
-        if (spec.label) {
+        if (spec.labelKey) {
+          const lab = document.createElement("span");
+          lab.className = "mda-cm-block-toolbar-label";
+          lab.dataset.i18nKey = spec.labelKey;
+          lab.textContent = uiT(spec.labelKey, t);
+          bar.appendChild(lab);
+        } else if (spec.label) {
           const lab = document.createElement("span");
           lab.className = "mda-cm-block-toolbar-label";
           lab.textContent = spec.label;
@@ -31855,13 +31862,48 @@ var MDAEditorBundle = (() => {
           btn.type = "button";
           btn.className = "mda-cm-block-toolbar-btn";
           btn.dataset.action = b.id;
-          btn.textContent = b.label;
-          if (b.title) btn.title = b.title;
+          if (b.i18nKey) {
+            btn.dataset.i18nKey = b.i18nKey;
+            if (b.i18nToggle) btn.dataset.i18nToggle = b.i18nToggle;
+            const label = uiT(b.i18nKey, t);
+            btn.textContent = label;
+            btn.title = label;
+          } else {
+            btn.textContent = b.label || "";
+            if (b.title) btn.title = b.title;
+          }
           actions.appendChild(btn);
         }
         bar.appendChild(actions);
         root.appendChild(bar);
         return bar;
+      }
+      function refreshBlockToolbars(root, t) {
+        if (!root || typeof t !== "function") return;
+        const host = root.querySelectorAll ? root : document.body;
+        host.querySelectorAll(".mda-cm-block-toolbar-label[data-i18n-key]").forEach(function(el) {
+          const key = el.getAttribute("data-i18n-key");
+          if (key) el.textContent = t(key);
+        });
+        host.querySelectorAll(".mda-cm-block-toolbar-btn[data-i18n-key]").forEach(function(btn) {
+          let key = btn.getAttribute("data-i18n-key");
+          if (btn.getAttribute("data-i18n-toggle") === "mermaid-source") {
+            const frame = btn.closest(".mda-cm-mermaid-frame");
+            key = frame && frame.classList.contains("mda-cm-mermaid-source-mode") ? "widgetMermaidPreview" : "widgetCodeSource";
+          }
+          if (!key) return;
+          const label = t(key);
+          btn.textContent = label;
+          btn.title = label;
+        });
+        host.querySelectorAll("[data-i18n-title]").forEach(function(el) {
+          const key = el.getAttribute("data-i18n-title");
+          if (key) el.title = t(key);
+        });
+        host.querySelectorAll("[data-i18n-aria]").forEach(function(el) {
+          const key = el.getAttribute("data-i18n-aria");
+          if (key) el.setAttribute("aria-label", t(key));
+        });
       }
       function clearMediaSelection(container, selectedClass) {
         if (!container) return;
@@ -31873,6 +31915,7 @@ var MDAEditorBundle = (() => {
         uiT,
         copyText,
         createBlockToolbar,
+        refreshBlockToolbars,
         clearMediaSelection
       };
     }
@@ -32634,11 +32677,13 @@ var MDAEditorBundle = (() => {
           if (self.source) root.setAttribute("data-mda-block-source", self.source);
           const frame = document.createElement("div");
           frame.className = "mda-cm-image-frame mda-cm-media-block";
+          frame.setAttribute("data-i18n-title", "widgetImageDragHint");
           frame.title = uiT("widgetImageDragHint", t);
           const toolbar = createBlockToolbar(root, {
+            t,
             buttons: [
-              { id: "replace", label: uiT("widgetImageReplace", t), title: uiT("widgetImageReplace", t) },
-              { id: "delete", label: uiT("widgetImageDelete", t), title: uiT("widgetImageDelete", t) }
+              { id: "replace", i18nKey: "widgetImageReplace" },
+              { id: "delete", i18nKey: "widgetImageDelete" }
             ]
           });
           toolbar.classList.add("mda-cm-image-toolbar");
@@ -32775,13 +32820,16 @@ var MDAEditorBundle = (() => {
           const root = document.createElement("div");
           root.className = "mda-cm-code-block";
           root.setAttribute("contenteditable", "false");
-          const toolbar = createBlockToolbar(root, {
-            label: this.lang || uiT("widgetCodeLangPlain", t),
+          const toolbarSpec = {
+            t,
             buttons: [
-              { id: "copy", label: uiT("copyBtn", t), title: uiT("copyBtn", t) },
-              { id: "source", label: uiT("widgetCodeSource", t), title: uiT("widgetCodeSource", t) }
+              { id: "copy", i18nKey: "copyBtn" },
+              { id: "source", i18nKey: "widgetCodeSource" }
             ]
-          });
+          };
+          if (this.lang) toolbarSpec.label = this.lang;
+          else toolbarSpec.labelKey = "widgetCodeLangPlain";
+          const toolbar = createBlockToolbar(root, toolbarSpec);
           const body = document.createElement("pre");
           body.className = "mda-cm-code-body";
           const codeEl = document.createElement("code");
@@ -33130,13 +33178,15 @@ var MDAEditorBundle = (() => {
           if (self.source) root.setAttribute("data-mda-block-source", self.source);
           const frame = document.createElement("div");
           frame.className = "mda-cm-mermaid-frame mda-cm-media-block";
+          frame.setAttribute("data-i18n-title", "widgetMermaidDragHint");
           frame.title = uiT("widgetMermaidDragHint", t);
           const toolbar = createBlockToolbar(frame, {
-            label: uiT("diagram", t),
+            t,
+            labelKey: "diagram",
             buttons: [
-              { id: "copy-image", label: uiT("zoomCopyImage", t), title: uiT("zoomCopyImage", t) },
-              { id: "copy", label: uiT("zoomCopySource", t), title: uiT("zoomCopySource", t) },
-              { id: "source", label: uiT("widgetCodeSource", t), title: uiT("widgetCodeSource", t) }
+              { id: "copy-image", i18nKey: "zoomCopyImage" },
+              { id: "copy", i18nKey: "zoomCopySource" },
+              { id: "source", i18nKey: "widgetCodeSource", i18nToggle: "mermaid-source" }
             ]
           });
           const stage = document.createElement("div");
@@ -33148,6 +33198,7 @@ var MDAEditorBundle = (() => {
           const sourceEditor = document.createElement("textarea");
           sourceEditor.className = "mda-cm-mermaid-source-input";
           sourceEditor.spellcheck = false;
+          sourceEditor.setAttribute("data-i18n-aria", "widgetCodeSource");
           sourceEditor.setAttribute("aria-label", uiT("widgetCodeSource", t));
           sourceEditor.value = self.code;
           sourcePanel.appendChild(sourceEditor);
@@ -34619,6 +34670,7 @@ var MDAEditorBundle = (() => {
       var { createClickDebugExtension } = require_click_debug();
       var { syncSelectedImageFrameClass } = require_image_selection();
       var { syncSelectedMermaidFrameClass } = require_mermaid_selection();
+      var { refreshBlockToolbars } = require_widget_common();
       function stripBom(text) {
         if (typeof text !== "string") return { text: "", bom: "" };
         if (text.charCodeAt(0) === 65279) {
@@ -34809,6 +34861,10 @@ var MDAEditorBundle = (() => {
         refreshDecorations: function(view) {
           if (!view || typeof view.dispatch !== "function") return;
           view.dispatch({ annotations: Transaction.addToHistory.of(false) });
+        },
+        refreshWidgetI18n: function(view, t) {
+          if (!view || !view.dom || typeof t !== "function") return;
+          refreshBlockToolbars(view.dom, t);
         }
       };
     }
@@ -34888,7 +34944,7 @@ var MDAEditorBundle = (() => {
   // src/gui/renderer/editor/index.js
   var require_index = __commonJS({
     "src/gui/renderer/editor/index.js"(exports, module) {
-      var { createEditor, refreshDecorations } = require_mount();
+      var { createEditor, refreshDecorations, refreshWidgetI18n } = require_mount();
       var imageBlockOps = require_image_block_ops();
       var { serializeImageMarkdown } = require_parse_image();
       var { clearSelectedImageBlock } = require_image_selection();
@@ -34913,6 +34969,7 @@ var MDAEditorBundle = (() => {
       module.exports = {
         createEditor,
         refreshDecorations,
+        refreshWidgetI18n,
         deleteBlockRange: imageBlockOps.deleteBlockRange,
         deleteImageBlock: imageBlockOps.deleteImageBlock,
         resolveBlockRange: imageBlockOps.resolveBlockRange,

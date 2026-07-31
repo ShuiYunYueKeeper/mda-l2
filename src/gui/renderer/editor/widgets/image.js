@@ -89,12 +89,14 @@ class ImageWidget extends BlockReplaceWidget {
 
     const frame = document.createElement('div');
     frame.className = 'mda-cm-image-frame mda-cm-media-block';
+    frame.setAttribute('data-i18n-title', 'widgetImageDragHint');
     frame.title = uiT('widgetImageDragHint', t);
 
     const toolbar = createBlockToolbar(root, {
+      t: t,
       buttons: [
-        { id: 'replace', label: uiT('widgetImageReplace', t), title: uiT('widgetImageReplace', t) },
-        { id: 'delete', label: uiT('widgetImageDelete', t), title: uiT('widgetImageDelete', t) },
+        { id: 'replace', i18nKey: 'widgetImageReplace' },
+        { id: 'delete', i18nKey: 'widgetImageDelete' },
       ],
     });
     toolbar.classList.add('mda-cm-image-toolbar');

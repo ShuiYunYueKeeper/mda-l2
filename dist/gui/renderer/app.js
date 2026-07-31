@@ -1,4 +1,4 @@
-// MDA Renderer — Markdown 工作台 GUI
+﻿// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -547,6 +547,9 @@
     if (outlinePanelUi && outlinePanelUi.applyLang) outlinePanelUi.applyLang();
     if (outlineFloatBtn) outlineFloatBtn.title = uiT('outlineExpand');
     if (findReplaceUi && findReplaceUi.applyLang) findReplaceUi.applyLang();
+    if (isCm6Ready() && cm6Editor && cm6Editor.view && window.MDAEditor && window.MDAEditor.refreshWidgetI18n) {
+      window.MDAEditor.refreshWidgetI18n(cm6Editor.view, uiT);
+    }
     updateToolbar();
     if (typeof renderAnnoList === 'function') {
       try { renderAnnoList(); } catch (e) { /* 列表可能尚未就绪 */ }

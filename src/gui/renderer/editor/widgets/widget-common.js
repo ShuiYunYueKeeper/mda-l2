@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-C1：块 widget 共用工具（顶栏、复制、i18n）。
  */
 'use strict';
@@ -29,12 +29,19 @@ function copyText(text, copyFn) {
 
 /**
  * @param {HTMLElement} root
- * @param {{ label?: string, buttons?: { id: string, label: string, title?: string }[] }} spec
+ * @param {{ label?: string, labelKey?: string, t?: Function, buttons?: { id: string, label?: string, title?: string, i18nKey?: string, i18nToggle?: string }[] }} spec
  */
 function createBlockToolbar(root, spec) {
+  const t = spec.t;
   const bar = document.createElement('div');
   bar.className = 'mda-cm-block-toolbar';
-  if (spec.label) {
+  if (spec.labelKey) {
+    const lab = document.createElement('span');
+    lab.className = 'mda-cm-block-toolbar-label';
+    lab.dataset.i18nKey = spec.labelKey;
+    lab.textContent = uiT(spec.labelKey, t);
+    bar.appendChild(lab);
+  } else if (spec.label) {
     const lab = document.createElement('span');
     lab.className = 'mda-cm-block-toolbar-label';
     lab.textContent = spec.label;
@@ -49,13 +56,61 @@ function createBlockToolbar(root, spec) {
     btn.type = 'button';
     btn.className = 'mda-cm-block-toolbar-btn';
     btn.dataset.action = b.id;
-    btn.textContent = b.label;
-    if (b.title) btn.title = b.title;
+    if (b.i18nKey) {
+      btn.dataset.i18nKey = b.i18nKey;
+      if (b.i18nToggle) btn.dataset.i18nToggle = b.i18nToggle;
+      const label = uiT(b.i18nKey, t);
+      btn.textContent = label;
+      btn.title = label;
+    } else {
+      btn.textContent = b.label || '';
+      if (b.title) btn.title = b.title;
+    }
     actions.appendChild(btn);
   }
   bar.appendChild(actions);
   root.appendChild(bar);
   return bar;
+}
+
+/**
+ * 界面语言切换后刷新块 widget 顶栏与 title（不重建 widget）。
+ * @param {HTMLElement | Document} root
+ * @param {(key: string, vars?: object) => string} t
+ */
+function refreshBlockToolbars(root, t) {
+  if (!root || typeof t !== 'function') return;
+  const host = root.querySelectorAll ? root : document.body;
+
+  host.querySelectorAll('.mda-cm-block-toolbar-label[data-i18n-key]').forEach(function (el) {
+    const key = el.getAttribute('data-i18n-key');
+    if (key) el.textContent = t(key);
+  });
+
+  host.querySelectorAll('.mda-cm-block-toolbar-btn[data-i18n-key]').forEach(function (btn) {
+    let key = btn.getAttribute('data-i18n-key');
+    if (btn.getAttribute('data-i18n-toggle') === 'mermaid-source') {
+      const frame = btn.closest('.mda-cm-mermaid-frame');
+      key =
+        frame && frame.classList.contains('mda-cm-mermaid-source-mode')
+          ? 'widgetMermaidPreview'
+          : 'widgetCodeSource';
+    }
+    if (!key) return;
+    const label = t(key);
+    btn.textContent = label;
+    btn.title = label;
+  });
+
+  host.querySelectorAll('[data-i18n-title]').forEach(function (el) {
+    const key = el.getAttribute('data-i18n-title');
+    if (key) el.title = t(key);
+  });
+
+  host.querySelectorAll('[data-i18n-aria]').forEach(function (el) {
+    const key = el.getAttribute('data-i18n-aria');
+    if (key) el.setAttribute('aria-label', t(key));
+  });
 }
 
 /**
@@ -73,5 +128,6 @@ module.exports = {
   uiT: uiT,
   copyText: copyText,
   createBlockToolbar: createBlockToolbar,
+  refreshBlockToolbars: refreshBlockToolbars,
   clearMediaSelection: clearMediaSelection,
 };

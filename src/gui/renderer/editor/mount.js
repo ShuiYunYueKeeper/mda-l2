@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 创建 / 销毁 CM6 EditorView；BOM 不进模型，由调用方在保存时拼回。
  */
 'use strict';
@@ -24,6 +24,7 @@ const {
 const { createClickDebugExtension } = require('./click-debug');
 const { syncSelectedImageFrameClass } = require('./widgets/image-selection');
 const { syncSelectedMermaidFrameClass } = require('./widgets/mermaid-selection');
+const { refreshBlockToolbars } = require('./widgets/widget-common');
 
 function stripBom(text) {
   if (typeof text !== 'string') return { text: '', bom: '' };
@@ -233,5 +234,9 @@ module.exports = {
   refreshDecorations: function (view) {
     if (!view || typeof view.dispatch !== 'function') return;
     view.dispatch({ annotations: Transaction.addToHistory.of(false) });
+  },
+  refreshWidgetI18n: function (view, t) {
+    if (!view || !view.dom || typeof t !== 'function') return;
+    refreshBlockToolbars(view.dom, t);
   },
 };

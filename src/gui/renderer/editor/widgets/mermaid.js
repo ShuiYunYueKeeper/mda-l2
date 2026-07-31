@@ -68,14 +68,16 @@ class MermaidWidget extends BlockReplaceWidget {
 
     const frame = document.createElement('div');
     frame.className = 'mda-cm-mermaid-frame mda-cm-media-block';
+    frame.setAttribute('data-i18n-title', 'widgetMermaidDragHint');
     frame.title = uiT('widgetMermaidDragHint', t);
 
     const toolbar = createBlockToolbar(frame, {
-      label: uiT('diagram', t),
+      t: t,
+      labelKey: 'diagram',
       buttons: [
-        { id: 'copy-image', label: uiT('zoomCopyImage', t), title: uiT('zoomCopyImage', t) },
-        { id: 'copy', label: uiT('zoomCopySource', t), title: uiT('zoomCopySource', t) },
-        { id: 'source', label: uiT('widgetCodeSource', t), title: uiT('widgetCodeSource', t) },
+        { id: 'copy-image', i18nKey: 'zoomCopyImage' },
+        { id: 'copy', i18nKey: 'zoomCopySource' },
+        { id: 'source', i18nKey: 'widgetCodeSource', i18nToggle: 'mermaid-source' },
       ],
     });
 
@@ -89,6 +91,7 @@ class MermaidWidget extends BlockReplaceWidget {
     const sourceEditor = document.createElement('textarea');
     sourceEditor.className = 'mda-cm-mermaid-source-input';
     sourceEditor.spellcheck = false;
+    sourceEditor.setAttribute('data-i18n-aria', 'widgetCodeSource');
     sourceEditor.setAttribute('aria-label', uiT('widgetCodeSource', t));
     sourceEditor.value = self.code;
     sourcePanel.appendChild(sourceEditor);
