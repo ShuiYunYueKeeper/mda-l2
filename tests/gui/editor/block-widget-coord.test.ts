@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-C1 / COORD-5：块 widget 高度估计与装饰层过滤
  */
 import * as path from 'path';
@@ -68,7 +68,11 @@ describe('block-widget-base', () => {
 });
 
 describe('highlightFenceBody', () => {
-  const { highlightFenceBody } = require(path.join(
+  const { highlightFenceBody, estimateCodeFenceHeight, MAX_CODE_WIDGET_HEIGHT } = require(path.join(
+    __dirname,
+    '../../../src/gui/renderer/editor/widgets/code.js'
+  ));
+  const { CodeFenceWidget } = require(path.join(
     __dirname,
     '../../../src/gui/renderer/editor/widgets/code.js'
   ));
@@ -78,6 +82,16 @@ describe('highlightFenceBody', () => {
       return null;
     });
     expect(html).toBe('a &lt; b');
+  });
+
+  test('CodeFenceWidget estimatedHeight 不用源码行数撑高', () => {
+    const tick = '```';
+    const fence = tick + '\nline\n' + tick + '\n';
+    const inflated = fence + '\n'.repeat(200) + '## tail\n';
+    const w = new CodeFenceWidget(inflated, { lineHeight: 26 });
+    expect(w.estimatedHeight).toBeLessThan(500);
+    expect(w.estimatedHeight).toBe(estimateCodeFenceHeight('line'));
+    expect(w.estimatedHeight).toBeLessThan(MAX_CODE_WIDGET_HEIGHT);
   });
 });
 

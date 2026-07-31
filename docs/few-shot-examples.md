@@ -650,3 +650,27 @@ sourceEditor.setAttribute('contenteditable', 'true');
 - ❌ 流程图源码用 `<textarea>` 指望 `::selection` 变色 → Electron 仍显示系统深蓝选区。
 - ❌ 用 `display:none` / `font-size:0` 隐藏语法标记 → 破坏 `posAtCoords`（须 `Decoration.replace` 零宽 widget）。
 - ❌ 为修选中态顺带改 `mouseup placeCaret` 或装饰层全量重建 → 光标错位、标题拖选闪烁。
+
+---
+
+## 24. CM6 围栏代码块 widget 区间（`expandFenceBlockRange`）
+
+**规则**：
+- Lezer 可能把 `@anno` JSON 行**误识别**为 `FencedCode`（`from` 落在 JSON 中间）。
+- `expandFenceBlockRange` **不得**在找不到开围栏时回退 `alignHintLineRange(text, from, inflatedTo)` —— 会吞掉批注行、正文与后续章节，表现为代码块后大片空白。
+- 估高须按**围栏正文行数**（`estimateCodeFenceHeight`），勿用整块 `source` 的 `_lineCount`。
+
+### ✅ 正确
+
+```javascript
+// parse-fence.js — 自 hint 行向下扫描真实 ``` / ~~~ 开围栏
+const open = findFenceOpenFrom(text, lineStart, 24);
+if (!open) return alignHintLineRange(text, from, Math.min(to, from + 1), len);
+return expandFenceFromOpen(text, open.openFrom, open.marker);
+```
+
+### ❌ 错误
+
+- ❌ 信任语法树偏大的 `to` 做整块 replace → 表格/Mermaid/后续标题被 widget 吞掉。
+- ❌ `CodeFenceWidget` 用 `_lineCount * lineHeight` 估高 → CM6 `widgetBuffer` 预留巨大空白。
+- ❌ 围栏内含 `[comment]: <> (@anno …)` 样例行时未向下找到真实 ` ```markdown ` 开围栏 → 2.1 节演示稿空白。

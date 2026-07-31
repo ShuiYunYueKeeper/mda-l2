@@ -1,4 +1,4 @@
-// MDA Renderer — Markdown 工作台 GUI
+﻿// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -365,6 +365,16 @@
           window.MDAEditor.replaceBlockRange(cm6Editor.view, range.from, range.to, line);
           syncDirtyFromEditor();
         },
+        onEditCodeBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          var line = window.MDAEditor.serializeFencedCode
+            ? window.MDAEditor.serializeFencedCode(block.lang, block.code, block.marker)
+            : fenceCodeSource(block.lang, block.code);
+          var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+          if (!range) return;
+          window.MDAEditor.replaceBlockRange(cm6Editor.view, range.from, range.to, line);
+          syncDirtyFromEditor();
+        },
         onDeleteMermaidBlock: function (block) {
           if (!isCm6Ready() || !window.MDAEditor || !block) return;
           var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
@@ -387,6 +397,33 @@
             block.targetPos
           );
           syncDirtyFromEditor();
+        },
+        onDeleteCodeBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+          if (!range) return;
+          window.MDAEditor.deleteBlockRange(cm6Editor.view, range.from, range.to);
+          if (window.MDAEditor.clearSelectedCodeBlock) {
+            window.MDAEditor.clearSelectedCodeBlock();
+          }
+          syncDirtyFromEditor();
+          if (cm6Editor.view) cm6Editor.view.focus();
+        },
+        onMoveCodeBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+          if (!range) return;
+          window.MDAEditor.moveBlockRange(
+            cm6Editor.view,
+            range.from,
+            range.to,
+            block.targetPos
+          );
+          syncDirtyFromEditor();
+        },
+        onScaleCodeBlock: function (payload) {
+          if (!payload || !payload.root) return;
+          applyDefaultScaleToCodeBlock(payload.root);
         },
         toast: showToast,
         onBlockMenuSoon: function () {
@@ -3384,6 +3421,12 @@
     return '```mermaid\n' + body + '\n```';
   }
 
+  function fenceCodeSource(lang, code) {
+    var body = String(code || '').replace(/\r\n/g, '\n').replace(/^\n+|\n+$/g, '');
+    var tag = lang ? String(lang).trim() : '';
+    return '```' + tag + '\n' + body + '\n```';
+  }
+
   function copyZoomMermaidSource(opts) {
     var src = (opts && opts.mermaidSrc) || '';
     if (!src) {
@@ -5256,6 +5299,22 @@
     if (w > 0) applyMermaidDisplayWidth(holder, w, { skipRemember: true });
   }
 
+  /** CM6 围栏代码块：默认宽与图片/流程图一致（正文栏宽 × 媒体默认比例） */
+  function applyDefaultScaleToCodeBlock(root) {
+    if (!root) return;
+    var autoW = getCm6TextColumnWidthPx(root);
+    var w = scaledWidthFromAuto(autoW, getMediaScaleFactor(), 24);
+    if (!(w > 0)) return;
+    root.style.width = w + 'px';
+    root.style.maxWidth = w + 'px';
+    root.style.boxSizing = 'border-box';
+    var frame = root.querySelector('.mda-cm-code-frame');
+    if (frame) {
+      frame.style.width = '100%';
+      frame.classList.add('mda-cm-code-sized');
+    }
+  }
+
   function applyDefaultScaleToImage(img) {
     var scale = getMediaScaleFactor();
     var inCm6 = !!(img && img.closest && img.closest('.mda-cm-image-frame'));
@@ -5409,8 +5468,16 @@
         applyDefaultScaleToMermaid(h);
       }
     }
+    function reapplyCodeBlocksInRoot(root) {
+      if (!root) return;
+      var blocks = root.querySelectorAll('.mda-cm-code-block-line');
+      for (var k = 0; k < blocks.length; k++) {
+        applyDefaultScaleToCodeBlock(blocks[k]);
+      }
+    }
     function reapplyInRoot(root) {
       if (!root) return;
+      reapplyCodeBlocksInRoot(root);
       var imgs = root.querySelectorAll('img');
       for (var j = 0; j < imgs.length; j++) {
         var img = imgs[j];

@@ -44,6 +44,10 @@ const {
   createMermaidShortcutKeymap,
   createMermaidKeydownHandler,
 } = require('./mermaid-shortcuts');
+const {
+  createCodeShortcutKeymap,
+  createCodeKeydownHandler,
+} = require('./code-shortcuts');
 const { createMediaOutsideClickPlugin } = require('./widgets/media-outside-click');
 const {
   createImageShortcutKeymap,
@@ -266,6 +270,10 @@ function buildLayerDecos(specs, text, liveOpts) {
     onEditMermaidBlock: liveOpts.onEditMermaidBlock,
     onDeleteMermaidBlock: liveOpts.onDeleteMermaidBlock,
     onMoveMermaidBlock: liveOpts.onMoveMermaidBlock,
+    onEditCodeBlock: liveOpts.onEditCodeBlock,
+    onScaleCodeBlock: liveOpts.onScaleCodeBlock,
+    onDeleteCodeBlock: liveOpts.onDeleteCodeBlock,
+    onMoveCodeBlock: liveOpts.onMoveCodeBlock,
     onSwitchSource: liveOpts.onSwitchSource,
     blockMenuHandlers: liveOpts.blockMenuHandlers,
     onFocusBlock: liveOpts.onFocusBlock,
@@ -808,6 +816,7 @@ function livePreview(opts) {
     toast: opts.toast,
     t: opts.t,
     onDeleteMermaidBlock: opts.onDeleteMermaidBlock,
+    onDeleteCodeBlock: opts.onDeleteCodeBlock,
     onSoon: opts.onBlockMenuSoon,
     onAiAction: opts.onBlockMenuAi,
   });
@@ -933,6 +942,10 @@ function livePreview(opts) {
     ext.push(createMermaidSelectionSyncPlugin());
     ext.push(createMermaidShortcutKeymap(liveOpts));
     ext.push(createMermaidKeydownHandler(liveOpts));
+  }
+  if (editorConfig.blockWidgetEnabled('code')) {
+    ext.push(createCodeShortcutKeymap(liveOpts));
+    ext.push(createCodeKeydownHandler(liveOpts));
   }
   if (
     editorConfig.blockWidgetEnabled('image') ||

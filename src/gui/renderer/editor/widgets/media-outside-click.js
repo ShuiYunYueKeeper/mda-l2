@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 图片 / Mermaid 块：点击块外取消选中（与表格 onDocPointer 一致）。
  */
 'use strict';
@@ -43,6 +43,7 @@ function createMediaOutsideClickPlugin() {
           if (blockContainsTarget(self.view, imgSel, 'mda-cm-image-block', target)) return;
           if (blockContainsTarget(self.view, merSel, 'mda-cm-mermaid-block', target)) return;
           if (target && target.closest && target.closest('.mda-cm-code-block.mda-cm-block-selected')) return;
+          if (target && target.closest && target.closest('.mda-cm-code-input')) return;
           clearSelectedImageBlock();
           clearSelectedMermaidBlock();
           clearMediaSelection(self.view.dom);

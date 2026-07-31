@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-C1 / S24：批注隐藏、表格/图片/围栏解析
  */
 import * as path from 'path';
@@ -116,7 +116,19 @@ describe('S13 parseFencedCode', () => {
   test('解析语言与代码', () => {
     const tick = '```';
     const slice = `${tick}bash\nmda-cli scan\n${tick}`;
-    expect(parseFencedCode(slice)).toEqual({ lang: 'bash', code: 'mda-cli scan' });
+    expect(parseFencedCode(slice)).toEqual({ lang: 'bash', code: 'mda-cli scan', marker: '```' });
+  });
+
+  test('serializeFencedCode 往返', () => {
+    const { serializeFencedCode } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/model/parse-fence.js'
+    ));
+    const src = '```js\nconst x = 1;\n```';
+    const parsed = parseFencedCode(src);
+    expect(parsed).not.toBeNull();
+    const out = serializeFencedCode(parsed!.lang, parsed!.code, parsed!.marker);
+    expect(parseFencedCode(out)).toEqual(parsed);
   });
 
   test('expandFenceBlockRange 不因语法树偏大的 to 吞掉围栏后正文', () => {
@@ -132,6 +144,36 @@ describe('S13 parseFencedCode', () => {
     expect(text.slice(expanded.from, expanded.to)).toBe(fence);
     expect(text.indexOf('## Section')).toBeGreaterThan(expanded.to);
     expect(text.indexOf('| a')).toBeGreaterThanOrEqual(expanded.to);
+  });
+
+  test('expandFenceBlockRange 未闭合围栏时不信任偏大的 to', () => {
+    const { expandFenceBlockRange } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/model/parse-fence.js'
+    ));
+    const tick = '```';
+    const open = tick + '\nline one\nline two\n';
+    const text = open + '## 后续章节\n\n正文。\n';
+    const from = text.indexOf(tick);
+    const expanded = expandFenceBlockRange(text, from, text.length);
+    expect(text.slice(expanded.from, expanded.to)).toBe(open);
+    expect(text.indexOf('## 后续章节')).toBeGreaterThanOrEqual(expanded.to);
+  });
+
+  test('expandFenceBlockRange 语法树 from 落在 @anno 行时仍定位到后续围栏', () => {
+    const { expandFenceBlockRange } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/model/parse-fence.js'
+    ));
+    const anno =
+      '[comment]: <> (@anno {"id":"x","content":"demo","tags":[],"level":"info","status":"open","created_at":"..."})';
+    const fence =
+      '```markdown\n[comment]: <> (@anno {"id":"..."})\n\n这是被批注的段落。\n```\n';
+    const text = anno + '\n批注是独立成行的 Markdown 注释。\n\n' + fence + '\n![img](a.png)\n';
+    const from = text.indexOf('"content":"demo"');
+    const expanded = expandFenceBlockRange(text, from, text.length);
+    expect(text.slice(expanded.from, expanded.to)).toBe(fence);
+    expect(text.indexOf('![img]')).toBeGreaterThanOrEqual(expanded.to);
   });
 });
 

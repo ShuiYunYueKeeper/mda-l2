@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 块手柄菜单动作：复制 / 剪切 / 删除 / 插入；AI 占位。
  */
 'use strict';
@@ -52,6 +52,10 @@ function createBlockMenuHandlers(liveOpts) {
     if (!view) return;
     if (kind === 'mermaid' && typeof opts.onDeleteMermaidBlock === 'function') {
       opts.onDeleteMermaidBlock(block);
+      return;
+    }
+    if (kind === 'code' && typeof opts.onDeleteCodeBlock === 'function') {
+      opts.onDeleteCodeBlock(block);
       return;
     }
     if (deleteBlock(view, block)) {

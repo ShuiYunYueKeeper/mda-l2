@@ -1,4 +1,4 @@
-// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
+﻿// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
 (function (global) {
   var STRINGS = {
     zh: {
@@ -186,7 +186,11 @@
       zoomCopyImage: '复制图片',
       zoomCopySource: '复制源码',
       widgetCodeSource: '代码',
+      widgetCodePreview: '预览',
+      widgetCodeEdit: '编辑代码',
       widgetCodeLangPlain: '纯文本',
+      widgetCodeLangSwitch: '切换代码块语言',
+      widgetCodeLangSearch: '搜索语言…',
       widgetTableFocusHint: '点击表格可查看并编辑源码行',
       widgetTableLabel: '表格',
       widgetTableAddRow: '添加行',
@@ -498,7 +502,11 @@
       zoomCopyImage: 'Copy image',
       zoomCopySource: 'Copy source',
       widgetCodeSource: 'Source',
+      widgetCodePreview: 'Preview',
+      widgetCodeEdit: 'Edit code',
       widgetCodeLangPlain: 'Plain text',
+      widgetCodeLangSwitch: 'Switch code block language',
+      widgetCodeLangSearch: 'Search languages…',
       widgetTableFocusHint: 'Click table to view and edit source lines',
       widgetTableLabel: 'Table',
       widgetTableAddRow: 'Add row',

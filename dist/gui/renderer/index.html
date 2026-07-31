@@ -1088,22 +1088,180 @@
     .mda-cm6-host .mda-md-surface pre { margin: 0; padding: 12px; border-radius: 8px; background: var(--code-block-bg, var(--bg-tertiary)); overflow-x: auto; }
     .mda-cm6-host .mda-md-surface code { font-family: 'Consolas', 'Courier New', 'Microsoft YaHei', monospace; font-size: 13px; line-height: 21px; }
 
-    /* M8-C1 块 widget */
-    .mda-cm6-host .mda-cm-code-block {
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--code-block-bg, var(--bg-tertiary));
-      padding: 8px 0;
+    /* M8-C4 围栏代码块 widget */
+    .mda-cm6-host .cm-line:has(.mda-cm-code-block-line) {
+      overflow: visible;
+      display: block;
+      width: 100%;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-code-block-line) .cm-widget,
+    .mda-cm6-host .cm-line:has(.mda-cm-code-block-line) .cm-widgetBuffer {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-code-block-line) .cm-selectionBackground {
+      background: transparent !important;
+    }
+    .mda-cm6-host .mda-cm-code-block-line {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      padding: 6px 0 10px;
       margin: 0;
+      max-width: 100%;
+      box-sizing: border-box;
       overflow: visible;
       position: relative;
     }
-    .mda-cm6-host .mda-cm-code-block.mda-cm-block-selected {
-      outline: 2px solid var(--accent);
-      outline-offset: -2px;
+    .mda-cm6-host .mda-cm-code-frame.mda-cm-code-sized {
+      max-width: none;
     }
-    .mda-cm6-host .mda-cm-code-block.mda-cm-block-selected > .mda-cm-block-drag-handle {
+    .mda-cm6-host .mda-cm-code-frame {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--code-block-bg, var(--bg-tertiary));
+      overflow: hidden;
+      position: relative;
+    }
+    .mda-cm6-host .mda-cm-code-frame:has(.mda-cm-code-lang-open) {
+      overflow: visible;
+    }
+    .mda-cm6-host .mda-cm-code-frame:has(.mda-cm-code-lang-open) .mda-cm-code-preview {
+      overflow: visible;
+    }
+    .mda-cm6-host .mda-cm-code-frame.mda-cm-media-block.mda-cm-media-selected {
+      outline: none;
+      border-color: var(--accent);
+      border-radius: 8px;
+      overflow: visible;
+    }
+    .mda-cm6-host .mda-cm-code-frame.mda-cm-media-block.mda-cm-media-selected::after {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border: 2px solid var(--accent);
+      border-radius: 10px;
+      pointer-events: none;
+      z-index: 10;
+      box-sizing: border-box;
+    }
+    .mda-cm6-host .mda-cm-code-block.mda-cm-block-selected .mda-cm-code-preview {
+      overflow: visible;
+    }
+    .mda-cm6-host .mda-cm-code-block.mda-cm-block-selected > .mda-cm-code-frame > .mda-cm-block-drag-handle {
       display: flex;
+    }
+    .mda-cm6-host .mda-cm-code-preview {
+      margin: 0;
+      width: 100%;
+      overflow: hidden;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .mda-cm6-host .mda-cm-code-stage {
+      position: relative;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .mda-cm6-host .mda-cm-code-gutter {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 40px;
+      padding: 12px 8px 12px 12px;
+      margin: 0;
+      text-align: right;
+      font-family: 'Consolas', 'Courier New', 'Microsoft YaHei', monospace;
+      font-size: 13px;
+      line-height: 21px;
+      color: var(--gutter-text, var(--text-muted));
+      background: var(--gutter-bg);
+      border-right: 1px solid var(--border);
+      user-select: none;
+      -webkit-user-select: none;
+      white-space: pre;
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+    .mda-cm6-host .mda-cm-code-scroll {
+      margin-left: 40px;
+      width: calc(100% - 40px);
+      overflow-x: auto;
+      overflow-y: hidden;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .mda-cm6-host .mda-cm-code-stack {
+      position: relative;
+      width: 100%;
+      min-width: min-content;
+      box-sizing: border-box;
+    }
+    /* 失焦：hljs 只读预览；聚焦：纯文本编辑（与流程图源码同款，不叠层） */
+    .mda-cm6-host .mda-cm-code-highlight {
+      display: block;
+      margin: 0;
+      padding: 12px 12px 12px 6px;
+      border: none;
+      background: transparent;
+      white-space: pre;
+      overflow: visible;
+      pointer-events: none;
+      box-sizing: border-box;
+      font-family: 'Consolas', 'Courier New', 'Microsoft YaHei', monospace;
+      font-size: 13px;
+      line-height: 21px;
+    }
+    .mda-cm6-host .mda-cm-code-highlight code {
+      display: block;
+      margin: 0;
+      padding: 0;
+      font: inherit;
+      white-space: pre;
+      background: transparent;
+      border: none;
+    }
+    .mda-cm6-host .mda-cm-code-highlight code,
+    .mda-cm6-host .mda-cm-code-highlight code * {
+      font-weight: normal;
+      font-style: normal;
+    }
+    .mda-cm6-host .mda-cm-code-highlight .hljs-strong {
+      text-shadow: 0.4px 0 0 currentColor;
+    }
+    .mda-cm6-host .mda-cm-code-frame.mda-cm-code-editing .mda-cm-code-highlight {
+      display: none;
+    }
+    .mda-cm6-host .mda-cm-code-frame:not(.mda-cm-code-editing) .mda-cm-code-input {
+      display: none;
+    }
+    .mda-cm6-host .mda-cm-code-input {
+      display: block;
+      width: 100%;
+      min-width: min-content;
+      min-height: 21px;
+      margin: 0;
+      padding: 12px 12px 12px 6px;
+      border: none;
+      outline: none;
+      background: transparent;
+      font-family: 'Consolas', 'Courier New', 'Microsoft YaHei', monospace;
+      font-size: 13px;
+      line-height: 21px;
+      color: var(--text);
+      white-space: pre;
+      overflow-wrap: normal;
+      box-sizing: border-box;
+      -webkit-user-select: text;
+      user-select: text;
+      cursor: text;
     }
     .mda-cm6-host .mda-cm-mermaid-block-line {
       display: flex;
@@ -1227,14 +1385,104 @@
       border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer;
     }
     .mda-cm6-host .mda-cm-block-toolbar-btn:hover { border-color: var(--accent); color: var(--accent); }
-    .mda-cm6-host .mda-cm-code-body {
-      margin: 0; padding: 12px; overflow: auto;
-      background: transparent;
+    .mda-cm6-host .mda-cm-code-lang-picker {
+      position: relative;
+      flex: 0 1 auto;
+      min-width: 0;
+      max-width: min(220px, 45vw);
     }
-    .mda-cm6-host .mda-cm-code-body code {
-      font-family: 'Consolas', 'Courier New', 'Microsoft YaHei', monospace;
-      font-size: 13px; line-height: 21px;
+    .mda-cm6-host .mda-cm-code-lang-trigger {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 100%;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      cursor: pointer;
+    }
+    .mda-cm6-host .mda-cm-code-lang-trigger:hover,
+    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .mda-cm6-host .mda-cm-code-lang-trigger-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mda-cm6-host .mda-cm-code-lang-trigger-chevron {
+      flex: 0 0 auto;
+      font-size: 10px;
+      opacity: 0.7;
+    }
+    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-chevron {
+      transform: rotate(180deg);
+    }
+    .mda-cm6-host .mda-cm-code-lang-panel {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      z-index: 30;
+      width: min(240px, 70vw);
+      padding: 6px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-lang-panel {
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    }
+    .mda-cm6-host .mda-cm-code-lang-search {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      margin: 0 0 6px;
+      padding: 4px 8px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
       color: var(--text);
+      outline: none;
+    }
+    .mda-cm6-host .mda-cm-code-lang-search:focus {
+      border-color: var(--accent);
+    }
+    .mda-cm6-host .mda-cm-code-lang-list {
+      max-height: 240px;
+      overflow: auto;
+    }
+    .mda-cm6-host .mda-cm-code-lang-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 6px 8px;
+      font-size: 12px;
+      text-align: left;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .mda-cm6-host .mda-cm-code-lang-option:hover {
+      background: var(--bg-tertiary);
+    }
+    .mda-cm6-host .mda-cm-code-lang-option-active {
+      color: var(--accent);
+    }
+    .mda-cm6-host .mda-cm-code-lang-option-check {
+      flex: 0 0 auto;
+      margin-left: 8px;
+      color: var(--accent);
+      font-weight: 700;
     }
     .mda-cm6-host .mda-cm-mermaid-stage { padding: 12px; overflow: auto; margin: 0 auto; }
     .mda-cm6-host .mda-cm-mermaid-source {
@@ -1269,29 +1517,28 @@
       cursor: text;
     }
     .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"]::selection,
-    .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection {
+    .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection,
+    .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
+    .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection {
       background-color: var(--table-text-sel) !important;
       color: #24292f !important;
     }
     [data-theme="dark"] .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"]::selection,
-    [data-theme="dark"] .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection {
-      background-color: var(--table-text-sel) !important;
-      color: #c9d1d9 !important;
-    }
-    .mda-cm6-host .mda-cm-code-body ::selection {
-      background-color: var(--table-text-sel) !important;
-      color: #24292f !important;
-    }
-    [data-theme="dark"] .mda-cm6-host .mda-cm-code-body ::selection {
+    [data-theme="dark"] .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection,
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection {
       background-color: var(--table-text-sel) !important;
       color: #c9d1d9 !important;
     }
     .mda-cm6-host .cm-line:has(.mda-cm-mermaid-frame.mda-cm-mermaid-source-mode) .cm-selectionBackground,
-    .mda-cm6-host .cm-editor:has(.mda-cm-mermaid-source-input:focus) .cm-selectionBackground {
+    .mda-cm6-host .cm-editor:has(.mda-cm-mermaid-source-input:focus) .cm-selectionBackground,
+    .mda-cm6-host .cm-editor:has(.mda-cm-code-input:focus) .cm-selectionBackground {
       background: transparent !important;
     }
     .mda-cm6-host .cm-editor:has(.mda-cm-mermaid-source-input:focus) .cm-cursor,
-    .mda-cm6-host .cm-editor:has(.mda-cm-mermaid-source-input:focus) .cm-dropCursor {
+    .mda-cm6-host .cm-editor:has(.mda-cm-mermaid-source-input:focus) .cm-dropCursor,
+    .mda-cm6-host .cm-editor:has(.mda-cm-code-input:focus) .cm-cursor,
+    .mda-cm6-host .cm-editor:has(.mda-cm-code-input:focus) .cm-dropCursor {
       display: none !important;
     }
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-mermaid-source-mode .mda-cm-mermaid-stage {
@@ -1740,7 +1987,7 @@
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-selected > .mda-cm-mermaid-source {
       border-radius: 0 0 6px 6px;
     }
-    .mda-cm6-host .mda-cm-media-block.mda-cm-media-selected {
+    .mda-cm6-host .mda-cm-media-block.mda-cm-media-selected:not(.mda-cm-code-frame):not(.mda-cm-mermaid-frame) {
       outline: 2px solid var(--accent);
       outline-offset: -2px;
       border-radius: 0;

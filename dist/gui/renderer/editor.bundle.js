@@ -31166,7 +31166,7 @@ var MDAEditorBundle = (() => {
           if (legacy === "1" || legacy === "true") return "full";
         } catch (_) {
         }
-        return "table";
+        return "code";
       }
       function widgetPhaseAtLeast(minPhase) {
         var cur = readWidgetPhase();
@@ -31276,32 +31276,38 @@ var MDAEditorBundle = (() => {
         if (end < len) end += 1;
         return { from: start, to: end };
       }
-      function expandFenceBlockRange(text, from, to) {
+      function isFenceBlockBoundary(line) {
+        const t = String(line || "");
+        if (/^#{1,6}\s/.test(t)) return true;
+        if (/^\|/.test(t)) return true;
+        if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(t.trim())) return true;
+        if (/^ {0,3}(`{3,}|~{3,})/.test(t)) return true;
+        return false;
+      }
+      function findFenceOpenFrom(text, lineStart, maxLines) {
         const len = text.length;
-        let start = Math.max(0, Math.min(from, len));
-        while (start > 0 && text.charAt(start - 1) !== "\n") start -= 1;
-        let openFrom = -1;
-        let marker = "";
-        let pos = start;
-        while (pos < len) {
+        let pos = Math.max(0, Math.min(lineStart, len));
+        let lines = 0;
+        while (pos < len && lines < maxLines) {
           const lineFrom = pos;
           const nl = text.indexOf("\n", lineFrom);
           const lineTo = nl < 0 ? len : nl;
           const line = text.slice(lineFrom, lineTo);
           const m = /^ {0,3}(`{3,}|~{3,})([^\n`~]*)$/.exec(line);
-          if (m) {
-            openFrom = lineFrom;
-            marker = m[1];
-            break;
-          }
-          if (line.trim()) break;
+          if (m) return { openFrom: lineFrom, marker: m[1] };
           pos = nl < 0 ? len : nl + 1;
+          lines += 1;
         }
-        if (openFrom < 0 || !marker) return alignHintLineRange(text, from, to, len);
+        return null;
+      }
+      function expandFenceFromOpen(text, openFrom, marker) {
+        const len = text.length;
         const ch = marker.charAt(0);
         const minLen = marker.length;
-        let scan = text.indexOf("\n", openFrom);
-        scan = scan < 0 ? len : scan + 1;
+        const openLineEnd = text.indexOf("\n", openFrom);
+        const bodyStart = openLineEnd < 0 ? len : openLineEnd + 1;
+        let scan = bodyStart;
+        let lastContentEnd = bodyStart;
         while (scan < len) {
           const lineFrom = scan;
           const nl = text.indexOf("\n", lineFrom);
@@ -31311,9 +31317,23 @@ var MDAEditorBundle = (() => {
           if (closeRe.test(line)) {
             return { from: openFrom, to: nl < 0 ? len : nl + 1 };
           }
-          scan = nl < 0 ? len : nl + 1;
+          if (lineFrom >= bodyStart && isFenceBlockBoundary(line)) {
+            return { from: openFrom, to: lastContentEnd };
+          }
+          lastContentEnd = nl < 0 ? len : nl + 1;
+          scan = lastContentEnd;
         }
-        return alignHintLineRange(text, from, to, len);
+        return { from: openFrom, to: lastContentEnd };
+      }
+      function expandFenceBlockRange(text, from, to) {
+        const len = text.length;
+        let lineStart = Math.max(0, Math.min(from, len));
+        while (lineStart > 0 && text.charAt(lineStart - 1) !== "\n") lineStart -= 1;
+        const open = findFenceOpenFrom(text, lineStart, 24);
+        if (!open) {
+          return alignHintLineRange(text, from, Math.min(to, from + 1), len);
+        }
+        return expandFenceFromOpen(text, open.openFrom, open.marker);
       }
       function parseFencedCode(slice) {
         const text = String(slice || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -31323,17 +31343,44 @@ var MDAEditorBundle = (() => {
           if (!m2) return null;
           return {
             lang: String(m2[3] || "").trim().split(/\s+/)[0] || "",
-            code: m2[4] || ""
+            code: m2[4] || "",
+            marker: m2[2]
           };
         }
         return {
           lang: String(m[3] || "").trim().split(/\s+/)[0] || "",
-          code: m[4] || ""
+          code: m[4] || "",
+          marker: m[2]
         };
+      }
+      function serializeFencedCode(lang, code, marker) {
+        const tick = marker && marker.length ? marker : "```";
+        const langPart = lang ? String(lang).trim() : "";
+        const body = String(code || "").replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
+        return tick + langPart + "\n" + body + "\n" + tick;
+      }
+      function extractFenceCodeBody(source) {
+        const parsed = parseFencedCode(source);
+        if (parsed) return parsed.code;
+        const text = String(source || "").replace(/\r\n/g, "\n");
+        const closed = /^( {0,3})(`{3,}|~{3,})([^\n`~]*)\n([\s\S]*?)\n {0,3}\2\s*(?:\n|$)/.exec(text);
+        if (closed) return closed[4];
+        const open = /^( {0,3})(`{3,}|~{3,})([^\n`~]*)\n([\s\S]*)$/.exec(text);
+        if (!open) return "";
+        const body = open[4];
+        const lines = body.split("\n");
+        const kept = [];
+        for (let i = 0; i < lines.length; i++) {
+          if (isFenceBlockBoundary(lines[i])) break;
+          kept.push(lines[i]);
+        }
+        return kept.join("\n");
       }
       module.exports = {
         parseFencedCode,
-        expandFenceBlockRange
+        serializeFencedCode,
+        expandFenceBlockRange,
+        extractFenceCodeBody
       };
     }
   });
@@ -34433,6 +34480,291 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widgets/code-languages.js
+  var require_code_languages = __commonJS({
+    "src/gui/renderer/editor/widgets/code-languages.js"(exports, module) {
+      "use strict";
+      var CODE_BLOCK_LANGUAGES = [
+        { id: "", label: "Plain Text" },
+        { id: "bash", label: "Bash" },
+        { id: "csharp", label: "C#" },
+        { id: "cpp", label: "C/C++" },
+        { id: "cmake", label: "CMake" },
+        { id: "css", label: "CSS" },
+        { id: "dart", label: "Dart" },
+        { id: "dockerfile", label: "Dockerfile" },
+        { id: "erlang", label: "Erlang" },
+        { id: "fortran", label: "Fortran" },
+        { id: "go", label: "Go" },
+        { id: "groovy", label: "Groovy" },
+        { id: "haskell", label: "Haskell" },
+        { id: "http", label: "HTTP" },
+        { id: "java", label: "Java" },
+        { id: "javascript", label: "JavaScript" },
+        { id: "json", label: "JSON" },
+        { id: "julia", label: "Julia" },
+        { id: "kotlin", label: "Kotlin" },
+        { id: "latex", label: "LaTeX" },
+        { id: "less", label: "Less" },
+        { id: "lisp", label: "Lisp" },
+        { id: "lua", label: "Lua" },
+        { id: "makefile", label: "Makefile" },
+        { id: "markdown", label: "Markdown" },
+        { id: "matlab", label: "MATLAB" },
+        { id: "nginx", label: "Nginx" },
+        { id: "objectivec", label: "Objective-C" },
+        { id: "perl", label: "Perl" },
+        { id: "php", label: "PHP" },
+        { id: "python", label: "Python" },
+        { id: "r", label: "R" },
+        { id: "ruby", label: "Ruby" },
+        { id: "rust", label: "Rust" },
+        { id: "scala", label: "Scala" },
+        { id: "scheme", label: "Scheme" },
+        { id: "scss", label: "SCSS" },
+        { id: "shell", label: "Shell" },
+        { id: "sql", label: "SQL" },
+        { id: "swift", label: "Swift" },
+        { id: "tcl", label: "Tcl" },
+        { id: "typescript", label: "TypeScript" },
+        { id: "verilog", label: "Verilog/SystemVerilog" },
+        { id: "xml", label: "XML/HTML" },
+        { id: "yaml", label: "YAML" }
+      ];
+      var LANG_ALIASES = {
+        "c++": "cpp",
+        c: "cpp",
+        "c#": "csharp",
+        cs: "csharp",
+        js: "javascript",
+        ts: "typescript",
+        py: "python",
+        sh: "bash",
+        zsh: "bash",
+        yml: "yaml",
+        html: "xml",
+        htm: "xml",
+        objc: "objectivec",
+        "objective-c": "objectivec",
+        md: "markdown",
+        docker: "dockerfile",
+        systemverilog: "verilog",
+        sv: "verilog",
+        plaintext: "",
+        text: "",
+        plain: ""
+      };
+      function normalizeCodeBlockLang(lang) {
+        const raw = String(lang || "").trim();
+        if (!raw) return "";
+        const lower = raw.toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(LANG_ALIASES, lower)) {
+          return LANG_ALIASES[lower];
+        }
+        const hit = CODE_BLOCK_LANGUAGES.find(function(item) {
+          return item.id.toLowerCase() === lower;
+        });
+        return hit ? hit.id : lower;
+      }
+      function findCodeLanguage(lang) {
+        const id = normalizeCodeBlockLang(lang);
+        const hit = CODE_BLOCK_LANGUAGES.find(function(item) {
+          return item.id === id;
+        });
+        if (hit) return hit;
+        if (!id) return CODE_BLOCK_LANGUAGES[0];
+        return { id, label: id };
+      }
+      function getCodeLangLabel(lang, t) {
+        const item = findCodeLanguage(lang);
+        if (!item.id && typeof t === "function") return t("widgetCodeLangPlain");
+        if (!item.id) return "Plain Text";
+        return item.label;
+      }
+      function filterCodeLanguages(query) {
+        const q = String(query || "").trim().toLowerCase();
+        if (!q) return CODE_BLOCK_LANGUAGES.slice();
+        return CODE_BLOCK_LANGUAGES.filter(function(item) {
+          return item.label.toLowerCase().indexOf(q) >= 0 || item.id.toLowerCase().indexOf(q) >= 0;
+        });
+      }
+      module.exports = {
+        CODE_BLOCK_LANGUAGES,
+        normalizeCodeBlockLang,
+        findCodeLanguage,
+        getCodeLangLabel,
+        filterCodeLanguages
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/code-lang-picker.js
+  var require_code_lang_picker = __commonJS({
+    "src/gui/renderer/editor/widgets/code-lang-picker.js"(exports, module) {
+      "use strict";
+      var { uiT } = require_widget_common();
+      var {
+        CODE_BLOCK_LANGUAGES,
+        normalizeCodeBlockLang,
+        getCodeLangLabel,
+        filterCodeLanguages
+      } = require_code_languages();
+      var openPickerClose = null;
+      function createCodeLangPicker(opts) {
+        const t = opts.t;
+        let currentLang = normalizeCodeBlockLang(opts.lang);
+        const root = document.createElement("div");
+        root.className = "mda-cm-code-lang-picker";
+        const trigger = document.createElement("button");
+        trigger.type = "button";
+        trigger.className = "mda-cm-code-lang-trigger";
+        trigger.setAttribute("data-i18n-title", "widgetCodeLangSwitch");
+        trigger.title = uiT("widgetCodeLangSwitch", t);
+        trigger.setAttribute("aria-haspopup", "listbox");
+        trigger.setAttribute("aria-expanded", "false");
+        const triggerLabel = document.createElement("span");
+        triggerLabel.className = "mda-cm-code-lang-trigger-label";
+        const triggerChevron = document.createElement("span");
+        triggerChevron.className = "mda-cm-code-lang-trigger-chevron";
+        triggerChevron.setAttribute("aria-hidden", "true");
+        triggerChevron.textContent = "\u25BE";
+        trigger.appendChild(triggerLabel);
+        trigger.appendChild(triggerChevron);
+        const panel = document.createElement("div");
+        panel.className = "mda-cm-code-lang-panel";
+        panel.hidden = true;
+        const search = document.createElement("input");
+        search.type = "text";
+        search.className = "mda-cm-code-lang-search";
+        search.setAttribute("data-i18n-placeholder", "widgetCodeLangSearch");
+        search.placeholder = uiT("widgetCodeLangSearch", t);
+        search.setAttribute("autocomplete", "off");
+        search.setAttribute("spellcheck", "false");
+        const list = document.createElement("div");
+        list.className = "mda-cm-code-lang-list";
+        list.setAttribute("role", "listbox");
+        panel.appendChild(search);
+        panel.appendChild(list);
+        root.appendChild(trigger);
+        root.appendChild(panel);
+        function setTriggerLabel() {
+          triggerLabel.textContent = getCodeLangLabel(currentLang, t);
+        }
+        function renderList() {
+          const items = filterCodeLanguages(search.value);
+          list.textContent = "";
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "mda-cm-code-lang-option";
+            btn.setAttribute("role", "option");
+            btn.dataset.lang = item.id;
+            const lab = document.createElement("span");
+            lab.className = "mda-cm-code-lang-option-label";
+            lab.textContent = item.id ? item.label : uiT("widgetCodeLangPlain", t);
+            btn.appendChild(lab);
+            if (item.id === currentLang) {
+              btn.classList.add("mda-cm-code-lang-option-active");
+              const mark = document.createElement("span");
+              mark.className = "mda-cm-code-lang-option-check";
+              mark.setAttribute("aria-hidden", "true");
+              mark.textContent = "\u2713";
+              btn.appendChild(mark);
+            }
+            list.appendChild(btn);
+          }
+        }
+        function closePanel() {
+          if (panel.hidden) return;
+          panel.hidden = true;
+          trigger.setAttribute("aria-expanded", "false");
+          root.classList.remove("mda-cm-code-lang-open");
+          search.value = "";
+          if (openPickerClose === closePanel) openPickerClose = null;
+          document.removeEventListener("mousedown", onDocPointer, true);
+        }
+        function openPanel() {
+          if (typeof openPickerClose === "function" && openPickerClose !== closePanel) {
+            openPickerClose();
+          }
+          panel.hidden = false;
+          trigger.setAttribute("aria-expanded", "true");
+          root.classList.add("mda-cm-code-lang-open");
+          renderList();
+          openPickerClose = closePanel;
+          document.addEventListener("mousedown", onDocPointer, true);
+          requestAnimationFrame(function() {
+            search.focus();
+            search.select();
+          });
+        }
+        function onDocPointer(e) {
+          if (!root.contains(
+            /** @type {Node} */
+            e.target
+          )) closePanel();
+        }
+        function pickLang(next) {
+          const normalized = normalizeCodeBlockLang(next);
+          if (normalized === currentLang) {
+            closePanel();
+            return;
+          }
+          currentLang = normalized;
+          setTriggerLabel();
+          closePanel();
+          if (typeof opts.onChange === "function") opts.onChange(currentLang);
+        }
+        setTriggerLabel();
+        renderList();
+        trigger.addEventListener("mousedown", function(e) {
+          e.stopPropagation();
+        });
+        trigger.addEventListener("click", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (panel.hidden) openPanel();
+          else closePanel();
+        });
+        search.addEventListener("mousedown", function(e) {
+          e.stopPropagation();
+        });
+        search.addEventListener("input", function() {
+          renderList();
+        });
+        search.addEventListener("keydown", function(e) {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            closePanel();
+            trigger.focus();
+          }
+        });
+        list.addEventListener("mousedown", function(e) {
+          e.stopPropagation();
+        });
+        list.addEventListener("click", function(e) {
+          const btn = e.target && e.target.closest ? e.target.closest(".mda-cm-code-lang-option") : null;
+          if (!btn) return;
+          e.preventDefault();
+          e.stopPropagation();
+          pickLang(btn.getAttribute("data-lang") || "");
+        });
+        root.refreshLang = function(lang) {
+          currentLang = normalizeCodeBlockLang(lang);
+          setTriggerLabel();
+          renderList();
+        };
+        root.closePanel = closePanel;
+        return root;
+      }
+      module.exports = {
+        createCodeLangPicker,
+        CODE_BLOCK_LANGUAGES
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/block-menu-icons.js
   var require_block_menu_icons = __commonJS({
     "src/gui/renderer/editor/widgets/block-menu-icons.js"(exports, module) {
@@ -34997,7 +35329,7 @@ var MDAEditorBundle = (() => {
   var require_code = __commonJS({
     "src/gui/renderer/editor/widgets/code.js"(exports, module) {
       "use strict";
-      var { parseFencedCode } = require_parse_fence();
+      var { parseFencedCode, extractFenceCodeBody } = require_parse_fence();
       var {
         createBlockToolbar,
         copyText,
@@ -35006,6 +35338,8 @@ var MDAEditorBundle = (() => {
         clearBlockWidgetSelection
       } = require_widget_common();
       var { BlockReplaceWidget, countSourceLines } = require_block_widget_base();
+      var { createCodeLangPicker } = require_code_lang_picker();
+      var { normalizeCodeBlockLang } = require_code_languages();
       var { attachBlockDragHandle } = require_block_drag_handle();
       function highlightFenceBody(code, lang, highlightCode) {
         if (typeof highlightCode === "function") {
@@ -35017,19 +35351,57 @@ var MDAEditorBundle = (() => {
         }
         return code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       }
+      function attachCodeBlockLayout(root, frame, opts, view, onSized) {
+        function sync() {
+          if (typeof opts.onScaleCodeBlock === "function") {
+            opts.onScaleCodeBlock({ root, frame });
+          }
+          if (typeof onSized === "function") onSized();
+        }
+        sync();
+        requestAnimationFrame(sync);
+        let content = root.isConnected ? root.closest(".cm-content") : null;
+        if (!content && view && view.dom) content = view.dom.querySelector(".cm-content");
+        if (content && typeof ResizeObserver !== "undefined") {
+          const ro = new ResizeObserver(sync);
+          ro.observe(content);
+          root._mdaCodeWidthRo = ro;
+        }
+      }
+      function buildLineNumbers(code) {
+        const n = Math.max(1, countSourceLines(code));
+        const lines = [];
+        for (let i = 1; i <= n; i++) lines.push(String(i));
+        return lines.join("\n");
+      }
+      var CODE_LINE_HEIGHT = 21;
+      var CODE_CHROME_HEIGHT = 84;
+      var MAX_CODE_WIDGET_LINES = 400;
+      var MAX_CODE_WIDGET_HEIGHT = 12e3;
+      function estimateCodeFenceHeight(code) {
+        const n = Math.min(Math.max(1, countSourceLines(code)), MAX_CODE_WIDGET_LINES);
+        return Math.min(n * CODE_LINE_HEIGHT + CODE_CHROME_HEIGHT, MAX_CODE_WIDGET_HEIGHT);
+      }
       var CodeFenceWidget = class _CodeFenceWidget extends BlockReplaceWidget {
         /**
          * @param {string} source
-         * @param {{ renderMarkdown?: Function, highlightCode?: Function, t?: Function, copyText?: Function, onSwitchSource?: Function, blockMenuHandlers?: object, from?: number, to?: number, lineHeight?: number }} [opts]
+         * @param {object} [opts]
          */
         constructor(source, opts) {
           super(source, opts);
           this.opts = opts || {};
           const parsed = parseFencedCode(this.source);
-          this.lang = parsed ? parsed.lang : "";
-          this.code = parsed ? parsed.code : this.source;
-          const codeLines = countSourceLines(this.code);
-          this._minHeight = Math.max(codeLines * 21 + 48, this._lineCount * this._lineHeight);
+          this.lang = parsed ? normalizeCodeBlockLang(parsed.lang) : "";
+          this.code = parsed ? parsed.code : extractFenceCodeBody(this.source);
+          this.marker = parsed && parsed.marker ? parsed.marker : "```";
+          this._maxMeasuredHeight = MAX_CODE_WIDGET_HEIGHT;
+          this._minHeight = estimateCodeFenceHeight(this.code);
+        }
+        get estimatedHeight() {
+          if (this._measured > 0) {
+            return Math.min(this._measured, MAX_CODE_WIDGET_HEIGHT);
+          }
+          return estimateCodeFenceHeight(this.code);
         }
         eq(other) {
           return other instanceof _CodeFenceWidget && other.source === this.source && other.from === this.from && other.to === this.to;
@@ -35039,13 +35411,123 @@ var MDAEditorBundle = (() => {
           const t = opts.t;
           const self = this;
           const root = document.createElement("div");
-          root.className = "mda-cm-code-block";
+          root.className = "mda-cm-code-block mda-cm-code-block-line";
           root.setAttribute("contenteditable", "false");
           if (self.from != null) root.setAttribute("data-mda-block-from", String(self.from));
           if (self.to != null) root.setAttribute("data-mda-block-to", String(self.to));
           if (self.source) root.setAttribute("data-mda-block-source", self.source);
+          const frame = document.createElement("div");
+          frame.className = "mda-cm-code-frame mda-cm-media-block";
+          const toolbar = createBlockToolbar(frame, {
+            t,
+            buttons: [{ id: "copy", i18nKey: "copyBtn" }]
+          });
+          const previewPanel = document.createElement("div");
+          previewPanel.className = "mda-cm-code-preview";
+          const stage = document.createElement("div");
+          stage.className = "mda-cm-code-stage";
+          const gutter = document.createElement("div");
+          gutter.className = "mda-cm-code-gutter";
+          gutter.setAttribute("aria-hidden", "true");
+          gutter.textContent = buildLineNumbers(self.code);
+          const scroll = document.createElement("div");
+          scroll.className = "mda-cm-code-scroll";
+          const stack = document.createElement("div");
+          stack.className = "mda-cm-code-stack";
+          const highlightPre = document.createElement("pre");
+          highlightPre.className = "mda-cm-code-highlight";
+          highlightPre.setAttribute("aria-hidden", "true");
+          const highlightCode = document.createElement("code");
+          highlightCode.className = "hljs language-" + (self.lang || "plaintext");
+          highlightPre.appendChild(highlightCode);
+          const codeInput = document.createElement("div");
+          codeInput.className = "mda-cm-code-input";
+          codeInput.setAttribute("contenteditable", "true");
+          codeInput.setAttribute("role", "textbox");
+          codeInput.setAttribute("aria-multiline", "true");
+          codeInput.setAttribute("spellcheck", "false");
+          codeInput.setAttribute("data-i18n-aria", "widgetCodeEdit");
+          codeInput.setAttribute("aria-label", uiT("widgetCodeEdit", t));
+          codeInput.textContent = self.code;
+          stack.appendChild(highlightPre);
+          stack.appendChild(codeInput);
+          scroll.appendChild(stack);
+          stage.appendChild(gutter);
+          stage.appendChild(scroll);
+          previewPanel.appendChild(stage);
+          frame.appendChild(previewPanel);
+          function readCodeText() {
+            return (codeInput.innerText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+          }
+          function syncHighlight() {
+            highlightCode.innerHTML = highlightFenceBody(readCodeText(), self.lang, opts.highlightCode);
+          }
+          function syncLineNumbers() {
+            gutter.textContent = buildLineNumbers(readCodeText());
+          }
+          function enterEditMode() {
+            frame.classList.add("mda-cm-code-editing");
+            codeInput.focus();
+          }
+          syncHighlight();
+          function commitLangChange(nextLang) {
+            const normalized = normalizeCodeBlockLang(nextLang);
+            if (normalized === self.lang) return;
+            const code = readCodeText();
+            self.lang = normalized;
+            highlightCode.className = "hljs language-" + (self.lang || "plaintext");
+            syncHighlight();
+            if (typeof opts.onEditCodeBlock === "function") {
+              opts.onEditCodeBlock({
+                from: self.from,
+                to: self.to,
+                source: self.source,
+                lang: self.lang,
+                code,
+                marker: self.marker
+              });
+            }
+          }
+          const langPicker = createCodeLangPicker({
+            lang: self.lang,
+            t,
+            onChange: commitLangChange
+          });
+          toolbar.insertBefore(langPicker, toolbar.firstChild);
+          function commitCodeEdit() {
+            const next = readCodeText();
+            syncLineNumbers();
+            if (next === self.code) return;
+            if (typeof opts.onEditCodeBlock === "function") {
+              opts.onEditCodeBlock({
+                from: self.from,
+                to: self.to,
+                source: self.source,
+                lang: self.lang,
+                code: next,
+                marker: self.marker
+              });
+            }
+          }
+          function requestHeightMeasure() {
+            try {
+              if (view) view.requestMeasure();
+            } catch (_) {
+            }
+          }
+          function selectBlock() {
+            const editorRoot = root.closest(".cm-editor");
+            clearMediaSelection(editorRoot, "mda-cm-media-selected");
+            clearBlockWidgetSelection(editorRoot || document);
+            frame.classList.add("mda-cm-media-selected");
+            root.classList.add("mda-cm-block-selected");
+            try {
+              if (view) view.focus();
+            } catch (_) {
+            }
+          }
           attachBlockDragHandle(
-            root,
+            frame,
             view,
             { from: self.from, to: self.to, source: self.source },
             {
@@ -35054,36 +35536,10 @@ var MDAEditorBundle = (() => {
               replaceOnHover: false,
               blockKind: "code",
               blockMenuHandlers: opts.blockMenuHandlers,
-              t
+              t,
+              onMoveBlock: opts.onMoveCodeBlock
             }
           );
-          const toolbarSpec = {
-            t,
-            buttons: [
-              { id: "copy", i18nKey: "copyBtn" },
-              { id: "source", i18nKey: "widgetCodeSource" }
-            ]
-          };
-          if (this.lang) toolbarSpec.label = this.lang;
-          else toolbarSpec.labelKey = "widgetCodeLangPlain";
-          const toolbar = createBlockToolbar(root, toolbarSpec);
-          const body = document.createElement("pre");
-          body.className = "mda-cm-code-body";
-          const codeEl = document.createElement("code");
-          codeEl.className = "hljs language-" + (this.lang || "plaintext");
-          codeEl.innerHTML = highlightFenceBody(this.code, this.lang, opts.highlightCode);
-          body.appendChild(codeEl);
-          root.appendChild(body);
-          function selectBlock() {
-            const editorRoot = root.closest(".cm-editor");
-            clearMediaSelection(editorRoot, "mda-cm-media-selected");
-            clearBlockWidgetSelection(editorRoot || document);
-            root.classList.add("mda-cm-block-selected");
-            try {
-              if (view) view.focus();
-            } catch (_) {
-            }
-          }
           toolbar.addEventListener("click", function(e) {
             const btn = e.target && e.target.closest ? e.target.closest("[data-action]") : null;
             if (!btn) return;
@@ -35092,25 +35548,73 @@ var MDAEditorBundle = (() => {
             const action = btn.getAttribute("data-action");
             if (action === "copy") {
               copyText(self.source, opts.copyText);
-            } else if (action === "source" && typeof opts.onSwitchSource === "function") {
-              opts.onSwitchSource({ from: self.from, to: self.to, kind: "code" });
             }
+          });
+          codeInput.addEventListener("mousedown", function(e) {
+            e.stopPropagation();
+          });
+          codeInput.addEventListener("input", function() {
+            syncLineNumbers();
+            requestHeightMeasure();
+          });
+          codeInput.addEventListener("paste", function(e) {
+            e.preventDefault();
+            const text = e.clipboardData && e.clipboardData.getData("text/plain");
+            if (text == null) return;
+            document.execCommand("insertText", false, text);
+          });
+          codeInput.addEventListener("focus", function() {
+            enterEditMode();
+            try {
+              if (!view) return;
+              const pos = view.state.selection.main.head;
+              view.dispatch({ selection: { anchor: pos, head: pos } });
+            } catch (_) {
+            }
+          });
+          codeInput.addEventListener("blur", function() {
+            frame.classList.remove("mda-cm-code-editing");
+            commitCodeEdit();
+            syncHighlight();
+            requestHeightMeasure();
+          });
+          scroll.addEventListener("mousedown", function(e) {
+            if (e.button !== 0) return;
+            if (frame.classList.contains("mda-cm-code-editing")) return;
+            e.preventDefault();
+            e.stopPropagation();
+            enterEditMode();
           });
           root.addEventListener("mousedown", function(e) {
             if (e.button !== 0) return;
-            if (e.target && e.target.closest && e.target.closest(".mda-cm-block-toolbar")) return;
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-code-input")) return;
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-code-scroll")) return;
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-block-toolbar [data-action]")) return;
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-code-lang-picker")) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) return;
             e.preventDefault();
             e.stopPropagation();
             selectBlock();
           });
+          root.appendChild(frame);
+          attachCodeBlockLayout(root, frame, opts, view, requestHeightMeasure);
           this.bindMeasure(view, root);
           return root;
+        }
+        destroy(dom) {
+          if (dom && dom._mdaCodeWidthRo) {
+            dom._mdaCodeWidthRo.disconnect();
+            dom._mdaCodeWidthRo = null;
+          }
+          super.destroy(dom);
         }
       };
       module.exports = {
         CodeFenceWidget,
-        highlightFenceBody
+        highlightFenceBody,
+        buildLineNumbers,
+        estimateCodeFenceHeight,
+        MAX_CODE_WIDGET_HEIGHT
       };
     }
   });
@@ -35912,6 +36416,10 @@ var MDAEditorBundle = (() => {
             opts.onDeleteMermaidBlock(block);
             return;
           }
+          if (kind === "code" && typeof opts.onDeleteCodeBlock === "function") {
+            opts.onDeleteCodeBlock(block);
+            return;
+          }
           if (deleteBlock(view, block)) {
             clearSelectedMermaidBlock();
           }
@@ -36019,6 +36527,104 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widgets/code-selection.js
+  var require_code_selection = __commonJS({
+    "src/gui/renderer/editor/widgets/code-selection.js"(exports, module) {
+      "use strict";
+      function getSelectedCodeBlock() {
+        const el = document.querySelector(".mda-cm-code-block.mda-cm-block-selected");
+        if (!el) return null;
+        const from = parseInt(el.getAttribute("data-mda-block-from") || "", 10);
+        const to = parseInt(el.getAttribute("data-mda-block-to") || "", 10);
+        if (!(from >= 0) || !(to > from)) return null;
+        const source = el.getAttribute("data-mda-block-source") || "";
+        return { from, to, source };
+      }
+      function clearSelectedCodeBlock() {
+        const nodes = document.querySelectorAll(".mda-cm-code-block.mda-cm-block-selected");
+        for (let i = 0; i < nodes.length; i++) {
+          nodes[i].classList.remove("mda-cm-block-selected");
+        }
+      }
+      module.exports = {
+        getSelectedCodeBlock,
+        clearSelectedCodeBlock
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/code-shortcuts.js
+  var require_code_shortcuts = __commonJS({
+    "src/gui/renderer/editor/code-shortcuts.js"(exports, module) {
+      "use strict";
+      var { keymap, EditorView } = require_dist4();
+      var { Prec } = require_dist2();
+      var { getSelectedCodeBlock } = require_code_selection();
+      var globalKeysInstalled = false;
+      function tryDeleteSelectedCodeBlock(event, opts) {
+        if (event.key !== "Delete" && event.key !== "Backspace") return false;
+        const block = getSelectedCodeBlock();
+        if (!block || typeof opts.onDeleteCodeBlock !== "function") return false;
+        const ae = document.activeElement;
+        if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return false;
+        if (ae && ae.closest && ae.closest(".mda-cm-code-input")) return false;
+        if (ae && ae.closest && ae.closest("#settings-dialog, #find-replace-bar")) return false;
+        event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
+        opts.onDeleteCodeBlock(block);
+        return true;
+      }
+      function installCodeGlobalKeys(opts) {
+        if (globalKeysInstalled || typeof window === "undefined") return;
+        globalKeysInstalled = true;
+        window.addEventListener(
+          "keydown",
+          function(e) {
+            tryDeleteSelectedCodeBlock(e, opts);
+          },
+          true
+        );
+      }
+      function createCodeShortcutKeymap(opts) {
+        installCodeGlobalKeys(opts);
+        return Prec.high(
+          keymap.of([
+            {
+              key: "Delete",
+              run: function() {
+                const block = getSelectedCodeBlock();
+                if (!block || typeof opts.onDeleteCodeBlock !== "function") return false;
+                opts.onDeleteCodeBlock(block);
+                return true;
+              }
+            },
+            {
+              key: "Backspace",
+              run: function() {
+                const block = getSelectedCodeBlock();
+                if (!block || typeof opts.onDeleteCodeBlock !== "function") return false;
+                opts.onDeleteCodeBlock(block);
+                return true;
+              }
+            }
+          ])
+        );
+      }
+      function createCodeKeydownHandler(opts) {
+        return EditorView.domEventHandlers({
+          keydown: function(event) {
+            return tryDeleteSelectedCodeBlock(event, opts);
+          }
+        });
+      }
+      module.exports = {
+        tryDeleteSelectedCodeBlock,
+        createCodeShortcutKeymap,
+        createCodeKeydownHandler
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/media-outside-click.js
   var require_media_outside_click = __commonJS({
     "src/gui/renderer/editor/widgets/media-outside-click.js"(exports, module) {
@@ -36058,6 +36664,7 @@ var MDAEditorBundle = (() => {
                 if (blockContainsTarget(self.view, imgSel, "mda-cm-image-block", target)) return;
                 if (blockContainsTarget(self.view, merSel, "mda-cm-mermaid-block", target)) return;
                 if (target && target.closest && target.closest(".mda-cm-code-block.mda-cm-block-selected")) return;
+                if (target && target.closest && target.closest(".mda-cm-code-input")) return;
                 clearSelectedImageBlock();
                 clearSelectedMermaidBlock();
                 clearMediaSelection(self.view.dom);
@@ -36236,6 +36843,10 @@ var MDAEditorBundle = (() => {
         createMermaidShortcutKeymap,
         createMermaidKeydownHandler
       } = require_mermaid_shortcuts();
+      var {
+        createCodeShortcutKeymap,
+        createCodeKeydownHandler
+      } = require_code_shortcuts();
       var { createMediaOutsideClickPlugin } = require_media_outside_click();
       var {
         createImageShortcutKeymap,
@@ -36427,6 +37038,10 @@ var MDAEditorBundle = (() => {
           onEditMermaidBlock: liveOpts.onEditMermaidBlock,
           onDeleteMermaidBlock: liveOpts.onDeleteMermaidBlock,
           onMoveMermaidBlock: liveOpts.onMoveMermaidBlock,
+          onEditCodeBlock: liveOpts.onEditCodeBlock,
+          onScaleCodeBlock: liveOpts.onScaleCodeBlock,
+          onDeleteCodeBlock: liveOpts.onDeleteCodeBlock,
+          onMoveCodeBlock: liveOpts.onMoveCodeBlock,
           onSwitchSource: liveOpts.onSwitchSource,
           blockMenuHandlers: liveOpts.blockMenuHandlers,
           onFocusBlock: liveOpts.onFocusBlock,
@@ -36863,6 +37478,7 @@ var MDAEditorBundle = (() => {
           toast: opts.toast,
           t: opts.t,
           onDeleteMermaidBlock: opts.onDeleteMermaidBlock,
+          onDeleteCodeBlock: opts.onDeleteCodeBlock,
           onSoon: opts.onBlockMenuSoon,
           onAiAction: opts.onBlockMenuAi
         });
@@ -36974,6 +37590,10 @@ var MDAEditorBundle = (() => {
           ext.push(createMermaidSelectionSyncPlugin());
           ext.push(createMermaidShortcutKeymap(liveOpts));
           ext.push(createMermaidKeydownHandler(liveOpts));
+        }
+        if (editorConfig.blockWidgetEnabled("code")) {
+          ext.push(createCodeShortcutKeymap(liveOpts));
+          ext.push(createCodeKeydownHandler(liveOpts));
         }
         if (editorConfig.blockWidgetEnabled("image") || editorConfig.blockWidgetEnabled("mermaid") || editorConfig.blockWidgetEnabled("code")) {
           ext.push(createMediaOutsideClickPlugin());
@@ -37536,6 +38156,8 @@ var MDAEditorBundle = (() => {
       var { serializeImageMarkdown } = require_parse_image();
       var { clearSelectedImageBlock } = require_image_selection();
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
+      var { clearSelectedCodeBlock } = require_code_selection();
+      var { serializeFencedCode } = require_parse_fence();
       var { MODE_PREVIEW, MODE_SOURCE } = require_mode();
       var { SearchSession } = require_search_session();
       var editorConfig = require_config();
@@ -37568,6 +38190,8 @@ var MDAEditorBundle = (() => {
         serializeImageMarkdown,
         clearSelectedImageBlock,
         clearSelectedMermaidBlock,
+        clearSelectedCodeBlock,
+        serializeFencedCode,
         MODE_PREVIEW,
         MODE_SOURCE,
         SearchSession,

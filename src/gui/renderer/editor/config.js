@@ -1,7 +1,7 @@
 ﻿/**
  * 编辑面运行时配置：功能闸门 + 开发调试开关（发布时统一关闭）。
  *
- * 分阶段交付（Mermaid 已签收，开发默认 table）：
+ * 分阶段交付（Mermaid 已签收，开发默认 code）：
  *   text → image → mermaid → table → code → full
  * 覆盖：localStorage `mda-editor-widget-phase`
  * 兼容：旧键 `mda-editor-block-widgets=1` 视为 `full`
@@ -80,7 +80,7 @@ function readWidgetPhase() {
   } catch (_) {
     /* ignore */
   }
-  return 'table';
+  return 'code';
 }
 
 /**
