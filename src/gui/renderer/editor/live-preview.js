@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-B/C 实时预览视图层：语法隐藏（D15 = hide-mark 零宽 mark + atomicRanges）。
  */
 'use strict';
@@ -33,6 +33,7 @@ const { CodeFenceWidget } = require('./widgets/code');
 const { MermaidWidget } = require('./widgets/mermaid');
 const { createAnnoGutterField } = require('./anno-gutter');
 const { createClickCollapseExtension } = require('./click-collapse');
+const { createInlineSelectionStyleExtension } = require('./inline-selection-style');
 const {
   createImageSelectionSyncPlugin,
 } = require('./widgets/image-selection');
@@ -919,6 +920,7 @@ function livePreview(opts) {
     .concat([
       linkClick,
       createClickCollapseExtension(),
+      createInlineSelectionStyleExtension(),
       theme,
       EditorView.domEventHandlers({
         paste: createImagePasteHandler(liveOpts),

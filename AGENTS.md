@@ -262,6 +262,8 @@ npm test               # jest（含覆盖率）
 10. **派生物入库策略**：`node_modules/`、`coverage/` 不入库；`dist/` 作为可执行交付物**随版本入库**（功能稳定后已纳入 `.gitignore` 放行）。
 11. **GUI 链接/拖拽不得触发默认导航**：预览区 `<a>` 点击与文件拖拽必须 `preventDefault`，否则渲染进程会跳离 `index.html` 导致白屏且无法恢复；主进程另有 `will-navigate`/`setWindowOpenHandler` 兜底。
 12. **GUI 用户可见文案不得硬编码单语**：必须经 `t` / `uiT` / `MDAI18n`，且 zh+en 同时落地（见 §6 GUI i18n）。
+13. **CM6/编辑面功能改动不得连带破坏光标与文字选取**：做块 widget、装饰层、手柄、样式等任意功能时，**禁止**影响正文/引用/标题的点击落点（`posAtCoords`/`coordsAtPos`）与鼠标拖选；**除非用户明确要求**调整光标或选取相关交互。
+14. **不得擅自删除已有功能入口**：工具栏按钮、菜单项、块手柄、快捷键等用户可见入口，删除或隐藏前**须用户明确同意**；重构时须保持等价入口或先确认替代方案。
 
 ---
 
@@ -285,6 +287,7 @@ npm test               # jest（含覆盖率）
 4i. **【GUI 文件树拖动】目标目录须在 dragover 记录、drop 复用**：`drop` 时 `e.target` 常为源文件行，不可单靠 `closest('.dir')`；须在 `dragover` 写入 `dropTargetDir`（文件夹行路径，或文件行之父目录），`drop` 优先使用该值；`lastDropIsCopy` 亦在 `dragover` 记录（`drop` 的 `ctrlKey` 不可靠）。同目录移动或拖到自身须静默忽略；`moveFileToDir` 源=目标返回 `noop` 不得 toast 成功。写操作路径须经 `file-ops.resolveInWorkspace`（工作区根 `rel===''` 合法）。
 4j. **【GUI 大纲】预览左侧栏 + 行归属高亮**：大纲在 `#preview-pane` 内、正文在 `#preview-scroll`；分隔线默认隐藏、hover 大纲显示；收起用左侧窄栏按钮（勿绝对定位盖住正文）；收放时正文 `max-width` 勿变（否则换行跳动）。高亮按「≤ 当前行的最近标题」更新（编辑 `onPreviewLocate` / 预览点击 / 滚动侦测）；滚动锚点约视口 20%，与 sync-scroll 对齐。
 4k. **【GUI 启动 / 最近打开 / 工作区】**：启动仅当「记住上次会话」开启且最近列表非空才自动打开 `recents[0]`，否则欢迎页。**恢复工作区不得**在无当前文件时自动 `requestOpen` 树内首个 Markdown（会覆盖空历史欢迎页）。关闭「记住上次会话」后不落盘工作区/最近文件。清空最近打开：只清列表、保持当前文档；本会话禁止静默 `addRecent` 直至用户主动打开。清空文件列表（侧栏 ✕）：关工作区侧栏 + `setWorkspaceRoot(null)`，**不删**磁盘文件、不关当前文档。
+4l. **【GUI CM6 所见即所得】光标/选取与入口保护**：见 §8.13–14。修块 widget、装饰层、手柄、边框等**局部**问题时，改动须**隔离**——不得顺带改 `click-collapse`、hide-mark 层、`EditorView.atomicRanges`、装饰层 `selectionSet` 指纹等坐标/选取基础设施，**除非用户明确要求**。验收闸门：点击诊断 HUD（`mda-editor-debug-click`）Δ ≤ 2px；正文/引用/标题可鼠标拖选；标题拖选不闪烁。删/藏工具栏、块手柄、菜单项、快捷键等入口前须用户同意。
 5. **【GUI·Electron】data-line 映射**：preload 仅对 `level===0` 的块级 token 注入 `data-line = map[0]+1`，其值等于段落 `startLine`，GUI 据此做「段落↔批注」双向定位与色条。
 6. **【GUI·Electron】运行前提**：preload `require('../core')` 需 `sandbox:false`；GUI 运行前必须 `npm run build`（否则 `dist/core` 不存在）。
 7. **【数据校验】枚举守卫**：add/edit/scan 入口用 `isAnnotationLevel/isAnnotationStatus` 校验，非法值报错退出而非落盘。

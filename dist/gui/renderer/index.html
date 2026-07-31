@@ -1028,6 +1028,34 @@
     [data-theme="dark"] .mda-cm6-host .mda-cm-code { background: var(--code-bg, #161b22); }
     .mda-cm6-host .mda-cm-link { color: var(--link); text-decoration: none; cursor: pointer; }
     .mda-cm6-host .mda-cm-link:hover { text-decoration: underline; }
+    /* 内联装饰有不透明背景时会挡住 CM6 选区层；重叠选区由 inline-selection-style.js 打 mda-cm-in-selection */
+    .mda-cm6-host {
+      --cm-inline-sel-bg: rgba(56, 139, 253, 0.35);
+    }
+    [data-theme="dark"] .mda-cm6-host {
+      --cm-inline-sel-bg: rgba(56, 139, 253, 0.42);
+    }
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-code,
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-link,
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-strong,
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-em,
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-strike,
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-h1,
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-h2,
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-h3,
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-h4,
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-h5,
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-h6 {
+      background: var(--cm-inline-sel-bg);
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-code {
+      border-radius: 4px;
+    }
+    .mda-cm6-host .mda-cm-in-selection.mda-cm-link {
+      border-radius: 2px;
+    }
     .mda-cm6-host .mda-cm-bullet {
       display: inline-block; width: 2ch; text-align: left;
       color: var(--text-muted); user-select: none;
@@ -1644,8 +1672,14 @@
       overflow: hidden;
     }
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block {
+      overflow: hidden;
+    }
+    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-media-selected,
+    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-mermaid-resize-active {
       overflow: visible;
-      isolation: isolate;
+    }
+    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block > .mda-cm-block-toolbar {
+      border-radius: 7px 7px 0 0;
     }
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-media-selected {
       outline: none;
@@ -1694,7 +1728,7 @@
       max-width: 100%;
       vertical-align: top;
       overflow: hidden;
-      border-radius: 7px;
+      border-radius: 0;
     }
     .mda-cm6-host .mda-cm-image-frame.mda-cm-media-selected .mda-cm-image-inner {
       border-radius: 0;
@@ -1706,6 +1740,10 @@
       margin: 0;
     }
     .mda-cm6-host .mda-cm-image-frame.mda-cm-media-block {
+      overflow: hidden;
+    }
+    .mda-cm6-host .mda-cm-image-frame.mda-cm-media-block.mda-cm-media-selected,
+    .mda-cm6-host .mda-cm-image-frame.mda-cm-media-block.mda-cm-img-resize-active {
       overflow: visible;
     }
     .mda-cm6-host .mda-cm-image-frame {

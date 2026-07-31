@@ -611,3 +611,28 @@ img.setAttribute('width', String(payload.logicalWidth)); // 粘贴显示尺寸
 - ❌ 行内公式与块级公式共用大留白，或复制表格强制 `width:100%` → 单元格内公式频繁换行、行高膨胀。
 - ❌ 把临时公式节点插到页面再 `capturePage` → 复制时闪白、滚动跳动。
 - ❌ 字体内联失败后继续引用 `file://.../fonts` → foreignObject 中缺字或空白；应抛错走文本回退。
+
+---
+
+## 23. CM6 内联装饰与文字拖选可见性（GUI 编辑面）
+
+**规则**：
+- CM6 选区层（`.cm-selectionBackground`）画在内容**下方**；行内代码 `.mda-cm-code` 等内联装饰若有不透明 `background`，会挡住选区高亮——**实际已选中但视觉上看不到**。
+- 修复：`inline-selection-style.js` 在 `selectionSet` 时为与选区重叠的内联 DOM 打 `mda-cm-in-selection`，CSS 用 `--cm-inline-sel-bg` 绘制与普通文字一致的选中背景。
+- **禁止**为修选中态去改 `click-collapse`、hide-mark、`atomicRanges` 或装饰层 `selectionSet` 指纹（见 `AGENTS.md` §8.13、`§9` 4l）。
+
+### ✅ 正确
+
+```javascript
+// live-preview.js 挂载
+createInlineSelectionStyleExtension()
+
+// index.html — 选中态覆盖内联背景
+.mda-cm-in-selection.mda-cm-code { background: var(--cm-inline-sel-bg); }
+```
+
+### ❌ 错误
+
+- ❌ 只靠 `.cm-selectionBackground` 指望行内 code 胶囊也变色 → 不透明背景盖住选区层，用户以为没选中。
+- ❌ 用 `display:none` / `font-size:0` 隐藏语法标记 → 破坏 `posAtCoords`（须 `Decoration.replace` 零宽 widget）。
+- ❌ 为修选中态顺带改 `mouseup placeCaret` 或装饰层全量重建 → 光标错位、标题拖选闪烁。

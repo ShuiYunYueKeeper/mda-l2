@@ -35767,6 +35767,94 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/inline-selection-style.js
+  var require_inline_selection_style = __commonJS({
+    "src/gui/renderer/editor/inline-selection-style.js"(exports, module) {
+      "use strict";
+      var { ViewPlugin } = require_dist4();
+      var INLINE_SEL = ".mda-cm-code,.mda-cm-link,.mda-cm-strong,.mda-cm-em,.mda-cm-strike,.mda-cm-h1,.mda-cm-h2,.mda-cm-h3,.mda-cm-h4,.mda-cm-h5,.mda-cm-h6";
+      function rangesOverlap(a, b) {
+        return a.from < b.to && a.to > b.from;
+      }
+      function selectionDocRange(view) {
+        const main = view.state.selection.main;
+        const from = Math.min(main.anchor, main.head);
+        const to = Math.max(main.anchor, main.head);
+        if (from === to) return null;
+        return { from, to };
+      }
+      function elementDocRange(view, el) {
+        try {
+          const from = view.posAtDOM(el, 0);
+          const to = view.posAtDOM(el, 1);
+          if (typeof from === "number" && typeof to === "number" && to > from) {
+            return { from, to };
+          }
+        } catch (_) {
+        }
+        try {
+          const from = view.posAtDOM(el);
+          const len = el.textContent ? el.textContent.length : 0;
+          if (typeof from === "number" && len > 0) return { from, to: from + len };
+        } catch (_) {
+          return null;
+        }
+        return null;
+      }
+      function syncInlineSelection(view) {
+        const sel = selectionDocRange(view);
+        const root = view.dom;
+        const prev = root.querySelectorAll(INLINE_SEL + ".mda-cm-in-selection");
+        for (let i = 0; i < prev.length; i++) {
+          prev[i].classList.remove("mda-cm-in-selection");
+        }
+        if (!sel) return;
+        const nodes = root.querySelectorAll(INLINE_SEL);
+        for (let i = 0; i < nodes.length; i++) {
+          const el = nodes[i];
+          const range = elementDocRange(view, el);
+          if (range && rangesOverlap(sel, range)) {
+            el.classList.add("mda-cm-in-selection");
+          }
+        }
+      }
+      function createInlineSelectionStyleExtension() {
+        return ViewPlugin.fromClass(
+          class {
+            /** @param {import('@codemirror/view').EditorView} view */
+            constructor(view) {
+              this.raf = 0;
+              this.schedule(view);
+            }
+            /** @param {import('@codemirror/view').EditorView} view */
+            schedule(view) {
+              const self = this;
+              if (self.raf) cancelAnimationFrame(self.raf);
+              self.raf = requestAnimationFrame(function() {
+                self.raf = 0;
+                syncInlineSelection(view);
+              });
+            }
+            /** @param {import('@codemirror/view').ViewUpdate} update */
+            update(update) {
+              if (update.docChanged || update.selectionSet || update.viewportChanged) {
+                this.schedule(update.view);
+              }
+            }
+            destroy() {
+              if (this.raf) cancelAnimationFrame(this.raf);
+            }
+          }
+        );
+      }
+      module.exports = {
+        createInlineSelectionStyleExtension,
+        rangesOverlap,
+        INLINE_SEL
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/block-insert-snippets.js
   var require_block_insert_snippets = __commonJS({
     "src/gui/renderer/editor/widgets/block-insert-snippets.js"(exports, module) {
@@ -36205,6 +36293,7 @@ var MDAEditorBundle = (() => {
       var { MermaidWidget } = require_mermaid();
       var { createAnnoGutterField } = require_anno_gutter();
       var { createClickCollapseExtension } = require_click_collapse();
+      var { createInlineSelectionStyleExtension } = require_inline_selection_style();
       var {
         createImageSelectionSyncPlugin
       } = require_image_selection();
@@ -36940,6 +37029,7 @@ var MDAEditorBundle = (() => {
         ].concat(makeLayerPlugin("hide", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("style", liveOpts, {}, blockFocusField)).concat(makeLayerPlugin("widget", liveOpts, {}, blockFocusField)).concat(makeLayerPlugin("line", liveOpts, {}, blockFocusField)).concat([
           linkClick,
           createClickCollapseExtension(),
+          createInlineSelectionStyleExtension(),
           theme,
           EditorView.domEventHandlers({
             paste: createImagePasteHandler(liveOpts)
