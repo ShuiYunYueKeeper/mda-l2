@@ -31166,7 +31166,7 @@ var MDAEditorBundle = (() => {
           if (legacy === "1" || legacy === "true") return "full";
         } catch (_) {
         }
-        return "mermaid";
+        return "table";
       }
       function widgetPhaseAtLeast(minPhase) {
         var cur = readWidgetPhase();
