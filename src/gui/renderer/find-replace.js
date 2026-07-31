@@ -1,4 +1,4 @@
-﻿// 查找 / 替换浮层（Ctrl+F / Ctrl+H）
+// 查找 / 替换浮层（Ctrl+F / Ctrl+H）
 (function (global) {
   function findAll(text, query, opts) {
     opts = opts || {};
@@ -34,6 +34,7 @@
     hooks = hooks || {};
     var onMatchesChange = hooks.onMatchesChange;
     var syncEditorScroll = hooks.syncEditorScroll;
+    var searchSession = hooks.searchSession || null;
     var LINE_H = 21;
 
     var bar = document.createElement('div');
@@ -83,6 +84,27 @@
     }
 
     applyLang();
+
+    if (searchSession) {
+      findInput.value = searchSession.query || '';
+      bar.querySelector('#fr-case').checked = !!searchSession.caseSensitive;
+      bar.querySelector('#fr-regex').checked = !!searchSession.regex;
+      if (searchSession.matches && searchSession.matches.length) {
+        state.matches = searchSession.matches.slice();
+        state.index = searchSession.matchIndex >= 0 ? searchSession.matchIndex : 0;
+      }
+    }
+
+    function syncSearchSession() {
+      if (!searchSession) return;
+      searchSession.applyOptions({
+        query: findInput.value,
+        caseSensitive: bar.querySelector('#fr-case').checked,
+        regex: bar.querySelector('#fr-regex').checked,
+        matchIndex: state.index,
+      });
+      searchSession.setMatches(state.matches, state.index);
+    }
 
     function getMeasureMirror() {
       if (measureMirror) return measureMirror;
@@ -161,6 +183,7 @@
       if (state.index < 0 && state.matches.length) state.index = 0;
       updateCount();
       notifyMatches();
+      syncSearchSession();
       if (state.matches.length && state.index >= 0) {
         scrollToMatch(state.matches[state.index]);
       }
@@ -183,6 +206,7 @@
       if (!state.matches.length || state.index < 0) return;
       scrollToMatch(state.matches[state.index]);
       notifyMatches();
+      syncSearchSession();
       refocusBar();
     }
 

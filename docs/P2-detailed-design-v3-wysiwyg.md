@@ -1,8 +1,8 @@
-﻿# 详细设计 — MDA 3.0 预览直接编辑（WYSIWYG）与源码模式
+# 详细设计 — MDA 3.0 预览直接编辑（WYSIWYG）与源码模式
 
-> 输入：[`P1-architecture-v3-wysiwyg.md`](P1-architecture-v3-wysiwyg.md)（已确认 2026-07-28，含裁决 D12–D13）
-> 需求：[`P0-requirements-v3-wysiwyg.md`](P0-requirements-v3-wysiwyg.md)（F10–F17 / AC-7–AC-30）
-> 状态：**已确认**（2026-07-28）
+> 输入：[`P1-architecture-v3-wysiwyg.md`](P1-architecture-v3-wysiwyg.md)（**v1.6**，已确认；含 P1-D15）
+> 需求：[`P0-requirements-v3-wysiwyg.md`](P0-requirements-v3-wysiwyg.md)（**v1.10**；F10–F18 / D15）
+> 状态：**已确认**（2026-07-28；**v1.4** D15 语法隐藏与坐标闸门，2026-07-30）
 
 ### 用户裁决记录（2026-07-28）
 
@@ -15,6 +15,10 @@
 | 版本 | 时间 | 触发原因 | 综合置信度 | 关键变更 |
 |------|------|---------|-----------|---------|
 | v1 | 2026-07-28 | P2 详细设计完成 | 85% | 初始版本：语法白名单与装饰规则表、双模式状态机、8 组核心算法伪代码、GUI 四入口规格、14 模板骨架、边界用例 E49–E86、测试设计 |
+| v1.1 | 2026-07-29 | P0 v1.7 D13/F18 | 85% | §5.9 AI 模型设置（Cherry Studio 式）；数据模型；IPC；AC-31–34 边界用例 |
+| v1.2 | 2026-07-29 | 竞品截图沉淀 | 85% | §5.10 WPS 竞品交互风格（工具栏/widget/AI）；[`competitor-product/README.md`](competitor-product/README.md) |
+| v1.3 | 2026-07-29 | P0 D14 媒体交互 | 85% | §5.10.9 图片/流程图单击选中、双击全屏；2.0→3.0 手势变更；AC-35 |
+| v1.4 | 2026-07-30 | P0 D15 全程隐藏语法 | 85% | §4.1.1 hide-mark 终态 + atomicRanges；§4.9 开发配置；默认 reveal=never；M8-B8 坐标闸门 |
 
 ---
 
@@ -34,6 +38,9 @@ P1 遗留给 P2 的项目全部在此定稿，不再留悬念：
 | 8 | 边界用例 E 编号续接（现有已用至 E48，本文件从 **E49** 起） | §7 |
 | 9 | 验证测试设计 | §8 |
 | 10 | 参考实现对齐点（D13：自研但对齐开源行为） | §9 |
+| 11 | **AI 模型设置**（F18 / D13，参照 Cherry Studio） | §5.9 |
+| 12 | **竞品交互风格**（WPS 365 文档截图） | §5.10 + [`competitor-product/README.md`](competitor-product/README.md) |
+| 13 | **图片 / 流程图选中与全屏**（D14，相对 2.0 手势变更） | §5.10.9 |
 
 **范围不包含**：富结构文档模型、协同编辑、表格合并单元格、分栏、多维表格 / 电子表格 / 思维导图、AI 生成 PPT / 表格、docx 导入（P0 已排除）。
 
@@ -61,16 +68,16 @@ P1 遗留给 P2 的项目全部在此定稿，不再留悬念：
 | S10 | 任务列表 `- [ ]` / `- [x]` | R+W | 可点击复选框 widget | 显示原文 | 是 | 点击复选框 = 单字符 transaction（`x` ↔ 空格） |
 | S11 | 引用 `>` | R | 左竖线 + 缩进，`>` 隐藏 | 显示 `>` | 是 | 嵌套按层级缩进 |
 | S12 | 分隔线 `---`/`***` | W | 横线 | 显示原文 | 是 | 与 front matter 需区分（见 S18） |
-| S13 | 围栏代码块 ``` / ~~~ | W | 语法高亮 + 语言标签 + 复制按钮 | 光标进入 → 源码可编辑（保留高亮） | 是 | 复用 `highlight.js` |
+| S13 | 围栏代码块 ``` / ~~~ | W | 语法高亮 + **顶栏**（语言/复制/行号）+ 选中描边；见 §5.10.2 | 光标进入 → 源码可编辑 | 是 | 复用 `highlight.js`；对标 `competitor-product/code-block-widget.png` |
 | S14 | GFM 表格 | W | 渲染表格；点单元格就地编辑 | 光标进入 → 该行源码 | 是（增删行列、对齐） | **不支持合并单元格**；单元格编辑以「行级替换」写回 |
 | S15 | 行内公式 `$...$` | W | KaTeX 渲染 | 显示原文 | 是 | 复用现有 KaTeX 配置 |
 | S16 | 块公式 `$$...$$` | W | KaTeX 块渲染 | 光标进入 / 双击 → 源码微编辑（可取消） | 是 | D4 |
-| S17 | Mermaid 围栏 | W | SVG 渲染 + 缩放/全屏 | 双击 → 源码微编辑（可取消） | 是 | D4；缩放沿用现有 overlay |
+| S17 | Mermaid 围栏 | W | SVG + 顶栏（AI/模板/代码）；**单击选中**+手柄缩放；**双击**全屏 zoom | 顶栏「代码」→ 微编辑 | 是 | `mermaid-block-toolbar.png` + D14；复用 2.0 overlay |
 | S18 | front matter（首行 `---` 起） | **P** | 折叠为「文档属性」只读条 | 只读 | 否 | 语法歧义大（POC 已证会被误判为 `hr`+setext）；改动走源码模式 |
 | S19 | 内联 HTML 块 | **P** | 显示源码字面 + 只读标记 | 只读 | 否 | 安全与往返双重考虑；不渲染 |
 | S20 | 脚注 `[^1]` | **P** | 源码字面 + 只读标记 | 只读 | 否 | markdown-it 未启用脚注插件，保持原样不丢失 |
 | S21 | 引用式链接定义 `[a]: url` | **P** | 源码字面 | 只读 | 否 | 与批注语法形近，避免误伤 |
-| S22 | 图片 `![](...)` | W | 图片 + 缩放手柄（会话态宽度） | 显示原文 | 是（插入/删除/alt） | 宽度不写回 Markdown（沿用 2.0） |
+| S22 | 图片 `![](...)` | W | **单击选中**（`image-block-selected.png`）+ 四角手柄 + 浮动条；**双击**全屏 zoom | 显示原文 | 是 | D14；宽度不写回 MD |
 | S23 | 硬换行（行尾两空格 / `\`） | R | 换行生效，尾随空格用可见性提示 | 原文 | 是 | 不静默删除尾随空格 |
 | S24 | **批注行 `[comment]: <> (@anno …)`** | **隐藏** | 整行 `Decoration.replace` 为零高度（不可见、不可选） | **同样隐藏** | 否（只能经批注面板增删改） | F13-1；围栏内的 `@anno` 样例**不隐藏**（`buildCodeFenceMask`） |
 | S25 | 疑似坏批注（`ANNO_ISH` 命中但严格正则不匹配） | 隐藏 + 标记 | 隐藏并在行号槽标警示 | 隐藏 | 否 | 保存时提示（沿用 `findMalformedAnnotations`） |
@@ -174,6 +181,17 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts):
 
 不变量：**任何 spec 都不修改 `text`**；`hide-line` 只作用于批注行；`dedupeByPriority` 保证同一区间只落一条最高优先级装饰。
 
+### 4.1.1 语法隐藏终态（D15 · 禁止临时代码入库为终态）
+
+| 手段 | 状态 | 说明 |
+|------|------|------|
+| `hide-mark` + `color:transparent` / `font-size:0` | **已废弃** | 占宽不一致或零宽导致 `posAtCoords` 横向/纵向漂移 |
+| `hide-mark` + `Decoration.replace` 零宽 widget | **M8-B8 目标** | 须同步注册 `EditorView.atomicRanges`，使光标/点击跳过隐藏区间 |
+| 块 `W` 类 widget | **M8-C1 目标** | 启用前须过坐标闸门；`blockWidgets` 默认关（`editor/config.js`） |
+| `mda-live-reveal` | **默认 `never`** | `block`/`nearby` 仅调试；**不作为**面向用户的长期「显露语法」方案 |
+
+**质量闸门（M8-B8）**：在 `samples/all-features.md` 与用户长文（含 GFM 表格行、行内 code、链接）上，开发期点击诊断 HUD 满足：红（点击）与蓝（`posAtCoords`）偏差 ≤2px；绿（`selection.head`）与蓝一致。未过闸门**不得**进入 M8-B7 用户签收与 M8-C1 widget 开发。
+
 ### 4.2 显露判定（reveal）
 
 ```
@@ -190,8 +208,8 @@ function computeRevealRanges(state, granularity):
     return mergeOverlaps(ranges)
 ```
 
-- 默认 `granularity = 'block'`（D12 的缓解措施），设置项键 `mda-live-reveal`，可选 `block` / `nearby` / `never`。
-- `never` 时块 widget 仍可就地编辑（表格单元格、任务复选框），纯文本标记不再显露 —— 这是最接近竞品观感的档位。
+- 默认 `granularity = 'never'`（D15；最接近竞品观感）。设置项键 `mda-live-reveal`，可选 `block` / `nearby` / `never`（**后两者仅供开发调试**）。
+- `never` 时纯文本标记始终隐藏；块级编辑走 **widget 聚焦** 或 **源码模式（`Ctrl+E`）**。
 - **重建时机**：doc 变更、选区变更、模式切换、设置变更。**不在滚动时重建**（参考实现踩过的坑：滚动时重建会中断移动端惯性滚动，且引起视口抖动）。
 
 ### 4.3 批注行识别与隐藏
@@ -294,6 +312,18 @@ locate:     批注面板 → view.dispatch({ selection, effects: scrollIntoView 
 - 色条从「渲染后内联 style」改为 **CM6 gutter + 行装饰**：不再受重渲影响，且在 `source` 模式同样可用（现状只有预览有色条）。
 - 段落归属仍由 core `parseAnnotations` 计算（禁止在渲染层重实现，禁止事项 5）。
 
+### 4.9 开发配置（`editor/config.js`）
+
+| 键 | localStorage（非 RELEASE） | 开发默认 | 发布值（`MDA_EDITOR_RELEASE=1`） |
+|----|---------------------------|----------|----------------------------------|
+| `clickDebug` | `mda-editor-debug-click` | `true` | `false` |
+| `blockWidgets` | `mda-editor-block-widgets` | `false` | `false` |
+| `logDecoBuild` | `mda-editor-log-deco` | `false` | `false` |
+
+- 点击诊断：红/蓝/绿三色点 + HUD（`click-debug.js`）；**仅** `clickDebug=true` 时挂载。
+- 发布：`npm run build:editor` 前设 `MDA_EDITOR_RELEASE=1`，或 CI 发布流水线注入；产物内调试扩展不生效。
+- **禁止**在 `app.js` / 装饰层散落 `localStorage` 调试键；新增开关先进 `config.js`。
+
 ---
 
 ## 5. GUI 规格
@@ -390,6 +420,16 @@ locate:     批注面板 → view.dispatch({ selection, effects: scrollIntoView 
 | 解释 / 总结 | 选区 | **只读浮层**（不改文档） | 复制 / 关闭 |
 | 文档总结（F17） | 全文（剔除批注行） | 侧栏「要点」tab 流式 | 复制 / 插入到文档 |
 
+**F17 侧栏视觉**（对标 `competitor-product/ai-summary-tab.png`）：
+
+| 区域 | 规格 |
+|------|------|
+| Tab | 与「目录」并列；选中态下划线 `var(--accent)` |
+| 工具条 | 生成完成后显示「复制」；生成中显示「停止」 |
+| 正文 | 首段总述（`summary-lead`）+ 无序列表要点；流式追加 |
+| 脚注 | `12px` 浅灰「内容由 AI 生成」类文案（i18n） |
+| 空态 | 未生成时：说明文案 +「生成要点」主按钮（Pro 门禁） |
+
 - **伴写触发时机（P0 开放问题 4 定稿）**：**显式触发为默认**（`Ctrl+Shift+Space` 或编辑栏 AI ▾ → 伴写）；设置项 `mda-ai-companion`（`manual` / `idle600`）允许改为「停止输入 600ms 自动建议」，默认 `manual`，避免频繁请求与费用意外。
 - 所有会改文档的动作**采纳前不写入 doc**：待确认区与 diff 均以装饰呈现，用户采纳才 dispatch transaction（一次 transaction = 一个 undo 单元）。
 - **AI 不得触碰批注行**：请求前用 `findAnnotationLines` 把批注行从上下文中剔除；写入时若目标范围含批注行则拒绝并提示（F14-5）。
@@ -414,6 +454,221 @@ locate:     批注面板 → view.dispatch({ selection, effects: scrollIntoView 
 | 二进制/非 UTF-8 | 解码失败或含 NUL | 拒绝打开并提示，不进入编辑态 |
 
 阈值定为设置项默认值（键 `mda-large-file-threshold`），可调但有下限保护。
+
+### 5.9 AI 模型设置（F18 · 参照 Cherry Studio）
+
+> **交互参考**：Cherry Studio 设置页 —— Provider 区（API Key、API 地址）、模型列表区（分组展示、每项启停开关、「获取模型列表」「添加」「检测」）。MDA 在**设置 → Pro** 面板内实现同等能力，**不**做多 Provider 侧边栏（仍用 OpenAI / DeepSeek / Custom 下拉）。
+
+#### 5.9.1 布局
+
+```
+┌─ 设置 → Pro ─────────────────────────────────────────┐
+│ [License 区 — 沿用 M7]                                │
+├──────────────────────────────────────────────────────┤
+│ Provider ▾ [OpenAI|DeepSeek|Custom]     [启用 ◉━━]   │  ← F18-7 Provider 级开关
+│ API Key    [••••••••••]  [👁] [检测连接]              │  ← F18-6（检测默认模型）
+│ API 地址   [https://api.openai.com/v1]               │
+├──────────────────────────────────────────────────────┤
+│ 模型  [获取模型列表] [+ 添加]  [🔍 筛选]              │
+│ ┌────────────────────────────────────────────────┐   │
+│ │ ☑ gpt-4o-mini          ★默认  [检测]           │   │
+│ │ ☑ deepseek-chat              [检测]           │   │
+│ │ ☐ my-old-model         [删除]                  │   │  ← 手动项可删
+│ └────────────────────────────────────────────────┘   │
+│ 默认模型 ▾  （仅列出已启用项）                        │  ← F18-2
+└──────────────────────────────────────────────────────┘
+```
+
+- Provider 切换时：加载该 Provider 的 `baseUrl`、模型列表、默认模型；**列表按 Provider 分桶存储**（切换不回写另一 Provider 的列表）。
+- 「检测连接」与行内「检测」：均调用同一 `testAiModel` IPC；进行中按钮 disabled + 加载态（NF-22：互斥、15s 超时）。
+- 获取列表失败：toast 脱敏错误，**不清空**已有列表（AC-31）。
+
+#### 5.9.2 数据模型（`userData/ai-settings.json`）
+
+```typescript
+interface AiModelEntry {
+  id: string;              // model id，如 "gpt-4o-mini"
+  label?: string;          // 可选显示名（获取列表时填充）
+  enabled: boolean;
+  source: 'preset' | 'fetched' | 'manual';
+}
+
+interface AiSettingsV2 {
+  provider: 'openai' | 'deepseek' | 'custom';
+  baseUrl: string;
+  providerEnabled: boolean;   // F18-7，默认 true
+  apiKeyEnc?: EncBlob;        // 沿用 M7 safeStorage
+  defaultModelId: string;
+  models: AiModelEntry[];
+}
+```
+
+**迁移（F18-8）**：读取旧版仅有 `model: string` 时 → `models = [{ id: model, enabled: true, source: 'preset' }]`，`defaultModelId = model`。
+
+#### 5.9.3 IPC / `window.mdaAPI`
+
+| API | 说明 |
+|-----|------|
+| `getAiSettings()` | 返回公开字段 + `models[]` + `defaultModelId` + `providerEnabled`（无 Key 明文） |
+| `saveAiSettings(patch)` | 保存 provider/baseUrl/models/defaultModelId/providerEnabled；`apiKey` 可选 |
+| `fetchAiModels()` | `GET {baseUrl}/models`（OpenAI 兼容）；合并入列表；返回 `{ success, added, total }` |
+| `testAiModel({ modelId? })` | 最小 chat 探测；默认测 `defaultModelId`；返回 `{ success, latencyMs?, error? }` |
+
+main 进程实现：`src/pro/ai/provider.js` 增 `listModels(baseUrl, apiKey)`、`testChat(...)`；`settings.js` 负责合并列表与迁移。
+
+#### 5.9.4 与 AI 动作联动（F18-9）
+
+`checkAiAccess()` 扩展校验链：
+
+1. Pro License 有效
+2. `providerEnabled === true`
+3. `hasKey === true`
+4. `models.filter(m => m.enabled).length >= 1`
+5. `defaultModelId` 指向已启用项
+
+任一失败：显示对应 i18n 提示（含「去设置」链接），**零网络请求**。
+
+#### 5.9.5 获取列表 URL 规则（H16）
+
+| baseUrl 示例 | models 端点 |
+|--------------|-------------|
+| `https://api.openai.com/v1` | `GET https://api.openai.com/v1/models` |
+| `https://ai-kas.kso.net/codeplan/v1` | `GET …/v1/models` |
+| 已含 `/chat/completions` | 回退到去掉 `/chat/completions` 后拼 `/models` |
+
+响应解析：取 `data[].id`（OpenAI 标准）；非标准 JSON 则失败并提示「响应格式不兼容，请手动添加」。
+
+### 5.10 竞品交互风格（WPS 365 文档）
+
+> **完整对照表与截图索引**：[`docs/competitor-product/README.md`](competitor-product/README.md)（本目录 11 张截图 + 待补清单）。  
+> **原则**：视觉与鼠标路径对齐竞品；能力边界服从 P0「明确不做」与 CM6 源码即真源（P1-D12）。
+
+#### 5.10.1 编辑栏视觉（F11-6）
+
+- **布局**：白底横条、细底边 `1px solid var(--border)`；图标 20px + 8px 间距；主操作「插入 ▾」使用 `btn-primary`（对标 WPS 绿色 `+ 插入`）。
+- **AI 入口**：工具栏最右侧 `AI ▾`，左侧带 sparkle SVG（不用硬编码 emoji）；点击**下拉菜单**（**非** WPS 右侧宽侧栏，见竞品 README §7）。
+- **状态**：当前段落格式、B/I/S/code 激活态用 `aria-pressed` + 背景高亮 `var(--tb-active)`。
+
+#### 5.10.2 代码块 widget（S13）
+
+对标 `competitor-product/code-block-toolbar.png`、`code-block-widget.png`：
+
+| 区域 | 规格 |
+|------|------|
+| 容器 | `border-radius: 8px`；背景 `var(--code-block-bg)`；选中 `outline: 2px solid var(--accent)` |
+| 顶栏 | 高 36px；左：语言 `<select>`；右：`复制`（必做）、`设置`（仅语言，可选） |
+| 行号 | 左列宽 40px，`color: var(--line-number)`，`user-select: none` |
+| 内容 | `hljs` + 与 CM6 同族等宽字体；块内 `overflow: auto`，最大高度默认无限制（「固定高度」为 P2+ 可选） |
+| 浮动钮 | 悬停显示：左上块菜单（移动/删除）；右上 **AI**（Pro，上下文=围栏文本） |
+| 聚焦 | 块 widget 顶栏「代码」/ 双击公式 → 微编辑；**纯文本行内标记始终隐藏**（D15） |
+
+#### 5.10.3 Mermaid widget（S17）
+
+对标 `competitor-product/mermaid-block-toolbar.png`：
+
+| 顶栏按钮 | 行为 |
+|----------|------|
+| 标签 `Mermaid` | 只读，显示子类型 |
+| 问问 AI | Pro；自然语言改图 |
+| 模板 | 替换为预设围栏模板 |
+| 代码 | 打开微编辑浮层（D4；**取代**块体双击微编辑） |
+| ~~分屏~~ | **不做** |
+| 预览 | 内联渲染态（默认） |
+
+- 图形容器：白/深底自适应；节点浅蓝填充。
+- **手势（D14）**：单击选中 + 四角手柄；**双击块体** `openZoom`；详见 §5.10.9。
+
+#### 5.10.4 图片 widget（S22）
+
+对标 **`competitor-product/image-block-selected.png`**。
+
+| 元素 | 规格 |
+|------|------|
+| 选中框 | `outline: 2px solid var(--accent)`；四角实心圆手柄（8px） |
+| 浮动工具条 | 块上方居中：询问 AI（Pro）· 替换 · alt · 删除 |
+| 单击块体 | 选中（不进全屏） |
+| 双击块体 | `openZoom`（同 2.0 遮罩） |
+| 双击手柄 | 还原设置默认比例（M6b-4） |
+
+详见 §5.10.9。
+
+#### 5.10.5 行内 code 与引用（S5 / S11）
+
+- **行内 code**（`doc-outline-inline-code.png`）：`background: var(--inline-code-bg)`；`border-radius: 4px`；`padding: 1px 5px`；`font-size: 0.9em`。
+- **引用**（向高亮块借鉴）：左竖线 `3px solid var(--accent)` + 浅底 `var(--blockquote-bg)`（**不**引入高亮块语法）。
+
+#### 5.10.6 选区浮动条与右键（F11-3 / F11-4）
+
+- 浮动条：非空**文本**选区 120ms 后出现；**图片/Mermaid 选中态**使用块顶浮动条（`image-block-selected.png`），不与文本选区浮动条叠开。
+- 右键：AI 项在分隔线下方独立一组，带 sparkle 图标（`empty-doc-context-menu.png`）。
+
+#### 5.10.9 图片 / 流程图：选中态与全屏（D14）
+
+> **2.0 → 3.0 变更**：2.0 预览内对图片/Mermaid **单击**（~280ms 去抖）即 `openZoom`；3.0 **单击改为选中**，**双击块体**才 `openZoom`。全屏遮罩内部行为**不变**（滚轮、平移、复制、Esc、深色 Mermaid 底等，见 AGENTS §4g / M6b）。
+
+| 手势 | 目标 | 2.0 | 3.0（CM6 widget） |
+|------|------|-----|-------------------|
+| 单击块体 | 图片 / Mermaid | 延迟后 **openZoom** | **选中**：蓝框 + 四角手柄 + 浮动条；`dataset.mediaSelected=1` |
+| 单击空白 / 它块 | — | — | 取消选中 |
+| 拖拽角点 | 图片 / Mermaid | 右下角单手柄（2.0） | **四角**均可拖（视觉对标 `image-block-selected.png`；逻辑复用 `startPreviewResize`） |
+| **双击块体** | 图片 / Mermaid | 图片：还原比例；Mermaid：还原比例 | **`openZoom`**（2.0 单击行为迁移到此） |
+| 双击角点 / 手柄 | 图片 / Mermaid | 还原设置默认比例 | **不变**（M6b-4） |
+| 拖动中 | — | `suppressZoomUntil` 抑制误触 zoom | 选中态下不触发 zoom；拖动结束不自动进全屏 |
+
+**实现要点（M8-C1）**：
+
+1. 复用 `openZoom` / `ensureImageResizeChrome` / `ensureMermaidResizeChrome` 自 2.0 `app.js`，迁入 `view/widgets/image.js`、`mermaid.js`。
+2. 删除（或 `#ifdef` 3.0）单击 `setTimeout(280ms) → openZoom`；改为 `click → selectMediaWidget`。
+3. `dblclick` on body：`preventDefault` + `openZoom(...)`；取消 2.0 在 holder/img 上 `dblclick → restoreMediaToSettingsScale`（还原仅保留在手柄 double-click）。
+4. Mermaid **源码微编辑**：仅 `顶栏「代码」` / 微编辑浮层（D4 修订）；与 zoom 解耦。
+5. 帮助/i18n 增一条：「图片与流程图：单击选中调整大小，双击全屏查看」。
+
+```javascript
+// 伪代码：媒体 widget 点击路由
+onMediaPointerDown(target) {
+  if (target.closest('.media-resize-handle')) return; // 交给 resize
+  if (target.closest('.media-float-toolbar')) return;
+}
+onMediaClick(e) {
+  if (e.detail >= 2) return; // 留给 dblclick
+  selectWidget(e.currentTarget);
+}
+onMediaDblClick(e) {
+  if (e.target.closest('.media-resize-handle')) return;
+  openZoom(collectZoomPayload(e.currentTarget)); // 同 2.0
+}
+```
+
+#### 5.10.7 AI 入口差异说明（必读）
+
+| 竞品 | MDA |
+|------|-----|
+| 顶栏 AI → 右侧大侧栏（`ai-side-panel.png`） | 顶栏 AI → **下拉动作菜单** |
+| `双击 Ctrl` 唤 AI | `/` 插入 + `Ctrl+Shift+Space` 伴写 |
+| 块内「问问 AI」 | ✅ 图片/Mermaid 选中浮动条 + 代码/Mermaid 顶栏 |
+| 侧栏「要点」完整态 | ✅ 对标 `ai-summary-tab.png`（§5.10.11） |
+
+#### 5.10.8 CSS 令牌（`editor-widgets.css` 建议）
+
+```css
+--widget-radius: 8px;
+--widget-border: 1px solid var(--border);
+--widget-toolbar-h: 36px;
+--inline-code-bg: #f3f4f6;      /* light；dark 模式另定 */
+--blockquote-bg: #f8fafc;
+--accent: #2563eb;
+--tb-active: rgba(37, 99, 235, 0.12);
+```
+
+#### 5.10.11「要点」tab 完整态（F17）
+
+对标 `competitor-product/ai-summary-tab.png`：
+
+- **容器**：预览左侧轨，与大纲「目录」tab 共用 `outline-panel.js` 宽度与折叠行为。
+- **Tab**：`目录` | `要点`；选中 tab 底部 2px 主色下划线；切换不丢失另一侧已生成内容（会话内缓存）。
+- **生成结果布局**：顶部工具条（复制）→ 一段总述（14px，行高 1.6）→ `ul` 圆点列表（每条 1–2 行）→ 底部 `12px` 灰色 AI 免责声明。
+- **流式**：生成中在列表末尾显示闪烁光标或骨架；`Esc` /「停止」取消请求。
+- **不写回**：展示区与文档隔离；仅「插入到文档」dispatch transaction。
 
 ---
 
@@ -482,6 +737,14 @@ locate:     批注面板 → view.dispatch({ selection, effects: scrollIntoView 
 | E82 | Free 用户从四处入口触发 AI | 四处一致：提示升级、零请求、不泄漏 Key | AC-30 |
 | E83 | AI 润色的选区内含批注行 | 拒绝并提示，或剔除批注行后仅改正文（不改批注） | F14-5 |
 | E84 | AI 流式过程中按 Esc | 请求取消，已插入的待确认内容撤回 | §5.6 |
+| E85 | 获取模型列表返回 401 | toast 脱敏错误；已有列表不变 | AC-31 |
+| E86 | 停用当前默认模型 | 自动切换到下一个已启用项，或强制用户重选默认 | AC-33 |
+| E87 | Provider 级开关关闭时触发 AI | 提示已停用；零请求 | F18-7 |
+| E88 | 检测请求超时（>15s） | 提示超时；按钮恢复可点 | NF-22 / AC-34 |
+| E89 | 图片单击 | 选中态出现，**不**打开 zoom | AC-35 / D14 |
+| E90 | 图片双击块体 | 打开 zoom；与 2.0 遮罩行为一致 | AC-35 |
+| E91 | Mermaid 双击块体 | 打开 zoom（**非**源码微编辑） | D4 / D14 |
+| E92 | 拖动缩放手柄后单击块体 | 不误触全屏（无 2.0 单击 zoom） | MED-1 |
 | E85 | 自定义模板目录不存在 | 仅禁用自定义分组，内置模板可用 | AC-24 |
 | E86 | 新建文档套用模板后 `Ctrl+S` | 走另存为；取消另存为则保持 dirty 不丢内容 | AC-22 / AC-23 |
 
@@ -497,7 +760,7 @@ locate:     批注面板 → view.dispatch({ selection, effects: scrollIntoView 
 | 批注一致性（jest） | `withFreshDisk` + core writer（临时目录真实文件） | 成功与失败两条路径 | AC-19 / E67–E68 |
 | 模板校验（jest） | 14 个模板文件 | 首行 H1、无 `@anno`、无 front matter、可被 `parseAnnotations` 解析 | F15-7 |
 | core 回归（jest） | 现有 core / cli / mcp 测试 | 全部保持通过（core 零改动） | 接口契约 |
-| 人工验收（GUI 硬约束） | IME 长文输入、10 万字符性能、widget 观感逐块对照、导出与公众号复制回归、四处 AI 入口一致性、模式切换手感 | 每 Phase 出口条件；用户实机确认后才推进 | E58、E64–E66、E82–E84 |
+| 人工验收（GUI 硬约束） | IME 长文输入、10 万字符性能、**widget 观感对照竞品 VIS-3–5**、导出与公众号复制回归、四处 AI 入口一致性、**模型设置**、模式切换手感 | 每 Phase 出口条件；用户实机确认后才推进 | E58、E64–E66、E82–E88、VIS |
 
 覆盖率目标：不低于现有基线（Statements ≥ 88%）。装饰视图层（DOM 绑定）不强求单测，靠纯函数层 + 人工验收双保险。
 

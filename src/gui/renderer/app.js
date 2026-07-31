@@ -1,4 +1,4 @@
-﻿// MDA Renderer — Markdown 工作台 GUI
+// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -64,12 +64,440 @@
   var previewPaneEl, previewScrollEl, editorPaneEl, editorEl, panelPaneEl;
   var srcGutterEl, srcHighlightEl, srcFindMarkEl, splitFilesEl, splitLeftEl, splitRightEl, splitOutlineEl;
   var findMatchState = null; // { matches: [{start,end}], index: number }
+  var cm6Editor = null;
+  var cm6HostEl = null;
+  var cm6SearchSession = null;
   var tbEditBtn, tbPanelBtn, tbFilesBtn, tbFileNameEl, addBtn, clearAllBtn;
 
   var MOD_KEY = (navigator.platform || '').toLowerCase().indexOf('mac') >= 0 ? '\u2318' : 'Ctrl+';
 
   function uiT(key, vars) {
     return (window.MDAI18n && window.MDAI18n.t) ? window.MDAI18n.t(key, vars) : key;
+  }
+
+  // ---- CM6 实验编辑面（M8-A5–A8）----
+  function isCm6Enabled() {
+    return !!(window.MDAEditor && window.MDAEditor.isEnabledByPref && window.MDAEditor.isEnabledByPref());
+  }
+
+  /** CM6 偏好已开且 EditorView 已成功挂载（用于 UI 切换，避免隐藏 2.0 编辑面后白屏） */
+  function isCm6Ready() {
+    return isCm6Enabled() && !!cm6Editor;
+  }
+
+  function getEditorTextValue() {
+    if (isCm6Enabled() && cm6Editor) return cm6Editor.getText();
+    return editorEl ? editorEl.value : '';
+  }
+
+  function getEditorSaveText() {
+    if (isCm6Enabled() && cm6Editor) return cm6Editor.getTextForSave();
+    return editorEl ? editorEl.value : '';
+  }
+
+  /** 脏检查：忽略 BOM / 换行风格差异（CM6 模型不含 BOM，且统一 LF） */
+  function normalizeEditorCompareText(text) {
+    if (text == null) return '';
+    var s = String(text);
+    if (s.charCodeAt(0) === 0xfeff) s = s.slice(1);
+    return s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  }
+
+  function setEditorTextValue(text, opts) {
+    opts = opts || {};
+    if (editorEl) {
+      editorEl.value = text == null ? '' : String(text);
+      if (opts.selectionStart != null) {
+        var len = editorEl.value.length;
+        editorEl.selectionStart = Math.min(opts.selectionStart, len);
+        editorEl.selectionEnd = Math.min(opts.selectionEnd != null ? opts.selectionEnd : opts.selectionStart, len);
+      }
+    }
+    if (isCm6Enabled() && cm6Editor) {
+      cm6Editor.setText(text == null ? '' : String(text), {
+        resetHistory: !!opts.resetHistory,
+        keepHistory: opts.keepHistory,
+      });
+    }
+  }
+
+  function syncDirtyFromEditor() {
+    setDirtyState(
+      normalizeEditorCompareText(getEditorTextValue()) !==
+        normalizeEditorCompareText(currentText)
+    );
+  }
+
+  function clearCm6DocumentUi() {
+    document.body.classList.remove('mda-cm6-active');
+    document.body.classList.remove('mda-cm6-doc-open');
+    if (cm6HostEl) cm6HostEl.classList.add('hidden');
+  }
+
+  function toLocalFileUrl(absPath) {
+    if (!absPath) return null;
+    var p = String(absPath).replace(/\\/g, '/');
+    return 'file:///' + encodeURI(p.replace(/^\/+/, ''));
+  }
+
+  function resolveImageUrlForEditor(href) {
+    if (!href) return null;
+    if (/^(https?:|data:|file:)/i.test(href)) return href;
+    if (!currentFilePath || !api.resolvePath) return null;
+    var abs = api.resolvePath(currentFilePath, href);
+    if (!abs) return null;
+    return toLocalFileUrl(abs);
+  }
+
+  function normalizeImageRefForMarkdown(absPath) {
+    if (!absPath) return '';
+    if (!currentFilePath || !api.relativePathFrom) return String(absPath);
+    var rel = api.relativePathFrom(currentFilePath, absPath);
+    if (!rel) return String(absPath);
+    rel = String(rel).replace(/\\/g, '/');
+    if (rel.charAt(0) !== '.' && rel.indexOf('/') >= 0) rel = './' + rel;
+    else if (rel.charAt(0) !== '.' && rel.length) rel = './' + rel;
+    return rel;
+  }
+
+  function pasteClipboardImageToEditor(block, pos) {
+    if (!isCm6Ready() || !window.MDAEditor || !currentFilePath || !api.saveClipboardImageAsset) {
+      uiAlert(uiT('alertOpenDocFirst'));
+      return;
+    }
+    api.saveClipboardImageAsset(currentFilePath).then(function (r) {
+      if (!r || !r.success) {
+        if (r && r.error) uiAlert(uiT('alertPasteImageEmpty'));
+        return;
+      }
+      var href = r.relativePath || normalizeImageRefForMarkdown(r.filePath);
+      var meta = block && block.meta ? block.meta : {};
+      var line = window.MDAEditor.serializeImageMarkdown({
+        alt: meta.alt || '',
+        src: href,
+        title: meta.title || '',
+      });
+      if (!line) return;
+      if (block && block.from != null && block.to != null) {
+        window.MDAEditor.replaceBlockRange(cm6Editor.view, block.from, block.to, line);
+      } else if (pos != null) {
+        window.MDAEditor.insertImageAt(cm6Editor.view, pos, line);
+      }
+      syncDirtyFromEditor();
+    });
+  }
+
+  function refreshCm6Decorations() {
+    if (!isCm6Ready() || !cm6Editor.view) return;
+    try {
+      if (window.MDAEditor && typeof window.MDAEditor.refreshDecorations === 'function') {
+        window.MDAEditor.refreshDecorations(cm6Editor.view);
+        return;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      cm6Editor.view.dispatch({});
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function applyCm6DocumentUi() {
+    if (!isCm6Enabled()) {
+      clearCm6DocumentUi();
+      return;
+    }
+    if (!cm6Editor) initCm6Editor();
+    if (!isCm6Ready()) {
+      clearCm6DocumentUi();
+      return;
+    }
+    document.body.classList.add('mda-cm6-active');
+    var docOpen = docState === 'open' || docState === 'untitled';
+    document.body.classList.toggle('mda-cm6-doc-open', docOpen);
+    if (cm6HostEl) cm6HostEl.classList.toggle('hidden', !docOpen);
+  }
+
+  function initCm6Editor() {
+    if (!isCm6Enabled() || !previewScrollEl || cm6Editor) return;
+    if (!window.MDAEditor) {
+      console.error('[mda-cm6] editor.bundle.js 未加载，已回退 2.0 编辑面');
+      return;
+    }
+    if (!cm6HostEl) {
+      cm6HostEl = document.createElement('div');
+      cm6HostEl.id = 'cm-editor-host';
+      cm6HostEl.className = 'mda-cm6-host hidden';
+      if (previewEl && previewEl.parentNode === previewScrollEl) {
+        previewScrollEl.insertBefore(cm6HostEl, previewEl);
+      } else {
+        previewScrollEl.appendChild(cm6HostEl);
+      }
+    }
+    if (window.MDAEditor.SearchSession && !cm6SearchSession) {
+      cm6SearchSession = new window.MDAEditor.SearchSession();
+    }
+    var mode = window.MDAEditor.MODE_PREVIEW || 'preview';
+    try {
+      cm6Editor = window.MDAEditor.createEditor({
+        parent: cm6HostEl,
+        doc: '',
+        mode: mode,
+        placeholder: uiT('editorPlaceholder'),
+        parseAnnotations: function (text) { return api.parseAnnotations(text); },
+        levelColors: LEVEL_COLORS,
+        levelSeverity: (api && api.levelSeverity) || { critical: 3, major: 2, minor: 1, info: 0 },
+        renderMarkdown: function (text) { return api.renderMarkdown(text); },
+        resolveImageUrl: resolveImageUrlForEditor,
+        onChange: function () {
+          syncDirtyFromEditor();
+          if (previewTimer) clearTimeout(previewTimer);
+          previewTimer = setTimeout(function () {
+            var text = getEditorTextValue();
+            parseAndRender(text, currentFilePath, { cm6Live: true });
+          }, 250);
+        },
+        onOpenLink: function (href) {
+          handleLinkClick(href);
+        },
+        onModeChange: function (next) {
+          editorVisible = next === (window.MDAEditor.MODE_SOURCE || 'source');
+          updateToolbar();
+        },
+        t: uiT,
+        copyText: function (text) {
+          if (api.copyToClipboard) api.copyToClipboard(text);
+        },
+        highlightCode: function (code, lang) {
+          if (!api.highlightSource) return null;
+          var fenced = '```' + (lang || '') + '\n' + code + '\n```';
+          var html = api.highlightSource(fenced);
+          var lines = String(html || '').split('\n');
+          if (lines.length >= 3) return lines.slice(1, -1).join('\n');
+          var m = /<code[^>]*class="[^"]*hljs[^"]*"[^>]*>([\s\S]*?)<\/code>/i.exec(html);
+          return m ? m[1] : null;
+        },
+        onScaleImage: function (img) {
+          var key = img.getAttribute('src') || '';
+          if (key && Object.prototype.hasOwnProperty.call(imageDisplayWidths, key)) {
+            applyImageDisplayWidth(img, imageDisplayWidths[key], { allowOverflow: true });
+            return;
+          }
+          applyDefaultScaleToImage(img);
+        },
+        getSavedDisplayWidth: function (src) {
+          if (src && Object.prototype.hasOwnProperty.call(imageDisplayWidths, src)) {
+            return imageDisplayWidths[src];
+          }
+          return 0;
+        },
+        onStartImageResize: function (img, e) {
+          startPreviewResize(img, 'img', e);
+        },
+        onImageResize: function (img, widthPx) {
+          applyImageDisplayWidth(img, widthPx, { allowOverflow: true });
+        },
+        onImageResizeEnd: function () {
+          if (isCm6Ready() && cm6Editor && cm6Editor.view) {
+            try {
+              cm6Editor.view.requestMeasure();
+              requestAnimationFrame(function () {
+                if (typeof cm6Editor.syncSelectedImageFrame === 'function') {
+                  cm6Editor.syncSelectedImageFrame();
+                }
+              });
+            } catch (_) {
+              /* ignore */
+            }
+          }
+        },
+        onScaleMermaid: function (stage) {
+          var key = stage.getAttribute('data-mermaid-src') || '';
+          if (key && Object.prototype.hasOwnProperty.call(mermaidDisplayWidths, key)) {
+            applyMermaidDisplayWidth(stage, mermaidDisplayWidths[key]);
+            return;
+          }
+          applyDefaultScaleToMermaid(stage);
+        },
+        getSavedMermaidDisplayWidth: function (src) {
+          if (src && Object.prototype.hasOwnProperty.call(mermaidDisplayWidths, src)) {
+            return mermaidDisplayWidths[src];
+          }
+          return 0;
+        },
+        onMermaidResize: function (stage, widthPx) {
+          applyMermaidDisplayWidth(stage, widthPx);
+        },
+        onMermaidResizeEnd: function () {
+          if (isCm6Ready() && cm6Editor && cm6Editor.view) {
+            try {
+              cm6Editor.view.requestMeasure();
+            } catch (_) {
+              /* ignore */
+            }
+          }
+        },
+        onMermaidResizeReset: function (stage) {
+          restoreMediaToSettingsScale(stage, 'mermaid');
+          if (isCm6Ready() && cm6Editor && cm6Editor.view) {
+            try {
+              cm6Editor.view.requestMeasure();
+            } catch (_) {
+              /* ignore */
+            }
+          }
+        },
+        onCopyMermaidImage: function (stage, code) {
+          var svg = stage && stage.querySelector('svg');
+          if (!svg) {
+            showToast(uiT('toastNoCopy'));
+            return;
+          }
+          copyZoomMermaidImage({ mermaidSrc: code || '', svgNode: svg });
+        },
+        onEditMermaidBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          var line = fenceMermaidSource(block.code);
+          var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+          if (!range) return;
+          window.MDAEditor.replaceBlockRange(cm6Editor.view, range.from, range.to, line);
+          syncDirtyFromEditor();
+        },
+        getResizeMaxWidth: function () {
+          return getPreviewMediaDragMaxWidthPx() || 1200;
+        },
+        onDeleteImageBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          window.MDAEditor.deleteImageBlock(cm6Editor.view, block);
+          syncDirtyFromEditor();
+          if (cm6Editor.view) cm6Editor.view.focus();
+        },
+        onReplaceImageBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block || !api.showPickImageDialog) return;
+          api.showPickImageDialog().then(function (r) {
+            if (!r || !r.success || r.canceled || !r.filePath) return;
+            var href = normalizeImageRefForMarkdown(r.filePath);
+            var meta = block.meta || {};
+            var line = window.MDAEditor.serializeImageMarkdown({
+              alt: meta.alt || '',
+              src: href,
+              title: meta.title || '',
+            });
+            if (!line) return;
+            var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+            if (!range) return;
+            window.MDAEditor.replaceBlockRange(cm6Editor.view, range.from, range.to, line);
+            syncDirtyFromEditor();
+          });
+        },
+        onMoveImageBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+          if (!range) return;
+          window.MDAEditor.moveBlockRange(
+            cm6Editor.view,
+            range.from,
+            range.to,
+            block.targetPos
+          );
+          syncDirtyFromEditor();
+        },
+        onDropReplaceImageBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block || !block.target) return;
+          window.MDAEditor.dropReplaceImageBlock(cm6Editor.view, block, block.target);
+          syncDirtyFromEditor();
+        },
+        onPasteImageBlock: function (block) {
+          pasteClipboardImageToEditor(block, null);
+        },
+        onInsertImageAt: function (pos) {
+          pasteClipboardImageToEditor(null, pos);
+        },
+        onOpenZoom: function (payload) {
+          if (payload && payload.node) openZoom(payload.node, payload.opts || {});
+        },
+        onSwitchSource: function (block) {
+          if (!cm6Editor || !window.MDAEditor || !block) return;
+          showEditorPane(true);
+          if (cm6Editor.view) {
+            cm6Editor.view.dispatch({
+              selection: { anchor: block.from, head: block.to },
+              scrollIntoView: true,
+            });
+            cm6Editor.focus();
+          }
+        },
+        renderMermaid: function (src, holder) {
+          var m = getMermaid();
+          if (!m) {
+            holder.textContent = uiT('mermaidMissing');
+            return Promise.resolve();
+          }
+          var id = 'mmd-cm6-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+          try { m.initialize(mermaidInitOptions()); } catch (e) { /* ignore */ }
+          return m.render(id, src).then(function (out) {
+            holder.innerHTML = out.svg;
+            holder.setAttribute('data-mermaid-src', src);
+            if (out.bindFunctions) out.bindFunctions(holder);
+            fixMermaidSvgLayout(holder);
+            tuneMermaidSvgContrast(holder);
+            rememberMermaidNaturalWidth(holder);
+          });
+        },
+        onReadonlyBlocked: function () {
+          uiAlert(uiT('widgetReadonlyBlocked'));
+        },
+      });
+    } catch (err) {
+      console.error('[mda-cm6] createEditor 失败，已回退 2.0 编辑面', err);
+      cm6Editor = null;
+      if (cm6HostEl && cm6HostEl.parentNode) cm6HostEl.parentNode.removeChild(cm6HostEl);
+      cm6HostEl = null;
+      return;
+    }
+    applyCm6DocumentUi();
+  }
+
+  function focusActiveEditor() {
+    if (isCm6Enabled() && cm6Editor) {
+      cm6Editor.focus();
+      return;
+    }
+    if (editorEl) editorEl.focus();
+  }
+
+  function performEditorUndo() {
+    if (isCm6Ready() && cm6Editor && typeof cm6Editor.undo === 'function') {
+      if (cm6Editor.undo()) {
+        syncDirtyFromEditor();
+        return;
+      }
+    }
+    if (editorEl && document.activeElement === editorEl) {
+      try {
+        document.execCommand('undo');
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
+
+  function performEditorRedo() {
+    if (isCm6Ready() && cm6Editor && typeof cm6Editor.redo === 'function') {
+      if (cm6Editor.redo()) {
+        syncDirtyFromEditor();
+        return;
+      }
+    }
+    if (editorEl && document.activeElement === editorEl) {
+      try {
+        document.execCommand('redo');
+      } catch (_) {
+        /* ignore */
+      }
+    }
   }
 
   /** 文本框内的常用编辑快捷键（勿被设置模态的全局拦截吞掉） */
@@ -175,6 +603,8 @@
     api.onMenuTogglePanel(function () { togglePanel(); });
     api.onMenuSave(function () { saveFile(); });
     api.onMenuSaveAs(function () { saveAs(); });
+    api.onMenuUndo(function () { performEditorUndo(); });
+    api.onMenuRedo(function () { performEditorRedo(); });
     api.onMenuNewDocument(function () { newDocument(); });
     api.onMenuOpenFolder(function () { openWorkspaceFolder(); });
     api.onMenuShowHelp(function () { showHelpDialog(); });
@@ -295,11 +725,13 @@
   }
 
   function mountM3Modules() {
+    initCm6Editor();
     assist = window.MDAEditorAssist || null;
     if (window.MDAFindReplace && editorPaneEl) {
       findReplaceUi = window.MDAFindReplace.mount(editorPaneEl, editorEl, function () {
-        setDirtyState(editorEl.value !== currentText);
+        syncDirtyFromEditor();
       }, {
+        searchSession: cm6SearchSession,
         onMatchesChange: function (matches, index, opts) {
           opts = opts || {};
           if (!opts.query) {
@@ -459,8 +891,8 @@
   }
 
   function getSourceText() {
-    if (dirty && editorEl) return editorEl.value;
-    return currentText || (editorEl ? editorEl.value : '');
+    if (dirty) return getEditorTextValue();
+    return currentText || getEditorTextValue();
   }
 
   function mountM4Modules() {
@@ -1256,6 +1688,7 @@
       if (welcomePane) welcomePane.hide();
       if (contentRowEl) contentRowEl.classList.remove('welcome-mode');
     }
+    applyCm6DocumentUi();
     updateToolbar();
     setTitle(currentFilePath);
   }
@@ -1279,21 +1712,33 @@
       if (!ok) return;
       currentFilePath = null;
       currentText = '';
-      editorEl.value = '';
+      setEditorTextValue('', { resetHistory: true });
       annotations = [];
       paragraphs = [];
       selectedAnnotationId = null;
       previewEl.innerHTML = '';
       setDirtyState(false);
       setDocState('untitled');
-      if (shouldAutoOpenEditor() && !editorVisible) showEditorPane(true);
+      if (shouldAutoOpenEditor() && !editorVisible) {
+        if (isCm6Enabled() && cm6Editor) focusActiveEditor();
+        else showEditorPane(true);
+      }
       parseAndRender('', null);
       resetScrollTop();
-      requestAnimationFrame(function () { if (editorVisible) editorEl.focus(); });
+      requestAnimationFrame(function () { if (editorVisible || isCm6Enabled()) focusActiveEditor(); });
     });
   }
 
   function showEditorPane(visible) {
+    if (isCm6Ready() && window.MDAEditor) {
+      editorVisible = !!visible;
+      cm6Editor.setMode(editorVisible
+        ? (window.MDAEditor.MODE_SOURCE || 'source')
+        : (window.MDAEditor.MODE_PREVIEW || 'preview'));
+      if (editorVisible) focusActiveEditor();
+      updateToolbar();
+      return;
+    }
     editorVisible = !!visible;
     if (editorVisible) {
       editorPaneEl.classList.add('visible');
@@ -1561,7 +2006,7 @@
   function clearOpenDocument() {
     currentFilePath = null;
     currentText = '';
-    editorEl.value = '';
+    setEditorTextValue('', { resetHistory: true });
     annotations = [];
     paragraphs = [];
     selectedAnnotationId = null;
@@ -1960,7 +2405,7 @@
     function done() {
       if (typeof onSuccess === 'function') onSuccess();
     }
-    var content = editorEl.value;
+    var content = getEditorSaveText();
     var bad = (api.findMalformedAnnotations && api.findMalformedAnnotations(content)) || [];
     if (quiet && bad.length) {
       showToast(uiT('toastAutosaveSkipMalformed'));
@@ -2108,6 +2553,7 @@
 
     // 编辑器输入 → 按与磁盘内容是否一致决定 dirty（Ctrl+Z 撤回原点后自动取消标脏）
     editorEl.addEventListener('input', function () {
+      if (isCm6Ready()) return;
       setDirtyState(editorEl.value !== currentText);
       refreshEditorDecorations();
       applyPinnedEditorScroll();
@@ -2170,6 +2616,7 @@
 
     // 预览区点击：链接拦截默认导航；段落点击定位批注（拖选文字时不触发）
     if (previewScrollEl) previewScrollEl.addEventListener('click', function (e) {
+      if (isCm6Ready()) return;
       if (previewPointer.dragged) return;
       // 大纲在预览栏内，其按钮也带 data-line，须排除
       if (e.target.closest && e.target.closest('#outline-host, .mda-outline-panel, #outline-expand-rail, #outline-float-toggle, .mda-outline-expand-tab')) return;
@@ -2276,7 +2723,7 @@
 
   function rerenderPreview(opts) {
     opts = opts || {};
-    if (docState === 'welcome' && !currentText && !(editorEl && editorEl.value)) return;
+    if (docState === 'welcome' && !currentText && !getEditorTextValue()) return;
     if (opts.preserveScroll) {
       opts.savedScroll = captureViewScroll();
     }
@@ -2285,7 +2732,7 @@
 
   // 预览源：有未保存编辑时以编辑器缓冲为准，否则用磁盘内容
   function getPreviewSource() {
-    return dirty ? editorEl.value : currentText;
+    return dirty ? getEditorTextValue() : currentText;
   }
 
   // ---- mermaid ----
@@ -2774,6 +3221,20 @@
 
   function toggleEditor() {
     if (docState === 'welcome') { uiAlert(uiT('alertNewOrOpen')); return; }
+    if (isCm6Ready() && window.MDAEditor) {
+      editorVisible = !editorVisible;
+      if (editorVisible) {
+        setEditorDismissed(false);
+        if (!dirty) setEditorTextValue(currentText);
+        cm6Editor.setMode(window.MDAEditor.MODE_SOURCE || 'source');
+      } else {
+        setEditorDismissed(true);
+        cm6Editor.setMode(window.MDAEditor.MODE_PREVIEW || 'preview');
+      }
+      focusActiveEditor();
+      updateToolbar();
+      return;
+    }
     editorVisible = !editorVisible;
     if (editorVisible) {
       setEditorDismissed(false);
@@ -3472,22 +3933,31 @@
     var result = await api.readFile(filePath);
     if (!result.success) { uiAlert(uiT('alertOpenFail', { error: result.error })); return; }
     currentFilePath = filePath;
-    currentText = result.content;
     setDocState('open');
+    setEditorTextValue(result.content, {
+      resetHistory: true,
+      selectionStart: scrollToTop ? 0 : (savedScroll ? savedScroll.selStart : undefined),
+      selectionEnd: scrollToTop ? 0 : (savedScroll ? savedScroll.selEnd : undefined),
+    });
+    currentText = isCm6Ready() ? getEditorTextValue() : result.content;
     setDirtyState(false);
-    editorEl.value = result.content;
-    if (scrollToTop) {
-      editorEl.selectionStart = editorEl.selectionEnd = 0;
-    } else if (savedScroll) {
-      var len = result.content.length;
-      editorEl.selectionStart = Math.min(savedScroll.selStart, len);
-      editorEl.selectionEnd = Math.min(savedScroll.selEnd, len);
-    }
-    // 用户手动收起编辑栏后，切换文档保持收起；否则默认展开（Ctrl+E 可切换）
-    if (shouldAutoOpenEditor() && !editorVisible) showEditorPane(true);
-    else if (editorVisible) refreshEditorDecorations();
+    // CM6：默认预览模式；2.0：展开左侧源码栏
+    if (shouldAutoOpenEditor() && !editorVisible) {
+      if (isCm6Enabled() && cm6Editor) {
+        cm6Editor.setMode(window.MDAEditor.MODE_PREVIEW || 'preview');
+        focusActiveEditor();
+      } else {
+        showEditorPane(true);
+      }
+    } else if (editorVisible && !isCm6Enabled()) refreshEditorDecorations();
     setTitle(filePath);
     parseAndRender(result.content, filePath, { selectAnnoId: opts.selectAnnoId || null });
+    if (isCm6Ready()) {
+      requestAnimationFrame(function () {
+        refreshCm6Decorations();
+        requestAnimationFrame(refreshCm6Decorations);
+      });
+    }
     updateToolbar();
     if (api.addRecentFile && allowAddRecent) {
       api.addRecentFile(filePath).then(function () { refreshWelcomeRecents(); });
@@ -3496,7 +3966,7 @@
     if (scrollToTop) {
       resetScrollTop();
       requestAnimationFrame(resetScrollTop);
-    } else if (savedScroll) {
+    } else if (savedScroll && !isCm6Enabled()) {
       editorEl.scrollTop = savedScroll.editorTop;
       editorEl.scrollLeft = savedScroll.editorLeft;
       if (srcGutterEl) srcGutterEl.scrollTop = savedScroll.gutterTop;
@@ -3506,6 +3976,8 @@
         hp.scrollLeft = savedScroll.editorLeft;
       }
       if (previewScrollEl) previewScrollEl.scrollTop = savedScroll.previewTop;
+    } else if (savedScroll && previewScrollEl) {
+      previewScrollEl.scrollTop = savedScroll.previewTop;
     }
   }
 
@@ -3545,7 +4017,9 @@
     }
     buildTagFilters();
     updateOutline(text);
-    renderMarkdownContent(text, opts);
+    if (!isCm6Ready() || opts.forceHtmlPreview) {
+      renderMarkdownContent(text, opts);
+    }
     renderPanel();
   }
 
@@ -4575,9 +5049,27 @@
   var MEDIA_DRAG_MIN_PX = 80;
 
   function getPreviewMediaDragMaxWidthPx() {
-    return (previewEl && previewEl.clientWidth)
-      ? Math.max(MEDIA_DRAG_MIN_PX, previewEl.clientWidth - 32)
+    if (isCm6Ready() && cm6HostEl) {
+      var colW = getCm6TextColumnWidthPx(null);
+      if (colW > 0) return colW;
+    }
+    var host = previewEl;
+    return (host && host.clientWidth)
+      ? Math.max(MEDIA_DRAG_MIN_PX, host.clientWidth - 32)
       : 0;
+  }
+
+  /** CM6 编辑区正文栏宽（与 .cm-content 内文字同宽，竞品默认铺满） */
+  function getCm6TextColumnWidthPx(img) {
+    var content = img && img.closest ? img.closest('.cm-content') : null;
+    if (!content && cm6HostEl) {
+      content = cm6HostEl.querySelector('.cm-content');
+    }
+    if (!content) return 0;
+    var style = window.getComputedStyle(content);
+    var pl = parseFloat(style.paddingLeft) || 0;
+    var pr = parseFloat(style.paddingRight) || 0;
+    return Math.max(MEDIA_DRAG_MIN_PX, Math.round(content.clientWidth - pl - pr));
   }
 
   function normalizeMediaDefaultWidthPref(raw) {
@@ -4604,6 +5096,36 @@
     return 'auto';
   }
   mediaDefaultWidthPref = readMediaDefaultWidthPref();
+
+  var liveRevealPref = 'never';
+
+  function readLiveRevealPref() {
+    try {
+      var v = localStorage.getItem('mda-live-reveal');
+      if (v === 'nearby' || v === 'never' || v === 'block') return v;
+    } catch (e) { /* ignore */ }
+    return 'never';
+  }
+
+  function liveRevealLabel(mode) {
+    if (mode === 'nearby') return uiT('settingsLiveRevealNearby');
+    if (mode === 'never') return uiT('settingsLiveRevealNever');
+    return uiT('settingsLiveRevealBlock');
+  }
+
+  function applyLiveRevealPref(mode, opts) {
+    opts = opts || {};
+    var next = String(mode || 'block');
+    if (['block', 'nearby', 'never'].indexOf(next) < 0) next = 'block';
+    liveRevealPref = next;
+    try { localStorage.setItem('mda-live-reveal', next); } catch (e) { /* ignore */ }
+    if (isCm6Enabled() && cm6Editor && cm6Editor.view) {
+      try { cm6Editor.view.dispatch({}); } catch (e) { /* ignore */ }
+    }
+    if (opts.toast) showToast(uiT('toastLiveRevealOn', { mode: liveRevealLabel(next) }));
+  }
+
+  liveRevealPref = readLiveRevealPref();
 
   function applyMediaDefaultWidthPref(mode, opts) {
     opts = opts || {};
@@ -4650,8 +5172,13 @@
     return natural;
   }
 
-  /** 「自动」基准宽 = min(固有像素, 预览可拖上限) */
+  /** 「自动」基准宽 = CM6 文字栏宽；经典预览 = min(固有像素, 可拖上限) */
   function getMermaidAutoWidthPx(holder) {
+    var inCm6 = !!(holder && holder.closest && holder.closest('.mda-cm-mermaid-frame'));
+    if (inCm6) {
+      var colW = getCm6TextColumnWidthPx(holder);
+      if (colW > 0) return colW;
+    }
     var natural = parseFloat(holder.getAttribute('data-mda-natural-width') || '0');
     if (!(natural > 0)) natural = rememberMermaidNaturalWidth(holder);
     var maxW = getPreviewMediaDragMaxWidthPx();
@@ -4660,6 +5187,11 @@
   }
 
   function getImageAutoWidthPx(img) {
+    var inCm6 = !!(img && img.closest && img.closest('.mda-cm-image-frame'));
+    if (inCm6) {
+      var colW = getCm6TextColumnWidthPx(img);
+      if (colW > 0) return colW;
+    }
     var nw = img.naturalWidth || 0;
     if (!(nw > 0)) {
       var stored = parseFloat(img.getAttribute('data-mda-natural-width') || '0');
@@ -4684,7 +5216,8 @@
 
   function applyDefaultScaleToMermaid(holder) {
     var scale = getMediaScaleFactor();
-    if (scale === 1) {
+    var inCm6 = !!(holder && holder.closest && holder.closest('.mda-cm-mermaid-frame'));
+    if (scale === 1 && !inCm6) {
       resetMermaidToIntrinsic(holder);
       return;
     }
@@ -4695,14 +5228,16 @@
 
   function applyDefaultScaleToImage(img) {
     var scale = getMediaScaleFactor();
-    if (scale === 1) {
-      resetImageToIntrinsic(img);
-      return;
-    }
+    var inCm6 = !!(img && img.closest && img.closest('.mda-cm-image-frame'));
     function go() {
       var autoW = getImageAutoWidthPx(img);
+      if (!(autoW > 0)) return;
+      if (scale === 1 && !inCm6) {
+        resetImageToIntrinsic(img);
+        return;
+      }
       var w = scaledWidthFromAuto(autoW, scale, 16);
-      if (w > 0) applyImageDisplayWidth(img, w, { skipRemember: true });
+      if (w > 0) applyImageDisplayWidth(img, w, { skipRemember: true, allowOverflow: inCm6 });
     }
     if (img.complete && img.naturalWidth) go();
     else img.addEventListener('load', go, { once: true });
@@ -4713,12 +5248,53 @@
     var w = Math.round(widthPx);
     if (!img || !(w > 16)) return;
     img.style.width = w + 'px';
-    img.style.maxWidth = '100%';
+    img.style.maxWidth = opts.allowOverflow ? 'none' : '100%';
     img.style.height = 'auto';
     img.setAttribute('data-mda-display-width', String(w));
+    syncCm6ImageFrameLayout(img, opts);
     if (!opts.skipRemember) {
       var key = img.getAttribute('src') || '';
       if (key) imageDisplayWidths[key] = w;
+    }
+  }
+
+  /** CM6 图片块：蓝框容器须与 img 同宽 */
+  function syncCm6ImageFrameLayout(img, opts) {
+    opts = opts || {};
+    if (!img) return;
+    var frame = img.closest('.mda-cm-image-frame');
+    if (!frame) return;
+    var inner = frame.querySelector('.mda-cm-image-inner');
+    var w = parseInt(img.getAttribute('data-mda-display-width') || '', 10);
+    if (!(w > 0)) {
+      w = Math.round(img.getBoundingClientRect().width || img.clientWidth || 0);
+    }
+    var sized = opts.allowOverflow || img.hasAttribute('data-mda-display-width');
+    if (!(w > 0) && !sized) {
+      frame.style.width = '';
+      if (inner) inner.style.width = '';
+      frame.classList.remove('mda-cm-image-sized');
+      if (inner) inner.classList.remove('mda-cm-image-sized');
+      frame.style.maxWidth = '';
+      if (inner) inner.style.maxWidth = '';
+      img.style.maxWidth = '100%';
+      return;
+    }
+    if (!(w > 0)) return;
+    frame.style.width = w + 'px';
+    if (inner) inner.style.width = w + 'px';
+    if (sized) {
+      frame.classList.add('mda-cm-image-sized');
+      if (inner) inner.classList.add('mda-cm-image-sized');
+      frame.style.maxWidth = 'none';
+      if (inner) inner.style.maxWidth = 'none';
+      img.style.maxWidth = 'none';
+    } else {
+      frame.classList.remove('mda-cm-image-sized');
+      if (inner) inner.classList.remove('mda-cm-image-sized');
+      frame.style.maxWidth = '';
+      if (inner) inner.style.maxWidth = '';
+      img.style.maxWidth = '100%';
     }
   }
 
@@ -4741,6 +5317,31 @@
       var key = holder.getAttribute('data-mermaid-src') || '';
       if (key) mermaidDisplayWidths[key] = w;
     }
+    syncCm6MermaidFrameLayout(holder);
+  }
+
+  /** CM6 Mermaid 块：蓝框容器须与 stage 同宽 */
+  function syncCm6MermaidFrameLayout(holder) {
+    if (!holder) return;
+    var frame = holder.closest('.mda-cm-mermaid-frame');
+    if (!frame) return;
+    var w = parseInt(holder.getAttribute('data-mda-display-width') || '', 10);
+    if (!(w > 0)) {
+      w = Math.round(holder.getBoundingClientRect().width || holder.clientWidth || 0);
+    }
+    if (!(w > 0)) return;
+    frame.style.width = w + 'px';
+    if (holder.hasAttribute('data-mda-display-width')) {
+      frame.classList.add('mda-cm-mermaid-sized');
+      holder.classList.add('mda-cm-mermaid-sized');
+      frame.style.maxWidth = 'none';
+      holder.style.maxWidth = 'none';
+    } else {
+      frame.classList.remove('mda-cm-mermaid-sized');
+      holder.classList.remove('mda-cm-mermaid-sized');
+      frame.style.maxWidth = '';
+      holder.style.maxWidth = '100%';
+    }
   }
 
   function resetMermaidToIntrinsic(holder) {
@@ -4755,6 +5356,7 @@
       svg.style.height = 'auto';
       normalizeMermaidSvgIntrinsicSize(svg);
     }
+    syncCm6MermaidFrameLayout(holder);
   }
 
   function resetImageToIntrinsic(img) {
@@ -4763,24 +5365,46 @@
     img.style.maxWidth = '100%';
     img.style.height = 'auto';
     img.removeAttribute('data-mda-display-width');
+    syncCm6ImageFrameLayout(img, {});
   }
 
   function reapplyMediaDefaultWidths() {
-    if (!previewEl) return;
-    var holders = previewEl.querySelectorAll('.mda-mermaid');
-    for (var i = 0; i < holders.length; i++) {
-      var h = holders[i];
-      var mKey = h.getAttribute('data-mermaid-src') || '';
-      if (mKey && Object.prototype.hasOwnProperty.call(mermaidDisplayWidths, mKey)) continue;
-      applyDefaultScaleToMermaid(h);
+    function reapplyMermaidsInRoot(root) {
+      if (!root) return;
+      var holders = root.querySelectorAll('.mda-cm-mermaid-stage.mda-mermaid, .mda-mermaid');
+      for (var i = 0; i < holders.length; i++) {
+        var h = holders[i];
+        var mKey = h.getAttribute('data-mermaid-src') || '';
+        if (mKey && Object.prototype.hasOwnProperty.call(mermaidDisplayWidths, mKey)) continue;
+        applyDefaultScaleToMermaid(h);
+      }
+    }
+    function reapplyInRoot(root) {
+      if (!root) return;
+      var imgs = root.querySelectorAll('img');
+      for (var j = 0; j < imgs.length; j++) {
+        var img = imgs[j];
+        var iKey = img.getAttribute('src') || '';
+        if (iKey && Object.prototype.hasOwnProperty.call(imageDisplayWidths, iKey)) continue;
+        applyDefaultScaleToImage(img);
+      }
     }
 
-    var imgs = previewEl.querySelectorAll('img');
-    for (var j = 0; j < imgs.length; j++) {
-      var img = imgs[j];
-      var iKey = img.getAttribute('src') || '';
-      if (iKey && Object.prototype.hasOwnProperty.call(imageDisplayWidths, iKey)) continue;
-      applyDefaultScaleToImage(img);
+    if (previewEl) {
+      reapplyMermaidsInRoot(previewEl);
+      reapplyInRoot(previewEl);
+    }
+
+    if (isCm6Ready() && cm6HostEl) {
+      reapplyMermaidsInRoot(cm6HostEl);
+      reapplyInRoot(cm6HostEl);
+      if (cm6Editor && cm6Editor.view) {
+        try {
+          cm6Editor.view.requestMeasure();
+        } catch (_) {
+          /* ignore */
+        }
+      }
     }
   }
 
@@ -4798,25 +5422,40 @@
   function onPreviewResizeMove(e) {
     if (!activePreviewResize) return;
     var dx = e.clientX - activePreviewResize.startX;
-    if (Math.abs(dx) < 3) return; // 忽略点击抖动，避免误把宽度写成「满列」
-    activePreviewResize.moved = true;
+    if (dx !== 0) activePreviewResize.moved = true;
     var maxW = getPreviewMediaDragMaxWidthPx() || window.innerWidth;
     var minW = activePreviewResize.kind === 'mermaid' ? MEDIA_DRAG_MIN_PX : 48;
     var next = Math.max(minW, Math.min(maxW, activePreviewResize.startW + dx));
     if (activePreviewResize.kind === 'mermaid') applyMermaidDisplayWidth(activePreviewResize.el, next);
-    else applyImageDisplayWidth(activePreviewResize.el, next);
+    else applyImageDisplayWidth(activePreviewResize.el, next, { allowOverflow: true });
+    if (isCm6Ready() && cm6Editor && cm6Editor.view) {
+      try {
+        cm6Editor.view.requestMeasure();
+      } catch (_) {
+        /* ignore */
+      }
+    }
   }
   function onPreviewResizeUp() {
     if (!activePreviewResize) return;
+    var resized = activePreviewResize.moved;
+    var el = activePreviewResize.el;
     if (activePreviewResize.chromeHost) {
       activePreviewResize.chromeHost.classList.remove('mda-img-resize-active');
     }
     document.body.classList.remove('mda-img-resizing');
-    if (activePreviewResize.moved && activePreviewResize.el) {
+    if (resized && el) {
       // 仅抑制拖拽松手紧接着合成的 click；超时后不吞掉下一次正常单击。
-      activePreviewResize.el.dataset.suppressZoomUntil = String(Date.now() + 400);
+      el.dataset.suppressZoomUntil = String(Date.now() + 400);
     }
     activePreviewResize = null;
+    if (resized && isCm6Ready() && cm6Editor && cm6Editor.view) {
+      try {
+        cm6Editor.view.requestMeasure();
+      } catch (_) {
+        /* ignore */
+      }
+    }
   }
   window.addEventListener('mousemove', onPreviewResizeMove);
   window.addEventListener('mouseup', onPreviewResizeUp);
@@ -4824,7 +5463,6 @@
   // 分栏变化时，「自动」基准宽可能变（宽图受预览栏约束），需按系数重算
   var mediaDefaultWidthResizeTimer = null;
   function scheduleReapplyMediaDefaultWidths() {
-    if (mediaDefaultWidthPref === 'auto') return;
     if (mediaDefaultWidthResizeTimer) clearTimeout(mediaDefaultWidthResizeTimer);
     mediaDefaultWidthResizeTimer = setTimeout(function () {
       mediaDefaultWidthResizeTimer = null;
@@ -4833,12 +5471,13 @@
   }
   var mediaDefaultWidthResizeObserver = null;
   function setupMediaDefaultWidthResizeObserver() {
-    if (mediaDefaultWidthResizeObserver || typeof ResizeObserver === 'undefined' || !previewEl) return;
+    if (mediaDefaultWidthResizeObserver || typeof ResizeObserver === 'undefined') return;
     try {
       mediaDefaultWidthResizeObserver = new ResizeObserver(function () {
         scheduleReapplyMediaDefaultWidths();
       });
-      mediaDefaultWidthResizeObserver.observe(previewEl);
+      if (previewEl) mediaDefaultWidthResizeObserver.observe(previewEl);
+      if (cm6HostEl) mediaDefaultWidthResizeObserver.observe(cm6HostEl);
     } catch (e) { /* ignore */ }
   }
 
@@ -4858,7 +5497,10 @@
   }
 
   function startPreviewResize(el, kind, e) {
-    var chromeHost = kind === 'mermaid' ? el : (el.closest('.md-image-wrapper') || el);
+    var chromeHost =
+      kind === 'mermaid'
+        ? el
+        : el.closest('.md-image-wrapper') || el.closest('.mda-cm-image-frame') || el;
     if (chromeHost && chromeHost.classList) chromeHost.classList.add('mda-img-resize-active');
     activePreviewResize = {
       el: el,
@@ -4869,6 +5511,13 @@
       chromeHost: chromeHost,
     };
     document.body.classList.add('mda-img-resizing');
+    if (e.pointerId != null && chromeHost && chromeHost.setPointerCapture) {
+      try {
+        chromeHost.setPointerCapture(e.pointerId);
+      } catch (_) {
+        /* ignore */
+      }
+    }
   }
 
   /** 清除手动拖拽覆盖，恢复为当前设置比例 */
@@ -4967,7 +5616,7 @@
       if (src && !/^(https?:|data:|file:)/i.test(src) && currentFilePath) {
         var abs = api.resolvePath(currentFilePath, src);
         if (abs) {
-          src = 'file:///' + abs.replace(/\\/g, '/').replace(/^\/+/, '');
+          src = toLocalFileUrl(abs);
           img.setAttribute('src', src);
         }
       }
@@ -5422,6 +6071,16 @@
         return '<option value="' + m.id + '"' + (mermaidW === m.id ? ' selected' : '') + '>' +
           escHtml(m.label) + '</option>';
       }).join('');
+      var revealW = liveRevealPref || 'block';
+      var revealModes = [
+        { id: 'block', label: uiT('settingsLiveRevealBlock') },
+        { id: 'nearby', label: uiT('settingsLiveRevealNearby') },
+        { id: 'never', label: uiT('settingsLiveRevealNever') },
+      ];
+      var liveRevealOptions = revealModes.map(function (m) {
+        return '<option value="' + m.id + '"' + (revealW === m.id ? ' selected' : '') + '>' +
+          escHtml(m.label) + '</option>';
+      }).join('');
 
       var proHtml = (window.MDASettingsAi && window.MDASettingsAi.buildProPaneHtml)
         ? window.MDASettingsAi.buildProPaneHtml({ license: lic, ai: ai })
@@ -5463,6 +6122,15 @@
                   '</div>' +
                   '<div class="mda-settings-row-ctrl">' +
                     '<select id="settings-mermaid-width" class="mda-settings-select">' + mermaidWidthOptions + '</select>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="mda-settings-row">' +
+                  '<div class="mda-settings-row-text">' +
+                    '<div class="mda-settings-row-title">' + escHtml(uiT('settingsLiveReveal')) + '</div>' +
+                    '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsLiveRevealDesc')) + '</div>' +
+                  '</div>' +
+                  '<div class="mda-settings-row-ctrl">' +
+                    '<select id="settings-live-reveal" class="mda-settings-select">' + liveRevealOptions + '</select>' +
                   '</div>' +
                 '</div>' +
                 '<div class="mda-settings-row">' +
@@ -5533,12 +6201,16 @@
         var nextSession = !!(remSess && remSess.checked);
         var mwSel = overlay.querySelector('#settings-mermaid-width');
         var nextMermaidW = mwSel ? mwSel.value : 'auto';
+        var lrSel = overlay.querySelector('#settings-live-reveal');
+        var nextReveal = lrSel ? lrSel.value : 'block';
         var rememberChanged = nextRemember !== isRememberLayout();
         var sessionChanged = nextSession !== isRememberSession();
         var mermaidChanged = nextMermaidW !== mediaDefaultWidthPref;
-        var toastOther = !rememberChanged && !sessionChanged && !mermaidChanged;
+        var revealChanged = nextReveal !== liveRevealPref;
+        var toastOther = !rememberChanged && !sessionChanged && !mermaidChanged && !revealChanged;
         applyAutosavePref(mode, { toast: toastOther, persist: true });
         applyMediaDefaultWidthPref(nextMermaidW, { reapply: true });
+        applyLiveRevealPref(nextReveal, { toast: revealChanged });
         applyRememberLayoutPref(nextRemember, { toast: rememberChanged && !sessionChanged });
         applyRememberSessionPref(nextSession, { toast: sessionChanged });
         var aiPatch = window.MDASettingsAi && window.MDASettingsAi.collectAiSettingsPatch

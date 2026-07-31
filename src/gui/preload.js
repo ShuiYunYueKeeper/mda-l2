@@ -1,4 +1,4 @@
-﻿const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 // 复用编译后的 @mda/core（dist/core），消除 GUI 与核心库的重复实现。
 // 需 sandbox: false 才能在 preload 中 require 第三方/本地模块。
@@ -117,6 +117,8 @@ contextBridge.exposeInMainWorld('mdaAPI', {
     ipcRenderer.invoke('file-exists', { filePath, workspaceRoot }),
   copyToClipboard: (text) => ipcRenderer.invoke('copy-clipboard', text),
   copyClipboardImage: (opts) => ipcRenderer.invoke('copy-clipboard-image', opts || {}),
+  saveClipboardImageAsset: (baseFile) =>
+    ipcRenderer.invoke('save-clipboard-image-asset', { baseFile: baseFile }),
   copyArticleHtml: (html, text) => ipcRenderer.invoke('copy-clipboard-html', { html, text }),
   readFileAsDataUrl: (filePath) => ipcRenderer.invoke('read-file-data-url', filePath),
   capturePageRect: (rect) => ipcRenderer.invoke('capture-page-rect', rect),
@@ -125,6 +127,14 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   resolvePath: (baseFile, href) => {
     try {
       return path.resolve(path.dirname(baseFile), href);
+    } catch (e) {
+      return null;
+    }
+  },
+  relativePathFrom: (baseFile, absPath) => {
+    try {
+      if (!baseFile || !absPath) return null;
+      return path.relative(path.dirname(baseFile), absPath).split(path.sep).join('/');
     } catch (e) {
       return null;
     }
@@ -155,6 +165,12 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   },
   onMenuSave: (callback) => {
     ipcRenderer.on('menu-save', () => callback());
+  },
+  onMenuUndo: (callback) => {
+    ipcRenderer.on('menu-undo', () => callback());
+  },
+  onMenuRedo: (callback) => {
+    ipcRenderer.on('menu-redo', () => callback());
   },
   onMenuSaveAs: (callback) => {
     ipcRenderer.on('menu-save-as', () => callback());
@@ -231,6 +247,7 @@ contextBridge.exposeInMainWorld('mdaAPI', {
 
   showSaveDialog: (opts) => ipcRenderer.invoke('show-save-dialog', opts || {}),
   showOpenFileDialog: () => ipcRenderer.invoke('show-open-file-dialog'),
+  showPickImageDialog: () => ipcRenderer.invoke('show-pick-image-dialog'),
   showOpenFolderDialog: () => ipcRenderer.invoke('show-open-folder-dialog'),
   listMarkdownTree: (folderPath) => ipcRenderer.invoke('list-markdown-tree', folderPath),
   getWorkspaceRoot: () => ipcRenderer.invoke('get-workspace-root'),

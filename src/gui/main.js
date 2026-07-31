@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -51,6 +51,7 @@ app.commandLine.appendSwitch('disable-features', 'PartitionAllocBackupRefPtr,Par
 
 const schema = require(path.join(__dirname, '..', 'config', 'annotation-schema.json'));
 const MD_EXTENSIONS = schema.fileExtensions || ['md', 'markdown', 'txt', 'mdc'];
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
 
 
 function isMarkdownPath(filePath) {
@@ -250,8 +251,16 @@ function buildMenuTemplate(recents) {
       id: 'mda-edit-menu',
       label: t('menuEdit'),
       submenu: [
-        { role: 'undo', label: t('menuUndo') },
-        { role: 'redo', label: t('menuRedo') },
+        {
+          label: t('menuUndo'),
+          accelerator: 'CmdOrCtrl+Z',
+          click: () => sendToRenderer('menu-undo'),
+        },
+        {
+          label: t('menuRedo'),
+          accelerator: process.platform === 'darwin' ? 'Shift+CmdOrCtrl+Z' : 'CmdOrCtrl+Y',
+          click: () => sendToRenderer('menu-redo'),
+        },
         { type: 'separator' },
         { role: 'cut', label: t('menuCut') },
         { role: 'copy', label: t('menuCopy') },
@@ -498,6 +507,27 @@ function registerIpcHandlers() {
     }
   });
 
+  ipcMain.handle('save-clipboard-image-asset', async (_event, payload) => {
+    try {
+      const baseFile = payload && payload.baseFile;
+      if (!baseFile) return { success: false, error: 'baseFile required' };
+      const { nativeImage } = require('electron');
+      const img = clipboard.readImage();
+      if (!img || img.isEmpty()) return { success: false, error: t('errImageEmpty') };
+      const docDir = path.dirname(path.resolve(String(baseFile)));
+      const assetsDir = path.join(docDir, 'assets');
+      await fs.promises.mkdir(assetsDir, { recursive: true });
+      const fileName = 'paste-' + Date.now() + '.png';
+      const absPath = path.join(assetsDir, fileName);
+      await fs.promises.writeFile(absPath, img.toPNG());
+      let rel = path.relative(docDir, absPath).split(path.sep).join('/');
+      if (!rel.startsWith('.')) rel = './' + rel;
+      return { success: true, filePath: absPath, relativePath: rel };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('copy-clipboard-html', async (_event, payload) => {
     const html = payload && payload.html != null ? String(payload.html) : '';
     const text = payload && payload.text != null ? String(payload.text) : '';
@@ -547,6 +577,19 @@ function registerIpcHandlers() {
     const result = await dialog.showOpenDialog(win || mainWindow, {
       title: t('openMdTitle'),
       filters: [{ name: t('filterMarkdown'), extensions: MD_EXTENSIONS }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || !result.filePaths.length) {
+      return { success: false, canceled: true };
+    }
+    return { success: true, filePath: result.filePaths[0] };
+  });
+
+  ipcMain.handle('show-pick-image-dialog', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showOpenDialog(win || mainWindow, {
+      title: t('pickImageTitle'),
+      filters: [{ name: t('filterImages'), extensions: IMAGE_EXTENSIONS }],
       properties: ['openFile'],
     });
     if (result.canceled || !result.filePaths.length) {
