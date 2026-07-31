@@ -31268,6 +31268,53 @@ var MDAEditorBundle = (() => {
   var require_parse_fence = __commonJS({
     "src/gui/renderer/editor/model/parse-fence.js"(exports, module) {
       "use strict";
+      function alignHintLineRange(text, from, to, len) {
+        let start = Math.max(0, Math.min(from, len));
+        while (start > 0 && text.charAt(start - 1) !== "\n") start -= 1;
+        let end = Math.max(start, Math.min(to, len));
+        while (end < len && text.charAt(end) !== "\n") end += 1;
+        if (end < len) end += 1;
+        return { from: start, to: end };
+      }
+      function expandFenceBlockRange(text, from, to) {
+        const len = text.length;
+        let start = Math.max(0, Math.min(from, len));
+        while (start > 0 && text.charAt(start - 1) !== "\n") start -= 1;
+        let openFrom = -1;
+        let marker = "";
+        let pos = start;
+        while (pos < len) {
+          const lineFrom = pos;
+          const nl = text.indexOf("\n", lineFrom);
+          const lineTo = nl < 0 ? len : nl;
+          const line = text.slice(lineFrom, lineTo);
+          const m = /^ {0,3}(`{3,}|~{3,})([^\n`~]*)$/.exec(line);
+          if (m) {
+            openFrom = lineFrom;
+            marker = m[1];
+            break;
+          }
+          if (line.trim()) break;
+          pos = nl < 0 ? len : nl + 1;
+        }
+        if (openFrom < 0 || !marker) return alignHintLineRange(text, from, to, len);
+        const ch = marker.charAt(0);
+        const minLen = marker.length;
+        let scan = text.indexOf("\n", openFrom);
+        scan = scan < 0 ? len : scan + 1;
+        while (scan < len) {
+          const lineFrom = scan;
+          const nl = text.indexOf("\n", lineFrom);
+          const lineTo = nl < 0 ? len : nl;
+          const line = text.slice(lineFrom, lineTo);
+          const closeRe = new RegExp("^ {0,3}\\" + ch + "{" + minLen + ",}\\s*$");
+          if (closeRe.test(line)) {
+            return { from: openFrom, to: nl < 0 ? len : nl + 1 };
+          }
+          scan = nl < 0 ? len : nl + 1;
+        }
+        return alignHintLineRange(text, from, to, len);
+      }
       function parseFencedCode(slice) {
         const text = String(slice || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
         const m = /^( {0,3})(`{3,}|~{3,})([^\n`]*)\n([\s\S]*?)\n {0,3}\2\s*$/.exec(text);
@@ -31285,7 +31332,8 @@ var MDAEditorBundle = (() => {
         };
       }
       module.exports = {
-        parseFencedCode
+        parseFencedCode,
+        expandFenceBlockRange
       };
     }
   });
@@ -31294,19 +31342,56 @@ var MDAEditorBundle = (() => {
   var require_parse_table = __commonJS({
     "src/gui/renderer/editor/model/parse-table.js"(exports, module) {
       "use strict";
+      var MAX_TABLE_COL_WIDTH = 4e3;
+      var MAX_TABLE_ROW_HEIGHT = 600;
+      var MAX_TABLE_WIDGET_HEIGHT = 12e3;
+      function sanitizeLayoutNumbers(arr, max) {
+        if (!Array.isArray(arr)) return [];
+        return arr.map(function(v) {
+          const n = Number(v);
+          if (!Number.isFinite(n) || n <= 0) return 0;
+          return Math.min(Math.round(n), max);
+        });
+      }
+      function alignHintLineRange(text, from, to, len) {
+        let start = Math.max(0, Math.min(from, len));
+        while (start > 0 && text.charAt(start - 1) !== "\n") start -= 1;
+        let end = Math.max(start, Math.min(to, len));
+        while (end < len && text.charAt(end) !== "\n") end += 1;
+        if (end < len) end += 1;
+        return { from: start, to: end };
+      }
       function splitRow(line) {
         let s = line.trim();
         if (s.charAt(0) === "|") s = s.slice(1);
         if (s.charAt(s.length - 1) === "|") s = s.slice(0, -1);
-        return s.split("|").map(function(c) {
-          return c.trim();
-        });
+        const cells = [];
+        let cur = "";
+        for (let i = 0; i < s.length; i++) {
+          const ch = s.charAt(i);
+          if (ch === "\\" && i + 1 < s.length) {
+            cur += s.charAt(i + 1);
+            i += 1;
+            continue;
+          }
+          if (ch === "|") {
+            cells.push(cur.trim());
+            cur = "";
+            continue;
+          }
+          cur += ch;
+        }
+        cells.push(cur.trim());
+        return cells;
+      }
+      function escapeCell(text) {
+        return String(text || "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, " ");
       }
       function isSepRow(line) {
         const cells = splitRow(line);
         if (!cells.length) return false;
         return cells.every(function(c) {
-          return /^:?-{3,}:?$/.test(c);
+          return /^:?-+:?$/.test(c);
         });
       }
       function alignOf(sep) {
@@ -31341,13 +31426,16 @@ var MDAEditorBundle = (() => {
         return "---";
       }
       function formatRow(cells) {
-        return "| " + cells.join(" | ") + " |";
+        return "| " + cells.map(escapeCell).join(" | ") + " |";
+      }
+      function formatSepRow(aligns) {
+        return "| " + aligns.map(alignSep).join(" | ") + " |";
       }
       function serializeGfmTable(parsed) {
         const headers = parsed.headers || [];
         const aligns = parsed.aligns || [];
         const rows = parsed.rows || [];
-        const lines = [formatRow(headers), formatRow(aligns.map(alignSep))];
+        const lines = [formatRow(headers), formatSepRow(aligns)];
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i].slice(0, headers.length);
           while (row.length < headers.length) row.push("");
@@ -31355,12 +31443,102 @@ var MDAEditorBundle = (() => {
         }
         return lines.join("\n");
       }
+      var TABLE_META_RE = /^\[comment\]:\s*<>\s*\(@mda-table\s+(\{.+?\})\)\s*$/;
+      function parseTableMetaLine(line) {
+        const m = String(line || "").trim().match(TABLE_META_RE);
+        if (!m) return null;
+        try {
+          const meta = JSON.parse(m[1]);
+          return meta && typeof meta === "object" ? meta : null;
+        } catch (_) {
+          return null;
+        }
+      }
+      function hasTableLayoutMeta(parsed) {
+        if (!parsed) return false;
+        const cw = parsed.colWidths || [];
+        const rh = parsed.rowHeights || [];
+        return cw.some(function(w) {
+          return w > 0;
+        }) || rh.some(function(h) {
+          return h > 0;
+        });
+      }
+      function serializeGfmTableBlock(parsed) {
+        const body = serializeGfmTable(parsed);
+        if (!hasTableLayoutMeta(parsed)) return body;
+        const meta = {};
+        if (parsed.colWidths && parsed.colWidths.length) meta.colWidths = parsed.colWidths;
+        if (parsed.rowHeights && parsed.rowHeights.length) meta.rowHeights = parsed.rowHeights;
+        return "[comment]: <> (@mda-table " + JSON.stringify(meta) + ")\n" + body;
+      }
+      function parseGfmTableBlock(blockText) {
+        const lines = String(blockText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(function(l, i, arr) {
+          return l.length > 0 || i < arr.length - 1;
+        });
+        let start = 0;
+        let meta = null;
+        if (lines.length > 0) {
+          meta = parseTableMetaLine(lines[0]);
+          if (meta) start = 1;
+        }
+        const parsed = parseGfmTable(lines.slice(start).join("\n"));
+        if (!parsed) return null;
+        if (meta) {
+          if (Array.isArray(meta.colWidths)) {
+            parsed.colWidths = sanitizeLayoutNumbers(meta.colWidths, MAX_TABLE_COL_WIDTH);
+          }
+          if (Array.isArray(meta.rowHeights)) {
+            parsed.rowHeights = sanitizeLayoutNumbers(meta.rowHeights, MAX_TABLE_ROW_HEIGHT);
+          }
+        }
+        return parsed;
+      }
+      function tableLayoutEqual(a, b) {
+        const cwA = a && a.colWidths ? a.colWidths : [];
+        const cwB = b && b.colWidths ? b.colWidths : [];
+        const rhA = a && a.rowHeights ? a.rowHeights : [];
+        const rhB = b && b.rowHeights ? b.rowHeights : [];
+        if (cwA.length !== cwB.length || rhA.length !== rhB.length) return false;
+        for (let i = 0; i < cwA.length; i++) {
+          if ((cwA[i] || 0) !== (cwB[i] || 0)) return false;
+        }
+        for (let i = 0; i < rhA.length; i++) {
+          if ((rhA[i] || 0) !== (rhB[i] || 0)) return false;
+        }
+        return true;
+      }
+      function normalizeCellText(text) {
+        return String(text || "").replace(/\u00a0/g, " ").replace(/\r\n/g, "\n");
+      }
+      function tablesEqual(a, b) {
+        if (!a || !b) return false;
+        if (a.headers.length !== b.headers.length) return false;
+        for (let i = 0; i < a.headers.length; i++) {
+          if (a.headers[i] !== b.headers[i]) return false;
+          const al = a.aligns[i] || "left";
+          const bl = b.aligns[i] || "left";
+          if (al !== bl) return false;
+        }
+        if (a.rows.length !== b.rows.length) return false;
+        for (let r = 0; r < a.rows.length; r++) {
+          const rowA = a.rows[r];
+          const rowB = b.rows[r];
+          for (let c = 0; c < a.headers.length; c++) {
+            if ((rowA[c] || "") !== (rowB[c] || "")) return false;
+          }
+        }
+        return true;
+      }
       function readTableFromDom(table) {
         if (!table) return null;
         const headers = [];
         const ths = table.querySelectorAll("thead th");
+        const colWidths = [];
         for (let i = 0; i < ths.length; i++) {
-          headers.push((ths[i].textContent || "").trim());
+          headers.push(normalizeCellText(ths[i].textContent).trim());
+          const w = parseInt(ths[i].style.width || "", 10);
+          colWidths.push(w > 0 ? w : 0);
         }
         if (!headers.length) return null;
         const aligns = [];
@@ -31370,32 +31548,85 @@ var MDAEditorBundle = (() => {
           aligns.push(align === "center" || align === "right" ? align : "left");
         }
         const rows = [];
+        const rowHeights = [];
+        const headerRow = table.querySelector("thead tr");
+        if (headerRow) {
+          const hh = parseInt(headerRow.style.height || "", 10);
+          rowHeights.push(hh > 0 ? hh : 0);
+        }
         const trs = table.querySelectorAll("tbody tr");
         for (let r = 0; r < trs.length; r++) {
           const cells = [];
           const tds = trs[r].querySelectorAll("td");
           for (let c = 0; c < headers.length; c++) {
-            cells.push(tds[c] ? (tds[c].textContent || "").trim() : "");
+            cells.push(tds[c] ? normalizeCellText(tds[c].textContent).trim() : "");
           }
           rows.push(cells);
+          const rh = parseInt(trs[r].style.height || "", 10);
+          rowHeights.push(rh > 0 ? rh : 0);
         }
-        return { headers, aligns, rows };
+        const out = { headers, aligns, rows };
+        if (table.getAttribute("data-mda-layout") === "fixed") {
+          if (colWidths.some(function(w) {
+            return w > 0;
+          })) out.colWidths = colWidths;
+          if (rowHeights.some(function(h) {
+            return h > 0;
+          })) out.rowHeights = rowHeights;
+        }
+        return out;
       }
       function isTableLine(line) {
         const t = String(line || "").trim();
         return t.length > 0 && t.charAt(0) === "|";
       }
+      function clampGfmTableRangeByParse(text, start, end) {
+        const len = text.length;
+        const block = text.slice(start, end);
+        const parsed = parseGfmTable(block);
+        if (!parsed) return null;
+        const needLines = 2 + parsed.rows.length;
+        let counted = 0;
+        let pos = start;
+        let tableEnd = start;
+        while (pos < end && counted < needLines) {
+          const lineFrom = pos;
+          const nextNl = text.indexOf("\n", lineFrom);
+          const lineTo = nextNl < 0 ? len : nextNl;
+          const line = text.slice(lineFrom, lineTo);
+          if (!line.trim()) break;
+          if (!isTableLine(line)) break;
+          counted += 1;
+          tableEnd = nextNl < 0 ? len : nextNl + 1;
+          pos = tableEnd;
+        }
+        if (counted < needLines) return null;
+        return { from: start, to: tableEnd };
+      }
       function expandGfmTableRange(text, from, to) {
         const len = text.length;
         let start = Math.max(0, Math.min(from, len));
-        let end = Math.max(start, Math.min(to, len));
         while (start > 0 && text.charAt(start - 1) !== "\n") start -= 1;
-        if (end < len) {
-          if (end > 0 && text.charAt(end - 1) !== "\n") {
-            while (end < len && text.charAt(end) !== "\n") end += 1;
-            if (end < len) end += 1;
+        let seed = start;
+        if (!isTableLine(text.slice(seed, text.indexOf("\n", seed) < 0 ? len : text.indexOf("\n", seed)))) {
+          let pos = seed;
+          let found = false;
+          for (let i = 0; i < 4 && pos < len; i++) {
+            const lineFrom = pos;
+            const nextNl = text.indexOf("\n", lineFrom);
+            const lineTo = nextNl < 0 ? len : nextNl;
+            if (isTableLine(text.slice(lineFrom, lineTo))) {
+              seed = lineFrom;
+              found = true;
+              break;
+            }
+            pos = nextNl < 0 ? len : nextNl + 1;
+          }
+          if (!found) {
+            return alignHintLineRange(text, from, to, len);
           }
         }
+        start = seed;
         let scan = start;
         while (scan > 0) {
           const prev = text.lastIndexOf("\n", scan - 1);
@@ -31405,27 +31636,50 @@ var MDAEditorBundle = (() => {
           start = lineFrom;
           scan = lineFrom;
         }
+        let end = start;
         while (end < len) {
           const lineFrom = end;
           const nextNl = text.indexOf("\n", lineFrom);
           const lineTo = nextNl < 0 ? len : nextNl;
           const line = text.slice(lineFrom, lineTo);
-          if (!line.trim()) {
-            end = nextNl < 0 ? len : nextNl + 1;
-            continue;
-          }
+          if (!line.trim()) break;
           if (!isTableLine(line)) break;
           end = nextNl < 0 ? len : nextNl + 1;
         }
-        if (end < start) end = start;
-        return { from: start, to: end };
+        const clamped = clampGfmTableRangeByParse(text, start, end);
+        if (clamped) return clamped;
+        return alignHintLineRange(text, from, to, len);
+      }
+      function expandTableBlockRange(text, from, to) {
+        const gfm = expandGfmTableRange(text, from, to);
+        let blockFrom = gfm.from;
+        if (blockFrom > 0) {
+          const lineEnd = blockFrom - 1;
+          const lineStart = lineEnd > 0 ? text.lastIndexOf("\n", lineEnd - 1) + 1 : 0;
+          const line = text.slice(lineStart, lineEnd);
+          if (parseTableMetaLine(line)) blockFrom = lineStart;
+        }
+        return { from: blockFrom, to: gfm.to };
       }
       module.exports = {
+        MAX_TABLE_COL_WIDTH,
+        MAX_TABLE_ROW_HEIGHT,
+        MAX_TABLE_WIDGET_HEIGHT,
         parseGfmTable,
+        parseGfmTableBlock,
         serializeGfmTable,
+        serializeGfmTableBlock,
+        parseTableMetaLine,
+        hasTableLayoutMeta,
+        tableLayoutEqual,
         readTableFromDom,
         expandGfmTableRange,
-        splitRow
+        expandTableBlockRange,
+        splitRow,
+        escapeCell,
+        tablesEqual,
+        normalizeCellText,
+        sanitizeLayoutNumbers
       };
     }
   });
@@ -31490,7 +31744,13 @@ var MDAEditorBundle = (() => {
       function attachBlockMeasure(dom, view, widget) {
         function measure() {
           if (!dom.isConnected || !view) return;
-          const h = dom.getBoundingClientRect().height;
+          const rect = dom.getBoundingClientRect();
+          const style = window.getComputedStyle(dom);
+          const marginTop = parseFloat(style.marginTop) || 0;
+          const marginBottom = parseFloat(style.marginBottom) || 0;
+          let h = rect.height + marginTop + marginBottom;
+          const cap = widget._maxMeasuredHeight;
+          if (cap > 0 && h > cap) h = cap;
           if (h > 0 && Math.abs(h - widget._measured) > 0.5) {
             widget._measured = h;
             try {
@@ -31568,252 +31828,187 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/widgets/table.js
-  var require_table = __commonJS({
-    "src/gui/renderer/editor/widgets/table.js"(exports, module) {
+  // src/gui/renderer/editor/model/table-model.js
+  var require_table_model = __commonJS({
+    "src/gui/renderer/editor/model/table-model.js"(exports, module) {
       "use strict";
-      var {
-        parseGfmTable,
-        serializeGfmTable,
-        readTableFromDom
-      } = require_parse_table();
-      var { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require_block_widget_base();
-      function buildTableElement(parsed) {
-        const table = document.createElement("table");
-        table.className = "mda-cm-table";
-        const thead = document.createElement("thead");
-        const hr = document.createElement("tr");
-        for (let i = 0; i < parsed.headers.length; i++) {
-          const th = document.createElement("th");
-          th.setAttribute("contenteditable", "true");
-          th.setAttribute("spellcheck", "true");
-          th.textContent = parsed.headers[i];
-          const align = parsed.aligns[i] || "left";
-          if (align !== "left") th.style.textAlign = align;
-          hr.appendChild(th);
-        }
-        thead.appendChild(hr);
-        table.appendChild(thead);
-        const tbody = document.createElement("tbody");
-        for (let r = 0; r < parsed.rows.length; r++) {
-          const tr = document.createElement("tr");
-          const row = parsed.rows[r];
-          for (let c = 0; c < parsed.headers.length; c++) {
-            const td = document.createElement("td");
-            td.setAttribute("contenteditable", "true");
-            td.setAttribute("spellcheck", "true");
-            td.textContent = row[c] != null ? row[c] : "";
-            const align = parsed.aligns[c] || "left";
-            if (align !== "left") td.style.textAlign = align;
-            tr.appendChild(td);
-          }
-          tbody.appendChild(tr);
-        }
-        table.appendChild(tbody);
-        return table;
+      function cloneTableData(parsed) {
+        const out = {
+          headers: parsed.headers.slice(),
+          aligns: (parsed.aligns || []).slice(),
+          rows: parsed.rows.map(function(row) {
+            return row.slice();
+          })
+        };
+        if (parsed.colWidths) out.colWidths = parsed.colWidths.slice();
+        if (parsed.rowHeights) out.rowHeights = parsed.rowHeights.slice();
+        return out;
       }
-      function syncTableToDoc(view, widget, root) {
-        const table = root.querySelector("table");
-        const parsed = readTableFromDom(table);
-        if (!parsed || !view) return;
-        const newSource = serializeGfmTable(parsed);
-        const blockText = view.state.doc.sliceString(widget.from, widget.to);
-        const trailing = blockText.endsWith("\n") ? "\n" : "";
-        const normalizedOld = widget.source.replace(/\r\n/g, "\n").replace(/\n$/, "");
-        if (newSource === normalizedOld) return;
-        widget.source = newSource;
-        view.dispatch({
-          changes: { from: widget.from, to: widget.to, insert: newSource + trailing }
+      function emptyRow(parsed) {
+        return parsed.headers.map(function() {
+          return "";
         });
       }
-      function focusAdjacentCell(cell, table, delta) {
-        const cells = table.querySelectorAll("th[contenteditable], td[contenteditable]");
-        let idx = -1;
-        for (let i = 0; i < cells.length; i++) {
-          if (cells[i] === cell) {
-            idx = i;
-            break;
-          }
-        }
-        if (idx < 0) return;
-        const next = cells[idx + delta];
-        if (!next) return;
-        next.focus();
-        const range = document.createRange();
-        range.selectNodeContents(next);
-        range.collapse(false);
-        const sel = window.getSelection();
-        if (sel) {
-          sel.removeAllRanges();
-          sel.addRange(range);
+      function insertTableRow(parsed, bodyIndex, position) {
+        const row = emptyRow(parsed);
+        const idx = position === "before" ? bodyIndex : bodyIndex + 1;
+        parsed.rows.splice(Math.max(0, Math.min(idx, parsed.rows.length)), 0, row);
+        if (parsed.rowHeights) {
+          const at = Math.max(0, Math.min(idx, parsed.rows.length - 1)) + 1;
+          parsed.rowHeights.splice(at, 0, 0);
         }
       }
-      function wireTableEditing(table, view, widget, root) {
-        const cells = table.querySelectorAll("th[contenteditable], td[contenteditable]");
-        for (let i = 0; i < cells.length; i++) {
-          const cell = cells[i];
-          cell.addEventListener("mousedown", function(e) {
-            e.stopPropagation();
-          });
-          cell.addEventListener("focus", function(e) {
-            e.stopPropagation();
-          });
-          cell.addEventListener("keydown", function(e) {
-            if (e.key === "Tab") {
-              e.preventDefault();
-              e.stopPropagation();
-              focusAdjacentCell(cell, table, e.shiftKey ? -1 : 1);
+      function insertTableColumn(parsed, colIndex, position) {
+        const idx = position === "before" ? colIndex : colIndex + 1;
+        const at = Math.max(0, Math.min(idx, parsed.headers.length));
+        parsed.headers.splice(at, 0, "");
+        parsed.aligns.splice(at, 0, "left");
+        if (parsed.colWidths) parsed.colWidths.splice(at, 0, 0);
+        for (let r = 0; r < parsed.rows.length; r++) {
+          parsed.rows[r].splice(at, 0, "");
+        }
+      }
+      function deleteTableRow(parsed, bodyIndex) {
+        if (bodyIndex < 0 || bodyIndex >= parsed.rows.length) return;
+        parsed.rows.splice(bodyIndex, 1);
+        if (parsed.rowHeights && parsed.rowHeights.length > bodyIndex + 1) {
+          parsed.rowHeights.splice(bodyIndex + 1, 1);
+        }
+      }
+      function deleteTableColumn(parsed, colIndex) {
+        if (parsed.headers.length <= 1) return;
+        if (colIndex < 0 || colIndex >= parsed.headers.length) return;
+        parsed.headers.splice(colIndex, 1);
+        parsed.aligns.splice(colIndex, 1);
+        if (parsed.colWidths) parsed.colWidths.splice(colIndex, 1);
+        for (let r = 0; r < parsed.rows.length; r++) {
+          parsed.rows[r].splice(colIndex, 1);
+        }
+      }
+      function cellAt(parsed, row, col) {
+        if (col < 0 || col >= parsed.headers.length) return "";
+        if (row === -1) return parsed.headers[col] || "";
+        if (row < 0 || row >= parsed.rows.length) return "";
+        return parsed.rows[row][col] || "";
+      }
+      function setCellAt(parsed, row, col, value) {
+        if (col < 0 || col >= parsed.headers.length) return;
+        if (row === -1) {
+          parsed.headers[col] = value;
+          return;
+        }
+        if (row < 0 || row >= parsed.rows.length) return;
+        parsed.rows[row][col] = value;
+      }
+      function selectionBounds(sel) {
+        if (!sel || sel.kind === "none") return null;
+        if (sel.kind === "cell") {
+          return { row1: sel.row, col1: sel.col, row2: sel.row, col2: sel.col };
+        }
+        if (sel.kind === "row") {
+          return {
+            row1: sel.row,
+            col1: 0,
+            row2: sel.row,
+            col2: Number.MAX_SAFE_INTEGER
+          };
+        }
+        if (sel.kind === "col") {
+          return {
+            row1: -1,
+            col1: sel.col,
+            row2: Number.MAX_SAFE_INTEGER,
+            col2: sel.col
+          };
+        }
+        if (sel.kind === "rect") {
+          return {
+            row1: Math.min(sel.row1, sel.row2),
+            col1: Math.min(sel.col1, sel.col2),
+            row2: Math.max(sel.row1, sel.row2),
+            col2: Math.max(sel.col1, sel.col2)
+          };
+        }
+        return null;
+      }
+      function clearTableSelection(parsed, sel) {
+        const b = selectionBounds(sel);
+        if (!b) return;
+        const maxRow = parsed.rows.length - 1;
+        const maxCol = parsed.headers.length - 1;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        for (let r = b.row1; r <= row2; r++) {
+          for (let c = b.col1; c <= col2; c++) {
+            setCellAt(parsed, r, c, "");
+          }
+        }
+      }
+      function extractTableTSV(parsed, sel) {
+        const b = selectionBounds(sel);
+        if (!b) return "";
+        const maxRow = parsed.rows.length - 1;
+        const maxCol = parsed.headers.length - 1;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        const lines = [];
+        for (let r = b.row1; r <= row2; r++) {
+          const cells = [];
+          for (let c = b.col1; c <= col2; c++) {
+            cells.push(cellAt(parsed, r, c));
+          }
+          lines.push(cells.join("	"));
+        }
+        return lines.join("\n");
+      }
+      function parseClipboardTable(tsv) {
+        const text = String(tsv || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        if (!text) return [];
+        const lines = text.split("\n");
+        const out = [];
+        for (let i = 0; i < lines.length; i++) {
+          out.push(lines[i].split("	"));
+        }
+        return out;
+      }
+      function pasteTableTSV(parsed, startRow, startCol, tsv) {
+        const grid = parseClipboardTable(tsv);
+        if (!grid.length) return;
+        for (let r = 0; r < grid.length; r++) {
+          const targetRow = startRow + r;
+          if (targetRow >= 0) {
+            while (parsed.rows.length <= targetRow) {
+              insertTableRow(parsed, parsed.rows.length, "before");
             }
-          });
-          cell.addEventListener("blur", function() {
-            syncTableToDoc(view, widget, root);
-          });
+          }
+          for (let c = 0; c < grid[r].length; c++) {
+            const targetCol = startCol + c;
+            while (parsed.headers.length <= targetCol) {
+              insertTableColumn(parsed, parsed.headers.length, "before");
+            }
+            setCellAt(parsed, targetRow, targetCol, grid[r][c]);
+          }
         }
       }
-      var TableWidget = class _TableWidget extends BlockReplaceWidget {
-        /**
-         * @param {string} source
-         * @param {{ from?: number, to?: number, lineHeight?: number }} [opts]
-         */
-        constructor(source, opts) {
-          super(source, opts);
-          this.opts = opts || {};
-          const parsed = parseGfmTable(this.source);
-          const rowCount = parsed ? 1 + parsed.rows.length : this._lineCount;
-          this._minHeight = Math.max(rowCount * 36 + 16, this._lineCount * DEFAULT_LINE_HEIGHT);
-        }
-        get estimatedHeight() {
-          if (this._measured > 0) return this._measured;
-          const parsed = parseGfmTable(this.source);
-          if (parsed) {
-            const rows = 1 + parsed.rows.length;
-            return Math.max(rows * 36 + 16, this._lineCount * this._lineHeight);
-          }
-          return super.estimatedHeight;
-        }
-        eq(other) {
-          return other instanceof _TableWidget && other.source === this.source;
-        }
-        toDOM(view) {
-          const self = this;
-          const root = document.createElement("div");
-          root.className = "mda-cm-table-block";
-          root.setAttribute("contenteditable", "false");
-          const parsed = parseGfmTable(this.source);
-          if (parsed) {
-            const wrap = document.createElement("div");
-            wrap.className = "mda-cm-table-wrap table-wrap";
-            const table = buildTableElement(parsed);
-            wrap.appendChild(table);
-            root.appendChild(wrap);
-            wireTableEditing(table, view, self, root);
-          } else {
-            const fallback = document.createElement("pre");
-            fallback.className = "mda-cm-table-fallback";
-            fallback.textContent = this.source;
-            root.appendChild(fallback);
-          }
-          root.addEventListener("mousedown", function(e) {
-            e.stopPropagation();
-          });
-          this.bindMeasure(view, root);
-          return root;
-        }
-      };
-      module.exports = {
-        TableWidget,
-        buildTableElement,
-        syncTableToDoc
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/model/parse-image.js
-  var require_parse_image = __commonJS({
-    "src/gui/renderer/editor/model/parse-image.js"(exports, module) {
-      "use strict";
-      function parseImageMarkdown(slice) {
-        const m = /^!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+(?:"([^"]*)"|'([^']*)'))?\s*\)$/.exec(
-          String(slice || "").trim()
-        );
-        if (!m) return null;
-        return {
-          alt: m[1] || "",
-          src: m[2] || "",
-          title: m[3] || m[4] || ""
-        };
-      }
-      function serializeImageMarkdown(meta) {
-        if (!meta || !meta.src) return "";
-        const alt = String(meta.alt || "");
-        const src = String(meta.src || "");
-        const title = meta.title ? String(meta.title) : "";
-        if (title) {
-          return "![" + alt + "](" + src + ' "' + title.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '")';
-        }
-        return "![" + alt + "](" + src + ")";
+      function selectionAnchor(sel) {
+        const b = selectionBounds(sel);
+        if (!b) return null;
+        return { row: b.row1, col: b.col1 };
       }
       module.exports = {
-        parseImageMarkdown,
-        serializeImageMarkdown
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/md-surface.js
-  var require_md_surface = __commonJS({
-    "src/gui/renderer/editor/widgets/md-surface.js"(exports, module) {
-      "use strict";
-      function htmlFromRender(source, renderMarkdown) {
-        if (typeof renderMarkdown !== "function") return "";
-        try {
-          const r = renderMarkdown(source || "");
-          if (typeof r === "string") return r;
-          if (r && r.success && typeof r.html === "string") return r.html;
-          if (r && typeof r.html === "string") return r.html;
-        } catch (_) {
-        }
-        return "";
-      }
-      function resolveImagesIn(root, resolveImageUrl) {
-        if (!root || typeof resolveImageUrl !== "function") return;
-        const imgs = root.querySelectorAll("img[src]");
-        for (let i = 0; i < imgs.length; i++) {
-          const img = imgs[i];
-          const src = img.getAttribute("src") || "";
-          if (!src || /^(https?:|data:|file:)/i.test(src)) continue;
-          Promise.resolve(resolveImageUrl(src)).then(function(url) {
-            if (url) img.setAttribute("src", url);
-          }).catch(function() {
-          });
-        }
-      }
-      function createMdSurface(source, opts) {
-        opts = opts || {};
-        const wrap = document.createElement(opts.inline ? "span" : "div");
-        wrap.className = "mda-md-surface" + (opts.inline ? " mda-md-surface-inline" : "");
-        wrap.setAttribute("contenteditable", "false");
-        const html = htmlFromRender(source, opts.renderMarkdown);
-        if (html) {
-          if (opts.inline) {
-            const tmp = document.createElement("div");
-            tmp.innerHTML = html;
-            const p = tmp.querySelector("p");
-            const host = p || tmp;
-            while (host.firstChild) wrap.appendChild(host.firstChild);
-          } else {
-            wrap.innerHTML = html;
-          }
-          resolveImagesIn(wrap, opts.resolveImageUrl);
-        } else {
-          wrap.textContent = source || "";
-        }
-        return wrap;
-      }
-      module.exports = {
-        htmlFromRender,
-        resolveImagesIn,
-        createMdSurface
+        cloneTableData,
+        insertTableRow,
+        insertTableColumn,
+        deleteTableRow,
+        deleteTableColumn,
+        clearTableSelection,
+        extractTableTSV,
+        pasteTableTSV,
+        parseClipboardTable,
+        selectionBounds,
+        selectionAnchor,
+        cellAt,
+        setCellAt
       };
     }
   });
@@ -31904,6 +32099,14 @@ var MDAEditorBundle = (() => {
           const key = el.getAttribute("data-i18n-aria");
           if (key) el.setAttribute("aria-label", t(key));
         });
+        host.querySelectorAll(".mda-cm-table-add-btn[data-i18n-title]").forEach(function(btn) {
+          const key = btn.getAttribute("data-i18n-title");
+          if (key) btn.title = t(key);
+        });
+        host.querySelectorAll(".mda-cm-table-menu-item[data-i18n-key]").forEach(function(btn) {
+          const key = btn.getAttribute("data-i18n-key");
+          if (key) btn.textContent = t(key);
+        });
       }
       function clearMediaSelection(container, selectedClass) {
         if (!container) return;
@@ -31911,171 +32114,1142 @@ var MDAEditorBundle = (() => {
         const nodes = container.querySelectorAll("." + sel);
         for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove(sel);
       }
+      function clearBlockWidgetSelection(container) {
+        if (!container || !container.querySelectorAll) return;
+        const nodes = container.querySelectorAll(".mda-cm-block-selected");
+        for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove("mda-cm-block-selected");
+      }
       module.exports = {
         uiT,
         copyText,
         createBlockToolbar,
         refreshBlockToolbars,
-        clearMediaSelection
+        clearMediaSelection,
+        clearBlockWidgetSelection
       };
     }
   });
 
-  // src/gui/renderer/editor/widgets/image-layout.js
-  var require_image_layout = __commonJS({
-    "src/gui/renderer/editor/widgets/image-layout.js"(exports, module) {
+  // src/gui/renderer/editor/widgets/table-resize.js
+  var require_table_resize = __commonJS({
+    "src/gui/renderer/editor/widgets/table-resize.js"(exports, module) {
       "use strict";
-      function syncFrameToImage(img) {
-        if (!img) return;
-        const frame = img.closest(".mda-cm-image-frame");
-        if (!frame) return;
-        const inner = frame.querySelector(".mda-cm-image-inner");
-        const attrW = parseInt(img.getAttribute("data-mda-display-width") || "", 10);
-        const w = attrW > 0 ? attrW : Math.round(img.getBoundingClientRect().width || img.clientWidth || 0);
-        if (!(w > 0)) return;
-        frame.style.width = w + "px";
-        if (inner) inner.style.width = w + "px";
-        if (attrW > 0) {
-          frame.classList.add("mda-cm-image-sized");
-          if (inner) inner.classList.add("mda-cm-image-sized");
-          frame.style.maxWidth = "none";
-          if (inner) inner.style.maxWidth = "none";
-          img.style.maxWidth = "none";
+      var { hasTableLayoutMeta, MAX_TABLE_COL_WIDTH, MAX_TABLE_ROW_HEIGHT } = require_parse_table();
+      var MIN_COL_WIDTH = 48;
+      var MIN_ROW_HEIGHT = 28;
+      function capLayout(n, max) {
+        const v = Number(n);
+        if (!Number.isFinite(v) || v <= 0) return 0;
+        return Math.min(Math.round(v), max);
+      }
+      function ensureLayoutArrays(parsed) {
+        if (!parsed.colWidths) parsed.colWidths = [];
+        if (!parsed.rowHeights) parsed.rowHeights = [];
+        const ncol = parsed.headers.length;
+        const nrow = 1 + parsed.rows.length;
+        while (parsed.colWidths.length < ncol) parsed.colWidths.push(0);
+        while (parsed.rowHeights.length < nrow) parsed.rowHeights.push(0);
+        if (parsed.colWidths.length > ncol) parsed.colWidths.length = ncol;
+        if (parsed.rowHeights.length > nrow) parsed.rowHeights.length = nrow;
+      }
+      function clearTableWrapLayout(wrap) {
+        if (!wrap) return;
+        wrap.removeAttribute("data-mda-snap");
+        wrap.removeAttribute("data-mda-overflow");
+        wrap.classList.remove("mda-cm-table-resizing-active");
+        wrap.style.width = "";
+        wrap.style.maxWidth = "";
+      }
+      function syncTableWrapLayout(wrap, table, totalW) {
+        if (!wrap || !table) return;
+        wrap.setAttribute("data-mda-snap", "1");
+        const parent = wrap.parentElement;
+        const limit = parent ? parent.clientWidth : 0;
+        if (limit > 0 && totalW > limit + 1) {
+          wrap.setAttribute("data-mda-overflow", "1");
+          wrap.style.width = "100%";
+          wrap.style.maxWidth = "100%";
         } else {
-          frame.classList.remove("mda-cm-image-sized");
-          if (inner) inner.classList.remove("mda-cm-image-sized");
-          frame.style.width = "";
-          frame.style.maxWidth = "";
-          if (inner) {
-            inner.style.width = "";
-            inner.style.maxWidth = "";
-          }
-          img.style.maxWidth = "100%";
+          wrap.removeAttribute("data-mda-overflow");
+          wrap.style.width = totalW + "px";
+          wrap.style.maxWidth = "100%";
         }
       }
-      function applyLiveImageWidth(img, widthPx) {
-        if (!img) return 0;
-        const w = Math.round(widthPx);
-        if (!(w > 16)) return 0;
-        img.style.width = w + "px";
-        img.style.maxWidth = "none";
-        img.style.height = "auto";
-        img.setAttribute("data-mda-display-width", String(w));
-        syncFrameToImage(img);
-        return w;
+      function clearTableLayout(table, wrap) {
+        if (!table) return;
+        table.style.tableLayout = "";
+        table.style.width = "";
+        table.style.height = "";
+        table.style.minWidth = "";
+        table.style.maxWidth = "";
+        table.removeAttribute("data-mda-layout");
+        const cells = table.querySelectorAll("th, td");
+        for (let i = 0; i < cells.length; i++) {
+          cells[i].style.width = "";
+          cells[i].style.minWidth = "";
+          cells[i].style.maxWidth = "";
+          cells[i].style.height = "";
+          cells[i].style.boxSizing = "";
+        }
+        const rows = table.querySelectorAll("tr");
+        for (let r = 0; r < rows.length; r++) rows[r].style.height = "";
+        clearTableWrapLayout(wrap || table.parentElement);
       }
-      function clearLiveImageWidth(img) {
-        if (!img) return;
-        img.style.width = "";
-        img.style.maxWidth = "100%";
-        img.style.height = "auto";
-        img.removeAttribute("data-mda-display-width");
-        syncFrameToImage(img);
+      function captureLayoutFromTable(table, parsed) {
+        if (!table || !parsed) return;
+        ensureLayoutArrays(parsed);
+        const ths = table.querySelectorAll("thead th");
+        for (let c = 0; c < ths.length; c++) {
+          parsed.colWidths[c] = capLayout(
+            Math.max(MIN_COL_WIDTH, ths[c].getBoundingClientRect().width),
+            MAX_TABLE_COL_WIDTH
+          );
+        }
+        const headerRow = table.querySelector("thead tr");
+        const bodyRows = table.querySelectorAll("tbody tr");
+        const visualRows = [];
+        if (headerRow) visualRows.push(headerRow);
+        for (let i = 0; i < bodyRows.length; i++) visualRows.push(bodyRows[i]);
+        for (let r = 0; r < visualRows.length; r++) {
+          parsed.rowHeights[r] = capLayout(
+            Math.max(MIN_ROW_HEIGHT, visualRows[r].getBoundingClientRect().height),
+            MAX_TABLE_ROW_HEIGHT
+          );
+        }
+        table.setAttribute("data-mda-layout", "fixed");
+      }
+      function applyTableLayout(table, parsed, wrap) {
+        wrap = wrap || table.parentElement;
+        if (!table || !parsed || !hasTableLayoutMeta(parsed)) {
+          clearTableLayout(table, wrap);
+          return 0;
+        }
+        ensureLayoutArrays(parsed);
+        table.setAttribute("data-mda-layout", "fixed");
+        table.style.tableLayout = "fixed";
+        table.style.width = "auto";
+        table.style.minWidth = "0";
+        table.style.maxWidth = "none";
+        const ths = table.querySelectorAll("thead th");
+        let totalW = 0;
+        for (let c = 0; c < ths.length; c++) {
+          const w = capLayout(Math.max(MIN_COL_WIDTH, parsed.colWidths[c] || MIN_COL_WIDTH), MAX_TABLE_COL_WIDTH);
+          parsed.colWidths[c] = w;
+          totalW += w;
+          const cells = table.querySelectorAll(
+            'thead th[data-mda-col="' + c + '"], tbody td[data-mda-col="' + c + '"]'
+          );
+          for (let i = 0; i < cells.length; i++) {
+            cells[i].style.width = w + "px";
+            cells[i].style.minWidth = w + "px";
+            cells[i].style.maxWidth = w + "px";
+            cells[i].style.boxSizing = "border-box";
+          }
+        }
+        table.style.width = totalW + "px";
+        const headerRow = table.querySelector("thead tr");
+        const bodyRows = table.querySelectorAll("tbody tr");
+        const visualRows = [];
+        if (headerRow) visualRows.push(headerRow);
+        for (let i = 0; i < bodyRows.length; i++) visualRows.push(bodyRows[i]);
+        let totalH = 0;
+        for (let r = 0; r < visualRows.length; r++) {
+          const h = capLayout(Math.max(MIN_ROW_HEIGHT, parsed.rowHeights[r] || MIN_ROW_HEIGHT), MAX_TABLE_ROW_HEIGHT);
+          parsed.rowHeights[r] = h;
+          totalH += h;
+          const row = visualRows[r];
+          row.style.height = h + "px";
+          const cells = row.querySelectorAll("th, td");
+          for (let i = 0; i < cells.length; i++) {
+            cells[i].style.height = h + "px";
+            cells[i].style.boxSizing = "border-box";
+          }
+        }
+        table.style.height = totalH + "px";
+        syncTableWrapLayout(wrap, table, totalW);
+        return totalW;
+      }
+      function attachTableGridResize(wrap, table, ctx) {
+        const overlay = document.createElement("div");
+        overlay.className = "mda-cm-table-resize-layer";
+        overlay.setAttribute("aria-hidden", "true");
+        wrap.appendChild(overlay);
+        let dragging = null;
+        let layoutCaptured = false;
+        let activeHandle = null;
+        function rebuildHandles() {
+          overlay.innerHTML = "";
+          if (!table.isConnected || !wrap.isConnected) return;
+          const wrapRect = wrap.getBoundingClientRect();
+          const layerW = table.offsetWidth || wrapRect.width;
+          const ths = table.querySelectorAll("thead th");
+          for (let c = 0; c < ths.length; c++) {
+            const rect = ths[c].getBoundingClientRect();
+            const handle = document.createElement("div");
+            handle.className = "mda-cm-table-col-resize-handle";
+            handle.dataset.col = String(c);
+            handle.setAttribute("data-i18n-title", "widgetTableResizeCol");
+            if (ctx.t) handle.title = ctx.t("widgetTableResizeCol");
+            handle.style.left = rect.right - wrapRect.left - 4 + "px";
+            handle.style.top = "0";
+            handle.style.height = wrapRect.height + "px";
+            overlay.appendChild(handle);
+          }
+          const rows = table.querySelectorAll("tr");
+          for (let r = 0; r < rows.length; r++) {
+            const rect = rows[r].getBoundingClientRect();
+            const handle = document.createElement("div");
+            handle.className = "mda-cm-table-row-resize-handle";
+            handle.dataset.row = String(r);
+            handle.setAttribute("data-i18n-title", "widgetTableResizeRow");
+            if (ctx.t) handle.title = ctx.t("widgetTableResizeRow");
+            handle.style.top = rect.bottom - wrapRect.top - 4 + "px";
+            handle.style.left = "0";
+            handle.style.width = layerW + "px";
+            overlay.appendChild(handle);
+          }
+        }
+        function ensureCaptured() {
+          if (layoutCaptured) return;
+          const parsed = ctx.getParsed();
+          captureLayoutFromTable(table, parsed);
+          applyTableLayout(table, parsed, wrap);
+          layoutCaptured = true;
+          rebuildHandles();
+        }
+        overlay.addEventListener("mousedown", function(e) {
+          if (e.button !== 0) return;
+          const colHandle = e.target && e.target.closest ? e.target.closest(".mda-cm-table-col-resize-handle") : null;
+          const rowHandle = e.target && e.target.closest ? e.target.closest(".mda-cm-table-row-resize-handle") : null;
+          if (!colHandle && !rowHandle) return;
+          e.preventDefault();
+          e.stopPropagation();
+          ensureCaptured();
+          const parsed = ctx.getParsed();
+          wrap.classList.add("mda-cm-table-resizing-active");
+          if (colHandle) {
+            const col = parseInt(colHandle.getAttribute("data-col") || "0", 10);
+            activeHandle = colHandle;
+            activeHandle.classList.add("mda-cm-table-resize-dragging");
+            const th = table.querySelectorAll("thead th")[col];
+            const startW = th ? th.getBoundingClientRect().width : parsed.colWidths[col] || MIN_COL_WIDTH;
+            dragging = { kind: "col", col, startX: e.clientX, startW };
+            document.body.classList.add("mda-cm-table-resizing-col");
+          } else if (rowHandle) {
+            const row = parseInt(rowHandle.getAttribute("data-row") || "0", 10);
+            activeHandle = rowHandle;
+            activeHandle.classList.add("mda-cm-table-resize-dragging");
+            const tr = table.querySelectorAll("tr")[row];
+            const startH = tr ? tr.getBoundingClientRect().height : parsed.rowHeights[row] || MIN_ROW_HEIGHT;
+            dragging = { kind: "row", row, startY: e.clientY, startH };
+            document.body.classList.add("mda-cm-table-resizing-row");
+          }
+          document.body.classList.add("mda-cm-table-resizing");
+        });
+        function onMove(e) {
+          if (!dragging) return;
+          const parsed = ctx.getParsed();
+          if (dragging.kind === "col") {
+            const nw = Math.max(
+              MIN_COL_WIDTH,
+              Math.round(dragging.startW + (e.clientX - dragging.startX))
+            );
+            parsed.colWidths[dragging.col] = nw;
+            applyTableLayout(table, parsed, wrap);
+            rebuildHandles();
+            if (activeHandle) activeHandle.classList.add("mda-cm-table-resize-dragging");
+          } else {
+            const nh = Math.max(
+              MIN_ROW_HEIGHT,
+              Math.round(dragging.startH + (e.clientY - dragging.startY))
+            );
+            parsed.rowHeights[dragging.row] = nh;
+            applyTableLayout(table, parsed, wrap);
+            rebuildHandles();
+            if (activeHandle) activeHandle.classList.add("mda-cm-table-resize-dragging");
+          }
+        }
+        function endDrag() {
+          if (activeHandle) {
+            activeHandle.classList.remove("mda-cm-table-resize-dragging");
+            activeHandle = null;
+          }
+          wrap.classList.remove("mda-cm-table-resizing-active");
+          document.body.classList.remove("mda-cm-table-resizing");
+          document.body.classList.remove("mda-cm-table-resizing-col", "mda-cm-table-resizing-row");
+        }
+        function onUp() {
+          if (!dragging) return;
+          dragging = null;
+          endDrag();
+          if (typeof ctx.onLayoutCommit === "function") {
+            ctx.onLayoutCommit(ctx.getParsed());
+          }
+        }
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        return {
+          applyLayout: function(parsed) {
+            layoutCaptured = hasTableLayoutMeta(parsed);
+            if (layoutCaptured) applyTableLayout(table, parsed, wrap);
+            else clearTableLayout(table, wrap);
+            rebuildHandles();
+          },
+          rebuildHandles,
+          dispose: function() {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            endDrag();
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+          }
+        };
       }
       module.exports = {
-        syncFrameToImage,
-        applyLiveImageWidth,
-        clearLiveImageWidth
+        attachTableGridResize,
+        applyTableLayout,
+        clearTableLayout,
+        clearTableWrapLayout,
+        syncTableWrapLayout,
+        captureLayoutFromTable,
+        ensureLayoutArrays
       };
     }
   });
 
-  // src/gui/renderer/editor/widgets/image-edge-resize.js
-  var require_image_edge_resize = __commonJS({
-    "src/gui/renderer/editor/widgets/image-edge-resize.js"(exports, module) {
+  // src/gui/renderer/editor/widgets/table-layout-session.js
+  var require_table_layout_session = __commonJS({
+    "src/gui/renderer/editor/widgets/table-layout-session.js"(exports, module) {
       "use strict";
-      var { applyLiveImageWidth } = require_image_layout();
-      var CORNER_PX = 16;
-      function isNearFrameResizeCorner(frame, clientX, clientY) {
-        if (!frame) return false;
-        const r = frame.getBoundingClientRect();
-        return clientX >= r.right - CORNER_PX && clientX <= r.right + 1 && clientY >= r.bottom - CORNER_PX && clientY <= r.bottom + 1;
+      var { hasTableLayoutMeta } = require_parse_table();
+      var sessions = /* @__PURE__ */ new Map();
+      function normalizeSessionKey(source) {
+        return String(source || "").replace(/\r\n/g, "\n").replace(/\n$/, "");
       }
-      function isNearFrameResizeEdge(frame, clientX) {
-        if (!frame) return false;
-        const r = frame.getBoundingClientRect();
-        const midY = (r.top + r.bottom) / 2;
-        return isNearFrameResizeCorner(frame, clientX, midY);
+      function getTableLayoutSession(source) {
+        const key = normalizeSessionKey(source);
+        if (!key) return null;
+        const sess = sessions.get(key);
+        if (!sess) return null;
+        return {
+          colWidths: sess.colWidths.slice(),
+          rowHeights: sess.rowHeights.slice()
+        };
       }
-      function attachImageCornerResize(frame, img, opts, selectFrame) {
-        if (!frame || !img) return;
-        let resizing = false;
-        function updateCursor(e) {
-          if (resizing) {
-            frame.style.cursor = "nwse-resize";
-            return;
-          }
-          if (!frame.classList.contains("mda-cm-media-selected")) {
-            frame.style.cursor = "";
-            return;
-          }
-          frame.style.cursor = isNearFrameResizeCorner(frame, e.clientX, e.clientY) ? "nwse-resize" : "";
+      function setTableLayoutSession(source, parsed) {
+        const key = normalizeSessionKey(source);
+        if (!key || !parsed || !hasTableLayoutMeta(parsed)) {
+          if (key) sessions.delete(key);
+          return;
         }
-        frame.addEventListener("pointermove", updateCursor);
-        frame.addEventListener("pointerleave", function() {
-          if (!resizing) frame.style.cursor = "";
+        sessions.set(key, {
+          colWidths: (parsed.colWidths || []).slice(),
+          rowHeights: (parsed.rowHeights || []).slice()
         });
-        frame.addEventListener(
-          "pointerdown",
-          function(e) {
-            if (e.button !== 0) return;
-            if (e.target && e.target.closest && e.target.closest(".mda-cm-image-toolbar")) return;
-            if (!frame.classList.contains("mda-cm-media-selected")) return;
-            const onHandle = e.target && e.target.closest && e.target.closest(".mda-cm-image-handle-br");
-            if (!onHandle && !isNearFrameResizeCorner(frame, e.clientX, e.clientY)) return;
+      }
+      function migrateTableLayoutSession(oldSource, newSource) {
+        const oldKey = normalizeSessionKey(oldSource);
+        const newKey = normalizeSessionKey(newSource);
+        if (!oldKey || !newKey || oldKey === newKey) return;
+        const sess = sessions.get(oldKey);
+        if (!sess) return;
+        sessions.set(newKey, {
+          colWidths: sess.colWidths.slice(),
+          rowHeights: sess.rowHeights.slice()
+        });
+        sessions.delete(oldKey);
+      }
+      function mergeTableLayoutSession(parsed, sess) {
+        if (!parsed || !sess) return;
+        const ncol = parsed.headers.length;
+        const nrow = 1 + parsed.rows.length;
+        if (sess.colWidths.length) {
+          const cw = sess.colWidths.slice();
+          while (cw.length < ncol) cw.push(0);
+          if (cw.length > ncol) cw.length = ncol;
+          parsed.colWidths = cw;
+        }
+        if (sess.rowHeights.length) {
+          const rh = sess.rowHeights.slice();
+          while (rh.length < nrow) rh.push(0);
+          if (rh.length > nrow) rh.length = nrow;
+          parsed.rowHeights = rh;
+        }
+      }
+      function applyTableLayoutSession(source, parsed) {
+        if (!parsed) return;
+        const sess = getTableLayoutSession(source);
+        if (!sess) return;
+        mergeTableLayoutSession(parsed, sess);
+      }
+      function clearTableLayoutSession(source) {
+        const key = normalizeSessionKey(source);
+        if (key) sessions.delete(key);
+      }
+      module.exports = {
+        getTableLayoutSession,
+        setTableLayoutSession,
+        applyTableLayoutSession,
+        migrateTableLayoutSession,
+        mergeTableLayoutSession,
+        clearTableLayoutSession
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/table-chrome.js
+  var require_table_chrome = __commonJS({
+    "src/gui/renderer/editor/widgets/table-chrome.js"(exports, module) {
+      "use strict";
+      var {
+        cloneTableData,
+        insertTableRow,
+        insertTableColumn,
+        deleteTableRow,
+        deleteTableColumn,
+        clearTableSelection,
+        extractTableTSV,
+        pasteTableTSV,
+        selectionAnchor,
+        selectionBounds
+      } = require_table_model();
+      var { copyText, uiT } = require_widget_common();
+      var { attachTableGridResize, applyTableLayout, ensureLayoutArrays } = require_table_resize();
+      var { hasTableLayoutMeta } = require_parse_table();
+      var {
+        setTableLayoutSession,
+        applyTableLayoutSession,
+        migrateTableLayoutSession
+      } = require_table_layout_session();
+      var internalClipboard = "";
+      function renderTableElement(parsed) {
+        const table = document.createElement("table");
+        table.className = "mda-cm-table";
+        const thead = document.createElement("thead");
+        const hr = document.createElement("tr");
+        hr.setAttribute("data-mda-row", "-1");
+        for (let i = 0; i < parsed.headers.length; i++) {
+          const th = document.createElement("th");
+          th.setAttribute("contenteditable", "true");
+          th.setAttribute("spellcheck", "true");
+          th.setAttribute("data-mda-row", "-1");
+          th.setAttribute("data-mda-col", String(i));
+          th.textContent = parsed.headers[i];
+          const align = parsed.aligns[i] || "left";
+          if (align !== "left") th.style.textAlign = align;
+          hr.appendChild(th);
+        }
+        thead.appendChild(hr);
+        table.appendChild(thead);
+        const tbody = document.createElement("tbody");
+        for (let r = 0; r < parsed.rows.length; r++) {
+          const tr = document.createElement("tr");
+          tr.setAttribute("data-mda-row", String(r));
+          const row = parsed.rows[r];
+          for (let c = 0; c < parsed.headers.length; c++) {
+            const td = document.createElement("td");
+            td.setAttribute("contenteditable", "true");
+            td.setAttribute("spellcheck", "true");
+            td.setAttribute("data-mda-row", String(r));
+            td.setAttribute("data-mda-col", String(c));
+            td.textContent = row[c] != null ? row[c] : "";
+            const align = parsed.aligns[c] || "left";
+            if (align !== "left") td.style.textAlign = align;
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        return table;
+      }
+      function applySelectionHighlight(table, selection) {
+        const cells = table.querySelectorAll("th, td");
+        for (let i = 0; i < cells.length; i++) {
+          cells[i].classList.remove("mda-cm-table-cell-selected");
+        }
+        const b = selectionBounds(selection);
+        if (!b || !table) return;
+        const maxCol = table.querySelectorAll("thead th").length - 1;
+        const maxRow = table.querySelectorAll("tbody tr").length - 1;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        for (let r = b.row1; r <= row2; r++) {
+          for (let c = b.col1; c <= col2; c++) {
+            const cell = table.querySelector(
+              (r === -1 ? "thead th" : "tbody td") + '[data-mda-col="' + c + '"]' + (r === -1 ? "" : '[data-mda-row="' + r + '"]')
+            );
+            if (cell) cell.classList.add("mda-cm-table-cell-selected");
+          }
+        }
+      }
+      function openTableMenu(host, spec, onAction, t) {
+        closeTableMenu();
+        const menu = document.createElement("div");
+        menu.className = "mda-cm-table-menu";
+        menu.setAttribute("role", "menu");
+        for (let i = 0; i < spec.items.length; i++) {
+          const item = spec.items[i];
+          if (item.id === "---") {
+            const sep = document.createElement("div");
+            sep.className = "mda-cm-table-menu-sep";
+            menu.appendChild(sep);
+            continue;
+          }
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "mda-cm-table-menu-item";
+          btn.dataset.action = item.id;
+          btn.dataset.i18nKey = item.i18nKey;
+          btn.textContent = uiT(item.i18nKey, t);
+          btn.disabled = !!item.disabled;
+          btn.addEventListener("mousedown", function(e) {
+            if (e.button !== 0 || btn.disabled) return;
             e.preventDefault();
             e.stopPropagation();
-            const startX = e.clientX;
-            const startW = img.getBoundingClientRect().width || img.clientWidth || 200;
-            resizing = true;
-            document.body.classList.add("mda-img-resizing");
-            frame.classList.add("mda-cm-img-resize-active");
-            frame.style.cursor = "nwse-resize";
-            try {
-              frame.setPointerCapture(e.pointerId);
-            } catch (_) {
+            closeTableMenu();
+            onAction(item.id);
+          });
+          menu.appendChild(btn);
+        }
+        host.appendChild(menu);
+        menu.addEventListener("mousedown", function(e) {
+          e.stopPropagation();
+        });
+        requestAnimationFrame(function() {
+          const rect = host.getBoundingClientRect();
+          const menuRect = menu.getBoundingClientRect();
+          let left = Math.min(spec.x - rect.left, rect.width - menuRect.width - 4);
+          let top = Math.min(spec.y - rect.top, rect.height - menuRect.height - 4);
+          if (left < 4) left = 4;
+          if (top < 4) top = 4;
+          menu.style.left = left + "px";
+          menu.style.top = top + "px";
+        });
+      }
+      function closeTableMenu() {
+        if (typeof document === "undefined") return;
+        const menus = document.querySelectorAll(".mda-cm-table-menu");
+        for (let i = 0; i < menus.length; i++) menus[i].remove();
+      }
+      function mountTableChrome(ctx) {
+        const t = ctx.t;
+        const stage = document.createElement("div");
+        stage.className = "mda-cm-table-stage";
+        const grid = document.createElement("div");
+        grid.className = "mda-cm-table-grid";
+        const body = document.createElement("div");
+        body.className = "mda-cm-table-body";
+        const tableWrap = document.createElement("div");
+        tableWrap.className = "mda-cm-table-wrap table-wrap";
+        const colGutterClip = document.createElement("div");
+        colGutterClip.className = "mda-cm-table-col-gutter-clip";
+        colGutterClip.setAttribute("aria-hidden", "true");
+        const colGutter = document.createElement("div");
+        colGutter.className = "mda-cm-table-col-gutter";
+        const chrome = document.createElement("div");
+        chrome.className = "mda-cm-table-chrome";
+        chrome.setAttribute("aria-hidden", "true");
+        const rowGutter = document.createElement("div");
+        rowGutter.className = "mda-cm-table-row-gutter";
+        colGutterClip.appendChild(colGutter);
+        const addColBtn = document.createElement("button");
+        addColBtn.type = "button";
+        addColBtn.className = "mda-cm-table-add-btn mda-cm-table-add-col";
+        addColBtn.setAttribute("data-i18n-title", "widgetTableAddCol");
+        addColBtn.title = uiT("widgetTableAddCol", t);
+        addColBtn.textContent = "+";
+        const addRowBtn = document.createElement("button");
+        addRowBtn.type = "button";
+        addRowBtn.className = "mda-cm-table-add-btn mda-cm-table-add-row";
+        addRowBtn.setAttribute("data-i18n-title", "widgetTableAddRow");
+        addRowBtn.title = uiT("widgetTableAddRow", t);
+        addRowBtn.textContent = "+";
+        body.appendChild(tableWrap);
+        chrome.appendChild(colGutterClip);
+        chrome.appendChild(rowGutter);
+        body.appendChild(chrome);
+        grid.appendChild(body);
+        grid.appendChild(addColBtn);
+        grid.appendChild(addRowBtn);
+        stage.appendChild(grid);
+        let parsed = cloneTableData(ctx.parsed);
+        applyTableLayoutSession(ctx.blockSource || "", parsed);
+        let blockSource = ctx.blockSource || "";
+        let selection = { kind: "none" };
+        let dragAnchor = null;
+        let mutating = false;
+        let resizeCtl = null;
+        stage.setAttribute("tabindex", "-1");
+        function syncFromDomIfNeeded() {
+          if (mutating) return;
+          const live = ctx.readParsedFromDom();
+          if (!live) return;
+          const prevColWidths = parsed.colWidths ? parsed.colWidths.slice() : null;
+          const prevRowHeights = parsed.rowHeights ? parsed.rowHeights.slice() : null;
+          parsed = live;
+          if (!hasTableLayoutMeta(parsed)) {
+            if (prevColWidths && prevColWidths.some(function(w) {
+              return w > 0;
+            })) {
+              parsed.colWidths = prevColWidths;
             }
-            function onMove(ev) {
-              ev.preventDefault();
-              const dx = ev.clientX - startX;
-              const maxW = typeof opts.getResizeMaxWidth === "function" ? opts.getResizeMaxWidth() : 1200;
-              const minW = 48;
-              const next = Math.max(minW, Math.min(maxW, Math.round(startW + dx)));
-              applyLiveImageWidth(img, next);
+            if (prevRowHeights && prevRowHeights.some(function(h) {
+              return h > 0;
+            })) {
+              parsed.rowHeights = prevRowHeights;
             }
-            function onUp(ev) {
-              resizing = false;
-              document.body.classList.remove("mda-img-resizing");
-              frame.classList.remove("mda-cm-img-resize-active");
-              try {
-                frame.releasePointerCapture(ev.pointerId);
-              } catch (_) {
-              }
-              frame.removeEventListener("pointermove", onMove);
-              frame.removeEventListener("pointerup", onUp);
-              frame.removeEventListener("pointercancel", onUp);
-              const finalW = Math.round(img.getBoundingClientRect().width || img.clientWidth || 0);
-              if (typeof opts.onImageResize === "function" && finalW > 16) {
-                opts.onImageResize(img, finalW);
-              }
-              if (typeof opts.onImageResizeEnd === "function") {
-                opts.onImageResizeEnd(img);
-              }
-              updateCursor(ev);
+          }
+        }
+        function syncGutterLayout(table) {
+          if (!table) return;
+          const tableW = table.offsetWidth;
+          const wrapW = tableWrap.clientWidth;
+          const wrapH = tableWrap.clientHeight;
+          const scrollLeft = tableWrap.scrollLeft || 0;
+          colGutterClip.style.width = wrapW + "px";
+          colGutter.style.width = tableW + "px";
+          colGutter.style.transform = "translateX(" + -scrollLeft + "px)";
+          rowGutter.style.height = wrapH + "px";
+          const ths = table.querySelectorAll("thead th");
+          const colBars = colGutter.querySelectorAll(".mda-cm-table-col-bar");
+          for (let i = 0; i < ths.length; i++) {
+            if (colBars[i]) {
+              const rect = ths[i].getBoundingClientRect();
+              const w = Math.max(0, Math.round(rect.width));
+              colBars[i].style.width = w + "px";
+              colBars[i].style.flex = "0 0 " + w + "px";
             }
-            frame.addEventListener("pointermove", onMove);
-            frame.addEventListener("pointerup", onUp);
-            frame.addEventListener("pointercancel", onUp);
+          }
+          const headerRow = table.querySelector("thead tr");
+          const headerBar = rowGutter.querySelector('[data-row="-1"]');
+          if (headerRow && headerBar) headerBar.style.height = headerRow.offsetHeight + "px";
+          const trs = table.querySelectorAll("tbody tr");
+          const rowBars = rowGutter.querySelectorAll('.mda-cm-table-row-bar:not([data-row="-1"])');
+          for (let r = 0; r < trs.length; r++) {
+            if (rowBars[r]) rowBars[r].style.height = trs[r].offsetHeight + "px";
+          }
+        }
+        function commitParsed() {
+          const prevSource = blockSource;
+          if (hasTableLayoutMeta(parsed)) {
+            setTableLayoutSession(prevSource, parsed);
+          }
+          ctx.onParsedChange(cloneTableData(parsed));
+          let newSource = prevSource;
+          if (ctx.widget && ctx.widget.source) {
+            newSource = String(ctx.widget.source || "").replace(/\r\n/g, "\n").replace(/\n$/, "");
+          }
+          if (newSource !== prevSource) {
+            migrateTableLayoutSession(prevSource, newSource);
+          }
+          blockSource = newSource;
+          if (hasTableLayoutMeta(parsed)) {
+            setTableLayoutSession(blockSource, parsed);
+          }
+        }
+        function commitLayout() {
+          setTableLayoutSession(blockSource, parsed);
+        }
+        function clearTableInteraction() {
+          closeTableMenu();
+          const active = document.activeElement;
+          if (active && tableWrap.contains(active) && typeof active.blur === "function") {
+            active.blur();
+          }
+          if (typeof window.getSelection === "function") {
+            const domSel = window.getSelection();
+            if (domSel && domSel.rangeCount) domSel.removeAllRanges();
+          }
+          setSelection({ kind: "none" });
+        }
+        function mutate(fn) {
+          mutating = true;
+          try {
+            syncFromDomIfNeeded();
+            applyTableLayoutSession(blockSource, parsed);
+            if (hasTableLayoutMeta(parsed)) ensureLayoutArrays(parsed);
+            fn(parsed);
+            commitParsed();
+            if (ctx.root.isConnected) {
+              renderLocal();
+            }
+          } finally {
+            mutating = false;
+          }
+        }
+        function renderLocal() {
+          const old = tableWrap.querySelector("table");
+          if (old) old.remove();
+          const table = renderTableElement(parsed);
+          tableWrap.appendChild(table);
+          wireCells(table);
+          rebuildGutters();
+          applySelectionHighlight(table, selection);
+          if (resizeCtl) resizeCtl.applyLayout(parsed);
+          else applyTableLayout(table, parsed, tableWrap);
+          if (hasTableLayoutMeta(parsed)) {
+            setTableLayoutSession(blockSource, parsed);
+          }
+          if (resizeCtl) resizeCtl.rebuildHandles();
+          requestAnimationFrame(function() {
+            syncGutterLayout(table);
+            if (resizeCtl) resizeCtl.rebuildHandles();
+          });
+          return table;
+        }
+        function rebuildGutters() {
+          colGutter.innerHTML = "";
+          for (let c = 0; c < parsed.headers.length; c++) {
+            const bar = document.createElement("button");
+            bar.type = "button";
+            bar.className = "mda-cm-table-col-bar";
+            bar.dataset.col = String(c);
+            bar.setAttribute("aria-label", uiT("widgetTableSelectCol", t, { n: c + 1 }));
+            colGutter.appendChild(bar);
+          }
+          rowGutter.innerHTML = "";
+          const headerBar = document.createElement("button");
+          headerBar.type = "button";
+          headerBar.className = "mda-cm-table-row-bar";
+          headerBar.dataset.row = "-1";
+          headerBar.setAttribute("aria-label", uiT("widgetTableHeaderRow", t));
+          rowGutter.appendChild(headerBar);
+          for (let r = 0; r < parsed.rows.length; r++) {
+            const bar = document.createElement("button");
+            bar.type = "button";
+            bar.className = "mda-cm-table-row-bar";
+            bar.dataset.row = String(r);
+            bar.setAttribute("aria-label", uiT("widgetTableSelectRow", t, { n: r + 1 }));
+            rowGutter.appendChild(bar);
+          }
+        }
+        function setSelection(sel) {
+          selection = sel;
+          const table = tableWrap.querySelector("table");
+          if (table) applySelectionHighlight(table, selection);
+          highlightGutters();
+          const rowCol = sel.kind === "row" || sel.kind === "col" || sel.kind === "rect";
+          stage.classList.toggle("mda-cm-table-rowcol-focus", rowCol);
+          if (rowCol) {
+            stage.focus();
+            if (typeof ctx.pinEditor === "function") ctx.pinEditor();
+          }
+        }
+        function handleDeleteKey(e) {
+          if (e.key !== "Delete" && e.key !== "Backspace") return false;
+          if (selection.kind === "row" && selection.row >= 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            runMenuAction("delete-row");
+            return true;
+          }
+          if (selection.kind === "col") {
+            e.preventDefault();
+            e.stopPropagation();
+            runMenuAction("delete-col");
+            return true;
+          }
+          if (selection.kind === "rect" || selection.kind === "cell" && e.key === "Delete") {
+            const anchor = selectionAnchor(selection);
+            if (!anchor) return false;
+            const active = document.activeElement;
+            const inCell = active && active.closest && active.closest("th[contenteditable], td[contenteditable]") && tableWrap.contains(active);
+            if (inCell && selection.kind === "cell") return false;
+            e.preventDefault();
+            e.stopPropagation();
+            runMenuAction("clear");
+            return true;
+          }
+          return false;
+        }
+        function highlightGutters() {
+          const colBars = colGutter.querySelectorAll(".mda-cm-table-col-bar");
+          const rowBars = rowGutter.querySelectorAll(".mda-cm-table-row-bar");
+          for (let i = 0; i < colBars.length; i++) colBars[i].classList.remove("mda-cm-table-gutter-active");
+          for (let i = 0; i < rowBars.length; i++) rowBars[i].classList.remove("mda-cm-table-gutter-active");
+          if (selection.kind === "col") {
+            const bar = colGutter.querySelector('[data-col="' + selection.col + '"]');
+            if (bar) bar.classList.add("mda-cm-table-gutter-active");
+          }
+          if (selection.kind === "row") {
+            const bar = rowGutter.querySelector('[data-row="' + selection.row + '"]');
+            if (bar) bar.classList.add("mda-cm-table-gutter-active");
+          }
+        }
+        function menuItems() {
+          const hasSel = selection.kind !== "none";
+          const anchor = selectionAnchor(selection);
+          const isBodyRow = selection.kind === "row" && selection.row >= 0;
+          const canDeleteRow = isBodyRow && parsed.rows.length > 0;
+          const canDeleteCol = selection.kind === "col" && parsed.headers.length > 1;
+          const items = [];
+          if (hasSel) {
+            items.push({ id: "copy", i18nKey: "copyBtn" });
+            items.push({ id: "cut", i18nKey: "widgetTableCut" });
+          }
+          if (anchor) {
+            items.push({ id: "paste", i18nKey: "widgetTablePaste" });
+          }
+          if (selection.kind === "row") {
+            if (items.length) items.push({ id: "---" });
+            items.push({ id: "insert-row-above", i18nKey: "widgetTableInsertRowAbove" });
+            items.push({ id: "insert-row-below", i18nKey: "widgetTableInsertRowBelow" });
+          } else if (selection.kind === "col") {
+            if (items.length) items.push({ id: "---" });
+            items.push({ id: "insert-col-left", i18nKey: "widgetTableInsertColLeft" });
+            items.push({ id: "insert-col-right", i18nKey: "widgetTableInsertColRight" });
+          }
+          if (canDeleteRow || canDeleteCol) {
+            if (items.length) items.push({ id: "---" });
+            if (canDeleteRow) items.push({ id: "delete-row", i18nKey: "widgetTableDeleteRow" });
+            if (canDeleteCol) items.push({ id: "delete-col", i18nKey: "widgetTableDeleteCol" });
+          }
+          if (hasSel) {
+            if (items.length) items.push({ id: "---" });
+            let clearKey = "widgetTableClear";
+            if (selection.kind === "row") clearKey = "widgetTableClearRow";
+            else if (selection.kind === "col") clearKey = "widgetTableClearCol";
+            items.push({ id: "clear", i18nKey: clearKey });
+          }
+          if (items.length) items.push({ id: "---" });
+          items.push({ id: "delete-table", i18nKey: "widgetTableDeleteTable" });
+          return items;
+        }
+        function runMenuAction(id) {
+          const anchor = selectionAnchor(selection);
+          if (id === "copy" || id === "cut") {
+            syncFromDomIfNeeded();
+            const text = extractTableTSV(parsed, selection);
+            if (!text) return;
+            internalClipboard = text;
+            copyText(text, ctx.copyFn);
+            if (id === "cut") {
+              mutate(function(p) {
+                clearTableSelection(p, selection);
+              });
+            }
+            return;
+          }
+          if (id === "paste") {
+            if (!anchor) return;
+            const applyPaste = function(text) {
+              const payload = text || internalClipboard;
+              if (!payload) return;
+              mutate(function(p) {
+                pasteTableTSV(p, anchor.row, anchor.col, payload);
+              });
+            };
+            if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.readText) {
+              navigator.clipboard.readText().then(applyPaste).catch(function() {
+                applyPaste(internalClipboard);
+              });
+            } else {
+              applyPaste(internalClipboard);
+            }
+            return;
+          }
+          if (id === "clear") {
+            mutate(function(p) {
+              clearTableSelection(p, selection);
+            });
+            return;
+          }
+          if (id === "delete-table") {
+            closeTableMenu();
+            if (typeof ctx.onDeleteTable === "function") ctx.onDeleteTable();
+            return;
+          }
+          if (id === "delete-row" && selection.kind === "row" && selection.row >= 0) {
+            const idx = selection.row;
+            mutate(function(p) {
+              deleteTableRow(p, idx);
+            });
+            setSelection({ kind: "none" });
+            return;
+          }
+          if (id === "delete-col" && selection.kind === "col") {
+            const idx = selection.col;
+            mutate(function(p) {
+              deleteTableColumn(p, idx);
+            });
+            setSelection({ kind: "none" });
+            return;
+          }
+          if (!anchor) return;
+          if (id === "insert-row-above") {
+            const ref = anchor.row < 0 ? 0 : anchor.row;
+            mutate(function(p) {
+              insertTableRow(p, ref, "before");
+            });
+            return;
+          }
+          if (id === "insert-row-below") {
+            const ref = anchor.row < 0 ? 0 : anchor.row;
+            mutate(function(p) {
+              insertTableRow(p, ref, "after");
+            });
+            return;
+          }
+          if (id === "insert-col-left") {
+            mutate(function(p) {
+              insertTableColumn(p, anchor.col, "before");
+            });
+            return;
+          }
+          if (id === "insert-col-right") {
+            mutate(function(p) {
+              insertTableColumn(p, anchor.col, "after");
+            });
+            return;
+          }
+        }
+        function openMenuAt(clientX, clientY) {
+          openTableMenu(
+            stage,
+            { x: clientX, y: clientY, items: menuItems() },
+            runMenuAction,
+            t
+          );
+        }
+        function focusAdjacentCell(cell, table, delta) {
+          const cells = table.querySelectorAll("th[contenteditable], td[contenteditable]");
+          let idx = -1;
+          for (let i = 0; i < cells.length; i++) {
+            if (cells[i] === cell) {
+              idx = i;
+              break;
+            }
+          }
+          if (idx < 0) return;
+          const next = cells[idx + delta];
+          if (!next) return;
+          next.focus();
+          const range = document.createElement ? document.createRange() : null;
+          if (!range) return;
+          range.selectNodeContents(next);
+          range.collapse(false);
+          const sel = window.getSelection();
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
+        function wireCells(table) {
+          const cells = table.querySelectorAll("th[contenteditable], td[contenteditable]");
+          for (let i = 0; i < cells.length; i++) {
+            const cell = cells[i];
+            let cellContentDirty = false;
+            cell.addEventListener("mousedown", function(e) {
+              if (e.button !== 0) return;
+              if (!e.target.closest(".mda-cm-table-menu")) closeTableMenu();
+              e.stopPropagation();
+              const row = parseInt(cell.getAttribute("data-mda-row") || "0", 10);
+              const col = parseInt(cell.getAttribute("data-mda-col") || "0", 10);
+              if (e.shiftKey && dragAnchor) {
+                setSelection({ kind: "rect", row1: dragAnchor.row, col1: dragAnchor.col, row2: row, col2: col });
+              } else {
+                dragAnchor = { row, col };
+                setSelection({ kind: "cell", row, col });
+              }
+              requestAnimationFrame(function() {
+                if (document.activeElement !== cell) cell.focus();
+              });
+            });
+            cell.addEventListener("focus", function(e) {
+              e.stopPropagation();
+            });
+            cell.addEventListener("keydown", function(e) {
+              if (e.key === "Tab") {
+                e.preventDefault();
+                e.stopPropagation();
+                focusAdjacentCell(cell, table, e.shiftKey ? -1 : 1);
+              }
+              if ((e.ctrlKey || e.metaKey) && e.key === "c" && selection.kind !== "cell") {
+                e.preventDefault();
+                runMenuAction("copy");
+              }
+              if ((e.ctrlKey || e.metaKey) && e.key === "x" && selection.kind !== "cell") {
+                e.preventDefault();
+                runMenuAction("cut");
+              }
+              if ((e.ctrlKey || e.metaKey) && e.key === "v" && selection.kind !== "cell") {
+                e.preventDefault();
+                runMenuAction("paste");
+              }
+            });
+            cell.addEventListener("blur", function() {
+              requestAnimationFrame(function() {
+                if (mutating) return;
+                if (!cellContentDirty) return;
+                cellContentDirty = false;
+                if (!ctx.root.isConnected || !table.isConnected) return;
+                if (table.contains(document.activeElement)) return;
+                syncFromDomIfNeeded();
+                commitParsed();
+              });
+            });
+            cell.addEventListener("input", function() {
+              cellContentDirty = true;
+              setSelection({ kind: "cell", row: parseInt(cell.getAttribute("data-mda-row") || "0", 10), col: parseInt(cell.getAttribute("data-mda-col") || "0", 10) });
+            });
+          }
+        }
+        colGutter.addEventListener("mousedown", function(e) {
+          const bar = e.target && e.target.closest ? e.target.closest(".mda-cm-table-col-bar") : null;
+          if (!bar) return;
+          closeTableMenu();
+          e.preventDefault();
+          e.stopPropagation();
+          setSelection({ kind: "col", col: parseInt(bar.dataset.col || "0", 10) });
+        });
+        rowGutter.addEventListener("mousedown", function(e) {
+          const bar = e.target && e.target.closest ? e.target.closest(".mda-cm-table-row-bar") : null;
+          if (!bar) return;
+          closeTableMenu();
+          e.preventDefault();
+          e.stopPropagation();
+          setSelection({ kind: "row", row: parseInt(bar.dataset.row || "0", 10) });
+        });
+        stage.addEventListener("keydown", function(e) {
+          handleDeleteKey(e);
+        });
+        addColBtn.addEventListener("mousedown", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        addColBtn.addEventListener("click", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          mutate(function(p) {
+            insertTableColumn(p, p.headers.length - 1, "after");
+          });
+        });
+        addRowBtn.addEventListener("mousedown", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        addRowBtn.addEventListener("click", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          mutate(function(p) {
+            insertTableRow(p, p.rows.length, "before");
+          });
+        });
+        stage.addEventListener("contextmenu", function(e) {
+          if (!stage.contains(e.target)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          openMenuAt(e.clientX, e.clientY);
+        });
+        stage.addEventListener("mousedown", function(e) {
+          if (!(e.target && e.target.closest && e.target.closest(".mda-cm-table-menu"))) {
+            closeTableMenu();
+          }
+          if (e.target && e.target.closest && e.target.closest(".mda-cm-table-chrome")) {
+            e.stopPropagation();
+            return;
+          }
+          if (e.target && e.target.closest && e.target.closest(".mda-cm-table-col-gutter-clip, .mda-cm-table-col-gutter")) {
+            e.stopPropagation();
+            return;
+          }
+          if (e.target && e.target.closest && e.target.closest(".mda-cm-table-col-resize-handle, .mda-cm-table-row-resize-handle")) {
+            e.stopPropagation();
+            return;
+          }
+          if (e.target && e.target.closest && e.target.closest("th[contenteditable], td[contenteditable]")) {
+            return;
+          }
+          e.stopPropagation();
+          if (e.target === stage || e.target === grid || e.target === body || e.target === chrome) {
+            clearTableInteraction();
+          }
+        });
+        function onDocPointer(e) {
+          if (!stage.isConnected) {
+            document.removeEventListener("mousedown", onDocPointer, true);
+            return;
+          }
+          if (e.target && stage.contains(e.target)) return;
+          clearTableInteraction();
+        }
+        document.addEventListener("mousedown", onDocPointer, true);
+        function onTableWrapScroll() {
+          const table = tableWrap.querySelector("table");
+          if (!table) return;
+          syncGutterLayout(table);
+          if (resizeCtl) resizeCtl.rebuildHandles();
+        }
+        tableWrap.addEventListener("scroll", onTableWrapScroll, { passive: true });
+        let resizeObserver = null;
+        if (typeof ResizeObserver !== "undefined") {
+          resizeObserver = new ResizeObserver(function() {
+            const table = tableWrap.querySelector("table");
+            if (table) syncGutterLayout(table);
+            if (resizeCtl) resizeCtl.rebuildHandles();
+          });
+          resizeObserver.observe(tableWrap);
+        }
+        renderLocal();
+        const firstTable = tableWrap.querySelector("table");
+        if (firstTable) {
+          resizeCtl = attachTableGridResize(tableWrap, firstTable, {
+            getParsed: function() {
+              return parsed;
+            },
+            onLayoutCommit: function() {
+              commitLayout();
+            },
+            t
+          });
+        }
+        return {
+          stage,
+          getParsed: function() {
+            syncFromDomIfNeeded();
+            return parsed;
           },
-          true
-        );
+          flush: function() {
+            if (mutating || !ctx.root.isConnected) return;
+            const table = tableWrap.querySelector("table");
+            if (!table || !table.isConnected) return;
+            const live = ctx.readParsedFromDom();
+            if (!live) return;
+            parsed = live;
+            mutating = true;
+            try {
+              if (hasTableLayoutMeta(parsed)) {
+                setTableLayoutSession(blockSource, parsed);
+              }
+              ctx.onParsedChange(cloneTableData(parsed));
+            } finally {
+              mutating = false;
+            }
+          },
+          dispose: function() {
+            document.removeEventListener("mousedown", onDocPointer, true);
+            tableWrap.removeEventListener("scroll", onTableWrapScroll);
+            if (resizeObserver) {
+              resizeObserver.disconnect();
+              resizeObserver = null;
+            }
+            if (resizeCtl) {
+              resizeCtl.dispose();
+              resizeCtl = null;
+            }
+            closeTableMenu();
+          },
+          refreshI18n: function(tFn) {
+            const tt = tFn || t;
+            addColBtn.title = uiT("widgetTableAddCol", tt);
+            addRowBtn.title = uiT("widgetTableAddRow", tt);
+          }
+        };
       }
       module.exports = {
-        CORNER_PX,
-        isNearFrameResizeCorner,
-        isNearFrameResizeEdge,
-        attachImageCornerResize,
-        attachImageEdgeResize: attachImageCornerResize
+        mountTableChrome,
+        renderTableElement,
+        closeTableMenu,
+        applySelectionHighlight
       };
     }
   });
@@ -32121,12 +33295,13 @@ var MDAEditorBundle = (() => {
         }
         return best ? best.expanded : null;
       }
-      function findImageBlockAtPoint(view, excludeRoot, clientX, clientY) {
+      function findBlockAtPoint(view, excludeRoot, clientX, clientY, blockSelector) {
         if (!view || !view.dom) return null;
-        const nodes = view.dom.querySelectorAll(".mda-cm-image-block[data-mda-block-from][data-mda-block-to]");
+        const sel = blockSelector || ".mda-cm-image-block";
+        const nodes = view.dom.querySelectorAll(sel + "[data-mda-block-from][data-mda-block-to]");
         for (let i = 0; i < nodes.length; i++) {
           const el = nodes[i];
-          if (excludeRoot && el === excludeRoot) continue;
+          if (excludeRoot && (el === excludeRoot || excludeRoot.contains(el))) continue;
           const r = el.getBoundingClientRect();
           if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
             const from = parseInt(el.getAttribute("data-mda-block-from") || "", 10);
@@ -32135,6 +33310,46 @@ var MDAEditorBundle = (() => {
           }
         }
         return null;
+      }
+      function findImageBlockAtPoint(view, excludeRoot, clientX, clientY) {
+        return findBlockAtPoint(view, excludeRoot, clientX, clientY, ".mda-cm-image-block");
+      }
+      function resolveBlockDropTargetFromCoords(view, dragFrom, dragTo, clientX, clientY, dragRoot, options) {
+        options = options || {};
+        const blockSelector = options.blockSelector || ".mda-cm-image-block";
+        const replaceOnHover = options.replaceOnHover !== false;
+        if (replaceOnHover) {
+          const hit = findBlockAtPoint(view, dragRoot || null, clientX, clientY, blockSelector);
+          if (hit && !(hit.from === dragFrom && hit.to === dragTo)) {
+            const source = hit.el.getAttribute("data-mda-block-source") || "";
+            return {
+              mode: "replace",
+              pos: null,
+              hoverEl: hit.el,
+              targetBlock: {
+                from: hit.from,
+                to: hit.to,
+                source
+              }
+            };
+          }
+        }
+        const raw = view.posAtCoords({ x: clientX, y: clientY }, false);
+        if (raw == null) {
+          return { mode: "insert", pos: null, hoverEl: null, targetBlock: null };
+        }
+        return {
+          mode: "insert",
+          pos: resolveDropTargetPos(view, dragFrom, dragTo, raw),
+          hoverEl: null,
+          targetBlock: null
+        };
+      }
+      function resolveDropTargetFromCoords(view, dragFrom, dragTo, clientX, clientY, dragRoot) {
+        return resolveBlockDropTargetFromCoords(view, dragFrom, dragTo, clientX, clientY, dragRoot, {
+          blockSelector: ".mda-cm-image-block",
+          replaceOnHover: true
+        });
       }
       function resolveDropTargetPos(view, from, to, targetPos) {
         if (!view) return null;
@@ -32153,32 +33368,6 @@ var MDAEditorBundle = (() => {
           }
         }
         return target;
-      }
-      function resolveDropTargetFromCoords(view, dragFrom, dragTo, clientX, clientY, dragRoot) {
-        const hit = findImageBlockAtPoint(view, dragRoot || null, clientX, clientY);
-        if (hit && !(hit.from === dragFrom && hit.to === dragTo)) {
-          const source = hit.el.getAttribute("data-mda-block-source") || "";
-          return {
-            mode: "replace",
-            pos: null,
-            hoverEl: hit.el,
-            targetBlock: {
-              from: hit.from,
-              to: hit.to,
-              source
-            }
-          };
-        }
-        const raw = view.posAtCoords({ x: clientX, y: clientY }, false);
-        if (raw == null) {
-          return { mode: "insert", pos: null, hoverEl: null, targetBlock: null };
-        }
-        return {
-          mode: "insert",
-          pos: resolveDropTargetPos(view, dragFrom, dragTo, raw),
-          hoverEl: null,
-          targetBlock: null
-        };
       }
       function normalizeImageBlockLine(src, fallbackDoc) {
         let line = trimLineEnd(String(src || "").trim());
@@ -32345,6 +33534,8 @@ var MDAEditorBundle = (() => {
         resolveBlockRange,
         resolveDropTargetPos,
         resolveDropTargetFromCoords,
+        resolveBlockDropTargetFromCoords,
+        findBlockAtPoint,
         findImageBlockAtPoint,
         resolveImageLineRange,
         normalizeImageBlockLine,
@@ -32355,6 +33546,471 @@ var MDAEditorBundle = (() => {
         moveBlockRange,
         dropReplaceImageBlock,
         insertImageAt
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/table.js
+  var require_table = __commonJS({
+    "src/gui/renderer/editor/widgets/table.js"(exports, module) {
+      "use strict";
+      var {
+        parseGfmTable,
+        parseGfmTableBlock,
+        serializeGfmTable,
+        parseTableMetaLine,
+        readTableFromDom,
+        tablesEqual,
+        expandTableBlockRange,
+        MAX_TABLE_WIDGET_HEIGHT
+      } = require_parse_table();
+      var { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require_block_widget_base();
+      var { mountTableChrome, closeTableMenu } = require_table_chrome();
+      var { deleteBlockRange } = require_image_block_ops();
+      var { applyTableLayoutSession } = require_table_layout_session();
+      function resolveTableBlockRange(view, widget) {
+        const text = view.state.doc.toString();
+        const len = text.length;
+        const hintFrom = Math.max(0, Math.min(widget.from, len));
+        const hintTo = Math.max(hintFrom, Math.min(widget.to, len));
+        return expandTableBlockRange(text, hintFrom, hintTo);
+      }
+      function pinEditorToTable(view, widget) {
+        if (!view || widget.from == null) return;
+        const br = resolveTableBlockRange(view, widget);
+        const pos = br.from;
+        const sel = view.state.selection.main;
+        if (sel.from === pos && sel.to === pos && sel.head === pos) return;
+        view.dispatch({
+          selection: { anchor: pos, head: pos }
+        });
+      }
+      function deleteTableBlock(view, widget) {
+        if (!view || !widget) return;
+        const br = resolveTableBlockRange(view, widget);
+        deleteBlockRange(view, br.from, br.to);
+      }
+      function serializeTableBlockForDoc(blockText, parsed) {
+        const body = serializeGfmTable(parsed);
+        const lines = String(blockText || "").replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
+        if (lines.length > 0 && parseTableMetaLine(lines[0])) {
+          return lines[0] + "\n" + body;
+        }
+        return body;
+      }
+      function syncParsedToDoc(view, widget, parsed) {
+        if (!parsed || !view) return;
+        const br = resolveTableBlockRange(view, widget);
+        const from = br.from;
+        const to = br.to;
+        if (from < 0 || to < from || to > view.state.doc.length) return;
+        const blockText = view.state.doc.sliceString(from, to);
+        const docParsed = parseGfmTableBlock(blockText);
+        const newSource = serializeTableBlockForDoc(blockText, parsed);
+        if (docParsed && tablesEqual(docParsed, parsed) && blockText.trimEnd() === newSource.trimEnd()) {
+          widget.source = newSource;
+          widget.from = from;
+          widget.to = from + blockText.length;
+          return;
+        }
+        if (!parseGfmTable(newSource)) return;
+        const trailing = blockText.endsWith("\n") ? "\n" : "";
+        const insert = newSource + trailing;
+        if (insert === blockText) {
+          widget.source = newSource;
+          widget.from = from;
+          widget.to = to;
+          return;
+        }
+        widget.source = newSource;
+        widget.from = from;
+        widget.to = from + insert.length;
+        view.dispatch({
+          changes: { from, to, insert }
+        });
+      }
+      function flushAllTableWidgets(view) {
+        if (!view || !view.dom) return;
+        closeTableMenu();
+        const roots = view.dom.querySelectorAll(".mda-cm-table-block");
+        for (let i = 0; i < roots.length; i++) {
+          const chrome = roots[i]._mdaTableChrome;
+          if (chrome && typeof chrome.flush === "function") {
+            chrome.flush();
+          }
+        }
+      }
+      var TableWidget = class _TableWidget extends BlockReplaceWidget {
+        /**
+         * @param {string} source
+         * @param {{ from?: number, to?: number, lineHeight?: number, t?: Function, copyText?: Function }} [opts]
+         */
+        constructor(source, opts) {
+          super(source, opts);
+          this.opts = opts || {};
+          this._maxMeasuredHeight = MAX_TABLE_WIDGET_HEIGHT;
+          const normalized = String(source || "").replace(/\r\n/g, "\n").replace(/\n$/, "");
+          const parsed = parseGfmTableBlock(normalized);
+          if (parsed) {
+            this._minHeight = _TableWidget.estimateTableHeight(parsed);
+          } else {
+            this._minHeight = Math.min(
+              Math.max(this._lineCount * DEFAULT_LINE_HEIGHT, DEFAULT_LINE_HEIGHT),
+              MAX_TABLE_WIDGET_HEIGHT
+            );
+          }
+        }
+        /**
+         * @param {{ rows: string[][], rowHeights?: number[] }} parsed
+         */
+        static estimateTableHeight(parsed) {
+          const rows = 1 + (parsed.rows ? parsed.rows.length : 0);
+          let h = rows * 36 + 52;
+          const rh = parsed.rowHeights || [];
+          if (rh.some(function(x) {
+            return x > 0;
+          })) {
+            let sum = 0;
+            for (let i = 0; i < rows; i++) {
+              sum += Math.max(28, Math.min(rh[i] || 28, 600));
+            }
+            h = sum + 52;
+          }
+          return Math.min(h, MAX_TABLE_WIDGET_HEIGHT);
+        }
+        get estimatedHeight() {
+          if (this._measured > 0) {
+            return Math.min(this._measured, MAX_TABLE_WIDGET_HEIGHT);
+          }
+          const normalized = String(this.source || "").replace(/\r\n/g, "\n").replace(/\n$/, "");
+          const parsed = parseGfmTableBlock(normalized);
+          if (parsed) {
+            return _TableWidget.estimateTableHeight(parsed);
+          }
+          return Math.min(super.estimatedHeight, MAX_TABLE_WIDGET_HEIGHT);
+        }
+        eq(other) {
+          return other instanceof _TableWidget && other.source === this.source && other.from === this.from && other.to === this.to;
+        }
+        toDOM(view) {
+          const self = this;
+          const opts = this.opts;
+          const root = document.createElement("div");
+          root.className = "mda-cm-table-block";
+          root.setAttribute("contenteditable", "false");
+          const normalized = String(this.source || "").replace(/\r\n/g, "\n").replace(/\n$/, "");
+          const parsed = parseGfmTableBlock(normalized);
+          if (parsed) {
+            applyTableLayoutSession(normalized, parsed);
+            const chrome = mountTableChrome({
+              view,
+              widget: self,
+              root,
+              parsed,
+              blockSource: normalized,
+              t: opts.t,
+              copyFn: opts.copyText,
+              pinEditor: function() {
+                pinEditorToTable(view, self);
+              },
+              readParsedFromDom: function() {
+                const table = root.querySelector("table");
+                return readTableFromDom(table);
+              },
+              onParsedChange: function(next) {
+                syncParsedToDoc(view, self, next);
+              },
+              onDeleteTable: function() {
+                deleteTableBlock(view, self);
+              }
+            });
+            root.appendChild(chrome.stage);
+            root._mdaTableChrome = chrome;
+          } else {
+            const fallback = document.createElement("pre");
+            fallback.className = "mda-cm-table-fallback";
+            fallback.textContent = this.source;
+            root.appendChild(fallback);
+          }
+          root.addEventListener("mousedown", function(e) {
+            if (e.target && e.target.closest && e.target.closest("th[contenteditable], td[contenteditable]")) {
+              return;
+            }
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-table-col-resize-handle, .mda-cm-table-row-resize-handle")) {
+              return;
+            }
+            e.stopPropagation();
+            pinEditorToTable(view, self);
+          });
+          this.bindMeasure(view, root);
+          return root;
+        }
+        destroy(dom) {
+          if (dom && dom._mdaTableChrome) {
+            if (typeof dom._mdaTableChrome.dispose === "function") {
+              dom._mdaTableChrome.dispose();
+            }
+            dom._mdaTableChrome = null;
+          }
+          super.destroy(dom);
+        }
+      };
+      module.exports = {
+        TableWidget,
+        syncParsedToDoc,
+        pinEditorToTable,
+        deleteTableBlock,
+        resolveTableBlockRange,
+        flushAllTableWidgets
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/model/parse-image.js
+  var require_parse_image = __commonJS({
+    "src/gui/renderer/editor/model/parse-image.js"(exports, module) {
+      "use strict";
+      function parseImageMarkdown(slice) {
+        const m = /^!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+(?:"([^"]*)"|'([^']*)'))?\s*\)$/.exec(
+          String(slice || "").trim()
+        );
+        if (!m) return null;
+        return {
+          alt: m[1] || "",
+          src: m[2] || "",
+          title: m[3] || m[4] || ""
+        };
+      }
+      function serializeImageMarkdown(meta) {
+        if (!meta || !meta.src) return "";
+        const alt = String(meta.alt || "");
+        const src = String(meta.src || "");
+        const title = meta.title ? String(meta.title) : "";
+        if (title) {
+          return "![" + alt + "](" + src + ' "' + title.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '")';
+        }
+        return "![" + alt + "](" + src + ")";
+      }
+      module.exports = {
+        parseImageMarkdown,
+        serializeImageMarkdown
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/md-surface.js
+  var require_md_surface = __commonJS({
+    "src/gui/renderer/editor/widgets/md-surface.js"(exports, module) {
+      "use strict";
+      function htmlFromRender(source, renderMarkdown) {
+        if (typeof renderMarkdown !== "function") return "";
+        try {
+          const r = renderMarkdown(source || "");
+          if (typeof r === "string") return r;
+          if (r && r.success && typeof r.html === "string") return r.html;
+          if (r && typeof r.html === "string") return r.html;
+        } catch (_) {
+        }
+        return "";
+      }
+      function resolveImagesIn(root, resolveImageUrl) {
+        if (!root || typeof resolveImageUrl !== "function") return;
+        const imgs = root.querySelectorAll("img[src]");
+        for (let i = 0; i < imgs.length; i++) {
+          const img = imgs[i];
+          const src = img.getAttribute("src") || "";
+          if (!src || /^(https?:|data:|file:)/i.test(src)) continue;
+          Promise.resolve(resolveImageUrl(src)).then(function(url) {
+            if (url) img.setAttribute("src", url);
+          }).catch(function() {
+          });
+        }
+      }
+      function createMdSurface(source, opts) {
+        opts = opts || {};
+        const wrap = document.createElement(opts.inline ? "span" : "div");
+        wrap.className = "mda-md-surface" + (opts.inline ? " mda-md-surface-inline" : "");
+        wrap.setAttribute("contenteditable", "false");
+        const html = htmlFromRender(source, opts.renderMarkdown);
+        if (html) {
+          if (opts.inline) {
+            const tmp = document.createElement("div");
+            tmp.innerHTML = html;
+            const p = tmp.querySelector("p");
+            const host = p || tmp;
+            while (host.firstChild) wrap.appendChild(host.firstChild);
+          } else {
+            wrap.innerHTML = html;
+          }
+          resolveImagesIn(wrap, opts.resolveImageUrl);
+        } else {
+          wrap.textContent = source || "";
+        }
+        return wrap;
+      }
+      module.exports = {
+        htmlFromRender,
+        resolveImagesIn,
+        createMdSurface
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/image-layout.js
+  var require_image_layout = __commonJS({
+    "src/gui/renderer/editor/widgets/image-layout.js"(exports, module) {
+      "use strict";
+      function syncFrameToImage(img) {
+        if (!img) return;
+        const frame = img.closest(".mda-cm-image-frame");
+        if (!frame) return;
+        const inner = frame.querySelector(".mda-cm-image-inner");
+        const attrW = parseInt(img.getAttribute("data-mda-display-width") || "", 10);
+        const w = attrW > 0 ? attrW : Math.round(img.getBoundingClientRect().width || img.clientWidth || 0);
+        if (!(w > 0)) return;
+        frame.style.width = w + "px";
+        if (inner) inner.style.width = w + "px";
+        if (attrW > 0) {
+          frame.classList.add("mda-cm-image-sized");
+          if (inner) inner.classList.add("mda-cm-image-sized");
+          frame.style.maxWidth = "none";
+          if (inner) inner.style.maxWidth = "none";
+          img.style.maxWidth = "none";
+        } else {
+          frame.classList.remove("mda-cm-image-sized");
+          if (inner) inner.classList.remove("mda-cm-image-sized");
+          frame.style.width = "";
+          frame.style.maxWidth = "";
+          if (inner) {
+            inner.style.width = "";
+            inner.style.maxWidth = "";
+          }
+          img.style.maxWidth = "100%";
+        }
+      }
+      function applyLiveImageWidth(img, widthPx) {
+        if (!img) return 0;
+        const w = Math.round(widthPx);
+        if (!(w > 16)) return 0;
+        img.style.width = w + "px";
+        img.style.maxWidth = "none";
+        img.style.height = "auto";
+        img.setAttribute("data-mda-display-width", String(w));
+        syncFrameToImage(img);
+        return w;
+      }
+      function clearLiveImageWidth(img) {
+        if (!img) return;
+        img.style.width = "";
+        img.style.maxWidth = "100%";
+        img.style.height = "auto";
+        img.removeAttribute("data-mda-display-width");
+        syncFrameToImage(img);
+      }
+      module.exports = {
+        syncFrameToImage,
+        applyLiveImageWidth,
+        clearLiveImageWidth
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/image-edge-resize.js
+  var require_image_edge_resize = __commonJS({
+    "src/gui/renderer/editor/widgets/image-edge-resize.js"(exports, module) {
+      "use strict";
+      var { applyLiveImageWidth } = require_image_layout();
+      var CORNER_PX = 16;
+      function isNearFrameResizeCorner(frame, clientX, clientY) {
+        if (!frame) return false;
+        const r = frame.getBoundingClientRect();
+        return clientX >= r.right - CORNER_PX && clientX <= r.right + 1 && clientY >= r.bottom - CORNER_PX && clientY <= r.bottom + 1;
+      }
+      function isNearFrameResizeEdge(frame, clientX) {
+        if (!frame) return false;
+        const r = frame.getBoundingClientRect();
+        const midY = (r.top + r.bottom) / 2;
+        return isNearFrameResizeCorner(frame, clientX, midY);
+      }
+      function attachImageCornerResize(frame, img, opts, selectFrame) {
+        if (!frame || !img) return;
+        let resizing = false;
+        function updateCursor(e) {
+          if (resizing) {
+            frame.style.cursor = "nwse-resize";
+            return;
+          }
+          if (!frame.classList.contains("mda-cm-media-selected")) {
+            frame.style.cursor = "";
+            return;
+          }
+          frame.style.cursor = isNearFrameResizeCorner(frame, e.clientX, e.clientY) ? "nwse-resize" : "";
+        }
+        frame.addEventListener("pointermove", updateCursor);
+        frame.addEventListener("pointerleave", function() {
+          if (!resizing) frame.style.cursor = "";
+        });
+        frame.addEventListener(
+          "pointerdown",
+          function(e) {
+            if (e.button !== 0) return;
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-image-toolbar")) return;
+            if (!frame.classList.contains("mda-cm-media-selected")) return;
+            const onHandle = e.target && e.target.closest && e.target.closest(".mda-cm-image-handle-br");
+            if (!onHandle && !isNearFrameResizeCorner(frame, e.clientX, e.clientY)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const startX = e.clientX;
+            const startW = img.getBoundingClientRect().width || img.clientWidth || 200;
+            resizing = true;
+            document.body.classList.add("mda-img-resizing");
+            frame.classList.add("mda-cm-img-resize-active");
+            frame.style.cursor = "nwse-resize";
+            try {
+              frame.setPointerCapture(e.pointerId);
+            } catch (_) {
+            }
+            function onMove(ev) {
+              ev.preventDefault();
+              const dx = ev.clientX - startX;
+              const maxW = typeof opts.getResizeMaxWidth === "function" ? opts.getResizeMaxWidth() : 1200;
+              const minW = 48;
+              const next = Math.max(minW, Math.min(maxW, Math.round(startW + dx)));
+              applyLiveImageWidth(img, next);
+            }
+            function onUp(ev) {
+              resizing = false;
+              document.body.classList.remove("mda-img-resizing");
+              frame.classList.remove("mda-cm-img-resize-active");
+              try {
+                frame.releasePointerCapture(ev.pointerId);
+              } catch (_) {
+              }
+              frame.removeEventListener("pointermove", onMove);
+              frame.removeEventListener("pointerup", onUp);
+              frame.removeEventListener("pointercancel", onUp);
+              const finalW = Math.round(img.getBoundingClientRect().width || img.clientWidth || 0);
+              if (typeof opts.onImageResize === "function" && finalW > 16) {
+                opts.onImageResize(img, finalW);
+              }
+              if (typeof opts.onImageResizeEnd === "function") {
+                opts.onImageResizeEnd(img);
+              }
+              updateCursor(ev);
+            }
+            frame.addEventListener("pointermove", onMove);
+            frame.addEventListener("pointerup", onUp);
+            frame.addEventListener("pointercancel", onUp);
+          },
+          true
+        );
+      }
+      module.exports = {
+        CORNER_PX,
+        isNearFrameResizeCorner,
+        isNearFrameResizeEdge,
+        attachImageCornerResize,
+        attachImageEdgeResize: attachImageCornerResize
       };
     }
   });
@@ -32697,12 +34353,9 @@ var MDAEditorBundle = (() => {
           const handles = document.createElement("span");
           handles.className = "mda-cm-image-handles";
           handles.setAttribute("aria-hidden", "true");
-          const cornerNames = ["tl", "tr", "bl", "br"];
-          for (let hi = 0; hi < cornerNames.length; hi++) {
-            const dot = document.createElement("i");
-            dot.className = "mda-cm-image-handle mda-cm-image-handle-" + cornerNames[hi];
-            handles.appendChild(dot);
-          }
+          const dot = document.createElement("i");
+          dot.className = "mda-cm-image-handle mda-cm-image-handle-br";
+          handles.appendChild(dot);
           frame.appendChild(handles);
           const img = inner.querySelector("img");
           function selectFrame() {
@@ -32780,13 +34433,580 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widgets/block-menu-icons.js
+  var require_block_menu_icons = __commonJS({
+    "src/gui/renderer/editor/widgets/block-menu-icons.js"(exports, module) {
+      "use strict";
+      var ICONS = {
+        ai: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2l1 3h3l-2.5 2 1 3L8 8l-2.5 2 1-3L4 5h3z"/></svg>',
+        insertAbove: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 10h10M8 3v7"/><path d="M5.5 6.5L8 4l2.5 2.5"/></svg>',
+        insertBelow: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6h10M8 13V6"/><path d="M5.5 9.5L8 12l2.5-2.5"/></svg>',
+        copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
+        cut: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="4.5" r="1.8"/><circle cx="4.5" cy="11.5" r="1.8"/><path d="M6.2 6l3.6 4M6.2 10l3.6-4l3.2 1.8"/></svg>',
+        delete: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 5h9l-.8 8.2a1 1 0 01-1 .8H5.3a1 1 0 01-1-.8L3.5 5z"/><path d="M2.5 5h11M6.5 5V3.8a1 1 0 011-1h1a1 1 0 011 1V5"/></svg>',
+        continue: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 12l3-8 3 5 2-3"/></svg>',
+        companion: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 8h7M10 5v6"/><path d="M12.5 6.5l1.5 1.5-1.5 1.5"/></svg>',
+        polish: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 13l7-7 3 3-7 7H3v-3z"/><path d="M9 4l2 2"/></svg>',
+        expand: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 6h8M4 8.5h6M4 11h4"/></svg>',
+        shorten: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 6h8M4 9h5"/></svg>',
+        grammar: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h8v8H4z"/><path d="M6 8h4M6 10.5h2.5"/></svg>',
+        explain: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.5"/><path d="M8 7v3.5"/><circle cx="8" cy="5.2" r=".8" fill="currentColor" stroke="none"/></svg>',
+        translate: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 4.5h6M5.5 4.5V3M4 8.5h5M11 4l2.5 2.5L11 9"/><path d="M11 11.5h2.5"/></svg>',
+        summarize: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h8M4 7h8M4 10h5"/></svg>',
+        more: '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="4" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="12" cy="8" r="1.1"/></svg>',
+        image: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1"/><circle cx="5.8" cy="6.8" r="1.2"/><path d="M3.5 11.5l3-2.5 2 1.5 2.5-2 1.5 3.5"/></svg>',
+        table: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="3.5" width="10" height="9" rx="1"/><path d="M3 7h10M8 3.5v9M6 7v5.5M10 7v5.5"/></svg>',
+        code: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M5.5 4.5L2.5 8l3 3.5M10.5 4.5l3 3.5-3 3.5"/></svg>',
+        quote: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 5.5c0-1.5 1-2.5 2.5-2.5.8 0 1.5.3 2 .8-.8.3-1.5 1-1.5 2 0 1.2 1 2.2 2.2 2.2H4.5V11H3V5.5zm6 0c0-1.5 1-2.5 2.5-2.5.8 0 1.5.3 2 .8-.8.3-1.5 1-1.5 2 0 1.2 1 2.2 2.2 2.2H10.5V11H9V5.5z"/></svg>',
+        highlight: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 13l3-1 7-7-2-2-7 7-1 3z"/><path d="M10 4l2 2"/></svg>',
+        mermaid: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="2.5" width="4.5" height="3" rx=".8"/><rect x="9.5" y="2.5" width="4.5" height="3" rx=".8"/><rect x="5.5" y="10.5" width="5" height="3" rx=".8"/><path d="M4.2 5.5v2.2h7.6V8.2M8 8.2v2.3"/></svg>',
+        hr: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 8h10"/></svg>'
+      };
+      function menuIconHtml(name) {
+        const svg = ICONS[name] || "";
+        if (!svg) return "";
+        return '<span class="mda-menu-icon" aria-hidden="true">' + svg + "</span>";
+      }
+      module.exports = {
+        menuIconHtml,
+        ICONS
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-handle-menu.js
+  var require_block_handle_menu = __commonJS({
+    "src/gui/renderer/editor/widgets/block-handle-menu.js"(exports, module) {
+      "use strict";
+      var { uiT } = require_widget_common();
+      var { menuIconHtml } = require_block_menu_icons();
+      var activeMenu = null;
+      var activeSubmenu = null;
+      var menuAnchorEl = null;
+      var menuBlockRoot = null;
+      var dismissFn = null;
+      var subOpenTimer = 0;
+      var subCloseTimer = 0;
+      var escFn = null;
+      var menuCloseTimer = 0;
+      var menuGraceUntil = 0;
+      var MENU_GRACE_MS = 380;
+      var SUB_CLOSE_MS = 280;
+      var MENU_CLOSE_MS = 320;
+      var MOD_KEY = typeof navigator !== "undefined" && (navigator.platform || "").toLowerCase().indexOf("mac") >= 0 ? "\u2318" : "Ctrl+";
+      var AI_ITEMS = [
+        { id: "continue", key: "blockMenuAiContinue", icon: "continue", soon: true },
+        { id: "companion", key: "blockMenuAiCompanion", icon: "companion", soon: true },
+        { id: "polish", key: "blockMenuAiPolish", icon: "polish", soon: true },
+        { id: "expand", key: "blockMenuAiExpand", icon: "expand", soon: true },
+        { id: "shorten", key: "blockMenuAiShorten", icon: "shorten", soon: true },
+        { id: "grammar", key: "blockMenuAiGrammar", icon: "grammar", soon: true },
+        { id: "explain", key: "blockMenuAiExplain", icon: "explain", soon: true },
+        { id: "translate", key: "blockMenuAiTranslate", icon: "translate", soon: true },
+        { id: "summarize", key: "blockMenuAiSummarize", icon: "summarize", soon: true },
+        { id: "more", key: "blockMenuAiMore", icon: "more", soon: true }
+      ];
+      var INSERT_ITEMS = [
+        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: true },
+        { id: "table", key: "blockMenuInsertTable", icon: "table", soon: false },
+        { id: "code", key: "blockMenuInsertCode", icon: "code", soon: false },
+        { id: "quote", key: "blockMenuInsertQuote", icon: "quote", soon: false },
+        { id: "highlight", key: "blockMenuInsertHighlight", icon: "highlight", soon: false },
+        { id: "mermaid", key: "blockMenuInsertMermaid", icon: "mermaid", soon: false },
+        { id: "hr", key: "blockMenuInsertHr", icon: "hr", soon: false }
+      ];
+      function clearSubTimers() {
+        window.clearTimeout(subOpenTimer);
+        window.clearTimeout(subCloseTimer);
+        window.clearTimeout(menuCloseTimer);
+        subOpenTimer = 0;
+        subCloseTimer = 0;
+        menuCloseTimer = 0;
+      }
+      function closeActiveSubmenu() {
+        if (activeSubmenu && activeSubmenu.parentNode) {
+          activeSubmenu.parentNode.removeChild(activeSubmenu);
+        }
+        activeSubmenu = null;
+      }
+      function removeOrphanSubmenus() {
+        const nodes = document.querySelectorAll(".mda-block-handle-submenu");
+        for (let i = 0; i < nodes.length; i++) {
+          const el = nodes[i];
+          if (el.parentNode) el.parentNode.removeChild(el);
+        }
+      }
+      function isInMenuCluster(target) {
+        if (!target) return false;
+        const el = (
+          /** @type {Node} */
+          target
+        );
+        if (activeMenu && activeMenu.contains(el)) return true;
+        if (activeSubmenu && activeSubmenu.contains(el)) return true;
+        if (menuAnchorEl && menuAnchorEl.contains(el)) return true;
+        if (menuBlockRoot && menuBlockRoot.contains(el)) return true;
+        return false;
+      }
+      function closeBlockHandleMenu() {
+        clearSubTimers();
+        closeActiveSubmenu();
+        removeOrphanSubmenus();
+        if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
+        activeMenu = null;
+        menuAnchorEl = null;
+        menuBlockRoot = null;
+        menuGraceUntil = 0;
+        if (dismissFn) {
+          document.removeEventListener("mousedown", dismissFn, true);
+          document.removeEventListener("contextmenu", dismissFn, true);
+          window.removeEventListener("blur", dismissFn);
+          dismissFn = null;
+        }
+        if (escFn) {
+          document.removeEventListener("keydown", escFn, true);
+          escFn = null;
+        }
+      }
+      function addMenuSeparator(menu) {
+        const sep = document.createElement("div");
+        sep.className = "mda-menu-sep";
+        sep.setAttribute("aria-hidden", "true");
+        menu.appendChild(sep);
+      }
+      function menuItemInner(label, iconName, suffixHtml) {
+        return menuIconHtml(iconName || "") + '<span class="mda-menu-label">' + label + "</span>" + (suffixHtml || "");
+      }
+      function placeMenu(menu, x, y) {
+        menu.style.left = "0px";
+        menu.style.top = "0px";
+        document.body.appendChild(menu);
+        const pad = 6;
+        const w = menu.offsetWidth;
+        const h = menu.offsetHeight;
+        let left = x;
+        let top = y;
+        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
+        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
+        if (left < pad) left = pad;
+        if (top < pad) top = pad;
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+      }
+      function placeSubmenu(parentItem, submenu) {
+        document.body.appendChild(submenu);
+        const pr = parentItem.getBoundingClientRect();
+        const pad = 6;
+        let left = pr.right - 4;
+        let top = pr.top - 4;
+        submenu.style.left = left + "px";
+        submenu.style.top = top + "px";
+        if (left + submenu.offsetWidth > window.innerWidth - pad) {
+          left = pr.left - submenu.offsetWidth + 4;
+          submenu.style.left = left + "px";
+        }
+        if (top + submenu.offsetHeight > window.innerHeight - pad) {
+          top = Math.max(pad, window.innerHeight - submenu.offsetHeight - pad);
+          submenu.style.top = top + "px";
+        }
+      }
+      function buildSubmenu(t, items, onPick) {
+        const sub = document.createElement("div");
+        sub.className = "mda-context-menu mda-block-handle-submenu";
+        sub.setAttribute("role", "menu");
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          const row = document.createElement("div");
+          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "");
+          row.setAttribute("role", "menuitem");
+          row.dataset.act = it.id;
+          row.dataset.soon = it.soon ? "1" : "0";
+          row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
+          sub.appendChild(row);
+        }
+        sub.addEventListener("click", function(e) {
+          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+          if (!item) return;
+          e.stopPropagation();
+          onPick(item.dataset.act || "", item.dataset.soon === "1");
+          closeBlockHandleMenu();
+        });
+        sub.addEventListener("mouseenter", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = 0;
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = 0;
+        });
+        sub.addEventListener("mouseleave", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
+        });
+        return sub;
+      }
+      function addSubRow(menu, t, key, icon, submenuFactory) {
+        const row = document.createElement("div");
+        row.className = "mda-menu-item mda-menu-has-sub";
+        row.setAttribute("role", "menuitem");
+        row.innerHTML = menuItemInner(uiT(key, t), icon, '<span class="mda-menu-chevron" aria-hidden="true">\u203A</span>');
+        row.addEventListener("mouseenter", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = 0;
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = 0;
+          window.clearTimeout(subOpenTimer);
+          subOpenTimer = window.setTimeout(function() {
+            closeActiveSubmenu();
+            activeSubmenu = submenuFactory();
+            placeSubmenu(row, activeSubmenu);
+          }, 100);
+        });
+        row.addEventListener("mouseleave", function(e) {
+          window.clearTimeout(subOpenTimer);
+          subOpenTimer = 0;
+          const rt = e.relatedTarget;
+          if (activeSubmenu && rt && activeSubmenu.contains(
+            /** @type {Node} */
+            rt
+          )) return;
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
+        });
+        menu.appendChild(row);
+      }
+      function showBlockHandleMenu(ctx) {
+        closeBlockHandleMenu();
+        const t = ctx.t;
+        const handlers = ctx.handlers || {};
+        const anchor = ctx.anchorEl;
+        const rect = anchor.getBoundingClientRect();
+        menuAnchorEl = anchor;
+        menuBlockRoot = ctx.blockRoot || null;
+        menuGraceUntil = Date.now() + MENU_GRACE_MS;
+        const menu = document.createElement("div");
+        menu.className = "mda-context-menu mda-block-handle-menu";
+        menu.id = "mda-block-handle-menu";
+        menu.setAttribute("role", "menu");
+        addSubRow(menu, t, "blockMenuAiEdit", "ai", function() {
+          return buildSubmenu(t, AI_ITEMS, function(id, soon) {
+            if (soon) {
+              if (typeof handlers.onSoon === "function") handlers.onSoon("ai", id);
+              return;
+            }
+            if (typeof handlers.onAi === "function") {
+              handlers.onAi(id, ctx.block, ctx.blockKind);
+            }
+          });
+        });
+        addMenuSeparator(menu);
+        addSubRow(menu, t, "blockMenuInsertAbove", "insertAbove", function() {
+          return buildSubmenu(t, INSERT_ITEMS, function(id, soon) {
+            if (soon) {
+              if (typeof handlers.onSoon === "function") handlers.onSoon("insert-above", id);
+              return;
+            }
+            if (typeof handlers.onInsert === "function") {
+              handlers.onInsert("above", id, ctx.block, ctx.blockKind);
+            }
+          });
+        });
+        addSubRow(menu, t, "blockMenuInsertBelow", "insertBelow", function() {
+          return buildSubmenu(t, INSERT_ITEMS, function(id, soon) {
+            if (soon) {
+              if (typeof handlers.onSoon === "function") handlers.onSoon("insert-below", id);
+              return;
+            }
+            if (typeof handlers.onInsert === "function") {
+              handlers.onInsert("below", id, ctx.block, ctx.blockKind);
+            }
+          });
+        });
+        addMenuSeparator(menu);
+        const mod = ctx.modKey || MOD_KEY;
+        const rows = [
+          { act: "copy", key: "copyBtn", icon: "copy", shortcut: mod + "C" },
+          { act: "cut", key: "blockMenuCut", icon: "cut", shortcut: mod + "X" },
+          { act: "delete", key: "blockMenuDelete", icon: "delete", shortcut: "Backspace", danger: true }
+        ];
+        for (let i = 0; i < rows.length; i++) {
+          const r = rows[i];
+          const row = document.createElement("div");
+          row.className = "mda-menu-item" + (r.danger ? " mda-menu-danger" : "");
+          row.dataset.act = r.act;
+          row.setAttribute("role", "menuitem");
+          row.innerHTML = menuItemInner(
+            uiT(r.key, t),
+            r.icon,
+            '<span class="mda-menu-key">' + r.shortcut + "</span>"
+          );
+          menu.appendChild(row);
+        }
+        menu.addEventListener("click", function(e) {
+          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+          if (!item || item.classList.contains("mda-menu-has-sub")) return;
+          const act = item.dataset.act;
+          if (act === "copy" && typeof handlers.onCopy === "function") {
+            handlers.onCopy(ctx.block, ctx.blockKind);
+          } else if (act === "cut" && typeof handlers.onCut === "function") {
+            handlers.onCut(ctx.block, ctx.blockKind);
+          } else if (act === "delete" && typeof handlers.onDelete === "function") {
+            handlers.onDelete(ctx.block, ctx.blockKind);
+          }
+          closeBlockHandleMenu();
+        });
+        menu.addEventListener("mouseenter", function() {
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = 0;
+        });
+        menu.addEventListener("mouseleave", function(e) {
+          const rt = e.relatedTarget;
+          if (activeSubmenu && rt && activeSubmenu.contains(
+            /** @type {Node} */
+            rt
+          )) return;
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = window.setTimeout(function() {
+            if (Date.now() < menuGraceUntil) return;
+            closeBlockHandleMenu();
+          }, MENU_CLOSE_MS);
+        });
+        placeMenu(menu, rect.left, rect.bottom + 2);
+        activeMenu = menu;
+        dismissFn = function(ev) {
+          if (Date.now() < menuGraceUntil) return;
+          if (ev && (ev.type === "mousedown" || ev.type === "contextmenu")) {
+            const target = (
+              /** @type {Node | null} */
+              ev.target
+            );
+            if (isInMenuCluster(target)) return;
+          }
+          closeBlockHandleMenu();
+        };
+        escFn = function(ev) {
+          if (ev.key === "Escape") closeBlockHandleMenu();
+        };
+        document.addEventListener("keydown", escFn, true);
+        window.setTimeout(function() {
+          if (!activeMenu) return;
+          document.addEventListener("mousedown", dismissFn, true);
+          document.addEventListener("contextmenu", dismissFn, true);
+          window.addEventListener("blur", dismissFn);
+        }, MENU_GRACE_MS);
+      }
+      module.exports = {
+        showBlockHandleMenu,
+        closeBlockHandleMenu,
+        MOD_KEY
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-drag-handle.js
+  var require_block_drag_handle = __commonJS({
+    "src/gui/renderer/editor/widgets/block-drag-handle.js"(exports, module) {
+      "use strict";
+      var { resolveBlockDropTargetFromCoords } = require_image_block_ops();
+      var { showBlockHandleMenu } = require_block_handle_menu();
+      var LONG_PRESS_MS = 200;
+      var CANCEL_DRAG_PX = 10;
+      function readBlockRange(el, fallback) {
+        const fromRaw = el.getAttribute("data-mda-block-from");
+        const toRaw = el.getAttribute("data-mda-block-to");
+        const source = el.getAttribute("data-mda-block-source") || fallback.source || "";
+        const from = fromRaw != null && fromRaw !== "" ? parseInt(fromRaw, 10) : fallback.from;
+        const to = toRaw != null && toRaw !== "" ? parseInt(toRaw, 10) : fallback.to;
+        return { from, to, source };
+      }
+      function attachBlockDragHandle(anchorEl, view, range, opts) {
+        const blockRoot = opts.blockRoot || anchorEl;
+        const handle = document.createElement("button");
+        handle.type = "button";
+        handle.className = "mda-cm-block-drag-handle";
+        handle.setAttribute("data-i18n-title", "widgetBlockDragHandle");
+        handle.setAttribute("data-i18n-aria", "widgetBlockDragHandle");
+        if (opts.t) {
+          const { uiT } = require_widget_common();
+          handle.title = uiT("widgetBlockDragHandle", opts.t);
+          handle.setAttribute("aria-label", uiT("widgetBlockDragHandle", opts.t));
+        }
+        handle.innerHTML = '<span class="mda-cm-block-drag-grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>';
+        anchorEl.insertBefore(handle, anchorEl.firstChild);
+        let pressTimer = 0;
+        let dragging = false;
+        let dropLine = null;
+        let lastResolved = null;
+        function ensureDropLine() {
+          if (dropLine && dropLine.parentNode) return dropLine;
+          dropLine = document.createElement("div");
+          dropLine.className = "mda-cm-block-drop-indicator";
+          dropLine.setAttribute("aria-hidden", "true");
+          document.body.appendChild(dropLine);
+          return dropLine;
+        }
+        function removeDropLine() {
+          if (dropLine && dropLine.parentNode) dropLine.parentNode.removeChild(dropLine);
+          dropLine = null;
+        }
+        function clearHoverMarks() {
+          const prev = document.querySelectorAll(".mda-cm-block-drop-replace");
+          for (let i = 0; i < prev.length; i++) prev[i].classList.remove("mda-cm-block-drop-replace");
+        }
+        function updateDropIndicator(clientX, clientY) {
+          const block = readBlockRange(blockRoot, range);
+          const resolved = resolveBlockDropTargetFromCoords(
+            view,
+            block.from,
+            block.to,
+            clientX,
+            clientY,
+            blockRoot,
+            {
+              blockSelector: opts.blockSelector,
+              replaceOnHover: !!opts.replaceOnHover
+            }
+          );
+          lastResolved = resolved;
+          clearHoverMarks();
+          if (resolved.mode === "replace" && resolved.hoverEl) {
+            resolved.hoverEl.classList.add("mda-cm-block-drop-replace");
+            if (dropLine) dropLine.style.display = "none";
+            return resolved;
+          }
+          const dropPos = resolved.pos;
+          if (dropPos == null) {
+            if (dropLine) dropLine.style.display = "none";
+            return resolved;
+          }
+          const coords = view.coordsAtPos(dropPos);
+          if (!coords) return resolved;
+          const line = ensureDropLine();
+          const host = blockRoot.closest(".cm-editor");
+          const hostRect = host ? host.getBoundingClientRect() : { left: 0, width: window.innerWidth };
+          line.style.display = "block";
+          line.style.top = coords.top + "px";
+          line.style.left = hostRect.left + "px";
+          line.style.width = hostRect.width + "px";
+          return resolved;
+        }
+        handle.addEventListener("pointerdown", function(e) {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const sx = e.clientX;
+          const sy = e.clientY;
+          let moved = false;
+          pressTimer = window.setTimeout(function() {
+            dragging = true;
+            blockRoot.classList.add("mda-cm-block-dragging");
+            document.body.classList.add("mda-cm-block-drag-active");
+            handle.classList.add("mda-cm-block-drag-handle-active");
+            lastResolved = updateDropIndicator(e.clientX, e.clientY);
+          }, LONG_PRESS_MS);
+          function onMove(ev) {
+            const dx = ev.clientX - sx;
+            const dy = ev.clientY - sy;
+            if (dx * dx + dy * dy > CANCEL_DRAG_PX * CANCEL_DRAG_PX) {
+              moved = true;
+              if (!dragging) {
+                window.clearTimeout(pressTimer);
+                pressTimer = 0;
+              }
+            }
+            if (!dragging) return;
+            ev.preventDefault();
+            lastResolved = updateDropIndicator(ev.clientX, ev.clientY);
+          }
+          function onUp(ev) {
+            window.clearTimeout(pressTimer);
+            pressTimer = 0;
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+            if (!dragging && !moved) {
+              const block2 = readBlockRange(blockRoot, range);
+              if (opts.blockMenuHandlers || typeof opts.onHandleClick === "function") {
+                if (typeof opts.onHandleClick === "function") {
+                  opts.onHandleClick(handle, block2);
+                } else {
+                  showBlockHandleMenu({
+                    anchorEl: handle,
+                    blockRoot,
+                    view,
+                    block: block2,
+                    blockKind: opts.blockKind,
+                    t: opts.t,
+                    handlers: opts.blockMenuHandlers
+                  });
+                }
+                return;
+              }
+            }
+            if (!dragging) return;
+            dragging = false;
+            blockRoot.classList.remove("mda-cm-block-dragging");
+            document.body.classList.remove("mda-cm-block-drag-active");
+            handle.classList.remove("mda-cm-block-drag-handle-active");
+            removeDropLine();
+            const block = readBlockRange(blockRoot, range);
+            let resolved = lastResolved;
+            if (!resolved) {
+              resolved = resolveBlockDropTargetFromCoords(
+                view,
+                block.from,
+                block.to,
+                ev.clientX,
+                ev.clientY,
+                blockRoot,
+                {
+                  blockSelector: opts.blockSelector,
+                  replaceOnHover: !!opts.replaceOnHover
+                }
+              );
+            }
+            clearHoverMarks();
+            if (resolved.mode === "replace" && resolved.targetBlock && typeof opts.onDropReplaceBlock === "function") {
+              opts.onDropReplaceBlock({
+                from: block.from,
+                to: block.to,
+                source: block.source,
+                target: resolved.targetBlock
+              });
+              return;
+            }
+            const pos = resolved.pos;
+            if (pos != null && typeof opts.onMoveBlock === "function") {
+              opts.onMoveBlock({
+                from: block.from,
+                to: block.to,
+                source: block.source,
+                targetPos: pos
+              });
+            }
+          }
+          window.addEventListener("pointermove", onMove);
+          window.addEventListener("pointerup", onUp);
+        });
+      }
+      module.exports = {
+        attachBlockDragHandle,
+        LONG_PRESS_MS
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/code.js
   var require_code = __commonJS({
     "src/gui/renderer/editor/widgets/code.js"(exports, module) {
       "use strict";
       var { parseFencedCode } = require_parse_fence();
-      var { createBlockToolbar, copyText, uiT } = require_widget_common();
+      var {
+        createBlockToolbar,
+        copyText,
+        uiT,
+        clearMediaSelection,
+        clearBlockWidgetSelection
+      } = require_widget_common();
       var { BlockReplaceWidget, countSourceLines } = require_block_widget_base();
+      var { attachBlockDragHandle } = require_block_drag_handle();
       function highlightFenceBody(code, lang, highlightCode) {
         if (typeof highlightCode === "function") {
           try {
@@ -32800,7 +35020,7 @@ var MDAEditorBundle = (() => {
       var CodeFenceWidget = class _CodeFenceWidget extends BlockReplaceWidget {
         /**
          * @param {string} source
-         * @param {{ renderMarkdown?: Function, highlightCode?: Function, t?: Function, copyText?: Function, onSwitchSource?: Function, from?: number, to?: number, lineHeight?: number }} [opts]
+         * @param {{ renderMarkdown?: Function, highlightCode?: Function, t?: Function, copyText?: Function, onSwitchSource?: Function, blockMenuHandlers?: object, from?: number, to?: number, lineHeight?: number }} [opts]
          */
         constructor(source, opts) {
           super(source, opts);
@@ -32812,14 +35032,31 @@ var MDAEditorBundle = (() => {
           this._minHeight = Math.max(codeLines * 21 + 48, this._lineCount * this._lineHeight);
         }
         eq(other) {
-          return other instanceof _CodeFenceWidget && other.source === this.source;
+          return other instanceof _CodeFenceWidget && other.source === this.source && other.from === this.from && other.to === this.to;
         }
         toDOM(view) {
           const opts = this.opts;
           const t = opts.t;
+          const self = this;
           const root = document.createElement("div");
           root.className = "mda-cm-code-block";
           root.setAttribute("contenteditable", "false");
+          if (self.from != null) root.setAttribute("data-mda-block-from", String(self.from));
+          if (self.to != null) root.setAttribute("data-mda-block-to", String(self.to));
+          if (self.source) root.setAttribute("data-mda-block-source", self.source);
+          attachBlockDragHandle(
+            root,
+            view,
+            { from: self.from, to: self.to, source: self.source },
+            {
+              blockRoot: root,
+              blockSelector: ".mda-cm-code-block",
+              replaceOnHover: false,
+              blockKind: "code",
+              blockMenuHandlers: opts.blockMenuHandlers,
+              t
+            }
+          );
           const toolbarSpec = {
             t,
             buttons: [
@@ -32837,6 +35074,16 @@ var MDAEditorBundle = (() => {
           codeEl.innerHTML = highlightFenceBody(this.code, this.lang, opts.highlightCode);
           body.appendChild(codeEl);
           root.appendChild(body);
+          function selectBlock() {
+            const editorRoot = root.closest(".cm-editor");
+            clearMediaSelection(editorRoot, "mda-cm-media-selected");
+            clearBlockWidgetSelection(editorRoot || document);
+            root.classList.add("mda-cm-block-selected");
+            try {
+              if (view) view.focus();
+            } catch (_) {
+            }
+          }
           toolbar.addEventListener("click", function(e) {
             const btn = e.target && e.target.closest ? e.target.closest("[data-action]") : null;
             if (!btn) return;
@@ -32844,11 +35091,19 @@ var MDAEditorBundle = (() => {
             e.stopPropagation();
             const action = btn.getAttribute("data-action");
             if (action === "copy") {
-              copyText(this.code, opts.copyText);
+              copyText(self.source, opts.copyText);
             } else if (action === "source" && typeof opts.onSwitchSource === "function") {
-              opts.onSwitchSource({ from: this.from, to: this.to, kind: "code" });
+              opts.onSwitchSource({ from: self.from, to: self.to, kind: "code" });
             }
-          }.bind(this));
+          });
+          root.addEventListener("mousedown", function(e) {
+            if (e.button !== 0) return;
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-block-toolbar")) return;
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) return;
+            e.preventDefault();
+            e.stopPropagation();
+            selectBlock();
+          });
           this.bindMeasure(view, root);
           return root;
         }
@@ -32948,22 +35203,6 @@ var MDAEditorBundle = (() => {
         frame.addEventListener("pointerleave", function() {
           if (!resizing) frame.style.cursor = "";
         });
-        const handles = frame.querySelector(".mda-cm-mermaid-handles");
-        if (handles) {
-          handles.addEventListener("dblclick", function(e) {
-            const onBr = e.target && e.target.closest && e.target.closest(".mda-cm-mermaid-handle-br");
-            if (!onBr) return;
-            e.preventDefault();
-            e.stopPropagation();
-            if (typeof opts.onMermaidResizeReset === "function") {
-              opts.onMermaidResizeReset(stage);
-            }
-            try {
-              if (selectFrame) selectFrame();
-            } catch (_) {
-            }
-          });
-        }
         frame.addEventListener(
           "pointerdown",
           function(e) {
@@ -33123,10 +35362,11 @@ var MDAEditorBundle = (() => {
     "src/gui/renderer/editor/widgets/mermaid.js"(exports, module) {
       "use strict";
       var { parseFencedCode } = require_parse_fence();
-      var { createBlockToolbar, copyText, uiT, clearMediaSelection } = require_widget_common();
+      var { createBlockToolbar, copyText, uiT, clearMediaSelection, clearBlockWidgetSelection } = require_widget_common();
       var { BlockReplaceWidget } = require_block_widget_base();
       var { attachMermaidCornerResize } = require_mermaid_edge_resize();
       var { isNearFrameResizeCorner } = require_image_edge_resize();
+      var { attachBlockDragHandle } = require_block_drag_handle();
       var {
         setSelectedMermaidBlock,
         getSelectedMermaidBlock,
@@ -33206,12 +35446,9 @@ var MDAEditorBundle = (() => {
           const handles = document.createElement("span");
           handles.className = "mda-cm-mermaid-handles";
           handles.setAttribute("aria-hidden", "true");
-          const cornerNames = ["tl", "tr", "bl", "br"];
-          for (let hi = 0; hi < cornerNames.length; hi++) {
-            const dot = document.createElement("i");
-            dot.className = "mda-cm-mermaid-handle mda-cm-mermaid-handle-" + cornerNames[hi];
-            handles.appendChild(dot);
-          }
+          const dot = document.createElement("i");
+          dot.className = "mda-cm-mermaid-handle mda-cm-mermaid-handle-br";
+          handles.appendChild(dot);
           frame.appendChild(handles);
           let showingSource = false;
           const sourceBtn = toolbar.querySelector('[data-action="source"]');
@@ -33250,7 +35487,9 @@ var MDAEditorBundle = (() => {
           function selectFrame() {
             const editorRoot = root.closest(".cm-editor");
             clearMediaSelection(editorRoot, "mda-cm-media-selected");
+            clearBlockWidgetSelection(editorRoot || document);
             frame.classList.add("mda-cm-media-selected");
+            root.classList.add("mda-cm-block-selected");
             setSelectedMermaidBlock({
               from: self.from,
               to: self.to,
@@ -33283,6 +35522,7 @@ var MDAEditorBundle = (() => {
             if (e.button !== 0) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-mermaid-source-input")) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-block-toolbar")) return;
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-mermaid-handle-br")) return;
             if (isNearFrameResizeCorner(frame, e.clientX, e.clientY)) return;
             e.preventDefault();
@@ -33292,6 +35532,7 @@ var MDAEditorBundle = (() => {
           frame.addEventListener("dblclick", function(e) {
             if (showingSource) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-block-toolbar")) return;
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-mermaid-handle")) return;
             e.preventDefault();
             e.stopPropagation();
@@ -33304,9 +35545,24 @@ var MDAEditorBundle = (() => {
             }
           });
           attachMermaidCornerResize(frame, stage, opts, selectFrame);
+          attachBlockDragHandle(
+            frame,
+            view,
+            { from: self.from, to: self.to, source: self.source },
+            {
+              blockRoot: root,
+              blockSelector: ".mda-cm-mermaid-block",
+              replaceOnHover: false,
+              blockKind: "mermaid",
+              blockMenuHandlers: opts.blockMenuHandlers,
+              t,
+              onMoveBlock: opts.onMoveMermaidBlock
+            }
+          );
           const persisted = getSelectedMermaidBlock();
           if (persisted && persisted.from === self.from && persisted.to === self.to && persisted.source === self.source) {
             frame.classList.add("mda-cm-media-selected");
+            root.classList.add("mda-cm-block-selected");
           }
           if (typeof opts.renderMermaid === "function") {
             Promise.resolve(opts.renderMermaid(self.code, stage)).then(function() {
@@ -33511,6 +35767,298 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widgets/block-insert-snippets.js
+  var require_block_insert_snippets = __commonJS({
+    "src/gui/renderer/editor/widgets/block-insert-snippets.js"(exports, module) {
+      "use strict";
+      var INSERT_SNIPPETS = {
+        code: "```\n\n```",
+        mermaid: "```mermaid\ngraph TD\n  A-->B\n```",
+        quote: "> ",
+        highlight: "> [!NOTE]\n> ",
+        table: "| \u52171 | \u52172 |\n| --- | --- |\n|  |  |",
+        hr: "---",
+        image: "![](path/to/image.png)"
+      };
+      function getInsertSnippet(type) {
+        return Object.prototype.hasOwnProperty.call(INSERT_SNIPPETS, type) ? INSERT_SNIPPETS[type] : null;
+      }
+      module.exports = {
+        INSERT_SNIPPETS,
+        getInsertSnippet
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-handle-ops.js
+  var require_block_handle_ops = __commonJS({
+    "src/gui/renderer/editor/widgets/block-handle-ops.js"(exports, module) {
+      "use strict";
+      var {
+        resolveBlockRange,
+        deleteBlockRange,
+        expandBlockRange
+      } = require_image_block_ops();
+      var { getInsertSnippet } = require_block_insert_snippets();
+      var { copyText } = require_widget_common();
+      function getBlockSource(view, block) {
+        if (!view) return "";
+        if (block && block.source) return String(block.source);
+        const range = resolveBlockRange(view, block || {});
+        if (!range) return "";
+        return view.state.doc.sliceString(range.from, range.to);
+      }
+      function copyBlockSource(view, block, copyFn) {
+        const text = getBlockSource(view, block);
+        if (!text) return false;
+        copyText(text, copyFn);
+        return true;
+      }
+      function insertSnippetNearBlock(view, block, where, type) {
+        if (!view) return false;
+        const snippet = getInsertSnippet(type);
+        if (!snippet) return false;
+        const range = resolveBlockRange(view, block || {});
+        if (!range) return false;
+        const doc = view.state.doc.toString();
+        const pos = where === "above" ? range.from : range.to;
+        let insert = snippet;
+        if (where === "above") {
+          if (pos > 0 && doc.charAt(pos - 1) !== "\n") insert = "\n" + insert;
+          insert += "\n";
+        } else {
+          if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
+          if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
+        }
+        view.dispatch({
+          changes: { from: pos, to: pos, insert },
+          selection: { anchor: pos + insert.length },
+          userEvent: "input"
+        });
+        return true;
+      }
+      function deleteBlock(view, block) {
+        const range = resolveBlockRange(view, block || {});
+        if (!range) return false;
+        deleteBlockRange(view, range.from, range.to);
+        return true;
+      }
+      module.exports = {
+        getBlockSource,
+        copyBlockSource,
+        insertSnippetNearBlock,
+        deleteBlock,
+        expandBlockRange
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-menu-handlers.js
+  var require_block_menu_handlers = __commonJS({
+    "src/gui/renderer/editor/widgets/block-menu-handlers.js"(exports, module) {
+      "use strict";
+      var {
+        copyBlockSource,
+        insertSnippetNearBlock,
+        deleteBlock
+      } = require_block_handle_ops();
+      var { clearSelectedMermaidBlock } = require_mermaid_selection();
+      function createBlockMenuHandlers(liveOpts) {
+        const opts = liveOpts || {};
+        function getView() {
+          if (typeof opts.getView === "function") return opts.getView();
+          return opts.view || null;
+        }
+        function toast(msg) {
+          if (typeof opts.toast === "function") opts.toast(msg);
+        }
+        function onCopy(block) {
+          const view = getView();
+          if (!view) return;
+          if (copyBlockSource(view, block, opts.copyText)) {
+            if (typeof opts.t === "function") toast(opts.t("toastCopied"));
+          }
+        }
+        function onCut(block, kind) {
+          const view = getView();
+          if (!view) return;
+          if (!copyBlockSource(view, block, opts.copyText)) return;
+          onDelete(block, kind);
+        }
+        function onDelete(block, kind) {
+          const view = getView();
+          if (!view) return;
+          if (kind === "mermaid" && typeof opts.onDeleteMermaidBlock === "function") {
+            opts.onDeleteMermaidBlock(block);
+            return;
+          }
+          if (deleteBlock(view, block)) {
+            clearSelectedMermaidBlock();
+          }
+        }
+        function onInsert(where, type, block) {
+          const view = getView();
+          if (!view) return;
+          if (insertSnippetNearBlock(view, block, where, type)) return;
+          if (typeof opts.onSoon === "function") opts.onSoon("insert-" + where, type);
+        }
+        function onAi(id, block, kind) {
+          if (typeof opts.onAiAction === "function") {
+            opts.onAiAction(id, block, kind);
+            return;
+          }
+          if (typeof opts.onSoon === "function") opts.onSoon("ai", id);
+        }
+        function onSoon(ctx, id) {
+          if (typeof opts.onSoon === "function") opts.onSoon(ctx, id);
+        }
+        return {
+          onCopy,
+          onCut,
+          onDelete,
+          onInsert,
+          onAi,
+          onSoon
+        };
+      }
+      module.exports = {
+        createBlockMenuHandlers
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/mermaid-shortcuts.js
+  var require_mermaid_shortcuts = __commonJS({
+    "src/gui/renderer/editor/mermaid-shortcuts.js"(exports, module) {
+      "use strict";
+      var { keymap, EditorView } = require_dist4();
+      var { Prec } = require_dist2();
+      var { getSelectedMermaidBlock } = require_mermaid_selection();
+      var globalKeysInstalled = false;
+      function tryDeleteSelectedMermaidBlock(event, opts) {
+        if (event.key !== "Delete" && event.key !== "Backspace") return false;
+        const block = getSelectedMermaidBlock();
+        if (!block || typeof opts.onDeleteMermaidBlock !== "function") return false;
+        const ae = document.activeElement;
+        if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return false;
+        if (ae && ae.closest && ae.closest(".mda-cm-mermaid-source-input")) return false;
+        if (ae && ae.closest && ae.closest("#settings-dialog, #find-replace-bar")) return false;
+        event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
+        opts.onDeleteMermaidBlock(block);
+        return true;
+      }
+      function installMermaidGlobalKeys(opts) {
+        if (globalKeysInstalled || typeof window === "undefined") return;
+        globalKeysInstalled = true;
+        window.addEventListener(
+          "keydown",
+          function(e) {
+            tryDeleteSelectedMermaidBlock(e, opts);
+          },
+          true
+        );
+      }
+      function createMermaidShortcutKeymap(opts) {
+        installMermaidGlobalKeys(opts);
+        return Prec.high(
+          keymap.of([
+            {
+              key: "Delete",
+              run: function() {
+                const block = getSelectedMermaidBlock();
+                if (!block || typeof opts.onDeleteMermaidBlock !== "function") return false;
+                opts.onDeleteMermaidBlock(block);
+                return true;
+              }
+            },
+            {
+              key: "Backspace",
+              run: function() {
+                const block = getSelectedMermaidBlock();
+                if (!block || typeof opts.onDeleteMermaidBlock !== "function") return false;
+                opts.onDeleteMermaidBlock(block);
+                return true;
+              }
+            }
+          ])
+        );
+      }
+      function createMermaidKeydownHandler(opts) {
+        return EditorView.domEventHandlers({
+          keydown: function(event) {
+            return tryDeleteSelectedMermaidBlock(event, opts);
+          }
+        });
+      }
+      module.exports = {
+        tryDeleteSelectedMermaidBlock,
+        createMermaidShortcutKeymap,
+        createMermaidKeydownHandler
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/media-outside-click.js
+  var require_media_outside_click = __commonJS({
+    "src/gui/renderer/editor/widgets/media-outside-click.js"(exports, module) {
+      "use strict";
+      var { ViewPlugin } = require_dist4();
+      var { clearMediaSelection, clearBlockWidgetSelection } = require_widget_common();
+      var { getSelectedImageBlock, clearSelectedImageBlock } = require_image_selection();
+      var { getSelectedMermaidBlock, clearSelectedMermaidBlock } = require_mermaid_selection();
+      var { closeBlockHandleMenu } = require_block_handle_menu();
+      function blockContainsTarget(view, sel, className, target) {
+        if (!sel || !target || !view.dom) return false;
+        const block = view.dom.querySelector(
+          "." + className + '[data-mda-block-from="' + sel.from + '"][data-mda-block-to="' + sel.to + '"]'
+        );
+        return !!(block && block.contains(
+          /** @type {Node} */
+          target
+        ));
+      }
+      function createMediaOutsideClickPlugin() {
+        return ViewPlugin.fromClass(
+          class {
+            constructor(view) {
+              this.view = view;
+              const self = this;
+              this.onPointer = function(e) {
+                if (!self.view.dom.isConnected) {
+                  document.removeEventListener("mousedown", self.onPointer, true);
+                  return;
+                }
+                const imgSel = getSelectedImageBlock();
+                const merSel = getSelectedMermaidBlock();
+                if (!imgSel && !merSel && !self.view.dom.querySelector(".mda-cm-block-selected")) return;
+                const target = e.target;
+                if (target && target.closest && target.closest("#mda-block-handle-menu")) return;
+                if (target && target.closest && target.closest(".mda-block-handle-submenu")) return;
+                if (blockContainsTarget(self.view, imgSel, "mda-cm-image-block", target)) return;
+                if (blockContainsTarget(self.view, merSel, "mda-cm-mermaid-block", target)) return;
+                if (target && target.closest && target.closest(".mda-cm-code-block.mda-cm-block-selected")) return;
+                clearSelectedImageBlock();
+                clearSelectedMermaidBlock();
+                clearMediaSelection(self.view.dom);
+                clearBlockWidgetSelection(self.view.dom);
+                closeBlockHandleMenu();
+              };
+              document.addEventListener("mousedown", this.onPointer, true);
+            }
+            destroy() {
+              document.removeEventListener("mousedown", this.onPointer, true);
+            }
+          }
+        );
+      }
+      module.exports = {
+        createMediaOutsideClickPlugin,
+        blockContainsTarget
+      };
+    }
+  });
+
   // src/gui/renderer/editor/image-shortcuts.js
   var require_image_shortcuts = __commonJS({
     "src/gui/renderer/editor/image-shortcuts.js"(exports, module) {
@@ -33644,8 +36192,8 @@ var MDAEditorBundle = (() => {
       var { atomicRangesFromPlugin, atomicRangesFromBlockField, atomicRangesFromHideLines } = require_atomic_ranges();
       var { createReadonlyChangeFilter } = require_change_filter();
       var { collectReadonlyRanges } = require_readonly_blocks();
-      var { parseFencedCode } = require_parse_fence();
-      var { expandGfmTableRange } = require_parse_table();
+      var { parseFencedCode, expandFenceBlockRange } = require_parse_fence();
+      var { expandGfmTableRange, expandTableBlockRange } = require_parse_table();
       var {
         createBlockFocusField,
         setBlockFocus,
@@ -33658,13 +36206,17 @@ var MDAEditorBundle = (() => {
       var { createAnnoGutterField } = require_anno_gutter();
       var { createClickCollapseExtension } = require_click_collapse();
       var {
-        clearSelectedImageBlock,
         createImageSelectionSyncPlugin
       } = require_image_selection();
       var {
-        clearSelectedMermaidBlock,
         createMermaidSelectionSyncPlugin
       } = require_mermaid_selection();
+      var { createBlockMenuHandlers } = require_block_menu_handlers();
+      var {
+        createMermaidShortcutKeymap,
+        createMermaidKeydownHandler
+      } = require_mermaid_shortcuts();
+      var { createMediaOutsideClickPlugin } = require_media_outside_click();
       var {
         createImageShortcutKeymap,
         createImagePasteHandler,
@@ -33853,7 +36405,10 @@ var MDAEditorBundle = (() => {
           onMermaidResizeReset: liveOpts.onMermaidResizeReset,
           onCopyMermaidImage: liveOpts.onCopyMermaidImage,
           onEditMermaidBlock: liveOpts.onEditMermaidBlock,
+          onDeleteMermaidBlock: liveOpts.onDeleteMermaidBlock,
+          onMoveMermaidBlock: liveOpts.onMoveMermaidBlock,
           onSwitchSource: liveOpts.onSwitchSource,
+          blockMenuHandlers: liveOpts.blockMenuHandlers,
           onFocusBlock: liveOpts.onFocusBlock,
           renderMermaid: liveOpts.renderMermaid,
           lineHeight: DEFAULT_LINE_HEIGHT
@@ -33879,7 +36434,7 @@ var MDAEditorBundle = (() => {
           if (s.from < 0 || s.to > docLen) continue;
           if (s.kind !== "widget") continue;
           if (s.widget === "hr" || s.widget === "table" || s.widget === "code" || s.widget === "image") {
-            const br = s.widget === "table" ? expandGfmTableRange(text, s.from, s.to) : expandBlockRange(text, s.from, s.to);
+            const br = s.widget === "table" ? expandTableBlockRange(text, s.from, s.to) : s.widget === "code" ? expandFenceBlockRange(text, s.from, s.to) : expandBlockRange(text, s.from, s.to);
             blockWidgetRanges.push(br);
           }
         }
@@ -33961,7 +36516,7 @@ var MDAEditorBundle = (() => {
               continue;
             } else if (s.widget === "table") {
               if (!blockWidgetEnabled("table")) continue;
-              const br = expandGfmTableRange(text, s.from, s.to);
+              const br = expandTableBlockRange(text, s.from, s.to);
               blockWidgets.push({
                 from: br.from,
                 to: br.to,
@@ -33975,7 +36530,7 @@ var MDAEditorBundle = (() => {
               });
               continue;
             } else if (s.widget === "code") {
-              const br = expandBlockRange(text, s.from, s.to);
+              const br = expandFenceBlockRange(text, s.from, s.to);
               const src = s.source || text.slice(s.from, s.to);
               const parsed = parseFencedCode(src);
               const isMermaid = parsed && /^mermaid$/i.test(parsed.lang || "");
@@ -34280,7 +36835,19 @@ var MDAEditorBundle = (() => {
         opts = opts || {};
         const blockFocusField = createBlockFocusField();
         const viewHost = { view: null };
+        const blockMenuHandlers = createBlockMenuHandlers({
+          getView: function() {
+            return viewHost.view;
+          },
+          copyText: opts.copyText,
+          toast: opts.toast,
+          t: opts.t,
+          onDeleteMermaidBlock: opts.onDeleteMermaidBlock,
+          onSoon: opts.onBlockMenuSoon,
+          onAiAction: opts.onBlockMenuAi
+        });
         const liveOpts = Object.assign({}, opts, {
+          blockMenuHandlers,
           onFocusBlock: function(block) {
             if (viewHost.view) setBlockFocus(viewHost.view, block);
           }
@@ -34319,13 +36886,6 @@ var MDAEditorBundle = (() => {
             }
             const focused = readBlockFocus(view.state, blockFocusField);
             if (focused) setBlockFocus(view, null);
-            clearSelectedImageBlock();
-            clearSelectedMermaidBlock();
-            const editorRoot = view.dom;
-            if (editorRoot) {
-              const nodes = editorRoot.querySelectorAll(".mda-cm-media-selected");
-              for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove("mda-cm-media-selected");
-            }
             return false;
           },
           click: function(event, view) {
@@ -34392,6 +36952,11 @@ var MDAEditorBundle = (() => {
         }
         if (editorConfig.blockWidgetEnabled("mermaid")) {
           ext.push(createMermaidSelectionSyncPlugin());
+          ext.push(createMermaidShortcutKeymap(liveOpts));
+          ext.push(createMermaidKeydownHandler(liveOpts));
+        }
+        if (editorConfig.blockWidgetEnabled("image") || editorConfig.blockWidgetEnabled("mermaid") || editorConfig.blockWidgetEnabled("code")) {
+          ext.push(createMediaOutsideClickPlugin());
         }
         if (annoGutterField) {
           if (Array.isArray(annoGutterField)) {
@@ -34469,6 +37034,7 @@ var MDAEditorBundle = (() => {
       var { syntaxHighlighting, defaultHighlightStyle } = require_dist7();
       var { livePreview } = require_live_preview();
       var { saveModeSwitchState, restoreModeSwitchState } = require_mode_switch();
+      var { flushAllTableWidgets } = require_table();
       var MODE_PREVIEW = "preview";
       var MODE_SOURCE = "source";
       function createModeCompartments() {
@@ -34496,6 +37062,7 @@ var MDAEditorBundle = (() => {
         ];
       }
       function reconfigureMode(view, mode, comps, liveOpts) {
+        flushAllTableWidgets(view);
         const snap = saveModeSwitchState(view);
         view.dispatch({
           effects: [
@@ -34948,6 +37515,7 @@ var MDAEditorBundle = (() => {
       var imageBlockOps = require_image_block_ops();
       var { serializeImageMarkdown } = require_parse_image();
       var { clearSelectedImageBlock } = require_image_selection();
+      var { clearSelectedMermaidBlock } = require_mermaid_selection();
       var { MODE_PREVIEW, MODE_SOURCE } = require_mode();
       var { SearchSession } = require_search_session();
       var editorConfig = require_config();
@@ -34979,6 +37547,7 @@ var MDAEditorBundle = (() => {
         insertImageAt: imageBlockOps.insertImageAt,
         serializeImageMarkdown,
         clearSelectedImageBlock,
+        clearSelectedMermaidBlock,
         MODE_PREVIEW,
         MODE_SOURCE,
         SearchSession,

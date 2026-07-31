@@ -1,8 +1,15 @@
-﻿'use strict';
+'use strict';
 
 const { parseFencedCode } = require('../model/parse-fence');
-const { createBlockToolbar, copyText, uiT } = require('./widget-common');
+const {
+  createBlockToolbar,
+  copyText,
+  uiT,
+  clearMediaSelection,
+  clearBlockWidgetSelection,
+} = require('./widget-common');
 const { BlockReplaceWidget, countSourceLines } = require('./block-widget-base');
+const { attachBlockDragHandle } = require('./block-drag-handle');
 
 /**
  * @param {string} code
@@ -27,7 +34,7 @@ function highlightFenceBody(code, lang, highlightCode) {
 class CodeFenceWidget extends BlockReplaceWidget {
   /**
    * @param {string} source
-   * @param {{ renderMarkdown?: Function, highlightCode?: Function, t?: Function, copyText?: Function, onSwitchSource?: Function, from?: number, to?: number, lineHeight?: number }} [opts]
+   * @param {{ renderMarkdown?: Function, highlightCode?: Function, t?: Function, copyText?: Function, onSwitchSource?: Function, blockMenuHandlers?: object, from?: number, to?: number, lineHeight?: number }} [opts]
    */
   constructor(source, opts) {
     super(source, opts);
@@ -39,14 +46,37 @@ class CodeFenceWidget extends BlockReplaceWidget {
     this._minHeight = Math.max(codeLines * 21 + 48, this._lineCount * this._lineHeight);
   }
   eq(other) {
-    return other instanceof CodeFenceWidget && other.source === this.source;
+    return (
+      other instanceof CodeFenceWidget &&
+      other.source === this.source &&
+      other.from === this.from &&
+      other.to === this.to
+    );
   }
   toDOM(view) {
     const opts = this.opts;
     const t = opts.t;
+    const self = this;
     const root = document.createElement('div');
     root.className = 'mda-cm-code-block';
     root.setAttribute('contenteditable', 'false');
+    if (self.from != null) root.setAttribute('data-mda-block-from', String(self.from));
+    if (self.to != null) root.setAttribute('data-mda-block-to', String(self.to));
+    if (self.source) root.setAttribute('data-mda-block-source', self.source);
+
+    attachBlockDragHandle(
+      root,
+      view,
+      { from: self.from, to: self.to, source: self.source },
+      {
+        blockRoot: root,
+        blockSelector: '.mda-cm-code-block',
+        replaceOnHover: false,
+        blockKind: 'code',
+        blockMenuHandlers: opts.blockMenuHandlers,
+        t: t,
+      }
+    );
 
     const toolbarSpec = {
       t: t,
@@ -67,6 +97,18 @@ class CodeFenceWidget extends BlockReplaceWidget {
     body.appendChild(codeEl);
     root.appendChild(body);
 
+    function selectBlock() {
+      const editorRoot = root.closest('.cm-editor');
+      clearMediaSelection(editorRoot, 'mda-cm-media-selected');
+      clearBlockWidgetSelection(editorRoot || document);
+      root.classList.add('mda-cm-block-selected');
+      try {
+        if (view) view.focus();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
     toolbar.addEventListener('click', function (e) {
       const btn = e.target && e.target.closest ? e.target.closest('[data-action]') : null;
       if (!btn) return;
@@ -74,11 +116,20 @@ class CodeFenceWidget extends BlockReplaceWidget {
       e.stopPropagation();
       const action = btn.getAttribute('data-action');
       if (action === 'copy') {
-        copyText(this.code, opts.copyText);
+        copyText(self.source, opts.copyText);
       } else if (action === 'source' && typeof opts.onSwitchSource === 'function') {
-        opts.onSwitchSource({ from: this.from, to: this.to, kind: 'code' });
+        opts.onSwitchSource({ from: self.from, to: self.to, kind: 'code' });
       }
-    }.bind(this));
+    });
+
+    root.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) return;
+      if (e.target && e.target.closest && e.target.closest('.mda-cm-block-toolbar')) return;
+      if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      selectBlock();
+    });
 
     this.bindMeasure(view, root);
     return root;

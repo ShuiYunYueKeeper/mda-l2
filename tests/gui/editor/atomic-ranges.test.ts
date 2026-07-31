@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-B8b：hide-mark mark 零宽 + atomicRanges
  */
 import * as path from 'path';

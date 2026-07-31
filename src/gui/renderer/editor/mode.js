@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 双模式 compartment：preview（装饰开）/ source（装饰关，行号开）。
  */
 'use strict';
@@ -8,6 +8,7 @@ const { lineNumbers, EditorView } = require('@codemirror/view');
 const { syntaxHighlighting, defaultHighlightStyle } = require('@codemirror/language');
 const { livePreview } = require('./live-preview');
 const { saveModeSwitchState, restoreModeSwitchState } = require('./state/mode-switch');
+const { flushAllTableWidgets } = require('./widgets/table');
 
 const MODE_PREVIEW = 'preview';
 const MODE_SOURCE = 'source';
@@ -50,6 +51,7 @@ function extensionsForMode(mode, comps, liveOpts) {
  * @param {object} [liveOpts]
  */
 function reconfigureMode(view, mode, comps, liveOpts) {
+  flushAllTableWidgets(view);
   const snap = saveModeSwitchState(view);
   view.dispatch({
     effects: [

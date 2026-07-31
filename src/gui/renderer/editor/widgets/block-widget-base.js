@@ -27,7 +27,13 @@ function countSourceLines(text) {
 function attachBlockMeasure(dom, view, widget) {
   function measure() {
     if (!dom.isConnected || !view) return;
-    const h = dom.getBoundingClientRect().height;
+    const rect = dom.getBoundingClientRect();
+    const style = window.getComputedStyle(dom);
+    const marginTop = parseFloat(style.marginTop) || 0;
+    const marginBottom = parseFloat(style.marginBottom) || 0;
+    let h = rect.height + marginTop + marginBottom;
+    const cap = widget._maxMeasuredHeight;
+    if (cap > 0 && h > cap) h = cap;
     if (h > 0 && Math.abs(h - widget._measured) > 0.5) {
       widget._measured = h;
       try {

@@ -1,10 +1,11 @@
-﻿'use strict';
+'use strict';
 
 const { parseFencedCode } = require('../model/parse-fence');
-const { createBlockToolbar, copyText, uiT, clearMediaSelection } = require('./widget-common');
+const { createBlockToolbar, copyText, uiT, clearMediaSelection, clearBlockWidgetSelection } = require('./widget-common');
 const { BlockReplaceWidget } = require('./block-widget-base');
 const { attachMermaidCornerResize } = require('./mermaid-edge-resize');
 const { isNearFrameResizeCorner } = require('./image-edge-resize');
+const { attachBlockDragHandle } = require('./block-drag-handle');
 const {
   setSelectedMermaidBlock,
   getSelectedMermaidBlock,
@@ -100,12 +101,9 @@ class MermaidWidget extends BlockReplaceWidget {
     const handles = document.createElement('span');
     handles.className = 'mda-cm-mermaid-handles';
     handles.setAttribute('aria-hidden', 'true');
-    const cornerNames = ['tl', 'tr', 'bl', 'br'];
-    for (let hi = 0; hi < cornerNames.length; hi++) {
-      const dot = document.createElement('i');
-      dot.className = 'mda-cm-mermaid-handle mda-cm-mermaid-handle-' + cornerNames[hi];
-      handles.appendChild(dot);
-    }
+    const dot = document.createElement('i');
+    dot.className = 'mda-cm-mermaid-handle mda-cm-mermaid-handle-br';
+    handles.appendChild(dot);
     frame.appendChild(handles);
 
     let showingSource = false;
@@ -149,7 +147,9 @@ class MermaidWidget extends BlockReplaceWidget {
     function selectFrame() {
       const editorRoot = root.closest('.cm-editor');
       clearMediaSelection(editorRoot, 'mda-cm-media-selected');
+      clearBlockWidgetSelection(editorRoot || document);
       frame.classList.add('mda-cm-media-selected');
+      root.classList.add('mda-cm-block-selected');
       setSelectedMermaidBlock({
         from: self.from,
         to: self.to,
@@ -186,6 +186,7 @@ class MermaidWidget extends BlockReplaceWidget {
       if (e.button !== 0) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-mermaid-source-input')) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-block-toolbar')) return;
+      if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-mermaid-handle-br')) return;
       if (isNearFrameResizeCorner(frame, e.clientX, e.clientY)) return;
       e.preventDefault();
@@ -196,6 +197,7 @@ class MermaidWidget extends BlockReplaceWidget {
     frame.addEventListener('dblclick', function (e) {
       if (showingSource) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-block-toolbar')) return;
+      if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-mermaid-handle')) return;
       e.preventDefault();
       e.stopPropagation();
@@ -210,6 +212,21 @@ class MermaidWidget extends BlockReplaceWidget {
 
     attachMermaidCornerResize(frame, stage, opts, selectFrame);
 
+    attachBlockDragHandle(
+      frame,
+      view,
+      { from: self.from, to: self.to, source: self.source },
+      {
+        blockRoot: root,
+        blockSelector: '.mda-cm-mermaid-block',
+        replaceOnHover: false,
+        blockKind: 'mermaid',
+        blockMenuHandlers: opts.blockMenuHandlers,
+        t: t,
+        onMoveBlock: opts.onMoveMermaidBlock,
+      }
+    );
+
     const persisted = getSelectedMermaidBlock();
     if (
       persisted &&
@@ -218,6 +235,7 @@ class MermaidWidget extends BlockReplaceWidget {
       persisted.source === self.source
     ) {
       frame.classList.add('mda-cm-media-selected');
+      root.classList.add('mda-cm-block-selected');
     }
 
     if (typeof opts.renderMermaid === 'function') {

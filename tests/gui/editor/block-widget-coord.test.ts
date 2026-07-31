@@ -45,6 +45,26 @@ describe('block-widget-base', () => {
     const w = new TableWidget(src, { lineHeight: 26 });
     expect(w.estimatedHeight).toBeGreaterThan(4 * DEFAULT_LINE_HEIGHT);
   });
+
+  test('TableWidget estimatedHeight caps insane layout meta', () => {
+    const { parseGfmTable, serializeGfmTableBlock } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/model/parse-table.js'
+    ));
+    const parsed = parseGfmTable('| h |\n| - |\n| x |');
+    parsed.rowHeights = [50000, 50000];
+    const src = serializeGfmTableBlock(parsed);
+    const w = new TableWidget(src, { lineHeight: 26 });
+    expect(w.estimatedHeight).toBeLessThan(2000);
+  });
+
+  test('TableWidget.eq 须同时比较 from/to，避免文档映射后复用错位实例', () => {
+    const src = '| a |\n| - |\n| 1 |';
+    const a = new TableWidget(src, { from: 0, to: src.length });
+    const b = new TableWidget(src, { from: 10, to: 10 + src.length });
+    expect(a.eq(b)).toBe(false);
+    expect(a.eq(new TableWidget(src, { from: 0, to: src.length }))).toBe(true);
+  });
 });
 
 describe('highlightFenceBody', () => {

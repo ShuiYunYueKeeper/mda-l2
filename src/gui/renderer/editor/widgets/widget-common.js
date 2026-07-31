@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-C1：块 widget 共用工具（顶栏、复制、i18n）。
  */
 'use strict';
@@ -111,6 +111,16 @@ function refreshBlockToolbars(root, t) {
     const key = el.getAttribute('data-i18n-aria');
     if (key) el.setAttribute('aria-label', t(key));
   });
+
+  host.querySelectorAll('.mda-cm-table-add-btn[data-i18n-title]').forEach(function (btn) {
+    const key = btn.getAttribute('data-i18n-title');
+    if (key) btn.title = t(key);
+  });
+
+  host.querySelectorAll('.mda-cm-table-menu-item[data-i18n-key]').forEach(function (btn) {
+    const key = btn.getAttribute('data-i18n-key');
+    if (key) btn.textContent = t(key);
+  });
 }
 
 /**
@@ -124,10 +134,20 @@ function clearMediaSelection(container, selectedClass) {
   for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove(sel);
 }
 
+/**
+ * @param {HTMLElement | Document} container
+ */
+function clearBlockWidgetSelection(container) {
+  if (!container || !container.querySelectorAll) return;
+  const nodes = container.querySelectorAll('.mda-cm-block-selected');
+  for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove('mda-cm-block-selected');
+}
+
 module.exports = {
   uiT: uiT,
   copyText: copyText,
   createBlockToolbar: createBlockToolbar,
   refreshBlockToolbars: refreshBlockToolbars,
   clearMediaSelection: clearMediaSelection,
+  clearBlockWidgetSelection: clearBlockWidgetSelection,
 };

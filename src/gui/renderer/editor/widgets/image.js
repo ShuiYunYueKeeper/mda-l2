@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const { parseImageMarkdown } = require('../model/parse-image');
 const { createMdSurface } = require('./md-surface');
@@ -112,12 +112,9 @@ class ImageWidget extends BlockReplaceWidget {
     const handles = document.createElement('span');
     handles.className = 'mda-cm-image-handles';
     handles.setAttribute('aria-hidden', 'true');
-    const cornerNames = ['tl', 'tr', 'bl', 'br'];
-    for (let hi = 0; hi < cornerNames.length; hi++) {
-      const dot = document.createElement('i');
-      dot.className = 'mda-cm-image-handle mda-cm-image-handle-' + cornerNames[hi];
-      handles.appendChild(dot);
-    }
+    const dot = document.createElement('i');
+    dot.className = 'mda-cm-image-handle mda-cm-image-handle-br';
+    handles.appendChild(dot);
     frame.appendChild(handles);
 
     const img = inner.querySelector('img');

@@ -35,24 +35,6 @@ function attachMermaidCornerResize(frame, stage, opts, selectFrame) {
     if (!resizing) frame.style.cursor = '';
   });
 
-  const handles = frame.querySelector('.mda-cm-mermaid-handles');
-  if (handles) {
-    handles.addEventListener('dblclick', function (e) {
-      const onBr = e.target && e.target.closest && e.target.closest('.mda-cm-mermaid-handle-br');
-      if (!onBr) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (typeof opts.onMermaidResizeReset === 'function') {
-        opts.onMermaidResizeReset(stage);
-      }
-      try {
-        if (selectFrame) selectFrame();
-      } catch (_) {
-        /* ignore */
-      }
-    });
-  }
-
   frame.addEventListener(
     'pointerdown',
     function (e) {

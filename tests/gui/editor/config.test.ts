@@ -1,4 +1,4 @@
-﻿/**
+/**
  * editor/config.js — 发布闸门与分阶段 widget
  */
 import * as path from 'path';

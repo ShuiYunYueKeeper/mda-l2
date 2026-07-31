@@ -1,166 +1,219 @@
-﻿'use strict';
+'use strict';
 
 const {
   parseGfmTable,
+  parseGfmTableBlock,
   serializeGfmTable,
+  parseTableMetaLine,
   readTableFromDom,
+  tablesEqual,
+  expandTableBlockRange,
+  MAX_TABLE_WIDGET_HEIGHT,
 } = require('../model/parse-table');
 const { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require('./block-widget-base');
+const { mountTableChrome, closeTableMenu } = require('./table-chrome');
+const { deleteBlockRange } = require('./image-block-ops');
+const { applyTableLayoutSession } = require('./table-layout-session');
 
 /**
- * @param {{ headers: string[], aligns: string[], rows: string[][] }} parsed
- * @returns {HTMLTableElement}
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ from: number, to: number, source: string }} widget
  */
-function buildTableElement(parsed) {
-  const table = document.createElement('table');
-  table.className = 'mda-cm-table';
-  const thead = document.createElement('thead');
-  const hr = document.createElement('tr');
-  for (let i = 0; i < parsed.headers.length; i++) {
-    const th = document.createElement('th');
-    th.setAttribute('contenteditable', 'true');
-    th.setAttribute('spellcheck', 'true');
-    th.textContent = parsed.headers[i];
-    const align = parsed.aligns[i] || 'left';
-    if (align !== 'left') th.style.textAlign = align;
-    hr.appendChild(th);
-  }
-  thead.appendChild(hr);
-  table.appendChild(thead);
-  const tbody = document.createElement('tbody');
-  for (let r = 0; r < parsed.rows.length; r++) {
-    const tr = document.createElement('tr');
-    const row = parsed.rows[r];
-    for (let c = 0; c < parsed.headers.length; c++) {
-      const td = document.createElement('td');
-      td.setAttribute('contenteditable', 'true');
-      td.setAttribute('spellcheck', 'true');
-      td.textContent = row[c] != null ? row[c] : '';
-      const align = parsed.aligns[c] || 'left';
-      if (align !== 'left') td.style.textAlign = align;
-      tr.appendChild(td);
-    }
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-  return table;
+function resolveTableBlockRange(view, widget) {
+  const text = view.state.doc.toString();
+  const len = text.length;
+  const hintFrom = Math.max(0, Math.min(widget.from, len));
+  const hintTo = Math.max(hintFrom, Math.min(widget.to, len));
+  return expandTableBlockRange(text, hintFrom, hintTo);
 }
 
 /**
  * @param {import('@codemirror/view').EditorView} view
- * @param {TableWidget} widget
- * @param {HTMLElement} root
+ * @param {{ from: number, to: number, source: string }} widget
  */
-function syncTableToDoc(view, widget, root) {
-  const table = root.querySelector('table');
-  const parsed = readTableFromDom(table);
-  if (!parsed || !view) return;
-  const newSource = serializeGfmTable(parsed);
-  const blockText = view.state.doc.sliceString(widget.from, widget.to);
-  const trailing = blockText.endsWith('\n') ? '\n' : '';
-  const normalizedOld = widget.source.replace(/\r\n/g, '\n').replace(/\n$/, '');
-  if (newSource === normalizedOld) return;
-  widget.source = newSource;
+function pinEditorToTable(view, widget) {
+  if (!view || widget.from == null) return;
+  const br = resolveTableBlockRange(view, widget);
+  const pos = br.from;
+  const sel = view.state.selection.main;
+  if (sel.from === pos && sel.to === pos && sel.head === pos) return;
   view.dispatch({
-    changes: { from: widget.from, to: widget.to, insert: newSource + trailing },
+    selection: { anchor: pos, head: pos },
   });
 }
 
 /**
- * @param {HTMLElement} cell
- * @param {HTMLTableElement} table
- * @param {number} delta
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ from: number, to: number, source: string }} widget
  */
-function focusAdjacentCell(cell, table, delta) {
-  const cells = table.querySelectorAll('th[contenteditable], td[contenteditable]');
-  let idx = -1;
-  for (let i = 0; i < cells.length; i++) {
-    if (cells[i] === cell) {
-      idx = i;
-      break;
-    }
-  }
-  if (idx < 0) return;
-  const next = cells[idx + delta];
-  if (!next) return;
-  next.focus();
-  const range = document.createRange();
-  range.selectNodeContents(next);
-  range.collapse(false);
-  const sel = window.getSelection();
-  if (sel) {
-    sel.removeAllRanges();
-    sel.addRange(range);
-  }
+function deleteTableBlock(view, widget) {
+  if (!view || !widget) return;
+  const br = resolveTableBlockRange(view, widget);
+  deleteBlockRange(view, br.from, br.to);
 }
 
 /**
- * @param {HTMLTableElement} table
- * @param {import('@codemirror/view').EditorView} view
- * @param {TableWidget} widget
- * @param {HTMLElement} root
+ * 写回表格正文；保留已有 @mda-table 行但不写入会话布局。
+ * @param {string} blockText
+ * @param {{ headers: string[], aligns: string[], rows: string[][] }} parsed
  */
-function wireTableEditing(table, view, widget, root) {
-  const cells = table.querySelectorAll('th[contenteditable], td[contenteditable]');
-  for (let i = 0; i < cells.length; i++) {
-    const cell = cells[i];
-    cell.addEventListener('mousedown', function (e) {
-      e.stopPropagation();
-    });
-    cell.addEventListener('focus', function (e) {
-      e.stopPropagation();
-    });
-    cell.addEventListener('keydown', function (e) {
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        e.stopPropagation();
-        focusAdjacentCell(cell, table, e.shiftKey ? -1 : 1);
-      }
-    });
-    cell.addEventListener('blur', function () {
-      syncTableToDoc(view, widget, root);
-    });
+function serializeTableBlockForDoc(blockText, parsed) {
+  const body = serializeGfmTable(parsed);
+  const lines = String(blockText || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n$/, '')
+    .split('\n');
+  if (lines.length > 0 && parseTableMetaLine(lines[0])) {
+    return lines[0] + '\n' + body;
+  }
+  return body;
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ from: number, to: number, source: string }} widget
+ * @param {{ headers: string[], aligns: string[], rows: string[][] }} parsed
+ */
+function syncParsedToDoc(view, widget, parsed) {
+  if (!parsed || !view) return;
+  const br = resolveTableBlockRange(view, widget);
+  const from = br.from;
+  const to = br.to;
+  if (from < 0 || to < from || to > view.state.doc.length) return;
+  const blockText = view.state.doc.sliceString(from, to);
+  const docParsed = parseGfmTableBlock(blockText);
+  const newSource = serializeTableBlockForDoc(blockText, parsed);
+  if (docParsed && tablesEqual(docParsed, parsed) && blockText.trimEnd() === newSource.trimEnd()) {
+    widget.source = newSource;
+    widget.from = from;
+    widget.to = from + blockText.length;
+    return;
+  }
+  if (!parseGfmTable(newSource)) return;
+  const trailing = blockText.endsWith('\n') ? '\n' : '';
+  const insert = newSource + trailing;
+  if (insert === blockText) {
+    widget.source = newSource;
+    widget.from = from;
+    widget.to = to;
+    return;
+  }
+  widget.source = newSource;
+  widget.from = from;
+  widget.to = from + insert.length;
+  view.dispatch({
+    changes: { from: from, to: to, insert: insert },
+  });
+}
+
+/**
+ * 模式切换 / 保存前：把表格单元格未落盘的编辑写回文档。
+ * @param {import('@codemirror/view').EditorView} view
+ */
+function flushAllTableWidgets(view) {
+  if (!view || !view.dom) return;
+  closeTableMenu();
+  const roots = view.dom.querySelectorAll('.mda-cm-table-block');
+  for (let i = 0; i < roots.length; i++) {
+    const chrome = roots[i]._mdaTableChrome;
+    if (chrome && typeof chrome.flush === 'function') {
+      chrome.flush();
+    }
   }
 }
 
 class TableWidget extends BlockReplaceWidget {
   /**
    * @param {string} source
-   * @param {{ from?: number, to?: number, lineHeight?: number }} [opts]
+   * @param {{ from?: number, to?: number, lineHeight?: number, t?: Function, copyText?: Function }} [opts]
    */
   constructor(source, opts) {
     super(source, opts);
     this.opts = opts || {};
-    const parsed = parseGfmTable(this.source);
-    const rowCount = parsed ? 1 + parsed.rows.length : this._lineCount;
-    this._minHeight = Math.max(rowCount * 36 + 16, this._lineCount * DEFAULT_LINE_HEIGHT);
+    this._maxMeasuredHeight = MAX_TABLE_WIDGET_HEIGHT;
+    const normalized = String(source || '').replace(/\r\n/g, '\n').replace(/\n$/, '');
+    const parsed = parseGfmTableBlock(normalized);
+    if (parsed) {
+      this._minHeight = TableWidget.estimateTableHeight(parsed);
+    } else {
+      this._minHeight = Math.min(
+        Math.max(this._lineCount * DEFAULT_LINE_HEIGHT, DEFAULT_LINE_HEIGHT),
+        MAX_TABLE_WIDGET_HEIGHT
+      );
+    }
+  }
+  /**
+   * @param {{ rows: string[][], rowHeights?: number[] }} parsed
+   */
+  static estimateTableHeight(parsed) {
+    const rows = 1 + (parsed.rows ? parsed.rows.length : 0);
+    let h = rows * 36 + 52;
+    const rh = parsed.rowHeights || [];
+    if (rh.some(function (x) {
+      return x > 0;
+    })) {
+      let sum = 0;
+      for (let i = 0; i < rows; i++) {
+        sum += Math.max(28, Math.min(rh[i] || 28, 600));
+      }
+      h = sum + 52;
+    }
+    return Math.min(h, MAX_TABLE_WIDGET_HEIGHT);
   }
   get estimatedHeight() {
-    if (this._measured > 0) return this._measured;
-    const parsed = parseGfmTable(this.source);
-    if (parsed) {
-      const rows = 1 + parsed.rows.length;
-      return Math.max(rows * 36 + 16, this._lineCount * this._lineHeight);
+    if (this._measured > 0) {
+      return Math.min(this._measured, MAX_TABLE_WIDGET_HEIGHT);
     }
-    return super.estimatedHeight;
+    const normalized = String(this.source || '').replace(/\r\n/g, '\n').replace(/\n$/, '');
+    const parsed = parseGfmTableBlock(normalized);
+    if (parsed) {
+      return TableWidget.estimateTableHeight(parsed);
+    }
+    return Math.min(super.estimatedHeight, MAX_TABLE_WIDGET_HEIGHT);
   }
   eq(other) {
-    return other instanceof TableWidget && other.source === this.source;
+    return (
+      other instanceof TableWidget &&
+      other.source === this.source &&
+      other.from === this.from &&
+      other.to === this.to
+    );
   }
   toDOM(view) {
     const self = this;
+    const opts = this.opts;
     const root = document.createElement('div');
     root.className = 'mda-cm-table-block';
     root.setAttribute('contenteditable', 'false');
 
-    const parsed = parseGfmTable(this.source);
+    const normalized = String(this.source || '').replace(/\r\n/g, '\n').replace(/\n$/, '');
+    const parsed = parseGfmTableBlock(normalized);
     if (parsed) {
-      const wrap = document.createElement('div');
-      wrap.className = 'mda-cm-table-wrap table-wrap';
-      const table = buildTableElement(parsed);
-      wrap.appendChild(table);
-      root.appendChild(wrap);
-      wireTableEditing(table, view, self, root);
+      applyTableLayoutSession(normalized, parsed);
+      const chrome = mountTableChrome({
+        view: view,
+        widget: self,
+        root: root,
+        parsed: parsed,
+        blockSource: normalized,
+        t: opts.t,
+        copyFn: opts.copyText,
+        pinEditor: function () {
+          pinEditorToTable(view, self);
+        },
+        readParsedFromDom: function () {
+          const table = root.querySelector('table');
+          return readTableFromDom(table);
+        },
+        onParsedChange: function (next) {
+          syncParsedToDoc(view, self, next);
+        },
+        onDeleteTable: function () {
+          deleteTableBlock(view, self);
+        },
+      });
+      root.appendChild(chrome.stage);
+      root._mdaTableChrome = chrome;
     } else {
       const fallback = document.createElement('pre');
       fallback.className = 'mda-cm-table-fallback';
@@ -169,16 +222,39 @@ class TableWidget extends BlockReplaceWidget {
     }
 
     root.addEventListener('mousedown', function (e) {
+      if (e.target && e.target.closest && e.target.closest('th[contenteditable], td[contenteditable]')) {
+        return;
+      }
+      if (
+        e.target &&
+        e.target.closest &&
+        e.target.closest('.mda-cm-table-col-resize-handle, .mda-cm-table-row-resize-handle')
+      ) {
+        return;
+      }
       e.stopPropagation();
+      pinEditorToTable(view, self);
     });
 
     this.bindMeasure(view, root);
     return root;
   }
+  destroy(dom) {
+    if (dom && dom._mdaTableChrome) {
+      if (typeof dom._mdaTableChrome.dispose === 'function') {
+        dom._mdaTableChrome.dispose();
+      }
+      dom._mdaTableChrome = null;
+    }
+    super.destroy(dom);
+  }
 }
 
 module.exports = {
   TableWidget: TableWidget,
-  buildTableElement: buildTableElement,
-  syncTableToDoc: syncTableToDoc,
+  syncParsedToDoc: syncParsedToDoc,
+  pinEditorToTable: pinEditorToTable,
+  deleteTableBlock: deleteTableBlock,
+  resolveTableBlockRange: resolveTableBlockRange,
+  flushAllTableWidgets: flushAllTableWidgets,
 };

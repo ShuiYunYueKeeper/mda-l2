@@ -64,14 +64,16 @@ function findNearestSourceRange(text, src, nearFrom) {
  * @param {HTMLElement | null | undefined} excludeRoot
  * @param {number} clientX
  * @param {number} clientY
+ * @param {string} blockSelector
  * @returns {{ el: HTMLElement, from: number, to: number } | null}
  */
-function findImageBlockAtPoint(view, excludeRoot, clientX, clientY) {
+function findBlockAtPoint(view, excludeRoot, clientX, clientY, blockSelector) {
   if (!view || !view.dom) return null;
-  const nodes = view.dom.querySelectorAll('.mda-cm-image-block[data-mda-block-from][data-mda-block-to]');
+  const sel = blockSelector || '.mda-cm-image-block';
+  const nodes = view.dom.querySelectorAll(sel + '[data-mda-block-from][data-mda-block-to]');
   for (let i = 0; i < nodes.length; i++) {
     const el = nodes[i];
-    if (excludeRoot && el === excludeRoot) continue;
+    if (excludeRoot && (el === excludeRoot || excludeRoot.contains(el))) continue;
     const r = el.getBoundingClientRect();
     if (
       clientX >= r.left &&
@@ -85,6 +87,78 @@ function findImageBlockAtPoint(view, excludeRoot, clientX, clientY) {
     }
   }
   return null;
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {HTMLElement | null | undefined} excludeRoot
+ * @param {number} clientX
+ * @param {number} clientY
+ * @returns {{ el: HTMLElement, from: number, to: number } | null}
+ */
+function findImageBlockAtPoint(view, excludeRoot, clientX, clientY) {
+  return findBlockAtPoint(view, excludeRoot, clientX, clientY, '.mda-cm-image-block');
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} dragFrom
+ * @param {number} dragTo
+ * @param {number} clientX
+ * @param {number} clientY
+ * @param {HTMLElement | null | undefined} dragRoot
+ * @param {{ blockSelector?: string, replaceOnHover?: boolean }} [options]
+ * @returns {{ mode: 'replace' | 'insert', pos: number | null, hoverEl: HTMLElement | null, targetBlock: { from: number, to: number, source?: string } | null }}
+ */
+function resolveBlockDropTargetFromCoords(
+  view,
+  dragFrom,
+  dragTo,
+  clientX,
+  clientY,
+  dragRoot,
+  options
+) {
+  options = options || {};
+  const blockSelector = options.blockSelector || '.mda-cm-image-block';
+  const replaceOnHover = options.replaceOnHover !== false;
+  if (replaceOnHover) {
+    const hit = findBlockAtPoint(view, dragRoot || null, clientX, clientY, blockSelector);
+    if (hit && !(hit.from === dragFrom && hit.to === dragTo)) {
+      const source = hit.el.getAttribute('data-mda-block-source') || '';
+      return {
+        mode: 'replace',
+        pos: null,
+        hoverEl: hit.el,
+        targetBlock: {
+          from: hit.from,
+          to: hit.to,
+          source: source,
+        },
+      };
+    }
+  }
+  const raw = view.posAtCoords({ x: clientX, y: clientY }, false);
+  if (raw == null) {
+    return { mode: 'insert', pos: null, hoverEl: null, targetBlock: null };
+  }
+  return {
+    mode: 'insert',
+    pos: resolveDropTargetPos(view, dragFrom, dragTo, raw),
+    hoverEl: null,
+    targetBlock: null,
+  };
+}
+
+/**
+ * 根据鼠标位置解析落点：悬停其他图片块 → 替换模式；否则插入到行首。
+ * @returns {{ mode: 'replace' | 'insert', pos: number | null, hoverEl: HTMLElement | null, targetBlock: { from: number, to: number, source?: string } | null }}
+ */
+function resolveDropTargetFromCoords(view, dragFrom, dragTo, clientX, clientY, dragRoot) {
+  return resolveBlockDropTargetFromCoords(view, dragFrom, dragTo, clientX, clientY, dragRoot, {
+    blockSelector: '.mda-cm-image-block',
+    replaceOnHover: true,
+  });
 }
 
 /**
@@ -111,37 +185,6 @@ function resolveDropTargetPos(view, from, to, targetPos) {
     }
   }
   return target;
-}
-
-/**
- * 根据鼠标位置解析落点：悬停其他图片块 → 替换模式；否则插入到行首。
- * @returns {{ mode: 'replace' | 'insert', pos: number | null, hoverEl: HTMLElement | null, targetBlock: { from: number, to: number, source?: string } | null }}
- */
-function resolveDropTargetFromCoords(view, dragFrom, dragTo, clientX, clientY, dragRoot) {
-  const hit = findImageBlockAtPoint(view, dragRoot || null, clientX, clientY);
-  if (hit && !(hit.from === dragFrom && hit.to === dragTo)) {
-    const source = hit.el.getAttribute('data-mda-block-source') || '';
-    return {
-      mode: 'replace',
-      pos: null,
-      hoverEl: hit.el,
-      targetBlock: {
-        from: hit.from,
-        to: hit.to,
-        source: source,
-      },
-    };
-  }
-  const raw = view.posAtCoords({ x: clientX, y: clientY }, false);
-  if (raw == null) {
-    return { mode: 'insert', pos: null, hoverEl: null, targetBlock: null };
-  }
-  return {
-    mode: 'insert',
-    pos: resolveDropTargetPos(view, dragFrom, dragTo, raw),
-    hoverEl: null,
-    targetBlock: null,
-  };
 }
 
 /**
@@ -376,6 +419,8 @@ module.exports = {
   resolveBlockRange: resolveBlockRange,
   resolveDropTargetPos: resolveDropTargetPos,
   resolveDropTargetFromCoords: resolveDropTargetFromCoords,
+  resolveBlockDropTargetFromCoords: resolveBlockDropTargetFromCoords,
+  findBlockAtPoint: findBlockAtPoint,
   findImageBlockAtPoint: findImageBlockAtPoint,
   resolveImageLineRange: resolveImageLineRange,
   normalizeImageBlockLine: normalizeImageBlockLine,

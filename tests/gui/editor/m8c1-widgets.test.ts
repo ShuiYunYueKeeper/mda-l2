@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-C1 / S24：批注隐藏、表格/图片/围栏解析
  */
 import * as path from 'path';
@@ -59,6 +59,46 @@ describe('S14 parseGfmTable', () => {
     expect(parseGfmTable(out)).toEqual(p);
     const expanded = expandGfmTableRange(src + '\n\npara', 0, src.length);
     expect(src.slice(expanded.from, expanded.to)).toBe(src);
+    const withTrail = expandGfmTableRange(src + '\n\n', 0, src.length + 2);
+    expect(src.slice(withTrail.from, withTrail.to)).toBe(src);
+  });
+
+  test('expandGfmTableRange 不因语法树偏大的 to 吞掉表格后正文', () => {
+    const { expandGfmTableRange } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/model/parse-table.js'
+    ));
+    const table = '| a | b |\n| --- | --- |\n| 1 | 2 |\n';
+    const text = table + '\n## 二、后续章节\n\n正文段落。\n';
+    const inflatedTo = text.length;
+    const expanded = expandGfmTableRange(text, 0, inflatedTo);
+    expect(text.slice(expanded.from, expanded.to)).toBe(table);
+    expect(expanded.to).toBeLessThan(text.indexOf('##'));
+  });
+
+  test('单连字符分隔行（GFM 最小形式）可解析', () => {
+    const p = parseGfmTable('| h |\n| - |\n| x |');
+    expect(p).toEqual({
+      headers: ['h'],
+      aligns: ['left'],
+      rows: [['x']],
+    });
+  });
+
+  test('单元格含竖线时转义往返', () => {
+    const { serializeGfmTable, escapeCell } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/model/parse-table.js'
+    ));
+    const p = {
+      headers: ['a', 'b'],
+      aligns: ['left', 'left'],
+      rows: [['x|y', 'z']],
+    };
+    expect(escapeCell('a|b')).toBe('a\\|b');
+    const out = serializeGfmTable(p);
+    expect(out).toContain('x\\|y');
+    expect(parseGfmTable(out)).toEqual(p);
   });
 });
 
@@ -77,6 +117,21 @@ describe('S13 parseFencedCode', () => {
     const tick = '```';
     const slice = `${tick}bash\nmda-cli scan\n${tick}`;
     expect(parseFencedCode(slice)).toEqual({ lang: 'bash', code: 'mda-cli scan' });
+  });
+
+  test('expandFenceBlockRange 不因语法树偏大的 to 吞掉围栏后正文', () => {
+    const { expandFenceBlockRange } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/model/parse-fence.js'
+    ));
+    const tick = '```';
+    const fence = tick + 'mermaid\nflowchart LR\n  A --> B\n' + tick + '\n';
+    const text = fence + '| a | b |\n| --- | --- |\n| 1 | 2 |\n\n## Section\n';
+    const from = text.indexOf(tick);
+    const expanded = expandFenceBlockRange(text, from, text.length);
+    expect(text.slice(expanded.from, expanded.to)).toBe(fence);
+    expect(text.indexOf('## Section')).toBeGreaterThan(expanded.to);
+    expect(text.indexOf('| a')).toBeGreaterThanOrEqual(expanded.to);
   });
 });
 

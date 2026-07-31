@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-B/C 实时预览视图层：语法隐藏（D15 = hide-mark 零宽 mark + atomicRanges）。
  */
 'use strict';
@@ -20,8 +20,8 @@ const editorConfig = require('./config');
 const { atomicRangesFromPlugin, atomicRangesFromBlockField, atomicRangesFromHideLines } = require('./view/atomic-ranges');
 const { createReadonlyChangeFilter } = require('./view/change-filter');
 const { collectReadonlyRanges } = require('./model/readonly-blocks');
-const { parseFencedCode } = require('./model/parse-fence');
-const { expandGfmTableRange } = require('./model/parse-table');
+const { parseFencedCode, expandFenceBlockRange } = require('./model/parse-fence');
+const { expandGfmTableRange, expandTableBlockRange } = require('./model/parse-table');
 const {
   createBlockFocusField,
   setBlockFocus,
@@ -34,13 +34,17 @@ const { MermaidWidget } = require('./widgets/mermaid');
 const { createAnnoGutterField } = require('./anno-gutter');
 const { createClickCollapseExtension } = require('./click-collapse');
 const {
-  clearSelectedImageBlock,
   createImageSelectionSyncPlugin,
 } = require('./widgets/image-selection');
 const {
-  clearSelectedMermaidBlock,
   createMermaidSelectionSyncPlugin,
 } = require('./widgets/mermaid-selection');
+const { createBlockMenuHandlers } = require('./widgets/block-menu-handlers');
+const {
+  createMermaidShortcutKeymap,
+  createMermaidKeydownHandler,
+} = require('./mermaid-shortcuts');
+const { createMediaOutsideClickPlugin } = require('./widgets/media-outside-click');
 const {
   createImageShortcutKeymap,
   createImagePasteHandler,
@@ -260,7 +264,10 @@ function buildLayerDecos(specs, text, liveOpts) {
     onMermaidResizeReset: liveOpts.onMermaidResizeReset,
     onCopyMermaidImage: liveOpts.onCopyMermaidImage,
     onEditMermaidBlock: liveOpts.onEditMermaidBlock,
+    onDeleteMermaidBlock: liveOpts.onDeleteMermaidBlock,
+    onMoveMermaidBlock: liveOpts.onMoveMermaidBlock,
     onSwitchSource: liveOpts.onSwitchSource,
+    blockMenuHandlers: liveOpts.blockMenuHandlers,
     onFocusBlock: liveOpts.onFocusBlock,
     renderMermaid: liveOpts.renderMermaid,
     lineHeight: DEFAULT_LINE_HEIGHT,
@@ -295,8 +302,10 @@ function buildLayerDecos(specs, text, liveOpts) {
     ) {
       const br =
         s.widget === 'table'
-          ? expandGfmTableRange(text, s.from, s.to)
-          : expandBlockRange(text, s.from, s.to);
+          ? expandTableBlockRange(text, s.from, s.to)
+          : s.widget === 'code'
+            ? expandFenceBlockRange(text, s.from, s.to)
+            : expandBlockRange(text, s.from, s.to);
       blockWidgetRanges.push(br);
     }
   }
@@ -392,7 +401,7 @@ function buildLayerDecos(specs, text, liveOpts) {
         continue;
       } else if (s.widget === 'table') {
         if (!blockWidgetEnabled('table')) continue;
-        const br = expandGfmTableRange(text, s.from, s.to);
+        const br = expandTableBlockRange(text, s.from, s.to);
         blockWidgets.push({
           from: br.from,
           to: br.to,
@@ -406,7 +415,7 @@ function buildLayerDecos(specs, text, liveOpts) {
         });
         continue;
       } else if (s.widget === 'code') {
-        const br = expandBlockRange(text, s.from, s.to);
+        const br = expandFenceBlockRange(text, s.from, s.to);
         const src = s.source || text.slice(s.from, s.to);
         const parsed = parseFencedCode(src);
         const isMermaid = parsed && /^mermaid$/i.test(parsed.lang || '');
@@ -791,7 +800,19 @@ function livePreview(opts) {
   opts = opts || {};
   const blockFocusField = createBlockFocusField();
   const viewHost = { view: null };
+  const blockMenuHandlers = createBlockMenuHandlers({
+    getView: function () {
+      return viewHost.view;
+    },
+    copyText: opts.copyText,
+    toast: opts.toast,
+    t: opts.t,
+    onDeleteMermaidBlock: opts.onDeleteMermaidBlock,
+    onSoon: opts.onBlockMenuSoon,
+    onAiAction: opts.onBlockMenuAi,
+  });
   const liveOpts = Object.assign({}, opts, {
+    blockMenuHandlers: blockMenuHandlers,
     onFocusBlock: function (block) {
       if (viewHost.view) setBlockFocus(viewHost.view, block);
     },
@@ -836,13 +857,6 @@ function livePreview(opts) {
       }
       const focused = readBlockFocus(view.state, blockFocusField);
       if (focused) setBlockFocus(view, null);
-      clearSelectedImageBlock();
-      clearSelectedMermaidBlock();
-      const editorRoot = view.dom;
-      if (editorRoot) {
-        const nodes = editorRoot.querySelectorAll('.mda-cm-media-selected');
-        for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove('mda-cm-media-selected');
-      }
       return false;
     },
     click: function (event, view) {
@@ -917,6 +931,15 @@ function livePreview(opts) {
   }
   if (editorConfig.blockWidgetEnabled('mermaid')) {
     ext.push(createMermaidSelectionSyncPlugin());
+    ext.push(createMermaidShortcutKeymap(liveOpts));
+    ext.push(createMermaidKeydownHandler(liveOpts));
+  }
+  if (
+    editorConfig.blockWidgetEnabled('image') ||
+    editorConfig.blockWidgetEnabled('mermaid') ||
+    editorConfig.blockWidgetEnabled('code')
+  ) {
+    ext.push(createMediaOutsideClickPlugin());
   }
   if (annoGutterField) {
     if (Array.isArray(annoGutterField)) {
