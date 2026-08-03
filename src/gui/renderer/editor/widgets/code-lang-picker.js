@@ -1,13 +1,14 @@
 ﻿/**
- * M8-C4：围栏代码块语言切换。
- * - 点语言名 → 可搜索面板
- * - 点 ▾ → 语言子菜单（无搜索）
+ * M8-C4：围栏代码块语言切换（对齐竞品三态）。
+ * - 未打开：仅「语言名 + ▾」，中灰，间距 8px，无编辑框
+ * - hover：浅底圆角（竞品 hover）
+ * - 打开：蓝框输入框，底层 placeholder 显示当前语言（浅灰）；输入过滤列表
+ * - 列表面板挂 document.body（fixed），避免工具栏 overflow 裁切
  */
 'use strict';
 
-const { uiT, HOVER_LEAVE_MS } = require('./widget-common');
+const { uiT } = require('./widget-common');
 const {
-  CODE_BLOCK_LANGUAGES,
   normalizeCodeBlockLang,
   getCodeLangLabel,
   filterCodeLanguages,
@@ -15,8 +16,6 @@ const {
 
 /** @type {(() => void) | null} */
 let openPickerClose = null;
-/** @type {(() => void) | null} */
-let openSubmenuClose = null;
 
 /**
  * @param {{ lang?: string, t?: Function, onChange?: (lang: string) => void }} opts
@@ -27,85 +26,76 @@ function createCodeLangPicker(opts) {
   const root = document.createElement('div');
   root.className = 'mda-cm-code-lang-picker';
 
-  const group = document.createElement('div');
-  group.className = 'mda-cm-code-lang-trigger-group';
+  // —— 未打开：语言名 + 箭头（紧凑）——
+  const idle = document.createElement('button');
+  idle.type = 'button';
+  idle.className = 'mda-cm-code-lang-idle';
+  idle.setAttribute('data-i18n-title', 'widgetCodeLangSwitch');
+  idle.title = uiT('widgetCodeLangSwitch', t);
+  idle.setAttribute('aria-haspopup', 'listbox');
+  idle.setAttribute('aria-expanded', 'false');
 
-  const labelBtn = document.createElement('button');
-  labelBtn.type = 'button';
-  labelBtn.className = 'mda-cm-code-lang-trigger-label-btn';
-  labelBtn.setAttribute('data-i18n-title', 'widgetCodeLangSwitch');
-  labelBtn.title = uiT('widgetCodeLangSwitch', t);
+  const idleLabel = document.createElement('span');
+  idleLabel.className = 'mda-cm-code-lang-idle-label';
 
-  const chevronBtn = document.createElement('button');
-  chevronBtn.type = 'button';
-  chevronBtn.className = 'mda-cm-code-lang-trigger-chevron-btn';
-  chevronBtn.setAttribute('data-i18n-title', 'widgetCodeLangMenu');
-  chevronBtn.setAttribute('data-i18n-aria', 'widgetCodeLangMenu');
-  chevronBtn.title = uiT('widgetCodeLangMenu', t);
-  chevronBtn.setAttribute('aria-label', uiT('widgetCodeLangMenu', t));
-  chevronBtn.setAttribute('aria-haspopup', 'menu');
-  chevronBtn.setAttribute('aria-expanded', 'false');
-  const chevronMark = document.createElement('span');
-  chevronMark.className = 'mda-cm-code-lang-trigger-chevron';
-  chevronMark.setAttribute('aria-hidden', 'true');
-  chevronMark.textContent = '▾';
-  chevronBtn.appendChild(chevronMark);
+  const idleChevron = document.createElement('span');
+  idleChevron.className = 'mda-cm-code-lang-idle-chevron';
+  idleChevron.setAttribute('aria-hidden', 'true');
+  idleChevron.textContent = '▾';
 
-  group.appendChild(labelBtn);
-  group.appendChild(chevronBtn);
+  idle.appendChild(idleLabel);
+  idle.appendChild(idleChevron);
 
-  const panel = document.createElement('div');
-  panel.className = 'mda-cm-code-lang-panel';
-  panel.hidden = true;
+  // —— 打开：编辑框 + 箭头 ——
+  const editor = document.createElement('div');
+  editor.className = 'mda-cm-code-lang-editor';
+  editor.hidden = true;
 
   const search = document.createElement('input');
   search.type = 'text';
   search.className = 'mda-cm-code-lang-search';
-  search.setAttribute('data-i18n-placeholder', 'widgetCodeLangSearch');
-  search.placeholder = uiT('widgetCodeLangSearch', t);
   search.setAttribute('autocomplete', 'off');
   search.setAttribute('spellcheck', 'false');
+  search.setAttribute('aria-autocomplete', 'list');
+  search.setAttribute('aria-haspopup', 'listbox');
+  search.setAttribute('data-i18n-title', 'widgetCodeLangSwitch');
+  search.title = uiT('widgetCodeLangSwitch', t);
 
+  const editorChevron = document.createElement('button');
+  editorChevron.type = 'button';
+  editorChevron.className = 'mda-cm-code-lang-editor-chevron';
+  editorChevron.setAttribute('aria-hidden', 'true');
+  editorChevron.tabIndex = -1;
+  editorChevron.textContent = '▾';
+
+  editor.appendChild(search);
+  editor.appendChild(editorChevron);
+
+  root.appendChild(idle);
+  root.appendChild(editor);
+
+  const panel = document.createElement('div');
+  panel.className = 'mda-cm-code-lang-panel';
+  panel.hidden = true;
   const list = document.createElement('div');
   list.className = 'mda-cm-code-lang-list';
   list.setAttribute('role', 'listbox');
-
-  panel.appendChild(search);
   panel.appendChild(list);
-  root.appendChild(group);
-  root.appendChild(panel);
 
-  /** @type {HTMLElement | null} */
-  let submenuEl = null;
-  let submenuLeaveTimer = 0;
+  let panelOpen = false;
 
-  function clearSubmenuLeaveTimer() {
-    window.clearTimeout(submenuLeaveTimer);
-    submenuLeaveTimer = 0;
+  function currentLabel() {
+    return getCodeLangLabel(currentLang, t);
   }
 
-  /**
-   * @param {EventTarget | null} target
-   */
-  function isInLangSubCluster(target) {
-    if (!target || !(target instanceof Node)) return false;
-    if (root.contains(target)) return true;
-    if (submenuEl && submenuEl.contains(target)) return true;
-    return false;
-  }
-
-  function scheduleCloseSubmenu() {
-    clearSubmenuLeaveTimer();
-    submenuLeaveTimer = window.setTimeout(closeSubmenu, HOVER_LEAVE_MS);
-  }
-
-  function setTriggerLabel() {
-    labelBtn.textContent = getCodeLangLabel(currentLang, t);
+  function syncIdle() {
+    idleLabel.textContent = currentLabel();
   }
 
   function renderList() {
     const items = filterCodeLanguages(search.value);
     list.textContent = '';
+    let activeEl = null;
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const btn = document.createElement('button');
@@ -119,185 +109,133 @@ function createCodeLangPicker(opts) {
       btn.appendChild(lab);
       if (item.id === currentLang) {
         btn.classList.add('mda-cm-code-lang-option-active');
+        btn.setAttribute('aria-selected', 'true');
         const mark = document.createElement('span');
         mark.className = 'mda-cm-code-lang-option-check';
         mark.setAttribute('aria-hidden', 'true');
         mark.textContent = '✓';
         btn.appendChild(mark);
+        activeEl = btn;
+      } else {
+        btn.setAttribute('aria-selected', 'false');
       }
       list.appendChild(btn);
+    }
+    if (activeEl && typeof activeEl.scrollIntoView === 'function') {
+      activeEl.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function placePanel() {
+    if (!panel.parentNode) document.body.appendChild(panel);
+    const anchor = editor.hidden ? idle : editor;
+    const rect = anchor.getBoundingClientRect();
+    const pad = 8;
+    const width = Math.max(rect.width, 180);
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    panel.style.width = width + 'px';
+    panel.style.left = left + 'px';
+    panel.style.top = top + 'px';
+    panel.hidden = false;
+    if (left + width > window.innerWidth - pad) {
+      left = Math.max(pad, window.innerWidth - width - pad);
+      panel.style.left = left + 'px';
+    }
+    if (top + panel.offsetHeight > window.innerHeight - pad) {
+      top = Math.max(pad, rect.top - panel.offsetHeight - 4);
+      panel.style.top = top + 'px';
     }
   }
 
   function closePanel() {
-    if (panel.hidden) return;
+    if (!panelOpen) return;
+    panelOpen = false;
     panel.hidden = true;
+    if (panel.parentNode) panel.parentNode.removeChild(panel);
     root.classList.remove('mda-cm-code-lang-open');
+    idle.hidden = false;
+    idle.setAttribute('aria-expanded', 'false');
+    editor.hidden = true;
     search.value = '';
+    syncIdle();
     if (openPickerClose === closePanel) openPickerClose = null;
     document.removeEventListener('mousedown', onDocPointer, true);
-  }
-
-  function closeSubmenu() {
-    clearSubmenuLeaveTimer();
-    if (submenuEl && submenuEl.parentNode) submenuEl.parentNode.removeChild(submenuEl);
-    submenuEl = null;
-    chevronBtn.setAttribute('aria-expanded', 'false');
-    root.classList.remove('mda-cm-code-lang-submenu-open');
-    if (openSubmenuClose === closeSubmenu) openSubmenuClose = null;
-    document.removeEventListener('mousedown', onDocSubPointer, true);
-  }
-
-  function closeAll() {
-    closePanel();
-    closeSubmenu();
+    window.removeEventListener('resize', placePanel);
+    window.removeEventListener('scroll', placePanel, true);
   }
 
   function openPanel() {
-    closeSubmenu();
     if (typeof openPickerClose === 'function' && openPickerClose !== closePanel) {
       openPickerClose();
     }
-    panel.hidden = false;
+    panelOpen = true;
     root.classList.add('mda-cm-code-lang-open');
+    idle.hidden = true;
+    idle.setAttribute('aria-expanded', 'true');
+    editor.hidden = false;
+    // 底层浅灰显示当前语言；输入值清空以便过滤
+    search.value = '';
+    search.placeholder = currentLabel();
     renderList();
+    placePanel();
     openPickerClose = closePanel;
     document.addEventListener('mousedown', onDocPointer, true);
+    window.addEventListener('resize', placePanel);
+    window.addEventListener('scroll', placePanel, true);
     requestAnimationFrame(function () {
       search.focus();
-      search.select();
-    });
-  }
-
-  function placeSubmenu(menu) {
-    document.body.appendChild(menu);
-    const rect = chevronBtn.getBoundingClientRect();
-    const pad = 8;
-    let left = rect.left;
-    let top = rect.bottom + 4;
-    menu.style.left = left + 'px';
-    menu.style.top = top + 'px';
-    if (left + menu.offsetWidth > window.innerWidth - pad) {
-      left = Math.max(pad, window.innerWidth - menu.offsetWidth - pad);
-      menu.style.left = left + 'px';
-    }
-    if (top + menu.offsetHeight > window.innerHeight - pad) {
-      top = Math.max(pad, rect.top - menu.offsetHeight - 4);
-      menu.style.top = top + 'px';
-    }
-  }
-
-  function openSubmenu() {
-    closePanel();
-    if (typeof openSubmenuClose === 'function' && openSubmenuClose !== closeSubmenu) {
-      openSubmenuClose();
-    }
-    if (typeof openPickerClose === 'function') openPickerClose();
-
-    const menu = document.createElement('div');
-    menu.className = 'mda-context-menu mda-cm-code-lang-submenu';
-    menu.setAttribute('role', 'menu');
-
-    for (let i = 0; i < CODE_BLOCK_LANGUAGES.length; i++) {
-      const item = CODE_BLOCK_LANGUAGES[i];
-      const row = document.createElement('div');
-      row.className = 'mda-menu-item';
-      row.setAttribute('role', 'menuitem');
-      row.dataset.lang = item.id;
-      if (item.id === currentLang) row.classList.add('mda-menu-item-active');
-      const lab = document.createElement('span');
-      lab.className = 'mda-menu-label';
-      lab.textContent = item.id ? item.label : uiT('widgetCodeLangPlain', t);
-      row.appendChild(lab);
-      if (item.id === currentLang) {
-        const mark = document.createElement('span');
-        mark.className = 'mda-menu-key';
-        mark.setAttribute('aria-hidden', 'true');
-        mark.textContent = '✓';
-        row.appendChild(mark);
+      try {
+        search.setSelectionRange(0, 0);
+      } catch (_) {
+        /* ignore */
       }
-      menu.appendChild(row);
-    }
+    });
+  }
 
-    menu.addEventListener('mousedown', function (e) {
-      e.stopPropagation();
-    });
-    menu.addEventListener('click', function (e) {
-      const row = e.target && e.target.closest ? e.target.closest('[data-lang]') : null;
-      if (!row) return;
-      e.preventDefault();
-      e.stopPropagation();
-      pickLang(row.getAttribute('data-lang') || '');
-    });
-    menu.addEventListener('mouseenter', function () {
-      clearSubmenuLeaveTimer();
-    });
-    menu.addEventListener('mouseleave', function (e) {
-      if (isInLangSubCluster(e.relatedTarget)) return;
-      scheduleCloseSubmenu();
-    });
-
-    submenuEl = menu;
-    chevronBtn.setAttribute('aria-expanded', 'true');
-    root.classList.add('mda-cm-code-lang-submenu-open');
-    placeSubmenu(menu);
-    openSubmenuClose = closeSubmenu;
-    document.addEventListener('mousedown', onDocSubPointer, true);
+  function togglePanel() {
+    if (panelOpen) closePanel();
+    else openPanel();
   }
 
   function onDocPointer(e) {
-    if (!root.contains(/** @type {Node} */ (e.target))) closePanel();
-  }
-
-  function onDocSubPointer(e) {
     const target = /** @type {Node} */ (e.target);
     if (root.contains(target)) return;
-    if (submenuEl && submenuEl.contains(target)) return;
-    closeSubmenu();
+    if (panel.contains(target)) return;
+    closePanel();
   }
 
   function pickLang(next) {
     const normalized = normalizeCodeBlockLang(next);
     if (normalized === currentLang) {
-      closeAll();
+      closePanel();
       return;
     }
     currentLang = normalized;
-    setTriggerLabel();
-    closeAll();
+    closePanel();
     if (typeof opts.onChange === 'function') opts.onChange(currentLang);
   }
 
-  setTriggerLabel();
-  renderList();
+  syncIdle();
 
-  labelBtn.addEventListener('mousedown', function (e) {
-    e.stopPropagation();
-  });
-  labelBtn.addEventListener('click', function (e) {
+  idle.addEventListener('mousedown', function (e) {
     e.preventDefault();
     e.stopPropagation();
-    if (panel.hidden) openPanel();
-    else closePanel();
   });
-
-  chevronBtn.addEventListener('mousedown', function (e) {
-    e.stopPropagation();
-  });
-  chevronBtn.addEventListener('click', function (e) {
+  idle.addEventListener('click', function (e) {
     e.preventDefault();
     e.stopPropagation();
-    clearSubmenuLeaveTimer();
-    if (submenuEl) closeSubmenu();
-    else openSubmenu();
+    openPanel();
   });
-  root.addEventListener('mouseenter', function () {
-    if (submenuEl) clearSubmenuLeaveTimer();
+
+  editorChevron.addEventListener('mousedown', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
   });
-  root.addEventListener('mouseleave', function (e) {
-    if (!submenuEl) return;
-    if (isInLangSubCluster(e.relatedTarget)) return;
-    scheduleCloseSubmenu();
+  editorChevron.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    togglePanel();
   });
 
   search.addEventListener('mousedown', function (e) {
@@ -305,16 +243,23 @@ function createCodeLangPicker(opts) {
   });
   search.addEventListener('input', function () {
     renderList();
+    placePanel();
   });
   search.addEventListener('keydown', function (e) {
+    e.stopPropagation();
     if (e.key === 'Escape') {
       e.preventDefault();
       closePanel();
-      labelBtn.focus();
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = list.querySelector('.mda-cm-code-lang-option');
+      if (first) pickLang(first.getAttribute('data-lang') || '');
     }
   });
 
-  list.addEventListener('mousedown', function (e) {
+  panel.addEventListener('mousedown', function (e) {
     e.stopPropagation();
   });
   list.addEventListener('click', function (e) {
@@ -327,16 +272,19 @@ function createCodeLangPicker(opts) {
 
   root.refreshLang = function (lang) {
     currentLang = normalizeCodeBlockLang(lang);
-    setTriggerLabel();
-    renderList();
+    if (!panelOpen) syncIdle();
+    else {
+      search.placeholder = currentLabel();
+      renderList();
+      placePanel();
+    }
   };
 
-  root.closePanel = closeAll;
+  root.closePanel = closePanel;
 
   return root;
 }
 
 module.exports = {
   createCodeLangPicker: createCodeLangPicker,
-  CODE_BLOCK_LANGUAGES: CODE_BLOCK_LANGUAGES,
 };

@@ -58,6 +58,7 @@ function createMediaOutsideClickPlugin() {
           const target = e.target;
           if (target && target.closest && target.closest('#mda-block-handle-menu')) return;
           if (target && target.closest && target.closest('.mda-block-handle-submenu')) return;
+          if (target && target.closest && target.closest('.mda-cm-code-lang-panel')) return;
           if (target && target.closest && target.closest('.mda-cm-code-lang-submenu')) return;
           if (target && target.closest && target.closest('.mda-cm-code-lang-picker')) return;
           if (blockContainsTarget(self.view, imgSel, 'mda-cm-image-block', target)) return;

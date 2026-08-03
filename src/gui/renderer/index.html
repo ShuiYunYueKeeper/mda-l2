@@ -1229,6 +1229,9 @@
       border-radius: 7px 7px 0 0;
       overflow: hidden;
     }
+    .mda-cm6-host .mda-cm-code-frame:has(.mda-cm-code-lang-open) > .mda-cm-block-toolbar {
+      overflow: visible;
+    }
     .mda-cm6-host .mda-cm-code-frame:has(.mda-cm-code-lang-open) .mda-cm-code-preview {
       overflow: visible;
     }
@@ -1517,13 +1520,56 @@
       position: relative;
       flex: 0 1 auto;
       min-width: 0;
-      max-width: min(220px, 45vw);
+      max-width: min(240px, 50vw);
     }
-    .mda-cm6-host .mda-cm-code-lang-trigger-group {
-      display: flex;
-      align-items: stretch;
+    /* 未打开：仅语言 + 箭头，中灰，间距 8px，无编辑框 */
+    .mda-cm6-host .mda-cm-code-lang-idle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+      padding: 2px 6px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: #6a737d;
+      font-size: 12px;
+      font-weight: 500;
+      line-height: 1.2;
+      cursor: pointer;
       max-width: 100%;
-      border: 1px solid var(--border);
+    }
+    .mda-cm6-host .mda-cm-code-lang-idle[hidden],
+    .mda-cm6-host .mda-cm-code-lang-editor[hidden] {
+      display: none !important;
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-lang-idle {
+      color: #8b949e;
+    }
+    .mda-cm6-host .mda-cm-code-lang-idle:hover {
+      background: rgba(175, 184, 193, 0.2);
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-lang-idle:hover {
+      background: rgba(110, 118, 129, 0.24);
+    }
+    .mda-cm6-host .mda-cm-code-lang-idle-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mda-cm6-host .mda-cm-code-lang-idle-chevron {
+      flex: 0 0 auto;
+      font-size: 9px;
+      line-height: 1;
+      opacity: 0.9;
+    }
+    /* 打开：蓝框编辑框，底层默认语言浅灰 */
+    .mda-cm6-host .mda-cm-code-lang-editor {
+      display: flex;
+      align-items: center;
+      min-width: 120px;
+      max-width: 100%;
+      border: 1px solid var(--accent);
       border-radius: 4px;
       background: var(--bg);
       overflow: hidden;
@@ -1532,83 +1578,57 @@
       flex: 1 1 auto;
       min-width: 0;
       margin: 0;
-      padding: 2px 6px 2px 8px;
+      padding: 3px 6px 3px 8px;
       border: none;
-      border-radius: 0;
       background: transparent;
-      color: var(--text-muted);
+      color: var(--text);
       font-size: 12px;
-      font-weight: 600;
+      font-weight: 500;
       line-height: 1.2;
       outline: none;
       box-sizing: border-box;
-      cursor: pointer;
-    }
-    .mda-cm6-host .mda-cm-code-lang-search-editing {
-      cursor: text;
-      color: var(--text);
-      font-weight: 500;
     }
     .mda-cm6-host .mda-cm-code-lang-search::placeholder {
-      color: var(--text-muted);
+      color: #c0c7cf;
       opacity: 1;
-      font-weight: 600;
+      font-weight: 500;
     }
-    .mda-cm6-host .mda-cm-code-lang-trigger-chevron-btn {
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-lang-search::placeholder {
+      color: #6e7681;
+    }
+    .mda-cm6-host .mda-cm-code-lang-editor-chevron {
       flex: 0 0 auto;
       margin: 0;
       padding: 2px 6px;
       border: none;
-      border-left: 1px solid var(--border-light);
-      border-radius: 0;
       background: transparent;
-      color: var(--text-muted);
-      font-size: 12px;
-      font-weight: 600;
+      color: #8b949e;
+      font-size: 9px;
+      line-height: 1;
       cursor: pointer;
-      line-height: 1.2;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .mda-cm6-host .mda-cm-code-lang-search:hover,
-    .mda-cm6-host .mda-cm-code-lang-trigger-chevron-btn:hover,
-    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-group {
-      color: var(--accent);
-    }
-    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-group {
-      border-color: var(--accent);
-    }
-    .mda-cm6-host .mda-cm-code-lang-trigger-chevron {
-      flex: 0 0 auto;
-      font-size: 10px;
-      opacity: 0.7;
-    }
-    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-chevron {
       transform: rotate(180deg);
     }
-    .mda-cm6-host .mda-cm-code-lang-panel {
-      position: absolute;
-      top: calc(100% + 4px);
-      left: 0;
-      z-index: 30;
-      width: max(100%, 180px);
+    /* 挂到 body：fixed，避免工具栏/滚动容器裁切 */
+    .mda-cm-code-lang-panel {
+      position: fixed;
+      z-index: 10050;
       min-width: 160px;
-      max-width: min(240px, 70vw);
+      max-width: min(280px, 80vw);
       padding: 4px;
       border: 1px solid var(--border);
       border-radius: 6px;
       background: var(--bg);
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      box-sizing: border-box;
     }
-    [data-theme="dark"] .mda-cm6-host .mda-cm-code-lang-panel {
+    [data-theme="dark"] .mda-cm-code-lang-panel {
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
     }
-    .mda-cm6-host .mda-cm-code-lang-list {
-      max-height: 240px;
+    .mda-cm-code-lang-list {
+      max-height: min(280px, 50vh);
       overflow: auto;
     }
-    .mda-cm6-host .mda-cm-code-lang-option {
+    .mda-cm-code-lang-option {
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -1621,18 +1641,25 @@
       background: transparent;
       color: var(--text);
       cursor: pointer;
+      box-sizing: border-box;
     }
-    .mda-cm6-host .mda-cm-code-lang-option:hover {
+    .mda-cm-code-lang-option:hover {
       background: var(--bg-tertiary);
     }
-    .mda-cm6-host .mda-cm-code-lang-option-active {
-      color: var(--accent);
+    .mda-cm-code-lang-option-active {
+      color: #6b9af0;
     }
-    .mda-cm6-host .mda-cm-code-lang-option-check {
+    [data-theme="dark"] .mda-cm-code-lang-option-active {
+      color: #79b0ff;
+    }
+    .mda-cm-code-lang-option-check {
       flex: 0 0 auto;
       margin-left: 8px;
-      color: var(--accent);
+      color: #6b9af0;
       font-weight: 700;
+    }
+    [data-theme="dark"] .mda-cm-code-lang-option-check {
+      color: #79b0ff;
     }
     .mda-cm6-host .mda-cm-mermaid-stage { padding: 12px; overflow: auto; margin: 0 auto; border-radius: 0 0 7px 7px; }
     .mda-cm6-host .mda-cm-mermaid-source {
