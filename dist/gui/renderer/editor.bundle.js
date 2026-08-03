@@ -52321,6 +52321,41 @@ var MDAEditorBundle = (() => {
         for (let i = 1; i <= n; i++) lines.push(String(i));
         return lines.join("\n");
       }
+      function caretOffsetIn(el) {
+        const sel = window.getSelection && window.getSelection();
+        if (!sel || sel.rangeCount === 0) return 0;
+        const range = sel.getRangeAt(0);
+        if (!el.contains(range.startContainer)) return 0;
+        const pre = range.cloneRange();
+        pre.selectNodeContents(el);
+        pre.setEnd(range.startContainer, range.startOffset);
+        return pre.toString().length;
+      }
+      function setCaretOffsetIn(el, offset) {
+        let remaining = Math.max(0, offset | 0);
+        const sel = window.getSelection && window.getSelection();
+        if (!sel) return;
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode();
+        while (node) {
+          const len = node.nodeValue ? node.nodeValue.length : 0;
+          if (remaining <= len) {
+            const range2 = document.createRange();
+            range2.setStart(node, remaining);
+            range2.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range2);
+            return;
+          }
+          remaining -= len;
+          node = walker.nextNode();
+        }
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
       var CODE_LINE_HEIGHT = 21;
       var CODE_CHROME_HEIGHT = 84;
       var MAX_CODE_WIDGET_LINES = 400;
@@ -52386,49 +52421,57 @@ var MDAEditorBundle = (() => {
           stack.className = "mda-cm-code-stack";
           const highlightPre = document.createElement("pre");
           highlightPre.className = "mda-cm-code-highlight";
-          highlightPre.setAttribute("aria-hidden", "true");
-          const highlightCode = document.createElement("code");
-          highlightCode.className = "hljs language-" + (self2.lang || "plaintext");
-          highlightPre.appendChild(highlightCode);
-          const codeInput = document.createElement("div");
-          codeInput.className = "mda-cm-code-input";
+          const codeInput = document.createElement("code");
+          codeInput.className = "mda-cm-code-input hljs language-" + (self2.lang || "plaintext");
           codeInput.setAttribute("contenteditable", "true");
           codeInput.setAttribute("role", "textbox");
           codeInput.setAttribute("aria-multiline", "true");
           codeInput.setAttribute("spellcheck", "false");
           codeInput.setAttribute("data-i18n-aria", "widgetCodeEdit");
           codeInput.setAttribute("aria-label", uiT("widgetCodeEdit", t));
-          codeInput.textContent = self2.code;
+          highlightPre.appendChild(codeInput);
           stack.appendChild(highlightPre);
-          stack.appendChild(codeInput);
           scroll.appendChild(stack);
           stage.appendChild(gutter);
           stage.appendChild(scroll);
           previewPanel.appendChild(stage);
           frame.appendChild(previewPanel);
+          let composing = false;
+          let plainEditing = false;
           function readCodeText() {
             return (codeInput.innerText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\u00a0/g, " ");
           }
-          function syncHighlight() {
+          function paintHighlight(restoreCaret) {
             const text = readCodeText();
-            highlightCode.innerHTML = highlightFenceBody(text || "\n", self2.lang, opts.highlightCode);
+            const pos = restoreCaret ? caretOffsetIn(codeInput) : 0;
+            const html = highlightFenceBody(text, self2.lang, opts.highlightCode);
+            codeInput.innerHTML = html || "\n";
+            if (restoreCaret) setCaretOffsetIn(codeInput, Math.min(pos, text.length));
+          }
+          function flattenToPlain() {
+            if (plainEditing) return;
+            const text = readCodeText();
+            const pos = caretOffsetIn(codeInput);
+            codeInput.textContent = text;
+            setCaretOffsetIn(codeInput, Math.min(pos, text.length));
+            plainEditing = true;
           }
           function syncLineNumbers() {
             gutter.textContent = buildLineNumbers(readCodeText());
           }
           function enterEditMode() {
             frame.classList.add("mda-cm-code-editing");
-            codeInput.focus();
           }
-          syncHighlight();
+          codeInput.textContent = self2.code || "";
+          paintHighlight(false);
           syncLineNumbers();
           function commitLangChange(nextLang) {
             const normalized = normalizeCodeBlockLang(nextLang);
             if (normalized === self2.lang) return;
             const code = readCodeText();
             self2.lang = normalized;
-            highlightCode.className = "hljs language-" + (self2.lang || "plaintext");
-            syncHighlight();
+            codeInput.className = "mda-cm-code-input hljs language-" + (self2.lang || "plaintext");
+            if (!plainEditing) paintHighlight(true);
             if (typeof opts.onEditCodeBlock === "function") {
               opts.onEditCodeBlock({
                 from: self2.from,
@@ -52523,35 +52566,44 @@ var MDAEditorBundle = (() => {
           });
           codeInput.addEventListener("mousedown", function(e) {
             e.stopPropagation();
+            enterEditMode();
+          });
+          codeInput.addEventListener("compositionstart", function() {
+            composing = true;
+          });
+          codeInput.addEventListener("compositionend", function() {
+            composing = false;
+            syncLineNumbers();
+            requestHeightMeasure();
           });
           codeInput.addEventListener("input", function() {
+            if (composing) return;
             syncLineNumbers();
             requestHeightMeasure();
           });
           codeInput.addEventListener("keydown", function(e) {
+            e.stopPropagation();
             if (e.key !== "Enter" || e.isComposing) return;
             e.preventDefault();
-            e.stopPropagation();
             document.execCommand("insertText", false, "\n");
           });
           codeInput.addEventListener("paste", function(e) {
             e.preventDefault();
+            e.stopPropagation();
             const text = e.clipboardData && e.clipboardData.getData("text/plain");
             if (text == null) return;
             document.execCommand("insertText", false, text);
           });
           codeInput.addEventListener("focus", function() {
             enterEditMode();
-            try {
-              if (!view) return;
-              const pos = view.state.selection.main.head;
-              view.dispatch({ selection: { anchor: pos, head: pos } });
-            } catch (_) {
-            }
+            requestAnimationFrame(function() {
+              flattenToPlain();
+            });
           });
           codeInput.addEventListener("blur", function() {
             commitCodeEdit();
-            syncHighlight();
+            plainEditing = false;
+            paintHighlight(false);
             syncLineNumbers();
             frame.classList.remove("mda-cm-code-editing");
             requestHeightMeasure();
@@ -52566,10 +52618,7 @@ var MDAEditorBundle = (() => {
           });
           scroll.addEventListener("mousedown", function(e) {
             if (e.button !== 0) return;
-            if (frame.classList.contains("mda-cm-code-editing")) return;
-            e.preventDefault();
             e.stopPropagation();
-            enterEditMode();
           });
           root.addEventListener("mousedown", function(e) {
             if (e.button !== 0) return;
@@ -52600,7 +52649,9 @@ var MDAEditorBundle = (() => {
         highlightFenceBody,
         buildLineNumbers,
         estimateCodeFenceHeight,
-        MAX_CODE_WIDGET_HEIGHT
+        MAX_CODE_WIDGET_HEIGHT,
+        caretOffsetIn,
+        setCaretOffsetIn
       };
     }
   });

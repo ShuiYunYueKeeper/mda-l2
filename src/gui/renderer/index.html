@@ -1302,50 +1302,27 @@
       min-width: min-content;
       box-sizing: border-box;
     }
-    /* 失焦：hljs 只读预览；聚焦：纯文本编辑（与流程图源码同款，不叠层） */
+    /* 单层可编辑高亮：真实彩色文字，光标/选区走原生（避免透明叠层在 Electron 失效） */
     .mda-cm6-host .mda-cm-code-highlight {
       display: block;
       margin: 0;
-      padding: 12px 12px 12px 6px;
+      padding: 0;
       border: none;
       background: transparent;
       white-space: pre;
       overflow: visible;
-      pointer-events: none;
       box-sizing: border-box;
       min-height: 45px;
       font-family: 'Consolas', 'Courier New', 'Microsoft YaHei', monospace;
       font-size: 13px;
       line-height: 21px;
-    }
-    .mda-cm6-host .mda-cm-code-highlight code {
-      display: block;
-      margin: 0;
-      padding: 0;
-      font: inherit;
-      white-space: pre;
-      background: transparent;
-      border: none;
-    }
-    .mda-cm6-host .mda-cm-code-highlight code,
-    .mda-cm6-host .mda-cm-code-highlight code * {
-      font-weight: normal;
-      font-style: normal;
-    }
-    .mda-cm6-host .mda-cm-code-highlight .hljs-strong {
-      text-shadow: 0.4px 0 0 currentColor;
-    }
-    .mda-cm6-host .mda-cm-code-frame.mda-cm-code-editing .mda-cm-code-highlight {
-      display: none;
-    }
-    .mda-cm6-host .mda-cm-code-frame:not(.mda-cm-code-editing) .mda-cm-code-input {
-      display: none;
+      color: var(--text);
     }
     .mda-cm6-host .mda-cm-code-input {
       display: block;
       width: 100%;
       min-width: min-content;
-      min-height: 21px;
+      min-height: 45px;
       margin: 0;
       padding: 12px 12px 12px 6px;
       border: none;
@@ -1354,13 +1331,26 @@
       font-family: 'Consolas', 'Courier New', 'Microsoft YaHei', monospace;
       font-size: 13px;
       line-height: 21px;
+      tab-size: 4;
       color: var(--text);
+      caret-color: #24292f;
       white-space: pre;
       overflow-wrap: normal;
       box-sizing: border-box;
       -webkit-user-select: text;
       user-select: text;
       cursor: text;
+    }
+    .mda-cm6-host .mda-cm-code-input,
+    .mda-cm6-host .mda-cm-code-input * {
+      font-weight: normal;
+      font-style: normal;
+    }
+    .mda-cm6-host .mda-cm-code-input .hljs-strong {
+      text-shadow: 0.4px 0 0 currentColor;
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input {
+      caret-color: #c9d1d9;
     }
     .mda-cm6-host .mda-cm-mermaid-block-line {
       display: flex;
@@ -1538,43 +1528,55 @@
       background: var(--bg);
       overflow: hidden;
     }
-    .mda-cm6-host .mda-cm-code-lang-trigger-label-btn,
-    .mda-cm6-host .mda-cm-code-lang-trigger-chevron-btn {
+    .mda-cm6-host .mda-cm-code-lang-search {
+      flex: 1 1 auto;
+      min-width: 0;
       margin: 0;
+      padding: 2px 6px 2px 8px;
       border: none;
+      border-radius: 0;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.2;
+      outline: none;
+      box-sizing: border-box;
+      cursor: pointer;
+    }
+    .mda-cm6-host .mda-cm-code-lang-search-editing {
+      cursor: text;
+      color: var(--text);
+      font-weight: 500;
+    }
+    .mda-cm6-host .mda-cm-code-lang-search::placeholder {
+      color: var(--text-muted);
+      opacity: 1;
+      font-weight: 600;
+    }
+    .mda-cm6-host .mda-cm-code-lang-trigger-chevron-btn {
+      flex: 0 0 auto;
+      margin: 0;
+      padding: 2px 6px;
+      border: none;
+      border-left: 1px solid var(--border-light);
+      border-radius: 0;
       background: transparent;
       color: var(--text-muted);
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
       line-height: 1.2;
-    }
-    .mda-cm6-host .mda-cm-code-lang-trigger-label-btn {
-      flex: 1 1 auto;
-      min-width: 0;
-      padding: 2px 6px 2px 8px;
-      text-align: left;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .mda-cm6-host .mda-cm-code-lang-trigger-chevron-btn {
-      flex: 0 0 auto;
-      padding: 2px 6px;
-      border-left: 1px solid var(--border-light);
       display: inline-flex;
       align-items: center;
       justify-content: center;
     }
-    .mda-cm6-host .mda-cm-code-lang-trigger-label-btn:hover,
+    .mda-cm6-host .mda-cm-code-lang-search:hover,
     .mda-cm6-host .mda-cm-code-lang-trigger-chevron-btn:hover,
-    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-group,
-    .mda-cm6-host .mda-cm-code-lang-submenu-open .mda-cm-code-lang-trigger-group {
-      border-color: var(--accent);
+    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-group {
       color: var(--accent);
     }
-    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-group,
-    .mda-cm6-host .mda-cm-code-lang-submenu-open .mda-cm-code-lang-trigger-group {
+    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-group {
       border-color: var(--accent);
     }
     .mda-cm6-host .mda-cm-code-lang-trigger-chevron {
@@ -1582,28 +1584,18 @@
       font-size: 10px;
       opacity: 0.7;
     }
-    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-chevron,
-    .mda-cm6-host .mda-cm-code-lang-submenu-open .mda-cm-code-lang-trigger-chevron {
+    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-chevron {
       transform: rotate(180deg);
-    }
-    .mda-cm-code-lang-submenu {
-      position: fixed;
-      z-index: 10050;
-      min-width: 160px;
-      max-height: min(360px, 50vh);
-      overflow-y: auto;
-      padding: 4px 0;
-    }
-    .mda-cm-code-lang-submenu .mda-menu-item-active {
-      color: var(--accent);
     }
     .mda-cm6-host .mda-cm-code-lang-panel {
       position: absolute;
       top: calc(100% + 4px);
       left: 0;
       z-index: 30;
-      width: min(240px, 70vw);
-      padding: 6px;
+      width: max(100%, 180px);
+      min-width: 160px;
+      max-width: min(240px, 70vw);
+      padding: 4px;
       border: 1px solid var(--border);
       border-radius: 6px;
       background: var(--bg);
@@ -1611,22 +1603,6 @@
     }
     [data-theme="dark"] .mda-cm6-host .mda-cm-code-lang-panel {
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-    }
-    .mda-cm6-host .mda-cm-code-lang-search {
-      display: block;
-      width: 100%;
-      box-sizing: border-box;
-      margin: 0 0 6px;
-      padding: 4px 8px;
-      font-size: 12px;
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      background: var(--bg);
-      color: var(--text);
-      outline: none;
-    }
-    .mda-cm6-host .mda-cm-code-lang-search:focus {
-      border-color: var(--accent);
     }
     .mda-cm6-host .mda-cm-code-lang-list {
       max-height: 240px;
@@ -1692,17 +1668,24 @@
     }
     .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"]::selection,
     .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection,
-    .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
-    .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection,
     .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"]::selection,
     .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"] *::selection {
       background-color: var(--table-text-sel) !important;
       color: #24292f !important;
     }
+    /* 代码块选区：与公式/流程图源码同色浅蓝（须在纯文本节点上才生效） */
+    .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
+    .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection {
+      background-color: var(--table-text-sel) !important;
+      color: #24292f !important;
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection {
+      background-color: var(--table-text-sel) !important;
+      color: #c9d1d9 !important;
+    }
     [data-theme="dark"] .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"]::selection,
     [data-theme="dark"] .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection,
-    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
-    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection,
     [data-theme="dark"] .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"]::selection,
     [data-theme="dark"] .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"] *::selection {
       background-color: var(--table-text-sel) !important;

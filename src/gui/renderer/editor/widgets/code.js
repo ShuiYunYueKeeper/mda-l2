@@ -1,4 +1,7 @@
-﻿'use strict';
+﻿/**
+ * 围栏代码块 widget：单层 contenteditable + 输入时重绘 hljs（避免透明叠层在 Electron 丢光标/选区字）。
+ */
+'use strict';
 
 const { parseFencedCode, extractFenceCodeBody } = require('../model/parse-fence');
 const {
@@ -39,7 +42,6 @@ function highlightFenceBody(code, lang, highlightCode) {
 }
 
 /**
- * 挂载后同步代码块默认宽（委托 app.js onScaleCodeBlock，与图片/流程图同路径）。
  * @param {HTMLElement} root
  * @param {HTMLElement} frame
  * @param {object} opts
@@ -72,6 +74,51 @@ function buildLineNumbers(code) {
   const lines = [];
   for (let i = 1; i <= n; i++) lines.push(String(i));
   return lines.join('\n');
+}
+
+/**
+ * 当前选区起点在 el 内的字符偏移（UTF-16 / DOM 文本）。
+ * @param {HTMLElement} el
+ */
+function caretOffsetIn(el) {
+  const sel = window.getSelection && window.getSelection();
+  if (!sel || sel.rangeCount === 0) return 0;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.startContainer)) return 0;
+  const pre = range.cloneRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(range.startContainer, range.startOffset);
+  return pre.toString().length;
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {number} offset
+ */
+function setCaretOffsetIn(el, offset) {
+  let remaining = Math.max(0, offset | 0);
+  const sel = window.getSelection && window.getSelection();
+  if (!sel) return;
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const len = node.nodeValue ? node.nodeValue.length : 0;
+    if (remaining <= len) {
+      const range = document.createRange();
+      range.setStart(node, remaining);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return;
+    }
+    remaining -= len;
+    node = walker.nextNode();
+  }
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
 }
 
 const CODE_LINE_HEIGHT = 21;
@@ -155,41 +202,53 @@ class CodeFenceWidget extends BlockReplaceWidget {
 
     const highlightPre = document.createElement('pre');
     highlightPre.className = 'mda-cm-code-highlight';
-    highlightPre.setAttribute('aria-hidden', 'true');
-    const highlightCode = document.createElement('code');
-    highlightCode.className = 'hljs language-' + (self.lang || 'plaintext');
-    highlightPre.appendChild(highlightCode);
 
-    const codeInput = document.createElement('div');
-    codeInput.className = 'mda-cm-code-input';
+    const codeInput = document.createElement('code');
+    codeInput.className = 'mda-cm-code-input hljs language-' + (self.lang || 'plaintext');
     codeInput.setAttribute('contenteditable', 'true');
     codeInput.setAttribute('role', 'textbox');
     codeInput.setAttribute('aria-multiline', 'true');
     codeInput.setAttribute('spellcheck', 'false');
     codeInput.setAttribute('data-i18n-aria', 'widgetCodeEdit');
     codeInput.setAttribute('aria-label', uiT('widgetCodeEdit', t));
-    codeInput.textContent = self.code;
 
+    highlightPre.appendChild(codeInput);
     stack.appendChild(highlightPre);
-    stack.appendChild(codeInput);
     scroll.appendChild(stack);
     stage.appendChild(gutter);
     stage.appendChild(scroll);
     previewPanel.appendChild(stage);
     frame.appendChild(previewPanel);
 
+    let composing = false;
+    let plainEditing = false;
+
     function readCodeText() {
-      // 必须在仍可见时读取：display:none 时 Chromium innerText 会丢换行或变空
       return (codeInput.innerText || '')
         .replace(/\r\n/g, '\n')
         .replace(/\r/g, '\n')
         .replace(/\u00a0/g, ' ');
     }
 
-    function syncHighlight() {
+    function paintHighlight(restoreCaret) {
       const text = readCodeText();
-      // 空正文保留一个换行占位，避免 <pre>/<code> 塌成一条细缝
-      highlightCode.innerHTML = highlightFenceBody(text || '\n', self.lang, opts.highlightCode);
+      const pos = restoreCaret ? caretOffsetIn(codeInput) : 0;
+      const html = highlightFenceBody(text, self.lang, opts.highlightCode);
+      codeInput.innerHTML = html || '\n';
+      if (restoreCaret) setCaretOffsetIn(codeInput, Math.min(pos, text.length));
+    }
+
+    /**
+     * Electron 对 hljs 嵌套 span 的 ::selection 会回落系统深蓝。
+     * 聚焦编辑时压成单一文本节点，选区浅蓝色才能生效；失焦再上色。
+     */
+    function flattenToPlain() {
+      if (plainEditing) return;
+      const text = readCodeText();
+      const pos = caretOffsetIn(codeInput);
+      codeInput.textContent = text;
+      setCaretOffsetIn(codeInput, Math.min(pos, text.length));
+      plainEditing = true;
     }
 
     function syncLineNumbers() {
@@ -198,10 +257,11 @@ class CodeFenceWidget extends BlockReplaceWidget {
 
     function enterEditMode() {
       frame.classList.add('mda-cm-code-editing');
-      codeInput.focus();
     }
 
-    syncHighlight();
+    // 初始：用源码直接上色（勿先 textContent 再读，避免多余换行）
+    codeInput.textContent = self.code || '';
+    paintHighlight(false);
     syncLineNumbers();
 
     function commitLangChange(nextLang) {
@@ -209,8 +269,8 @@ class CodeFenceWidget extends BlockReplaceWidget {
       if (normalized === self.lang) return;
       const code = readCodeText();
       self.lang = normalized;
-      highlightCode.className = 'hljs language-' + (self.lang || 'plaintext');
-      syncHighlight();
+      codeInput.className = 'mda-cm-code-input hljs language-' + (self.lang || 'plaintext');
+      if (!plainEditing) paintHighlight(true);
       if (typeof opts.onEditCodeBlock === 'function') {
         opts.onEditCodeBlock({
           from: self.from,
@@ -314,38 +374,46 @@ class CodeFenceWidget extends BlockReplaceWidget {
 
     codeInput.addEventListener('mousedown', function (e) {
       e.stopPropagation();
+      enterEditMode();
+    });
+    codeInput.addEventListener('compositionstart', function () {
+      composing = true;
+    });
+    codeInput.addEventListener('compositionend', function () {
+      composing = false;
+      syncLineNumbers();
+      requestHeightMeasure();
     });
     codeInput.addEventListener('input', function () {
+      if (composing) return;
+      // 编辑中保持纯文本，勿重绘 hljs（否则 ::selection 再次失效）
       syncLineNumbers();
       requestHeightMeasure();
     });
     codeInput.addEventListener('keydown', function (e) {
-      // 保证 Enter 写入换行（部分环境下 contenteditable + white-space:pre 行为不稳）
+      e.stopPropagation();
       if (e.key !== 'Enter' || e.isComposing) return;
       e.preventDefault();
-      e.stopPropagation();
       document.execCommand('insertText', false, '\n');
     });
     codeInput.addEventListener('paste', function (e) {
       e.preventDefault();
+      e.stopPropagation();
       const text = e.clipboardData && e.clipboardData.getData('text/plain');
       if (text == null) return;
       document.execCommand('insertText', false, text);
     });
     codeInput.addEventListener('focus', function () {
       enterEditMode();
-      try {
-        if (!view) return;
-        const pos = view.state.selection.main.head;
-        view.dispatch({ selection: { anchor: pos, head: pos } });
-      } catch (_) {
-        /* ignore */
-      }
+      // 等点击落点落稳后再压平，保留光标位置
+      requestAnimationFrame(function () {
+        flattenToPlain();
+      });
     });
     codeInput.addEventListener('blur', function () {
-      // 先提交再隐藏编辑层：否则 display:none 后 innerText 丢换行 → 源码并成一行、高度塌缩
       commitCodeEdit();
-      syncHighlight();
+      plainEditing = false;
+      paintHighlight(false);
       syncLineNumbers();
       frame.classList.remove('mda-cm-code-editing');
       requestHeightMeasure();
@@ -362,10 +430,7 @@ class CodeFenceWidget extends BlockReplaceWidget {
 
     scroll.addEventListener('mousedown', function (e) {
       if (e.button !== 0) return;
-      if (frame.classList.contains('mda-cm-code-editing')) return;
-      e.preventDefault();
       e.stopPropagation();
-      enterEditMode();
     });
 
     root.addEventListener('mousedown', function (e) {
@@ -400,4 +465,6 @@ module.exports = {
   buildLineNumbers: buildLineNumbers,
   estimateCodeFenceHeight: estimateCodeFenceHeight,
   MAX_CODE_WIDGET_HEIGHT: MAX_CODE_WIDGET_HEIGHT,
+  caretOffsetIn: caretOffsetIn,
+  setCaretOffsetIn: setCaretOffsetIn,
 };

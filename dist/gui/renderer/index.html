@@ -1302,50 +1302,27 @@
       min-width: min-content;
       box-sizing: border-box;
     }
-    /* 失焦：hljs 只读预览；聚焦：纯文本编辑（与流程图源码同款，不叠层） */
+    /* 单层可编辑高亮：真实彩色文字，光标/选区走原生（避免透明叠层在 Electron 失效） */
     .mda-cm6-host .mda-cm-code-highlight {
       display: block;
       margin: 0;
-      padding: 12px 12px 12px 6px;
+      padding: 0;
       border: none;
       background: transparent;
       white-space: pre;
       overflow: visible;
-      pointer-events: none;
       box-sizing: border-box;
       min-height: 45px;
       font-family: 'Consolas', 'Courier New', 'Microsoft YaHei', monospace;
       font-size: 13px;
       line-height: 21px;
-    }
-    .mda-cm6-host .mda-cm-code-highlight code {
-      display: block;
-      margin: 0;
-      padding: 0;
-      font: inherit;
-      white-space: pre;
-      background: transparent;
-      border: none;
-    }
-    .mda-cm6-host .mda-cm-code-highlight code,
-    .mda-cm6-host .mda-cm-code-highlight code * {
-      font-weight: normal;
-      font-style: normal;
-    }
-    .mda-cm6-host .mda-cm-code-highlight .hljs-strong {
-      text-shadow: 0.4px 0 0 currentColor;
-    }
-    .mda-cm6-host .mda-cm-code-frame.mda-cm-code-editing .mda-cm-code-highlight {
-      display: none;
-    }
-    .mda-cm6-host .mda-cm-code-frame:not(.mda-cm-code-editing) .mda-cm-code-input {
-      display: none;
+      color: var(--text);
     }
     .mda-cm6-host .mda-cm-code-input {
       display: block;
       width: 100%;
       min-width: min-content;
-      min-height: 21px;
+      min-height: 45px;
       margin: 0;
       padding: 12px 12px 12px 6px;
       border: none;
@@ -1354,13 +1331,26 @@
       font-family: 'Consolas', 'Courier New', 'Microsoft YaHei', monospace;
       font-size: 13px;
       line-height: 21px;
+      tab-size: 4;
       color: var(--text);
+      caret-color: #24292f;
       white-space: pre;
       overflow-wrap: normal;
       box-sizing: border-box;
       -webkit-user-select: text;
       user-select: text;
       cursor: text;
+    }
+    .mda-cm6-host .mda-cm-code-input,
+    .mda-cm6-host .mda-cm-code-input * {
+      font-weight: normal;
+      font-style: normal;
+    }
+    .mda-cm6-host .mda-cm-code-input .hljs-strong {
+      text-shadow: 0.4px 0 0 currentColor;
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input {
+      caret-color: #c9d1d9;
     }
     .mda-cm6-host .mda-cm-mermaid-block-line {
       display: flex;
@@ -1692,17 +1682,24 @@
     }
     .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"]::selection,
     .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection,
-    .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
-    .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection,
     .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"]::selection,
     .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"] *::selection {
       background-color: var(--table-text-sel) !important;
       color: #24292f !important;
     }
+    /* 代码块选区：与公式/流程图源码同色浅蓝（须在纯文本节点上才生效） */
+    .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
+    .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection {
+      background-color: var(--table-text-sel) !important;
+      color: #24292f !important;
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection {
+      background-color: var(--table-text-sel) !important;
+      color: #c9d1d9 !important;
+    }
     [data-theme="dark"] .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"]::selection,
     [data-theme="dark"] .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection,
-    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
-    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection,
     [data-theme="dark"] .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"]::selection,
     [data-theme="dark"] .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"] *::selection {
       background-color: var(--table-text-sel) !important;
