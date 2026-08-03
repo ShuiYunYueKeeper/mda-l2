@@ -8,7 +8,7 @@ const {
   clearMediaSelection,
   clearBlockWidgetSelection,
 } = require('./widget-common');
-const { BlockReplaceWidget, countSourceLines } = require('./block-widget-base');
+const { BlockReplaceWidget, countSourceLines, syncWidgetHeightFromDom } = require('./block-widget-base');
 const { createCodeLangPicker } = require('./code-lang-picker');
 const { normalizeCodeBlockLang } = require('./code-languages');
 const { attachBlockDragHandle } = require('./block-drag-handle');
@@ -179,11 +179,17 @@ class CodeFenceWidget extends BlockReplaceWidget {
     frame.appendChild(previewPanel);
 
     function readCodeText() {
-      return (codeInput.innerText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      // 必须在仍可见时读取：display:none 时 Chromium innerText 会丢换行或变空
+      return (codeInput.innerText || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .replace(/\u00a0/g, ' ');
     }
 
     function syncHighlight() {
-      highlightCode.innerHTML = highlightFenceBody(readCodeText(), self.lang, opts.highlightCode);
+      const text = readCodeText();
+      // 空正文保留一个换行占位，避免 <pre>/<code> 塌成一条细缝
+      highlightCode.innerHTML = highlightFenceBody(text || '\n', self.lang, opts.highlightCode);
     }
 
     function syncLineNumbers() {
@@ -196,6 +202,7 @@ class CodeFenceWidget extends BlockReplaceWidget {
     }
 
     syncHighlight();
+    syncLineNumbers();
 
     function commitLangChange(nextLang) {
       const normalized = normalizeCodeBlockLang(nextLang);
@@ -312,6 +319,13 @@ class CodeFenceWidget extends BlockReplaceWidget {
       syncLineNumbers();
       requestHeightMeasure();
     });
+    codeInput.addEventListener('keydown', function (e) {
+      // 保证 Enter 写入换行（部分环境下 contenteditable + white-space:pre 行为不稳）
+      if (e.key !== 'Enter' || e.isComposing) return;
+      e.preventDefault();
+      e.stopPropagation();
+      document.execCommand('insertText', false, '\n');
+    });
     codeInput.addEventListener('paste', function (e) {
       e.preventDefault();
       const text = e.clipboardData && e.clipboardData.getData('text/plain');
@@ -329,10 +343,21 @@ class CodeFenceWidget extends BlockReplaceWidget {
       }
     });
     codeInput.addEventListener('blur', function () {
-      frame.classList.remove('mda-cm-code-editing');
+      // 先提交再隐藏编辑层：否则 display:none 后 innerText 丢换行 → 源码并成一行、高度塌缩
       commitCodeEdit();
       syncHighlight();
+      syncLineNumbers();
+      frame.classList.remove('mda-cm-code-editing');
       requestHeightMeasure();
+      try {
+        if (view) {
+          requestAnimationFrame(function () {
+            syncWidgetHeightFromDom(self, view, root);
+          });
+        }
+      } catch (_) {
+        /* ignore */
+      }
     });
 
     scroll.addEventListener('mousedown', function (e) {

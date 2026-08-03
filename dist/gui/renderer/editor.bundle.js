@@ -52279,7 +52279,7 @@ var MDAEditorBundle = (() => {
         clearMediaSelection,
         clearBlockWidgetSelection
       } = require_widget_common();
-      var { BlockReplaceWidget, countSourceLines } = require_block_widget_base();
+      var { BlockReplaceWidget, countSourceLines, syncWidgetHeightFromDom } = require_block_widget_base();
       var { createCodeLangPicker } = require_code_lang_picker();
       var { normalizeCodeBlockLang } = require_code_languages();
       var { attachBlockDragHandle } = require_block_drag_handle();
@@ -52407,10 +52407,11 @@ var MDAEditorBundle = (() => {
           previewPanel.appendChild(stage);
           frame.appendChild(previewPanel);
           function readCodeText() {
-            return (codeInput.innerText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+            return (codeInput.innerText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\u00a0/g, " ");
           }
           function syncHighlight() {
-            highlightCode.innerHTML = highlightFenceBody(readCodeText(), self2.lang, opts.highlightCode);
+            const text = readCodeText();
+            highlightCode.innerHTML = highlightFenceBody(text || "\n", self2.lang, opts.highlightCode);
           }
           function syncLineNumbers() {
             gutter.textContent = buildLineNumbers(readCodeText());
@@ -52420,6 +52421,7 @@ var MDAEditorBundle = (() => {
             codeInput.focus();
           }
           syncHighlight();
+          syncLineNumbers();
           function commitLangChange(nextLang) {
             const normalized = normalizeCodeBlockLang(nextLang);
             if (normalized === self2.lang) return;
@@ -52526,6 +52528,12 @@ var MDAEditorBundle = (() => {
             syncLineNumbers();
             requestHeightMeasure();
           });
+          codeInput.addEventListener("keydown", function(e) {
+            if (e.key !== "Enter" || e.isComposing) return;
+            e.preventDefault();
+            e.stopPropagation();
+            document.execCommand("insertText", false, "\n");
+          });
           codeInput.addEventListener("paste", function(e) {
             e.preventDefault();
             const text = e.clipboardData && e.clipboardData.getData("text/plain");
@@ -52542,10 +52550,19 @@ var MDAEditorBundle = (() => {
             }
           });
           codeInput.addEventListener("blur", function() {
-            frame.classList.remove("mda-cm-code-editing");
             commitCodeEdit();
             syncHighlight();
+            syncLineNumbers();
+            frame.classList.remove("mda-cm-code-editing");
             requestHeightMeasure();
+            try {
+              if (view) {
+                requestAnimationFrame(function() {
+                  syncWidgetHeightFromDom(self2, view, root);
+                });
+              }
+            } catch (_) {
+            }
           });
           scroll.addEventListener("mousedown", function(e) {
             if (e.button !== 0) return;

@@ -118,6 +118,7 @@ MDA_EDITOR_RELEASE=1 npm run build:editor
 | 悬停菜单 `HOVER_LEAVE_MS=200` | 2026-08-03 | ✅ | 语言子菜单 / 块手柄菜单 / 手柄显隐 |
 | 表格多列拖选 / GFM 粘贴 / 全表删除 | 2026-08-03 | ✅ | gutter 拖选；正文粘贴为表格；全表 Delete 不留列 |
 | 行内公式选中 / 复制剪切删除撤销 | 2026-08-03 | ✅ | 点击蓝框；Ctrl+C/X、Delete、Ctrl+Z |
+| 代码块插入高度 / 失焦换行 | 2026-08-03 | ✅ | 空块 min-height；blur 先提交再隐藏编辑层 |
 | M8 总验收 | | ⬜ | 含 SEL-1 未过不得总签 |
 
 ## 自动化
