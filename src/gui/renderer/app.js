@@ -270,6 +270,13 @@
         copyText: function (text) {
           if (api.copyToClipboard) api.copyToClipboard(text);
         },
+        copyHtml: function (html, text) {
+          if (api.copyArticleHtml) {
+            api.copyArticleHtml(html, text == null ? '' : String(text));
+            return;
+          }
+          if (api.copyToClipboard) api.copyToClipboard(text == null ? '' : String(text));
+        },
         highlightCode: function (code, lang) {
           if (!api.highlightSource) return null;
           var fenced = '```' + (lang || '') + '\n' + code + '\n```';

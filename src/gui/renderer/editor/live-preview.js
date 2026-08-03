@@ -23,6 +23,9 @@ const { collectReadonlyRanges } = require('./model/readonly-blocks');
 const { parseFencedCode, expandFenceBlockRange } = require('./model/parse-fence');
 const { expandGfmTableRange, expandTableBlockRange } = require('./model/parse-table');
 const {
+  createTableMarkdownPasteHandler,
+} = require('./model/table-model');
+const {
   createBlockFocusField,
   setBlockFocus,
   readBlockFocus,
@@ -369,6 +372,7 @@ function buildLayerDecos(specs, text, liveOpts) {
     highlightCode: liveOpts.highlightCode,
     t: liveOpts.t,
     copyText: liveOpts.copyText,
+    copyHtml: liveOpts.copyHtml,
     onOpenZoom: liveOpts.onOpenZoom,
     onCopyImage: liveOpts.onCopyImage,
     onScaleImage: liveOpts.onScaleImage,
@@ -1116,7 +1120,10 @@ function livePreview(opts) {
       createClickCollapseExtension(),
       theme,
       EditorView.domEventHandlers({
-        paste: createImagePasteHandler(liveOpts),
+        paste: function (event, view) {
+          if (createTableMarkdownPasteHandler()(event, view)) return true;
+          return createImagePasteHandler(liveOpts)(event, view);
+        },
       }),
     ]);
   if (editorConfig.blockWidgetEnabled('image')) {

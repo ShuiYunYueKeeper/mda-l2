@@ -32154,6 +32154,359 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/model/table-model.js
+  var require_table_model = __commonJS({
+    "src/gui/renderer/editor/model/table-model.js"(exports, module) {
+      "use strict";
+      function cloneTableData(parsed) {
+        const out = {
+          headers: parsed.headers.slice(),
+          aligns: (parsed.aligns || []).slice(),
+          rows: parsed.rows.map(function(row) {
+            return row.slice();
+          })
+        };
+        if (parsed.colWidths) out.colWidths = parsed.colWidths.slice();
+        if (parsed.rowHeights) out.rowHeights = parsed.rowHeights.slice();
+        return out;
+      }
+      function emptyRow(parsed) {
+        return parsed.headers.map(function() {
+          return "";
+        });
+      }
+      function insertTableRow(parsed, bodyIndex, position) {
+        const row = emptyRow(parsed);
+        const idx = position === "before" ? bodyIndex : bodyIndex + 1;
+        parsed.rows.splice(Math.max(0, Math.min(idx, parsed.rows.length)), 0, row);
+        if (parsed.rowHeights) {
+          const at = Math.max(0, Math.min(idx, parsed.rows.length - 1)) + 1;
+          parsed.rowHeights.splice(at, 0, 0);
+        }
+      }
+      function insertTableColumn(parsed, colIndex, position) {
+        const idx = position === "before" ? colIndex : colIndex + 1;
+        const at = Math.max(0, Math.min(idx, parsed.headers.length));
+        parsed.headers.splice(at, 0, "");
+        parsed.aligns.splice(at, 0, "left");
+        if (parsed.colWidths) parsed.colWidths.splice(at, 0, 0);
+        for (let r = 0; r < parsed.rows.length; r++) {
+          parsed.rows[r].splice(at, 0, "");
+        }
+      }
+      function deleteTableRow(parsed, bodyIndex) {
+        if (bodyIndex < 0 || bodyIndex >= parsed.rows.length) return;
+        parsed.rows.splice(bodyIndex, 1);
+        if (parsed.rowHeights && parsed.rowHeights.length > bodyIndex + 1) {
+          parsed.rowHeights.splice(bodyIndex + 1, 1);
+        }
+      }
+      function deleteTableColumn(parsed, colIndex) {
+        if (parsed.headers.length <= 1) return;
+        if (colIndex < 0 || colIndex >= parsed.headers.length) return;
+        parsed.headers.splice(colIndex, 1);
+        parsed.aligns.splice(colIndex, 1);
+        if (parsed.colWidths) parsed.colWidths.splice(colIndex, 1);
+        for (let r = 0; r < parsed.rows.length; r++) {
+          parsed.rows[r].splice(colIndex, 1);
+        }
+      }
+      function cellAt(parsed, row, col) {
+        if (col < 0 || col >= parsed.headers.length) return "";
+        if (row === -1) return parsed.headers[col] || "";
+        if (row < 0 || row >= parsed.rows.length) return "";
+        return parsed.rows[row][col] || "";
+      }
+      function setCellAt(parsed, row, col, value) {
+        if (col < 0 || col >= parsed.headers.length) return;
+        if (row === -1) {
+          parsed.headers[col] = value;
+          return;
+        }
+        if (row < 0 || row >= parsed.rows.length) return;
+        parsed.rows[row][col] = value;
+      }
+      function selectionBounds(sel) {
+        if (!sel || sel.kind === "none") return null;
+        if (sel.kind === "cell") {
+          return { row1: sel.row, col1: sel.col, row2: sel.row, col2: sel.col };
+        }
+        if (sel.kind === "row") {
+          return {
+            row1: sel.row,
+            col1: 0,
+            row2: sel.row,
+            col2: Number.MAX_SAFE_INTEGER
+          };
+        }
+        if (sel.kind === "col") {
+          return {
+            row1: -1,
+            col1: sel.col,
+            row2: Number.MAX_SAFE_INTEGER,
+            col2: sel.col
+          };
+        }
+        if (sel.kind === "rect") {
+          return {
+            row1: Math.min(sel.row1, sel.row2),
+            col1: Math.min(sel.col1, sel.col2),
+            row2: Math.max(sel.row1, sel.row2),
+            col2: Math.max(sel.col1, sel.col2)
+          };
+        }
+        return null;
+      }
+      function isFullColumnSelection(sel) {
+        const b = selectionBounds(sel);
+        if (!b) return false;
+        return b.row1 === -1 && b.row2 === Number.MAX_SAFE_INTEGER;
+      }
+      function isFullRowSelection(sel) {
+        const b = selectionBounds(sel);
+        if (!b) return false;
+        return b.col1 === 0 && b.col2 === Number.MAX_SAFE_INTEGER;
+      }
+      function isEntireTableSelection(parsed, sel) {
+        if (!parsed || !parsed.headers || !parsed.headers.length) return false;
+        const b = selectionBounds(sel);
+        if (!b) return false;
+        const maxCol = parsed.headers.length - 1;
+        const maxRow = Math.max(0, (parsed.rows || []).length - 1);
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        if (b.row1 !== -1) return false;
+        if (b.col1 > 0 || col2 < maxCol) return false;
+        if ((parsed.rows || []).length === 0) return col2 >= maxCol;
+        return row2 >= maxRow;
+      }
+      function escapeHtmlCell(s) {
+        return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+      function escapeMdCell(cell) {
+        return String(cell == null ? "" : cell).replace(/\|/g, "\\|").replace(/\n/g, " ");
+      }
+      function formatMdRow(cells) {
+        return "| " + cells.map(escapeMdCell).join(" | ") + " |";
+      }
+      function formatMdSep(aligns) {
+        return "| " + aligns.map(function(a) {
+          if (a === "center") return ":---:";
+          if (a === "right") return "---:";
+          return "---";
+        }).join(" | ") + " |";
+      }
+      function extractTableMarkdown(parsed, sel) {
+        const b = selectionBounds(sel);
+        if (!b) return "";
+        const maxRow = parsed.rows.length - 1;
+        const maxCol = parsed.headers.length - 1;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        const cols = [];
+        for (let c = b.col1; c <= col2; c++) cols.push(c);
+        if (!cols.length) return "";
+        let headers;
+        let aligns;
+        const body = [];
+        if (b.row1 === -1) {
+          headers = cols.map(function(c) {
+            return cellAt(parsed, -1, c);
+          });
+          aligns = cols.map(function(c) {
+            return parsed.aligns && parsed.aligns[c] || "left";
+          });
+          for (let r = 0; r <= row2; r++) {
+            body.push(
+              cols.map(function(c) {
+                return cellAt(parsed, r, c);
+              })
+            );
+          }
+        } else {
+          headers = cols.map(function() {
+            return "";
+          });
+          aligns = cols.map(function(c) {
+            return parsed.aligns && parsed.aligns[c] || "left";
+          });
+          for (let r = b.row1; r <= row2; r++) {
+            body.push(
+              cols.map(function(c) {
+                return cellAt(parsed, r, c);
+              })
+            );
+          }
+        }
+        const lines = [formatMdRow(headers), formatMdSep(aligns)];
+        for (let i = 0; i < body.length; i++) lines.push(formatMdRow(body[i]));
+        return lines.join("\n");
+      }
+      function extractTableHtml(parsed, sel) {
+        const b = selectionBounds(sel);
+        if (!b) return "";
+        const maxRow = parsed.rows.length - 1;
+        const maxCol = parsed.headers.length - 1;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        const parts = ["<table>"];
+        for (let r = b.row1; r <= row2; r++) {
+          parts.push("<tr>");
+          for (let c = b.col1; c <= col2; c++) {
+            const tag = r === -1 ? "th" : "td";
+            parts.push("<" + tag + ">" + escapeHtmlCell(cellAt(parsed, r, c)) + "</" + tag + ">");
+          }
+          parts.push("</tr>");
+        }
+        parts.push("</table>");
+        return parts.join("");
+      }
+      function clearTableSelection(parsed, sel) {
+        const b = selectionBounds(sel);
+        if (!b) return;
+        const maxRow = parsed.rows.length - 1;
+        const maxCol = parsed.headers.length - 1;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        for (let r = b.row1; r <= row2; r++) {
+          for (let c = b.col1; c <= col2; c++) {
+            setCellAt(parsed, r, c, "");
+          }
+        }
+      }
+      function extractTableTSV(parsed, sel) {
+        const b = selectionBounds(sel);
+        if (!b) return "";
+        const maxRow = parsed.rows.length - 1;
+        const maxCol = parsed.headers.length - 1;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        const lines = [];
+        for (let r = b.row1; r <= row2; r++) {
+          const cells = [];
+          for (let c = b.col1; c <= col2; c++) {
+            cells.push(cellAt(parsed, r, c));
+          }
+          lines.push(cells.join("	"));
+        }
+        return lines.join("\n");
+      }
+      function parseClipboardTable(tsvOrMd) {
+        const text = String(tsvOrMd || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+        if (!text) return [];
+        const mdLines = text.split("\n").filter(function(l) {
+          return l.trim().length > 0;
+        });
+        if (mdLines.length >= 2 && /^\s*\|/.test(mdLines[0]) && /^\s*\|?\s*:?-{3,}/.test(mdLines[1].replace(/\|/g, "|"))) {
+          const sepLooks = mdLines[1].indexOf("---") >= 0 || mdLines[1].indexOf(":--") >= 0 || mdLines[1].indexOf("--:") >= 0;
+          if (sepLooks) {
+            const splitMd = function(line) {
+              let s = String(line || "").trim();
+              if (s.charAt(0) === "|") s = s.slice(1);
+              if (s.charAt(s.length - 1) === "|") s = s.slice(0, -1);
+              return s.split("|").map(function(c) {
+                return c.replace(/^\s+|\s+$/g, "").replace(/\\\|/g, "|");
+              });
+            };
+            const headers = splitMd(mdLines[0]);
+            const out2 = [headers];
+            for (let i = 2; i < mdLines.length; i++) {
+              const cells = splitMd(mdLines[i]);
+              while (cells.length < headers.length) cells.push("");
+              out2.push(cells.slice(0, Math.max(headers.length, cells.length)));
+            }
+            return out2;
+          }
+        }
+        const lines = text.split("\n");
+        const out = [];
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].indexOf("	") >= 0) {
+            out.push(lines[i].split("	"));
+          } else {
+            out.push([lines[i]]);
+          }
+        }
+        return out;
+      }
+      function pasteTableTSV(parsed, startRow, startCol, tsv) {
+        const grid = parseClipboardTable(tsv);
+        if (!grid.length) return;
+        for (let r = 0; r < grid.length; r++) {
+          const targetRow = startRow + r;
+          if (targetRow >= 0) {
+            while (parsed.rows.length <= targetRow) {
+              insertTableRow(parsed, parsed.rows.length, "before");
+            }
+          }
+          for (let c = 0; c < grid[r].length; c++) {
+            const targetCol = startCol + c;
+            while (parsed.headers.length <= targetCol) {
+              insertTableColumn(parsed, parsed.headers.length, "before");
+            }
+            setCellAt(parsed, targetRow, targetCol, grid[r][c]);
+          }
+        }
+      }
+      function selectionAnchor(sel) {
+        const b = selectionBounds(sel);
+        if (!b) return null;
+        return { row: b.row1, col: b.col1 };
+      }
+      function clipboardLooksLikeGfmTable(text) {
+        const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(function(l) {
+          return l.trim().length > 0;
+        });
+        if (lines.length < 2) return false;
+        if (!/^\s*\|/.test(lines[0])) return false;
+        return lines[1].indexOf("---") >= 0;
+      }
+      function createTableMarkdownPasteHandler() {
+        return function(event, view) {
+          if (!event || !view || !event.clipboardData) return false;
+          const plain = event.clipboardData.getData("text/plain") || "";
+          if (!clipboardLooksLikeGfmTable(plain)) return false;
+          event.preventDefault();
+          const insert = String(plain).replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/^\n+|\n+$/g, "");
+          const sel = view.state.selection.main;
+          const before = sel.from > 0 ? view.state.doc.sliceString(sel.from - 1, sel.from) : "\n";
+          const after = sel.to < view.state.doc.length ? view.state.doc.sliceString(sel.to, sel.to + 1) : "\n";
+          const prefix = before === "\n" ? "" : "\n";
+          const suffix = after === "\n" ? "\n" : "\n\n";
+          const text = prefix + insert + suffix;
+          view.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: text },
+            selection: { anchor: sel.from + text.length },
+            userEvent: "input.paste"
+          });
+          return true;
+        };
+      }
+      module.exports = {
+        cloneTableData,
+        insertTableRow,
+        insertTableColumn,
+        deleteTableRow,
+        deleteTableColumn,
+        clearTableSelection,
+        extractTableTSV,
+        extractTableHtml,
+        extractTableMarkdown,
+        pasteTableTSV,
+        parseClipboardTable,
+        selectionBounds,
+        selectionAnchor,
+        isFullColumnSelection,
+        isFullRowSelection,
+        isEntireTableSelection,
+        clipboardLooksLikeGfmTable,
+        createTableMarkdownPasteHandler,
+        cellAt,
+        setCellAt
+      };
+    }
+  });
+
   // src/gui/renderer/editor/state/block-focus.js
   var require_block_focus = __commonJS({
     "src/gui/renderer/editor/state/block-focus.js"(exports, module) {
@@ -32355,191 +32708,6 @@ var MDAEditorBundle = (() => {
         rememberMeasuredHeight,
         recallMeasuredHeight,
         BlockReplaceWidget
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/model/table-model.js
-  var require_table_model = __commonJS({
-    "src/gui/renderer/editor/model/table-model.js"(exports, module) {
-      "use strict";
-      function cloneTableData(parsed) {
-        const out = {
-          headers: parsed.headers.slice(),
-          aligns: (parsed.aligns || []).slice(),
-          rows: parsed.rows.map(function(row) {
-            return row.slice();
-          })
-        };
-        if (parsed.colWidths) out.colWidths = parsed.colWidths.slice();
-        if (parsed.rowHeights) out.rowHeights = parsed.rowHeights.slice();
-        return out;
-      }
-      function emptyRow(parsed) {
-        return parsed.headers.map(function() {
-          return "";
-        });
-      }
-      function insertTableRow(parsed, bodyIndex, position) {
-        const row = emptyRow(parsed);
-        const idx = position === "before" ? bodyIndex : bodyIndex + 1;
-        parsed.rows.splice(Math.max(0, Math.min(idx, parsed.rows.length)), 0, row);
-        if (parsed.rowHeights) {
-          const at = Math.max(0, Math.min(idx, parsed.rows.length - 1)) + 1;
-          parsed.rowHeights.splice(at, 0, 0);
-        }
-      }
-      function insertTableColumn(parsed, colIndex, position) {
-        const idx = position === "before" ? colIndex : colIndex + 1;
-        const at = Math.max(0, Math.min(idx, parsed.headers.length));
-        parsed.headers.splice(at, 0, "");
-        parsed.aligns.splice(at, 0, "left");
-        if (parsed.colWidths) parsed.colWidths.splice(at, 0, 0);
-        for (let r = 0; r < parsed.rows.length; r++) {
-          parsed.rows[r].splice(at, 0, "");
-        }
-      }
-      function deleteTableRow(parsed, bodyIndex) {
-        if (bodyIndex < 0 || bodyIndex >= parsed.rows.length) return;
-        parsed.rows.splice(bodyIndex, 1);
-        if (parsed.rowHeights && parsed.rowHeights.length > bodyIndex + 1) {
-          parsed.rowHeights.splice(bodyIndex + 1, 1);
-        }
-      }
-      function deleteTableColumn(parsed, colIndex) {
-        if (parsed.headers.length <= 1) return;
-        if (colIndex < 0 || colIndex >= parsed.headers.length) return;
-        parsed.headers.splice(colIndex, 1);
-        parsed.aligns.splice(colIndex, 1);
-        if (parsed.colWidths) parsed.colWidths.splice(colIndex, 1);
-        for (let r = 0; r < parsed.rows.length; r++) {
-          parsed.rows[r].splice(colIndex, 1);
-        }
-      }
-      function cellAt(parsed, row, col) {
-        if (col < 0 || col >= parsed.headers.length) return "";
-        if (row === -1) return parsed.headers[col] || "";
-        if (row < 0 || row >= parsed.rows.length) return "";
-        return parsed.rows[row][col] || "";
-      }
-      function setCellAt(parsed, row, col, value) {
-        if (col < 0 || col >= parsed.headers.length) return;
-        if (row === -1) {
-          parsed.headers[col] = value;
-          return;
-        }
-        if (row < 0 || row >= parsed.rows.length) return;
-        parsed.rows[row][col] = value;
-      }
-      function selectionBounds(sel) {
-        if (!sel || sel.kind === "none") return null;
-        if (sel.kind === "cell") {
-          return { row1: sel.row, col1: sel.col, row2: sel.row, col2: sel.col };
-        }
-        if (sel.kind === "row") {
-          return {
-            row1: sel.row,
-            col1: 0,
-            row2: sel.row,
-            col2: Number.MAX_SAFE_INTEGER
-          };
-        }
-        if (sel.kind === "col") {
-          return {
-            row1: -1,
-            col1: sel.col,
-            row2: Number.MAX_SAFE_INTEGER,
-            col2: sel.col
-          };
-        }
-        if (sel.kind === "rect") {
-          return {
-            row1: Math.min(sel.row1, sel.row2),
-            col1: Math.min(sel.col1, sel.col2),
-            row2: Math.max(sel.row1, sel.row2),
-            col2: Math.max(sel.col1, sel.col2)
-          };
-        }
-        return null;
-      }
-      function clearTableSelection(parsed, sel) {
-        const b = selectionBounds(sel);
-        if (!b) return;
-        const maxRow = parsed.rows.length - 1;
-        const maxCol = parsed.headers.length - 1;
-        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
-        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
-        for (let r = b.row1; r <= row2; r++) {
-          for (let c = b.col1; c <= col2; c++) {
-            setCellAt(parsed, r, c, "");
-          }
-        }
-      }
-      function extractTableTSV(parsed, sel) {
-        const b = selectionBounds(sel);
-        if (!b) return "";
-        const maxRow = parsed.rows.length - 1;
-        const maxCol = parsed.headers.length - 1;
-        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
-        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
-        const lines = [];
-        for (let r = b.row1; r <= row2; r++) {
-          const cells = [];
-          for (let c = b.col1; c <= col2; c++) {
-            cells.push(cellAt(parsed, r, c));
-          }
-          lines.push(cells.join("	"));
-        }
-        return lines.join("\n");
-      }
-      function parseClipboardTable(tsv) {
-        const text = String(tsv || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-        if (!text) return [];
-        const lines = text.split("\n");
-        const out = [];
-        for (let i = 0; i < lines.length; i++) {
-          out.push(lines[i].split("	"));
-        }
-        return out;
-      }
-      function pasteTableTSV(parsed, startRow, startCol, tsv) {
-        const grid = parseClipboardTable(tsv);
-        if (!grid.length) return;
-        for (let r = 0; r < grid.length; r++) {
-          const targetRow = startRow + r;
-          if (targetRow >= 0) {
-            while (parsed.rows.length <= targetRow) {
-              insertTableRow(parsed, parsed.rows.length, "before");
-            }
-          }
-          for (let c = 0; c < grid[r].length; c++) {
-            const targetCol = startCol + c;
-            while (parsed.headers.length <= targetCol) {
-              insertTableColumn(parsed, parsed.headers.length, "before");
-            }
-            setCellAt(parsed, targetRow, targetCol, grid[r][c]);
-          }
-        }
-      }
-      function selectionAnchor(sel) {
-        const b = selectionBounds(sel);
-        if (!b) return null;
-        return { row: b.row1, col: b.col1 };
-      }
-      module.exports = {
-        cloneTableData,
-        insertTableRow,
-        insertTableColumn,
-        deleteTableRow,
-        deleteTableColumn,
-        clearTableSelection,
-        extractTableTSV,
-        pasteTableTSV,
-        parseClipboardTable,
-        selectionBounds,
-        selectionAnchor,
-        cellAt,
-        setCellAt
       };
     }
   });
@@ -49375,9 +49543,14 @@ var MDAEditorBundle = (() => {
         deleteTableColumn,
         clearTableSelection,
         extractTableTSV,
+        extractTableHtml,
+        extractTableMarkdown,
         pasteTableTSV,
         selectionAnchor,
-        selectionBounds
+        selectionBounds,
+        isFullColumnSelection,
+        isFullRowSelection,
+        isEntireTableSelection
       } = require_table_model();
       var { copyText, uiT, clearBlockWidgetSelection, clearMediaSelection } = require_widget_common();
       var { attachTableGridResize, applyTableLayout, ensureLayoutArrays } = require_table_resize();
@@ -49748,13 +49921,19 @@ var MDAEditorBundle = (() => {
         }
         function handleDeleteKey(e) {
           if (e.key !== "Delete" && e.key !== "Backspace") return false;
-          if (selection.kind === "row" && selection.row >= 0) {
+          if (isEntireTableSelection(parsed, selection)) {
+            e.preventDefault();
+            e.stopPropagation();
+            runMenuAction("delete-table");
+            return true;
+          }
+          if (selection.kind === "row" && selection.row >= 0 || isFullRowSelection(selection) && selectionBounds(selection) && selectionBounds(selection).row1 >= 0) {
             e.preventDefault();
             e.stopPropagation();
             runMenuAction("delete-row");
             return true;
           }
-          if (selection.kind === "col") {
+          if (selection.kind === "col" || isFullColumnSelection(selection)) {
             e.preventDefault();
             e.stopPropagation();
             runMenuAction("delete-col");
@@ -49778,21 +49957,33 @@ var MDAEditorBundle = (() => {
           const rowBars = rowGutter.querySelectorAll(".mda-cm-table-row-bar");
           for (let i = 0; i < colBars.length; i++) colBars[i].classList.remove("mda-cm-table-gutter-active");
           for (let i = 0; i < rowBars.length; i++) rowBars[i].classList.remove("mda-cm-table-gutter-active");
-          if (selection.kind === "col") {
-            const bar = colGutter.querySelector('[data-col="' + selection.col + '"]');
-            if (bar) bar.classList.add("mda-cm-table-gutter-active");
+          const b = selectionBounds(selection);
+          if (!b) return;
+          const maxCol = parsed.headers.length - 1;
+          const maxRow = parsed.rows.length - 1;
+          const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : Math.min(b.col2, maxCol);
+          const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : Math.min(b.row2, maxRow);
+          if (selection.kind === "col" || isFullColumnSelection(selection)) {
+            for (let c = b.col1; c <= col2; c++) {
+              const bar = colGutter.querySelector('[data-col="' + c + '"]');
+              if (bar) bar.classList.add("mda-cm-table-gutter-active");
+            }
           }
-          if (selection.kind === "row") {
-            const bar = rowGutter.querySelector('[data-row="' + selection.row + '"]');
-            if (bar) bar.classList.add("mda-cm-table-gutter-active");
+          if (selection.kind === "row" || isFullRowSelection(selection)) {
+            for (let r = b.row1; r <= row2; r++) {
+              const bar = rowGutter.querySelector('[data-row="' + r + '"]');
+              if (bar) bar.classList.add("mda-cm-table-gutter-active");
+            }
           }
         }
         function menuItems() {
           const hasSel = selection.kind !== "none";
           const anchor = selectionAnchor(selection);
-          const isBodyRow = selection.kind === "row" && selection.row >= 0;
+          const b = selectionBounds(selection);
+          const isBodyRow = selection.kind === "row" && selection.row >= 0 || isFullRowSelection(selection) && b && b.row1 >= 0;
+          const isColSel = selection.kind === "col" || isFullColumnSelection(selection);
           const canDeleteRow = isBodyRow && parsed.rows.length > 0;
-          const canDeleteCol = selection.kind === "col" && parsed.headers.length > 1;
+          const canDeleteCol = isColSel && parsed.headers.length > 1;
           const items = [];
           if (hasSel) {
             items.push({ id: "copy", i18nKey: "copyBtn" });
@@ -49801,11 +49992,11 @@ var MDAEditorBundle = (() => {
           if (anchor) {
             items.push({ id: "paste", i18nKey: "widgetTablePaste" });
           }
-          if (selection.kind === "row") {
+          if (isBodyRow || selection.kind === "row" && selection.row === -1) {
             if (items.length) items.push({ id: "---" });
             items.push({ id: "insert-row-above", i18nKey: "widgetTableInsertRowAbove" });
             items.push({ id: "insert-row-below", i18nKey: "widgetTableInsertRowBelow" });
-          } else if (selection.kind === "col") {
+          } else if (isColSel) {
             if (items.length) items.push({ id: "---" });
             items.push({ id: "insert-col-left", i18nKey: "widgetTableInsertColLeft" });
             items.push({ id: "insert-col-right", i18nKey: "widgetTableInsertColRight" });
@@ -49818,8 +50009,8 @@ var MDAEditorBundle = (() => {
           if (hasSel) {
             if (items.length) items.push({ id: "---" });
             let clearKey = "widgetTableClear";
-            if (selection.kind === "row") clearKey = "widgetTableClearRow";
-            else if (selection.kind === "col") clearKey = "widgetTableClearCol";
+            if (selection.kind === "row" || isFullRowSelection(selection)) clearKey = "widgetTableClearRow";
+            else if (selection.kind === "col" || isFullColumnSelection(selection)) clearKey = "widgetTableClearCol";
             items.push({ id: "clear", i18nKey: clearKey });
           }
           if (items.length) items.push({ id: "---" });
@@ -49830,10 +50021,17 @@ var MDAEditorBundle = (() => {
           const anchor = selectionAnchor(selection);
           if (id === "copy" || id === "cut") {
             syncFromDomIfNeeded();
-            const text = extractTableTSV(parsed, selection);
-            if (!text) return;
-            internalClipboard = text;
-            copyText(text, ctx.copyFn);
+            const md = extractTableMarkdown(parsed, selection);
+            const tsv = extractTableTSV(parsed, selection);
+            if (!md && !tsv) return;
+            internalClipboard = tsv || md;
+            const plain = md || tsv;
+            const html = extractTableHtml(parsed, selection);
+            if (html && typeof ctx.copyHtmlFn === "function") {
+              ctx.copyHtmlFn(html, plain);
+            } else {
+              copyText(plain, ctx.copyFn);
+            }
             if (id === "cut") {
               mutate(function(p) {
                 clearTableSelection(p, selection);
@@ -49870,18 +50068,31 @@ var MDAEditorBundle = (() => {
             if (typeof ctx.onDeleteTable === "function") ctx.onDeleteTable();
             return;
           }
-          if (id === "delete-row" && selection.kind === "row" && selection.row >= 0) {
-            const idx = selection.row;
+          if (id === "delete-row") {
+            const bounds = selectionBounds(selection);
+            if (!bounds || bounds.row1 < 0) return;
+            const row2 = bounds.row2 === Number.MAX_SAFE_INTEGER ? parsed.rows.length - 1 : bounds.row2;
             mutate(function(p) {
-              deleteTableRow(p, idx);
+              for (let r = row2; r >= bounds.row1; r--) {
+                if (r >= 0) deleteTableRow(p, r);
+              }
             });
             setSelection({ kind: "none" });
             return;
           }
-          if (id === "delete-col" && selection.kind === "col") {
-            const idx = selection.col;
+          if (id === "delete-col") {
+            const bounds = selectionBounds(selection);
+            if (!bounds) return;
+            const col2 = bounds.col2 === Number.MAX_SAFE_INTEGER ? parsed.headers.length - 1 : bounds.col2;
+            if (isEntireTableSelection(parsed, selection) || bounds.col1 <= 0 && col2 >= parsed.headers.length - 1) {
+              closeTableMenu();
+              if (typeof ctx.onDeleteTable === "function") ctx.onDeleteTable();
+              return;
+            }
             mutate(function(p) {
-              deleteTableColumn(p, idx);
+              for (let c = col2; c >= bounds.col1; c--) {
+                deleteTableColumn(p, c);
+              }
             });
             setSelection({ kind: "none" });
             return;
@@ -50122,24 +50333,106 @@ var MDAEditorBundle = (() => {
             });
           }
         }
+        function gutterIndexAt(axis, clientCoord) {
+          const bars = axis === "col" ? colGutter.querySelectorAll(".mda-cm-table-col-bar") : rowGutter.querySelectorAll(".mda-cm-table-row-bar");
+          let best = null;
+          for (let i = 0; i < bars.length; i++) {
+            const bar = bars[i];
+            const r = bar.getBoundingClientRect();
+            const mid = axis === "col" ? (r.left + r.right) / 2 : (r.top + r.bottom) / 2;
+            const dist = Math.abs(clientCoord - mid);
+            const idx = parseInt(axis === "col" ? bar.dataset.col || "0" : bar.dataset.row || "0", 10);
+            if (best == null || dist < best.dist) best = { idx, dist };
+          }
+          return best ? best.idx : 0;
+        }
+        function setGutterRangeSelection(axis, from, to) {
+          if (from === to) {
+            setSelection(axis === "col" ? { kind: "col", col: from } : { kind: "row", row: from });
+            return;
+          }
+          if (axis === "col") {
+            setSelection({
+              kind: "rect",
+              row1: -1,
+              col1: from,
+              row2: Number.MAX_SAFE_INTEGER,
+              col2: to
+            });
+            return;
+          }
+          setSelection({
+            kind: "rect",
+            row1: from,
+            col1: 0,
+            row2: to,
+            col2: Number.MAX_SAFE_INTEGER
+          });
+        }
+        function beginGutterDrag(axis, anchor, startEvent) {
+          setGutterRangeSelection(axis, anchor, anchor);
+          function onMove(ev) {
+            const overSel = axis === "col" ? ".mda-cm-table-col-bar" : ".mda-cm-table-row-bar";
+            const el = document.elementFromPoint(ev.clientX, ev.clientY);
+            const over = el && el.closest ? el.closest(overSel) : null;
+            let next = anchor;
+            if (over && (axis === "col" ? colGutter : rowGutter).contains(over)) {
+              next = parseInt(
+                (axis === "col" ? over.dataset.col : over.dataset.row) || "0",
+                10
+              );
+            } else {
+              next = gutterIndexAt(axis, axis === "col" ? ev.clientX : ev.clientY);
+            }
+            setGutterRangeSelection(axis, anchor, next);
+          }
+          function onUp() {
+            document.removeEventListener("mousemove", onMove, true);
+            document.removeEventListener("mouseup", onUp, true);
+          }
+          document.addEventListener("mousemove", onMove, true);
+          document.addEventListener("mouseup", onUp, true);
+          if (startEvent) {
+          }
+        }
         colGutter.addEventListener("mousedown", function(e) {
           const bar = e.target && e.target.closest ? e.target.closest(".mda-cm-table-col-bar") : null;
-          if (!bar) return;
+          if (!bar || e.button !== 0) return;
           closeTableMenu();
           e.preventDefault();
           e.stopPropagation();
-          setSelection({ kind: "col", col: parseInt(bar.dataset.col || "0", 10) });
+          beginGutterDrag("col", parseInt(bar.dataset.col || "0", 10), e);
         });
         rowGutter.addEventListener("mousedown", function(e) {
           const bar = e.target && e.target.closest ? e.target.closest(".mda-cm-table-row-bar") : null;
-          if (!bar) return;
+          if (!bar || e.button !== 0) return;
           closeTableMenu();
           e.preventDefault();
           e.stopPropagation();
-          setSelection({ kind: "row", row: parseInt(bar.dataset.row || "0", 10) });
+          beginGutterDrag("row", parseInt(bar.dataset.row || "0", 10), e);
         });
         stage.addEventListener("keydown", function(e) {
-          handleDeleteKey(e);
+          if (handleDeleteKey(e)) return;
+          if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+          if (selection.kind === "none" || selection.kind === "cell") return;
+          const key = e.key;
+          if (key === "c" || key === "C") {
+            e.preventDefault();
+            e.stopPropagation();
+            runMenuAction("copy");
+            return;
+          }
+          if (key === "x" || key === "X") {
+            e.preventDefault();
+            e.stopPropagation();
+            runMenuAction("cut");
+            return;
+          }
+          if (key === "v" || key === "V") {
+            e.preventDefault();
+            e.stopPropagation();
+            runMenuAction("paste");
+          }
         });
         addColBtn.addEventListener("mousedown", function(e) {
           e.preventDefault();
@@ -50490,6 +50783,7 @@ var MDAEditorBundle = (() => {
               blockSource: normalized,
               t: opts.t,
               copyFn: opts.copyText,
+              copyHtmlFn: opts.copyHtml,
               resolveImageUrl: opts.resolveImageUrl,
               blockMenuHandlers: opts.blockMenuHandlers,
               onMoveTableBlock: opts.onMoveTableBlock,
@@ -53316,6 +53610,9 @@ var MDAEditorBundle = (() => {
       var { parseFencedCode, expandFenceBlockRange } = require_parse_fence();
       var { expandGfmTableRange, expandTableBlockRange } = require_parse_table();
       var {
+        createTableMarkdownPasteHandler
+      } = require_table_model();
+      var {
         createBlockFocusField,
         setBlockFocus,
         readBlockFocus
@@ -53613,6 +53910,7 @@ var MDAEditorBundle = (() => {
           highlightCode: liveOpts.highlightCode,
           t: liveOpts.t,
           copyText: liveOpts.copyText,
+          copyHtml: liveOpts.copyHtml,
           onOpenZoom: liveOpts.onOpenZoom,
           onCopyImage: liveOpts.onCopyImage,
           onScaleImage: liveOpts.onScaleImage,
@@ -54229,7 +54527,10 @@ var MDAEditorBundle = (() => {
           createClickCollapseExtension(),
           theme,
           EditorView.domEventHandlers({
-            paste: createImagePasteHandler(liveOpts)
+            paste: function(event, view) {
+              if (createTableMarkdownPasteHandler()(event, view)) return true;
+              return createImagePasteHandler(liveOpts)(event, view);
+            }
           })
         ]);
         if (editorConfig.blockWidgetEnabled("image")) {

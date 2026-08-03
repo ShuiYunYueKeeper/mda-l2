@@ -239,6 +239,7 @@ class TableWidget extends BlockReplaceWidget {
         blockSource: normalized,
         t: opts.t,
         copyFn: opts.copyText,
+        copyHtmlFn: opts.copyHtml,
         resolveImageUrl: opts.resolveImageUrl,
         blockMenuHandlers: opts.blockMenuHandlers,
         onMoveTableBlock: opts.onMoveTableBlock,

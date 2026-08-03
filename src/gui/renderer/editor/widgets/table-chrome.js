@@ -11,9 +11,14 @@ const {
   deleteTableColumn,
   clearTableSelection,
   extractTableTSV,
+  extractTableHtml,
+  extractTableMarkdown,
   pasteTableTSV,
   selectionAnchor,
   selectionBounds,
+  isFullColumnSelection,
+  isFullRowSelection,
+  isEntireTableSelection,
 } = require('../model/table-model');
 const { copyText, uiT, clearBlockWidgetSelection, clearMediaSelection } = require('./widget-common');
 const { attachTableGridResize, applyTableLayout, ensureLayoutArrays } = require('./table-resize');
@@ -199,6 +204,7 @@ function closeTableMenu() {
  *   parsed: { headers: string[], aligns: string[], rows: string[][] },
  *   t?: Function,
  *   copyFn?: Function,
+ *   copyHtmlFn?: (html: string, text: string) => void,
  *   resolveImageUrl?: Function,
  *   onOpenZoom?: Function,
  *   onCopyImage?: (img: HTMLImageElement) => void,
@@ -468,13 +474,23 @@ function mountTableChrome(ctx) {
 
   function handleDeleteKey(e) {
     if (e.key !== 'Delete' && e.key !== 'Backspace') return false;
-    if (selection.kind === 'row' && selection.row >= 0) {
+    // 全表选中：删除整表，避免删列逻辑「至少保留一列」残留
+    if (isEntireTableSelection(parsed, selection)) {
+      e.preventDefault();
+      e.stopPropagation();
+      runMenuAction('delete-table');
+      return true;
+    }
+    if (
+      (selection.kind === 'row' && selection.row >= 0) ||
+      (isFullRowSelection(selection) && selectionBounds(selection) && selectionBounds(selection).row1 >= 0)
+    ) {
       e.preventDefault();
       e.stopPropagation();
       runMenuAction('delete-row');
       return true;
     }
-    if (selection.kind === 'col') {
+    if (selection.kind === 'col' || isFullColumnSelection(selection)) {
       e.preventDefault();
       e.stopPropagation();
       runMenuAction('delete-col');
@@ -503,22 +519,36 @@ function mountTableChrome(ctx) {
     const rowBars = rowGutter.querySelectorAll('.mda-cm-table-row-bar');
     for (let i = 0; i < colBars.length; i++) colBars[i].classList.remove('mda-cm-table-gutter-active');
     for (let i = 0; i < rowBars.length; i++) rowBars[i].classList.remove('mda-cm-table-gutter-active');
-    if (selection.kind === 'col') {
-      const bar = colGutter.querySelector('[data-col="' + selection.col + '"]');
-      if (bar) bar.classList.add('mda-cm-table-gutter-active');
+    const b = selectionBounds(selection);
+    if (!b) return;
+    const maxCol = parsed.headers.length - 1;
+    const maxRow = parsed.rows.length - 1;
+    const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : Math.min(b.col2, maxCol);
+    const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : Math.min(b.row2, maxRow);
+    if (selection.kind === 'col' || isFullColumnSelection(selection)) {
+      for (let c = b.col1; c <= col2; c++) {
+        const bar = colGutter.querySelector('[data-col="' + c + '"]');
+        if (bar) bar.classList.add('mda-cm-table-gutter-active');
+      }
     }
-    if (selection.kind === 'row') {
-      const bar = rowGutter.querySelector('[data-row="' + selection.row + '"]');
-      if (bar) bar.classList.add('mda-cm-table-gutter-active');
+    if (selection.kind === 'row' || isFullRowSelection(selection)) {
+      for (let r = b.row1; r <= row2; r++) {
+        const bar = rowGutter.querySelector('[data-row="' + r + '"]');
+        if (bar) bar.classList.add('mda-cm-table-gutter-active');
+      }
     }
   }
 
   function menuItems() {
     const hasSel = selection.kind !== 'none';
     const anchor = selectionAnchor(selection);
-    const isBodyRow = selection.kind === 'row' && selection.row >= 0;
+    const b = selectionBounds(selection);
+    const isBodyRow =
+      (selection.kind === 'row' && selection.row >= 0) ||
+      (isFullRowSelection(selection) && b && b.row1 >= 0);
+    const isColSel = selection.kind === 'col' || isFullColumnSelection(selection);
     const canDeleteRow = isBodyRow && parsed.rows.length > 0;
-    const canDeleteCol = selection.kind === 'col' && parsed.headers.length > 1;
+    const canDeleteCol = isColSel && parsed.headers.length > 1;
     const items = [];
 
     if (hasSel) {
@@ -529,11 +559,11 @@ function mountTableChrome(ctx) {
       items.push({ id: 'paste', i18nKey: 'widgetTablePaste' });
     }
 
-    if (selection.kind === 'row') {
+    if (isBodyRow || (selection.kind === 'row' && selection.row === -1)) {
       if (items.length) items.push({ id: '---' });
       items.push({ id: 'insert-row-above', i18nKey: 'widgetTableInsertRowAbove' });
       items.push({ id: 'insert-row-below', i18nKey: 'widgetTableInsertRowBelow' });
-    } else if (selection.kind === 'col') {
+    } else if (isColSel) {
       if (items.length) items.push({ id: '---' });
       items.push({ id: 'insert-col-left', i18nKey: 'widgetTableInsertColLeft' });
       items.push({ id: 'insert-col-right', i18nKey: 'widgetTableInsertColRight' });
@@ -548,8 +578,8 @@ function mountTableChrome(ctx) {
     if (hasSel) {
       if (items.length) items.push({ id: '---' });
       let clearKey = 'widgetTableClear';
-      if (selection.kind === 'row') clearKey = 'widgetTableClearRow';
-      else if (selection.kind === 'col') clearKey = 'widgetTableClearCol';
+      if (selection.kind === 'row' || isFullRowSelection(selection)) clearKey = 'widgetTableClearRow';
+      else if (selection.kind === 'col' || isFullColumnSelection(selection)) clearKey = 'widgetTableClearCol';
       items.push({ id: 'clear', i18nKey: clearKey });
     }
 
@@ -563,10 +593,18 @@ function mountTableChrome(ctx) {
     const anchor = selectionAnchor(selection);
     if (id === 'copy' || id === 'cut') {
       syncFromDomIfNeeded();
-      const text = extractTableTSV(parsed, selection);
-      if (!text) return;
-      internalClipboard = text;
-      copyText(text, ctx.copyFn);
+      const md = extractTableMarkdown(parsed, selection);
+      const tsv = extractTableTSV(parsed, selection);
+      if (!md && !tsv) return;
+      // 表内互贴优先 TSV；正文粘贴用 GFM（text/plain）
+      internalClipboard = tsv || md;
+      const plain = md || tsv;
+      const html = extractTableHtml(parsed, selection);
+      if (html && typeof ctx.copyHtmlFn === 'function') {
+        ctx.copyHtmlFn(html, plain);
+      } else {
+        copyText(plain, ctx.copyFn);
+      }
       if (id === 'cut') {
         mutate(function (p) {
           clearTableSelection(p, selection);
@@ -603,18 +641,41 @@ function mountTableChrome(ctx) {
       if (typeof ctx.onDeleteTable === 'function') ctx.onDeleteTable();
       return;
     }
-    if (id === 'delete-row' && selection.kind === 'row' && selection.row >= 0) {
-      const idx = selection.row;
+    if (id === 'delete-row') {
+      const bounds = selectionBounds(selection);
+      if (!bounds || bounds.row1 < 0) return;
+      const row2 =
+        bounds.row2 === Number.MAX_SAFE_INTEGER
+          ? parsed.rows.length - 1
+          : bounds.row2;
       mutate(function (p) {
-        deleteTableRow(p, idx);
+        for (let r = row2; r >= bounds.row1; r--) {
+          if (r >= 0) deleteTableRow(p, r);
+        }
       });
       setSelection({ kind: 'none' });
       return;
     }
-    if (id === 'delete-col' && selection.kind === 'col') {
-      const idx = selection.col;
+    if (id === 'delete-col') {
+      const bounds = selectionBounds(selection);
+      if (!bounds) return;
+      const col2 =
+        bounds.col2 === Number.MAX_SAFE_INTEGER
+          ? parsed.headers.length - 1
+          : bounds.col2;
+      // 选中全部列时删除整表（deleteTableColumn 会强制保留最后一列）
+      if (
+        isEntireTableSelection(parsed, selection) ||
+        (bounds.col1 <= 0 && col2 >= parsed.headers.length - 1)
+      ) {
+        closeTableMenu();
+        if (typeof ctx.onDeleteTable === 'function') ctx.onDeleteTable();
+        return;
+      }
       mutate(function (p) {
-        deleteTableColumn(p, idx);
+        for (let c = col2; c >= bounds.col1; c--) {
+          deleteTableColumn(p, c);
+        }
       });
       setSelection({ kind: 'none' });
       return;
@@ -883,26 +944,129 @@ function mountTableChrome(ctx) {
     }
   }
 
+  /**
+   * @param {'col' | 'row'} axis
+   * @param {number} clientCoord
+   */
+  function gutterIndexAt(axis, clientCoord) {
+    const bars =
+      axis === 'col'
+        ? colGutter.querySelectorAll('.mda-cm-table-col-bar')
+        : rowGutter.querySelectorAll('.mda-cm-table-row-bar');
+    let best = null;
+    for (let i = 0; i < bars.length; i++) {
+      const bar = bars[i];
+      const r = bar.getBoundingClientRect();
+      const mid = axis === 'col' ? (r.left + r.right) / 2 : (r.top + r.bottom) / 2;
+      const dist = Math.abs(clientCoord - mid);
+      const idx = parseInt(axis === 'col' ? bar.dataset.col || '0' : bar.dataset.row || '0', 10);
+      if (best == null || dist < best.dist) best = { idx: idx, dist: dist };
+    }
+    return best ? best.idx : 0;
+  }
+
+  /**
+   * @param {'col' | 'row'} axis
+   * @param {number} from
+   * @param {number} to
+   */
+  function setGutterRangeSelection(axis, from, to) {
+    if (from === to) {
+      setSelection(axis === 'col' ? { kind: 'col', col: from } : { kind: 'row', row: from });
+      return;
+    }
+    if (axis === 'col') {
+      setSelection({
+        kind: 'rect',
+        row1: -1,
+        col1: from,
+        row2: Number.MAX_SAFE_INTEGER,
+        col2: to,
+      });
+      return;
+    }
+    setSelection({
+      kind: 'rect',
+      row1: from,
+      col1: 0,
+      row2: to,
+      col2: Number.MAX_SAFE_INTEGER,
+    });
+  }
+
+  /**
+   * @param {'col' | 'row'} axis
+   * @param {number} anchor
+   * @param {MouseEvent} startEvent
+   */
+  function beginGutterDrag(axis, anchor, startEvent) {
+    setGutterRangeSelection(axis, anchor, anchor);
+    function onMove(ev) {
+      const overSel = axis === 'col' ? '.mda-cm-table-col-bar' : '.mda-cm-table-row-bar';
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const over = el && el.closest ? el.closest(overSel) : null;
+      let next = anchor;
+      if (over && (axis === 'col' ? colGutter : rowGutter).contains(over)) {
+        next = parseInt(
+          (axis === 'col' ? over.dataset.col : over.dataset.row) || '0',
+          10
+        );
+      } else {
+        next = gutterIndexAt(axis, axis === 'col' ? ev.clientX : ev.clientY);
+      }
+      setGutterRangeSelection(axis, anchor, next);
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('mouseup', onUp, true);
+    }
+    document.addEventListener('mousemove', onMove, true);
+    document.addEventListener('mouseup', onUp, true);
+    if (startEvent) {
+      /* keep preventDefault from caller */
+    }
+  }
+
   colGutter.addEventListener('mousedown', function (e) {
     const bar = e.target && e.target.closest ? e.target.closest('.mda-cm-table-col-bar') : null;
-    if (!bar) return;
+    if (!bar || e.button !== 0) return;
     closeTableMenu();
     e.preventDefault();
     e.stopPropagation();
-    setSelection({ kind: 'col', col: parseInt(bar.dataset.col || '0', 10) });
+    beginGutterDrag('col', parseInt(bar.dataset.col || '0', 10), e);
   });
 
   rowGutter.addEventListener('mousedown', function (e) {
     const bar = e.target && e.target.closest ? e.target.closest('.mda-cm-table-row-bar') : null;
-    if (!bar) return;
+    if (!bar || e.button !== 0) return;
     closeTableMenu();
     e.preventDefault();
     e.stopPropagation();
-    setSelection({ kind: 'row', row: parseInt(bar.dataset.row || '0', 10) });
+    beginGutterDrag('row', parseInt(bar.dataset.row || '0', 10), e);
   });
 
   stage.addEventListener('keydown', function (e) {
-    handleDeleteKey(e);
+    if (handleDeleteKey(e)) return;
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    if (selection.kind === 'none' || selection.kind === 'cell') return;
+    const key = e.key;
+    if (key === 'c' || key === 'C') {
+      e.preventDefault();
+      e.stopPropagation();
+      runMenuAction('copy');
+      return;
+    }
+    if (key === 'x' || key === 'X') {
+      e.preventDefault();
+      e.stopPropagation();
+      runMenuAction('cut');
+      return;
+    }
+    if (key === 'v' || key === 'V') {
+      e.preventDefault();
+      e.stopPropagation();
+      runMenuAction('paste');
+    }
   });
 
   addColBtn.addEventListener('mousedown', function (e) {

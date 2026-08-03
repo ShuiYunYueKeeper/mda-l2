@@ -116,6 +116,7 @@ MDA_EDITOR_RELEASE=1 npm run build:editor
 | 表格单击无整格蓝底 | 2026-08-03 | ✅ | 未拖选文字时不铺 `mda-cm-table-cell-selected` |
 | 块删除撤销恢复选中/光标 | 2026-08-03 | ✅ | 图/Mermaid/代码/表/引用/高亮/HR；内存选中 + sync reconcile |
 | 悬停菜单 `HOVER_LEAVE_MS=200` | 2026-08-03 | ✅ | 语言子菜单 / 块手柄菜单 / 手柄显隐 |
+| 表格多列拖选 / GFM 粘贴 / 全表删除 | 2026-08-03 | ✅ | gutter 拖选；正文粘贴为表格；全表 Delete 不留列 |
 | M8 总验收 | | ⬜ | 含 SEL-1 未过不得总签 |
 
 ## 自动化

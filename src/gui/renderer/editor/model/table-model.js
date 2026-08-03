@@ -1,4 +1,4 @@
-/**
+﻿/**
  * GFM 表格结构化编辑（纯函数，不碰 DOM）。
  */
 'use strict';
@@ -160,6 +160,174 @@ function selectionBounds(sel) {
 }
 
 /**
+ * 整列选区（含 gutter 拖选多列）：覆盖表头到末行。
+ * @param {TableSelection} sel
+ */
+function isFullColumnSelection(sel) {
+  const b = selectionBounds(sel);
+  if (!b) return false;
+  return b.row1 === -1 && b.row2 === Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * 整行选区（含 gutter 拖选多行）：覆盖整行所有列。
+ * @param {TableSelection} sel
+ */
+function isFullRowSelection(sel) {
+  const b = selectionBounds(sel);
+  if (!b) return false;
+  return b.col1 === 0 && b.col2 === Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * 选区覆盖整张表（表头+全部正文行+全部列）→ 删除应整表移除，勿留最后一列。
+ * @param {{ headers: string[], rows: string[][] }} parsed
+ * @param {TableSelection} sel
+ */
+function isEntireTableSelection(parsed, sel) {
+  if (!parsed || !parsed.headers || !parsed.headers.length) return false;
+  const b = selectionBounds(sel);
+  if (!b) return false;
+  const maxCol = parsed.headers.length - 1;
+  const maxRow = Math.max(0, (parsed.rows || []).length - 1);
+  const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+  const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+  if (b.row1 !== -1) return false;
+  if (b.col1 > 0 || col2 < maxCol) return false;
+  if ((parsed.rows || []).length === 0) return col2 >= maxCol;
+  return row2 >= maxRow;
+}
+
+/**
+ * @param {string} s
+ */
+function escapeHtmlCell(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * @param {string} cell
+ */
+function escapeMdCell(cell) {
+  return String(cell == null ? '' : cell)
+    .replace(/\|/g, '\\|')
+    .replace(/\n/g, ' ');
+}
+
+/**
+ * @param {string[]} cells
+ */
+function formatMdRow(cells) {
+  return '| ' + cells.map(escapeMdCell).join(' | ') + ' |';
+}
+
+/**
+ * @param {string[]} aligns
+ */
+function formatMdSep(aligns) {
+  return (
+    '| ' +
+    aligns
+      .map(function (a) {
+        if (a === 'center') return ':---:';
+        if (a === 'right') return '---:';
+        return '---';
+      })
+      .join(' | ') +
+    ' |'
+  );
+}
+
+/**
+ * 供剪贴板 text/plain：粘贴到 CM6 正文时成为 GFM 表格（再渲染为表格 widget）。
+ * @param {{ headers: string[], aligns: string[], rows: string[][] }} parsed
+ * @param {TableSelection} sel
+ * @returns {string}
+ */
+function extractTableMarkdown(parsed, sel) {
+  const b = selectionBounds(sel);
+  if (!b) return '';
+  const maxRow = parsed.rows.length - 1;
+  const maxCol = parsed.headers.length - 1;
+  const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+  const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+  const cols = [];
+  for (let c = b.col1; c <= col2; c++) cols.push(c);
+  if (!cols.length) return '';
+
+  /** @type {string[]} */
+  let headers;
+  /** @type {string[]} */
+  let aligns;
+  /** @type {string[][]} */
+  const body = [];
+
+  if (b.row1 === -1) {
+    headers = cols.map(function (c) {
+      return cellAt(parsed, -1, c);
+    });
+    aligns = cols.map(function (c) {
+      return (parsed.aligns && parsed.aligns[c]) || 'left';
+    });
+    for (let r = 0; r <= row2; r++) {
+      body.push(
+        cols.map(function (c) {
+          return cellAt(parsed, r, c);
+        })
+      );
+    }
+  } else {
+    headers = cols.map(function () {
+      return '';
+    });
+    aligns = cols.map(function (c) {
+      return (parsed.aligns && parsed.aligns[c]) || 'left';
+    });
+    for (let r = b.row1; r <= row2; r++) {
+      body.push(
+        cols.map(function (c) {
+          return cellAt(parsed, r, c);
+        })
+      );
+    }
+  }
+
+  const lines = [formatMdRow(headers), formatMdSep(aligns)];
+  for (let i = 0; i < body.length; i++) lines.push(formatMdRow(body[i]));
+  return lines.join('\n');
+}
+
+/**
+ * 供剪贴板 text/html：粘贴到 Word/WPS/Excel 时保持表格结构。
+ * @param {{ headers: string[], aligns: string[], rows: string[][] }} parsed
+ * @param {TableSelection} sel
+ * @returns {string}
+ */
+function extractTableHtml(parsed, sel) {
+  const b = selectionBounds(sel);
+  if (!b) return '';
+  const maxRow = parsed.rows.length - 1;
+  const maxCol = parsed.headers.length - 1;
+  const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+  const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+  const parts = ['<table>'];
+  for (let r = b.row1; r <= row2; r++) {
+    parts.push('<tr>');
+    for (let c = b.col1; c <= col2; c++) {
+      const tag = r === -1 ? 'th' : 'td';
+      parts.push('<' + tag + '>' + escapeHtmlCell(cellAt(parsed, r, c)) + '</' + tag + '>');
+    }
+    parts.push('</tr>');
+  }
+  parts.push('</table>');
+  return parts.join('');
+}
+
+/**
  * @param {{ headers: string[], aligns: string[], rows: string[][] }} parsed
  * @param {TableSelection} sel
  */
@@ -201,16 +369,52 @@ function extractTableTSV(parsed, sel) {
 }
 
 /**
- * @param {string} tsv
+ * @param {string} tsvOrMd
  * @returns {string[][]}
  */
-function parseClipboardTable(tsv) {
-  const text = String(tsv || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+function parseClipboardTable(tsvOrMd) {
+  const text = String(tsvOrMd || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   if (!text) return [];
+
+  // GFM 表格：粘贴正文 / 表内互贴
+  const mdLines = text.split('\n').filter(function (l) {
+    return l.trim().length > 0;
+  });
+  if (
+    mdLines.length >= 2 &&
+    /^\s*\|/.test(mdLines[0]) &&
+    /^\s*\|?\s*:?-{3,}/.test(mdLines[1].replace(/\|/g, '|'))
+  ) {
+    const sepLooks =
+      mdLines[1].indexOf('---') >= 0 || mdLines[1].indexOf(':--') >= 0 || mdLines[1].indexOf('--:') >= 0;
+    if (sepLooks) {
+      const splitMd = function (line) {
+        let s = String(line || '').trim();
+        if (s.charAt(0) === '|') s = s.slice(1);
+        if (s.charAt(s.length - 1) === '|') s = s.slice(0, -1);
+        return s.split('|').map(function (c) {
+          return c.replace(/^\s+|\s+$/g, '').replace(/\\\|/g, '|');
+        });
+      };
+      const headers = splitMd(mdLines[0]);
+      const out = [headers];
+      for (let i = 2; i < mdLines.length; i++) {
+        const cells = splitMd(mdLines[i]);
+        while (cells.length < headers.length) cells.push('');
+        out.push(cells.slice(0, Math.max(headers.length, cells.length)));
+      }
+      return out;
+    }
+  }
+
   const lines = text.split('\n');
   const out = [];
   for (let i = 0; i < lines.length; i++) {
-    out.push(lines[i].split('\t'));
+    if (lines[i].indexOf('\t') >= 0) {
+      out.push(lines[i].split('\t'));
+    } else {
+      out.push([lines[i]]);
+    }
   }
   return out;
 }
@@ -251,6 +455,50 @@ function selectionAnchor(sel) {
   return { row: b.row1, col: b.col1 };
 }
 
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
+function clipboardLooksLikeGfmTable(text) {
+  const lines = String(text || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter(function (l) {
+      return l.trim().length > 0;
+    });
+  if (lines.length < 2) return false;
+  if (!/^\s*\|/.test(lines[0])) return false;
+  return lines[1].indexOf('---') >= 0;
+}
+
+/**
+ * CM6 粘贴：优先 text/plain 的 GFM 表格，避免 HTML 被摊成「单元格空格拼接」丢列。
+ * @returns {(event: ClipboardEvent, view: import('@codemirror/view').EditorView) => boolean}
+ */
+function createTableMarkdownPasteHandler() {
+  return function (event, view) {
+    if (!event || !view || !event.clipboardData) return false;
+    const plain = event.clipboardData.getData('text/plain') || '';
+    if (!clipboardLooksLikeGfmTable(plain)) return false;
+    event.preventDefault();
+    const insert = String(plain).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/^\n+|\n+$/g, '');
+    const sel = view.state.selection.main;
+    const before = sel.from > 0 ? view.state.doc.sliceString(sel.from - 1, sel.from) : '\n';
+    const after =
+      sel.to < view.state.doc.length ? view.state.doc.sliceString(sel.to, sel.to + 1) : '\n';
+    const prefix = before === '\n' ? '' : '\n';
+    const suffix = after === '\n' ? '\n' : '\n\n';
+    const text = prefix + insert + suffix;
+    view.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: text },
+      selection: { anchor: sel.from + text.length },
+      userEvent: 'input.paste',
+    });
+    return true;
+  };
+}
+
 module.exports = {
   cloneTableData: cloneTableData,
   insertTableRow: insertTableRow,
@@ -259,10 +507,17 @@ module.exports = {
   deleteTableColumn: deleteTableColumn,
   clearTableSelection: clearTableSelection,
   extractTableTSV: extractTableTSV,
+  extractTableHtml: extractTableHtml,
+  extractTableMarkdown: extractTableMarkdown,
   pasteTableTSV: pasteTableTSV,
   parseClipboardTable: parseClipboardTable,
   selectionBounds: selectionBounds,
   selectionAnchor: selectionAnchor,
+  isFullColumnSelection: isFullColumnSelection,
+  isFullRowSelection: isFullRowSelection,
+  isEntireTableSelection: isEntireTableSelection,
+  clipboardLooksLikeGfmTable: clipboardLooksLikeGfmTable,
+  createTableMarkdownPasteHandler: createTableMarkdownPasteHandler,
   cellAt: cellAt,
   setCellAt: setCellAt,
 };
