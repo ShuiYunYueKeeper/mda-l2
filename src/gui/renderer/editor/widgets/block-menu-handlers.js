@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 块手柄菜单动作：复制 / 剪切 / 删除 / 插入；AI 占位。
  */
 'use strict';
@@ -9,6 +9,8 @@ const {
   deleteBlock,
 } = require('./block-handle-ops');
 const { clearSelectedMermaidBlock } = require('./mermaid-selection');
+const { clearSelectedMathBlock } = require('./math-selection');
+const { clearSelectedCodeBlock } = require('./code-selection');
 
 /**
  * @param {{
@@ -16,6 +18,7 @@ const { clearSelectedMermaidBlock } = require('./mermaid-selection');
  *   copyText?: Function,
  *   toast?: Function,
  *   onDeleteMermaidBlock?: Function,
+ *   onCopyImageBlock?: Function,
  *   onSoon?: Function,
  *   onAiAction?: Function,
  * }} liveOpts
@@ -32,7 +35,11 @@ function createBlockMenuHandlers(liveOpts) {
     if (typeof opts.toast === 'function') opts.toast(msg);
   }
 
-  function onCopy(block) {
+  function onCopy(block, kind) {
+    if (kind === 'image' && typeof opts.onCopyImageBlock === 'function') {
+      opts.onCopyImageBlock(block);
+      return;
+    }
     const view = getView();
     if (!view) return;
     if (copyBlockSource(view, block, opts.copyText)) {
@@ -41,6 +48,12 @@ function createBlockMenuHandlers(liveOpts) {
   }
 
   function onCut(block, kind) {
+    if (kind === 'image' && typeof opts.onCopyImageBlock === 'function') {
+      Promise.resolve(opts.onCopyImageBlock(block)).finally(function () {
+        onDelete(block, kind);
+      });
+      return;
+    }
     const view = getView();
     if (!view) return;
     if (!copyBlockSource(view, block, opts.copyText)) return;
@@ -58,8 +71,14 @@ function createBlockMenuHandlers(liveOpts) {
       opts.onDeleteCodeBlock(block);
       return;
     }
+    if (kind === 'image' && typeof opts.onDeleteImageBlock === 'function') {
+      opts.onDeleteImageBlock(block);
+      return;
+    }
     if (deleteBlock(view, block)) {
       clearSelectedMermaidBlock();
+      clearSelectedMathBlock();
+      clearSelectedCodeBlock();
     }
   }
 

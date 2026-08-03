@@ -131,6 +131,28 @@ describe('S13 parseFencedCode', () => {
     expect(parseFencedCode(out)).toEqual(parsed);
   });
 
+  test('expandFenceBlockRange 闭合围栏内 bash 注释 # 不截断', () => {
+    const { expandFenceBlockRange } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/model/parse-fence.js'
+    ));
+    const tick = '```';
+    const fence =
+      tick +
+      'bash\n' +
+      '# 扫描批注 (表格输出)\n' +
+      'npm run cli -- scan samples/demo.md\n' +
+      '# 添加批注\n' +
+      'npm run cli -- add samples/demo.md 3 "内容"\n' +
+      tick +
+      '\n';
+    const text = fence + '\n## 下一节\n';
+    const from = text.indexOf(tick);
+    const expanded = expandFenceBlockRange(text, from, text.length);
+    expect(text.slice(expanded.from, expanded.to)).toBe(fence);
+    expect(text.indexOf('## 下一节')).toBeGreaterThanOrEqual(expanded.to);
+  });
+
   test('expandFenceBlockRange 不因语法树偏大的 to 吞掉围栏后正文', () => {
     const { expandFenceBlockRange } = require(path.join(
       __dirname,
@@ -174,6 +196,23 @@ describe('S13 parseFencedCode', () => {
     const expanded = expandFenceBlockRange(text, from, text.length);
     expect(text.slice(expanded.from, expanded.to)).toBe(fence);
     expect(text.indexOf('![img]')).toBeGreaterThanOrEqual(expanded.to);
+  });
+
+  test('blockReplaceDeco 使用 inclusiveEnd:false 以免吞掉下一空行', () => {
+    const { blockReplaceDeco } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/live-preview.js'
+    ));
+    const { WidgetType } = require('@codemirror/view');
+    class T extends WidgetType {
+      toDOM() {
+        return document.createElement('div');
+      }
+    }
+    const deco = blockReplaceDeco(new T());
+    // PointDecoration: inclusive end → endSide > 0；非 inclusive → endSide 较小
+    expect(deco.block).toBe(true);
+    expect(deco.endSide).toBeLessThan(0);
   });
 });
 

@@ -1,7 +1,11 @@
-﻿/**
+/**
  * 图片语法解析 `![alt](src "title")`
  */
 'use strict';
+
+/** 全局扫描用（非锚定整串） */
+const IMAGE_MD_GLOBAL =
+  /!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+(?:"([^"]*)"|'([^']*)'))?\s*\)/g;
 
 /**
  * @param {string} slice
@@ -17,6 +21,30 @@ function parseImageMarkdown(slice) {
     src: m[2] || '',
     title: m[3] || m[4] || '',
   };
+}
+
+/**
+ * 在普通文本中扫描图片 Markdown 区间（供表格单元格等行内渲染）。
+ * @param {string} text
+ * @returns {{ kind: 'image', from: number, to: number, alt: string, src: string, title: string, source: string }[]}
+ */
+function findImageRanges(text) {
+  const raw = String(text || '');
+  const out = [];
+  const re = new RegExp(IMAGE_MD_GLOBAL.source, 'g');
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    out.push({
+      kind: 'image',
+      from: m.index,
+      to: m.index + m[0].length,
+      alt: m[1] || '',
+      src: m[2] || '',
+      title: m[3] || m[4] || '',
+      source: m[0],
+    });
+  }
+  return out;
 }
 
 /**
@@ -37,4 +65,5 @@ function serializeImageMarkdown(meta) {
 module.exports = {
   parseImageMarkdown: parseImageMarkdown,
   serializeImageMarkdown: serializeImageMarkdown,
+  findImageRanges: findImageRanges,
 };

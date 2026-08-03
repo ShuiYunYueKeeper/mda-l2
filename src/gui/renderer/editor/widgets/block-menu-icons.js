@@ -1,5 +1,5 @@
 /**
- * 块手柄菜单图标（内联 SVG，16×16）。
+ * 块手柄菜单 / 块类型图标（内联 SVG，16×16）。
  */
 'use strict';
 
@@ -33,18 +33,32 @@ const ICONS = {
   summarize:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h8M4 7h8M4 10h5"/></svg>',
   more: '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="4" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="12" cy="8" r="1.1"/></svg>',
+  // 块类型（手柄左侧）
   image:
-    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1"/><circle cx="5.8" cy="6.8" r="1.2"/><path d="M3.5 11.5l3-2.5 2 1.5 2.5-2 1.5 3.5"/></svg>',
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="5.8" cy="6.6" r="1.15"/><path d="M3.5 11.2l2.8-2.3 2 1.4 2.4-2.1 2.3 3"/></svg>',
   table:
-    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="3.5" width="10" height="9" rx="1"/><path d="M3 7h10M8 3.5v9M6 7v5.5M10 7v5.5"/></svg>',
-  code: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M5.5 4.5L2.5 8l3 3.5M10.5 4.5l3 3.5-3 3.5"/></svg>',
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="3" width="10" height="10" rx="1"/><path d="M3 8h10M8 3v10"/></svg>',
+  code: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 3.5C4.6 3.5 4 4.6 4 5.8v1.1c0 .9-.4 1.3-1.2 1.3.8 0 1.2.4 1.2 1.3v1.1c0 1.2.6 2.3 2.2 2.3M9.8 3.5c1.6 0 2.2 1.1 2.2 2.3v1.1c0 .9.4 1.3 1.2 1.3-.8 0-1.2.4-1.2 1.3v1.1c0 1.2-.6 2.3-2.2 2.3"/></svg>',
   quote:
-    '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 5.5c0-1.5 1-2.5 2.5-2.5.8 0 1.5.3 2 .8-.8.3-1.5 1-1.5 2 0 1.2 1 2.2 2.2 2.2H4.5V11H3V5.5zm6 0c0-1.5 1-2.5 2.5-2.5.8 0 1.5.3 2 .8-.8.3-1.5 1-1.5 2 0 1.2 1 2.2 2.2 2.2H10.5V11H9V5.5z"/></svg>',
+    '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.2 11.5V8.2C3.2 5.6 4.8 3.8 7.2 3.2l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H3.2zm5.7 0V8.2c0-2.6 1.6-4.4 4-5l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H8.9z"/></svg>',
   highlight:
-    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 13l3-1 7-7-2-2-7 7-1 3z"/><path d="M10 4l2 2"/></svg>',
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="2.5" width="9" height="11" rx="1.2"/><path d="M5.5 12.5h5" stroke-width="2" stroke-linecap="round"/></svg>',
   mermaid:
-    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="2.5" width="4.5" height="3" rx=".8"/><rect x="9.5" y="2.5" width="4.5" height="3" rx=".8"/><rect x="5.5" y="10.5" width="5" height="3" rx=".8"/><path d="M4.2 5.5v2.2h7.6V8.2M8 8.2v2.3"/></svg>',
-  hr: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 8h10"/></svg>',
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 5.5V3.5h2M10.5 3.5h2v2M12.5 10.5v2h-2M5.5 12.5h-2v-2"/></svg>',
+  math: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h3.2M5.6 4.5v7M4 11.5h3.2M9.2 5.2l3.6 5.6M12.8 5.2l-3.6 5.6"/></svg>',
+  hr: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 8h10"/></svg>',
+};
+
+/** @type {Record<string, string>} */
+const BLOCK_KIND_ICON = {
+  image: 'image',
+  mermaid: 'mermaid',
+  math: 'math',
+  table: 'table',
+  code: 'code',
+  quote: 'quote',
+  highlight: 'highlight',
+  hr: 'hr',
 };
 
 /**
@@ -57,7 +71,27 @@ function menuIconHtml(name) {
   return '<span class="mda-menu-icon" aria-hidden="true">' + svg + '</span>';
 }
 
+/**
+ * 块手柄左侧类型图标。
+ * @param {string} [blockKind]
+ * @returns {string}
+ */
+function blockTypeIconHtml(blockKind) {
+  const key = BLOCK_KIND_ICON[blockKind || ''] || '';
+  const svg = key ? ICONS[key] : '';
+  if (!svg) return '';
+  return (
+    '<span class="mda-cm-block-type-icon" aria-hidden="true" data-kind="' +
+    (blockKind || '') +
+    '">' +
+    svg +
+    '</span>'
+  );
+}
+
 module.exports = {
   menuIconHtml: menuIconHtml,
+  blockTypeIconHtml: blockTypeIconHtml,
+  BLOCK_KIND_ICON: BLOCK_KIND_ICON,
   ICONS: ICONS,
 };

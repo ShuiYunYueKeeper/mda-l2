@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-C1：图片块快捷键（Delete / Ctrl+V 粘贴截图）。
  */
 'use strict';
@@ -10,7 +10,7 @@ const { getSelectedImageBlock } = require('./widgets/image-selection');
 let globalKeysInstalled = false;
 
 /**
- * @param {{ onDeleteImageBlock?: Function, onPasteImageBlock?: Function }} opts
+ * @param {{ onDeleteImageBlock?: Function, onPasteImageBlock?: Function, onCopyImageBlock?: Function }} opts
  */
 function installImageGlobalKeys(opts) {
   if (globalKeysInstalled || typeof window === 'undefined') return;
@@ -18,22 +18,40 @@ function installImageGlobalKeys(opts) {
   window.addEventListener(
     'keydown',
     function (e) {
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const block = getSelectedImageBlock();
-      if (!block || typeof opts.onDeleteImageBlock !== 'function') return;
+      if (!block) return;
       const ae = document.activeElement;
       if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
       if (ae && ae.closest && ae.closest('#settings-dialog, #find-replace-bar')) return;
-      e.preventDefault();
-      e.stopPropagation();
-      opts.onDeleteImageBlock(block);
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (typeof opts.onDeleteImageBlock !== 'function') return;
+        e.preventDefault();
+        e.stopPropagation();
+        opts.onDeleteImageBlock(block);
+        return;
+      }
+
+      if (
+        (e.key || '').toLowerCase() === 'c' &&
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        typeof opts.onCopyImageBlock === 'function'
+      ) {
+        // 有文档选区时交给原生 / 其它拷贝路径
+        const sel = window.getSelection && window.getSelection();
+        if (sel && !sel.isCollapsed && String(sel.toString() || '').length > 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        opts.onCopyImageBlock(block);
+      }
     },
     true
   );
 }
 
 /**
- * @param {{ onDeleteImageBlock?: Function, onPasteImageBlock?: Function }} opts
+ * @param {{ onDeleteImageBlock?: Function, onPasteImageBlock?: Function, onCopyImageBlock?: Function }} opts
  */
 function createImageShortcutKeymap(opts) {
   installImageGlobalKeys(opts);
@@ -54,6 +72,15 @@ function createImageShortcutKeymap(opts) {
           const block = getSelectedImageBlock();
           if (!block || typeof opts.onDeleteImageBlock !== 'function') return false;
           opts.onDeleteImageBlock(block);
+          return true;
+        },
+      },
+      {
+        key: 'Mod-c',
+        run: function () {
+          const block = getSelectedImageBlock();
+          if (!block || typeof opts.onCopyImageBlock !== 'function') return false;
+          opts.onCopyImageBlock(block);
           return true;
         },
       },

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-B：buildDecorationSpecs / reveal 纯函数（E49–E52 雏形）
  */
 import * as path from 'path';
@@ -72,6 +72,30 @@ describe('buildDecorationSpecs (M8-B S1–S5)', () => {
     expect(specs.some((s: { widget?: string }) => s.widget === 'image')).toBe(false);
   });
 
+  test('math 阶段：行内公式整段 widget（atomic 删除，不拆 hide $）', () => {
+    const text = '见 $E=mc^2$ 式';
+    const specs = buildDecorationSpecs(text, [], [], {
+      fullHide: true,
+      widgetEnabled: function (kind: string) {
+        return kind === 'math-inline';
+      },
+    });
+    const math = specs.find((s: { widget?: string }) => s.widget === 'math-inline');
+    expect(math).toMatchObject({ from: 2, to: 10, widget: 'math-inline' });
+    expect(text.slice(math.from, math.to)).toBe('$E=mc^2$');
+  });
+
+  test('code 阶段：公式 widget 关闭', () => {
+    const text = '$x$';
+    const specs = buildDecorationSpecs(text, [], [], {
+      fullHide: true,
+      widgetEnabled: function (kind: string) {
+        return kind !== 'math-inline' && kind !== 'math-block';
+      },
+    });
+    expect(specs.some((s: { widget?: string }) => s.widget === 'math-inline')).toBe(false);
+  });
+
   test('E51: 斜体 / 删除线 / 行内代码标记区间', () => {
     const cases: Array<{ type: string; text: string; markLens: [number, number] }> = [
       { type: 'Emphasis', text: '*x*', markLens: [1, 1] },
@@ -140,6 +164,43 @@ describe('buildDecorationSpecs (M8-B S6–S12)', () => {
 
     const hr = buildDecorationSpecs('---', [{ type: 'HorizontalRule', from: 0, to: 3 }], []);
     expect(hr[0]).toMatchObject({ kind: 'widget', widget: 'hr' });
+  });
+
+  test('引用 / 高亮块：左上角手柄 widget；标题不加', () => {
+    const quote = buildDecorationSpecs(
+      '> hello',
+      [
+        { type: 'Blockquote', from: 0, to: 7 },
+        { type: 'QuoteMark', from: 0, to: 1 },
+      ],
+      []
+    );
+    expect(quote.some((s: any) => s.widget === 'quote-handle' && s.quoteKind === 'quote')).toBe(
+      true
+    );
+    expect(quote.some((s: any) => s.kind === 'line-style' && s.cls === 'mda-cm-blockquote-line')).toBe(
+      true
+    );
+
+    const hlText = '> [!NOTE]\n> tip';
+    const hl = buildDecorationSpecs(
+      hlText,
+      [
+        { type: 'Blockquote', from: 0, to: hlText.length },
+        { type: 'QuoteMark', from: 0, to: 1 },
+        { type: 'QuoteMark', from: 10, to: 11 },
+      ],
+      []
+    );
+    expect(hl.some((s: any) => s.widget === 'quote-handle' && s.quoteKind === 'highlight')).toBe(
+      true
+    );
+    expect(hl.some((s: any) => s.kind === 'line-style' && s.cls === 'mda-cm-highlight-line')).toBe(
+      true
+    );
+
+    const heading = buildDecorationSpecs('# Title', [{ type: 'ATXHeading1', from: 0, to: 7 }], []);
+    expect(heading.some((s: any) => s.widget === 'quote-handle')).toBe(false);
   });
 });
 

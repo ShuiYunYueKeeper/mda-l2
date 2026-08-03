@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 图片 / Mermaid 块：点击块外取消选中（与表格 onDocPointer 一致）。
  */
 'use strict';
@@ -7,6 +7,7 @@ const { ViewPlugin } = require('@codemirror/view');
 const { clearMediaSelection, clearBlockWidgetSelection } = require('./widget-common');
 const { getSelectedImageBlock, clearSelectedImageBlock } = require('./image-selection');
 const { getSelectedMermaidBlock, clearSelectedMermaidBlock } = require('./mermaid-selection');
+const { clearSelectedMathBlock } = require('./math-selection');
 const { closeBlockHandleMenu } = require('./block-handle-menu');
 
 /**
@@ -43,9 +44,15 @@ function createMediaOutsideClickPlugin() {
           if (blockContainsTarget(self.view, imgSel, 'mda-cm-image-block', target)) return;
           if (blockContainsTarget(self.view, merSel, 'mda-cm-mermaid-block', target)) return;
           if (target && target.closest && target.closest('.mda-cm-code-block.mda-cm-block-selected')) return;
+          if (target && target.closest && target.closest('.mda-cm-math-block.mda-cm-block-selected')) return;
+          if (target && target.closest && target.closest('.mda-cm-table-block.mda-cm-block-selected')) return;
+          if (target && target.closest && target.closest('.mda-cm-quote-handle-anchor.mda-cm-block-selected')) return;
+          if (target && target.closest && target.closest('.mda-cm-hr-block.mda-cm-block-selected')) return;
           if (target && target.closest && target.closest('.mda-cm-code-input')) return;
+          if (target && target.closest && target.closest('.mda-cm-math-source-input')) return;
           clearSelectedImageBlock();
           clearSelectedMermaidBlock();
+          clearSelectedMathBlock();
           clearMediaSelection(self.view.dom);
           clearBlockWidgetSelection(self.view.dom);
           closeBlockHandleMenu();

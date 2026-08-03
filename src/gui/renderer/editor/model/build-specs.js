@@ -1,4 +1,4 @@
-﻿/**
+/**
  * P2 §4.1 装饰构建（纯函数）：文本 + 节点 + reveal → Spec[]，不碰 DOM。
  */
 'use strict';
@@ -7,6 +7,7 @@ const { SYNTAX_RULES } = require('./syntax-rules');
 const { isRevealed } = require('./reveal');
 const { findAnnotationHideRanges } = require('./anno-lines');
 const { detectFrontMatter } = require('./readonly-blocks');
+const { findMathRanges } = require('./parse-math');
 
 const PRIORITY = {
   'hide-line': 100,
@@ -82,10 +83,52 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
     }
   }
 
+  /** @type {{ from: number, to: number }[]} */
+  const highlightQuoteRanges = [];
+  for (let hi = 0; hi < nodes.length; hi++) {
+    const hn = nodes[hi];
+    if (!hn || hn.type !== 'Blockquote' || hn.from >= hn.to) continue;
+    const chunk = text.slice(hn.from, hn.to);
+    const nl = chunk.indexOf('\n');
+    const firstLine = nl < 0 ? chunk : chunk.slice(0, nl);
+    if (/^\s*>\s*\[![A-Za-z][\w-]*\]/.test(firstLine)) {
+      highlightQuoteRanges.push({ from: hn.from, to: hn.to });
+    }
+  }
+
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
     if (!node || node.from >= node.to) continue;
     if (skipTypes[node.type]) continue;
+
+    // 引用 / 高亮块手柄（零宽 side widget）；标题不加手柄
+    if (node.type === 'Blockquote') {
+      if (widgetEnabled('quote-handle')) {
+        const source = text.slice(node.from, node.to);
+        let isHighlight = false;
+        for (let h = 0; h < highlightQuoteRanges.length; h++) {
+          if (
+            highlightQuoteRanges[h].from === node.from &&
+            highlightQuoteRanges[h].to === node.to
+          ) {
+            isHighlight = true;
+            break;
+          }
+        }
+        specs.push({
+          kind: 'widget',
+          widget: 'quote-handle',
+          from: node.from,
+          to: node.from,
+          blockFrom: node.from,
+          blockTo: node.to,
+          quoteKind: isHighlight ? 'highlight' : 'quote',
+          source: source,
+          priority: PRIORITY.widget,
+        });
+      }
+      continue;
+    }
 
     const rule = SYNTAX_RULES[node.type];
     if (!rule) continue;
@@ -196,11 +239,19 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
           priority: PRIORITY['hide-mark'],
         });
       }
+      let quoteLineCls = 'mda-cm-blockquote-line';
+      for (let hq = 0; hq < highlightQuoteRanges.length; hq++) {
+        const hr = highlightQuoteRanges[hq];
+        if (node.from >= hr.from && node.from < hr.to) {
+          quoteLineCls = 'mda-cm-highlight-line';
+          break;
+        }
+      }
       specs.push({
         kind: 'line-style',
         from: node.from,
         to: node.from,
-        cls: 'mda-cm-blockquote-line',
+        cls: quoteLineCls,
         priority: PRIORITY['line-style'],
       });
       continue;
@@ -275,7 +326,64 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
     }
   }
 
+  appendMathSpecs(text, specs, {
+    widgetEnabled: widgetEnabled,
+    focusedBlock: focusedBlock,
+    fullHide: fullHide,
+  });
+
   return dedupeByPriority(specs);
+}
+
+/**
+ * S15/S16 公式（Lezer 无节点，独立扫描）
+ * @param {string} text
+ * @param {DecoSpec[]} specs
+ * @param {{ widgetEnabled?: (kind: string) => boolean, focusedBlock?: object, fullHide?: boolean }} opts
+ */
+function appendMathSpecs(text, specs, opts) {
+  opts = opts || {};
+  const widgetEnabled =
+    typeof opts.widgetEnabled === 'function'
+      ? opts.widgetEnabled
+      : function () {
+          return true;
+        };
+  if (!widgetEnabled('math-inline') && !widgetEnabled('math-block')) return;
+
+  const focusedBlock = opts.focusedBlock || null;
+  const mathRanges = findMathRanges(text);
+  for (let i = 0; i < mathRanges.length; i++) {
+    const r = mathRanges[i];
+    if (r.kind === 'math-inline' && !widgetEnabled('math-inline')) continue;
+    if (r.kind === 'math-block' && !widgetEnabled('math-block')) continue;
+    if (
+      r.kind === 'math-block' &&
+      focusedBlock &&
+      focusedBlock.kind === 'math-block' &&
+      focusedBlock.from === r.from &&
+      focusedBlock.to === r.to
+    ) {
+      specs.push({
+        kind: 'raw',
+        from: r.from,
+        to: r.to,
+        cls: 'mda-cm-focused-source',
+        priority: PRIORITY.raw,
+      });
+      continue;
+    }
+    specs.push({
+      kind: 'widget',
+      widget: r.kind,
+      from: r.from,
+      to: r.to,
+      source: text.slice(r.from, r.to),
+      tex: r.tex,
+      priority: PRIORITY.widget,
+    });
+    // 行内公式整段 Decoration.replace + widget 层 atomic，无需再 hide $ 定界符
+  }
 }
 
 function dedupeByPriority(specs) {
@@ -351,6 +459,12 @@ function collectSyntaxNodes(tree) {
         return;
       }
 
+      // 引用块根节点（手柄挂点）；子 QuoteMark 仍入列
+      if (node.name === 'Blockquote') {
+        nodes.push({ from: node.from, to: node.to, type: 'Blockquote' });
+        return;
+      }
+
       if (!SYNTAX_RULES[node.name]) return;
 
       const item = { from: node.from, to: node.to, type: node.name };
@@ -380,6 +494,7 @@ function collectSyntaxNodes(tree) {
 
 module.exports = {
   buildDecorationSpecs: buildDecorationSpecs,
+  appendMathSpecs: appendMathSpecs,
   dedupeByPriority: dedupeByPriority,
   collectSyntaxNodes: collectSyntaxNodes,
   PRIORITY: PRIORITY,

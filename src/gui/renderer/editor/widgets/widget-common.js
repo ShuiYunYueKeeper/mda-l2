@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-C1：块 widget 共用工具（顶栏、复制、i18n）。
  */
 'use strict';
@@ -96,6 +96,13 @@ function refreshBlockToolbars(root, t) {
           ? 'widgetMermaidPreview'
           : 'widgetCodeSource';
     }
+    if (btn.getAttribute('data-i18n-toggle') === 'math-source') {
+      const frame = btn.closest('.mda-cm-math-frame');
+      key =
+        frame && frame.classList.contains('mda-cm-math-source-mode')
+          ? 'widgetCodePreview'
+          : 'widgetCodeSource';
+    }
     if (!key) return;
     const label = t(key);
     btn.textContent = label;
@@ -141,6 +148,8 @@ function clearBlockWidgetSelection(container) {
   if (!container || !container.querySelectorAll) return;
   const nodes = container.querySelectorAll('.mda-cm-block-selected');
   for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove('mda-cm-block-selected');
+  const hrSel = container.querySelectorAll('.mda-cm-hr-selected');
+  for (let j = 0; j < hrSel.length; j++) hrSel[j].classList.remove('mda-cm-hr-selected');
 }
 
 module.exports = {

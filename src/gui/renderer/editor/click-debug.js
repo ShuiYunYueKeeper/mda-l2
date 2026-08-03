@@ -5,6 +5,7 @@
 
 const { EditorView } = require('@codemirror/view');
 const editorConfig = require('./config');
+const { posAtClick } = require('./click-collapse');
 
 var HUD_ID = 'mda-cm6-click-debug-hud';
 var MARKER_CLASS = 'mda-cm6-click-debug-marker';
@@ -84,8 +85,19 @@ function updateHud(html) {
 function reportClickDebug(view, event) {
   var clickX = event.clientX;
   var clickY = event.clientY;
-  var mappedPos = view.posAtCoords({ x: clickX, y: clickY }, 1);
-  if (mappedPos == null) mappedPos = view.posAtCoords({ x: clickX, y: clickY }, -1);
+  var rawPos = view.posAtCoords({ x: clickX, y: clickY }, 1);
+  if (rawPos == null) rawPos = view.posAtCoords({ x: clickX, y: clickY }, -1);
+  var mappedPos = posAtClick(view, clickX, clickY);
+  var hitEl =
+    typeof document !== 'undefined' && document.elementFromPoint
+      ? document.elementFromPoint(clickX, clickY)
+      : null;
+  var hitBlock =
+    hitEl &&
+    hitEl.closest &&
+    hitEl.closest(
+      '.mda-cm-image-block, .mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-math-block, .mda-cm-hr-block'
+    );
   var selHead = view.state.selection.main.head;
   var mappedCaret = mappedPos != null ? caretAtPos(view, mappedPos) : null;
   var cursorCaret = caretAtPos(view, selHead);
@@ -93,7 +105,7 @@ function reportClickDebug(view, event) {
   clearMarkers();
   placeMarker(clickX, clickY, '#e74c3c', '鼠标点击 (红)');
   if (mappedCaret) {
-    placeMarker(mappedCaret.x, mappedCaret.y, '#3498db', 'posAtCoords 映射 (蓝)');
+    placeMarker(mappedCaret.x, mappedCaret.y, '#3498db', '校准后映射 (蓝)');
   }
   if (cursorCaret) {
     placeMarker(cursorCaret.x, cursorCaret.y, '#2ecc71', '实际光标 head (绿)');
@@ -117,9 +129,17 @@ function reportClickDebug(view, event) {
   var lines = [
     '<b style="color:#f0b429">CM6 点击诊断</b>  红/蓝/绿=竖线',
     '点击 client: (' + clickX + ', ' + clickY + ')',
-    'posAtCoords → ' + posLabel(view, mappedPos),
+    'posAtCoords → ' + posLabel(view, rawPos),
+    '校准落点 → ' + (mappedPos == null && hitBlock ? '（块 widget，跳过校准）' : posLabel(view, mappedPos)),
     'selection.head → ' + posLabel(view, selHead),
   ];
+  if (mappedPos == null && hitBlock) {
+    lines.push('<span style="color:#8b949e">说明: 点在块 widget 上，CM6 head 可能仍停在旧位置；表格编辑时 CM6 光标应已隐藏</span>');
+  } else if (mappedPos != null && mappedPos !== selHead) {
+    lines.push('<span style="color:#ff7b72">校准落点与 head 不一致 (差 ' + (selHead - mappedPos) + ') — 选区被其它逻辑改写</span>');
+  } else if (clickToCursor && Math.abs(clickToCursor.dx) > 40 && Math.abs(clickToCursor.dy) <= 8) {
+    lines.push('<span style="color:#8b949e">说明: 横向偏差大且纵向接近 — 常见于点在行尾空白（光标吸附行末）</span>');
+  }
   if (clickToCursor) {
     lines.push('点击→光标 Δ: (' + clickToCursor.dx + 'px, ' + clickToCursor.dy + 'px)');
   }
@@ -135,14 +155,12 @@ function reportClickDebug(view, event) {
   if (mappedToCursor) {
     lines.push('映射→光标 Δ: (' + mappedToCursor.dx + 'px, ' + mappedToCursor.dy + 'px)');
   }
-  if (mappedPos != null && mappedPos !== selHead) {
-    lines.push('<span style="color:#ff7b72">pos 与 head 不一致 (差 ' + (selHead - mappedPos) + ')</span>');
-  }
   updateHud(lines.join('\n'));
 
   console.log('[mda-editor-click-debug]', {
     client: { x: clickX, y: clickY },
-    posAtCoords: mappedPos,
+    posAtCoords: rawPos,
+    refinedPos: mappedPos,
     selectionHead: selHead,
     clickToCursorPx: clickToCursor,
     mappedToCursorPx: mappedToCursor,

@@ -1,8 +1,8 @@
-﻿/**
+/**
  * 编辑面运行时配置：功能闸门 + 开发调试开关（发布时统一关闭）。
  *
- * 分阶段交付（Mermaid 已签收，开发默认 code）：
- *   text → image → mermaid → table → code → full
+ * 分阶段交付（代码已签收，开发默认 math）：
+ *   text → image → mermaid → table → code → math → full
  * 覆盖：localStorage `mda-editor-widget-phase`
  * 兼容：旧键 `mda-editor-block-widgets=1` 视为 `full`
  *
@@ -29,7 +29,7 @@ var FLAGS = {
 };
 
 /** @type {readonly string[]} */
-var WIDGET_PHASES = ['text', 'image', 'mermaid', 'table', 'code', 'full'];
+var WIDGET_PHASES = ['text', 'image', 'mermaid', 'table', 'code', 'math', 'full'];
 
 /** @type {Record<string, number>} */
 var PHASE_RANK = {
@@ -38,7 +38,8 @@ var PHASE_RANK = {
   mermaid: 2,
   table: 3,
   code: 4,
-  full: 5,
+  math: 5,
+  full: 6,
 };
 
 /** @type {Record<string, string>} */
@@ -47,7 +48,10 @@ var WIDGET_MIN_PHASE = {
   mermaid: 'mermaid',
   table: 'table',
   code: 'code',
-  hr: 'full',
+  'math-inline': 'math',
+  'math-block': 'math',
+  'quote-handle': 'text',
+  hr: 'math',
 };
 
 /**
@@ -68,7 +72,7 @@ function readFlag(name) {
 }
 
 /**
- * @returns {'text'|'image'|'mermaid'|'table'|'code'|'full'}
+ * @returns {'text'|'image'|'mermaid'|'table'|'code'|'math'|'full'}
  */
 function readWidgetPhase() {
   if (RELEASE) return 'text';
@@ -80,7 +84,7 @@ function readWidgetPhase() {
   } catch (_) {
     /* ignore */
   }
-  return 'code';
+  return 'math';
 }
 
 /**
@@ -92,9 +96,18 @@ function widgetPhaseAtLeast(minPhase) {
 }
 
 /**
- * @param {'image'|'mermaid'|'table'|'code'|'hr'} kind
+ * @param {'image'|'mermaid'|'table'|'code'|'hr'|'quote-handle'} kind
  */
 function blockWidgetEnabled(kind) {
+  var min = WIDGET_MIN_PHASE[kind];
+  if (!min) return false;
+  return widgetPhaseAtLeast(min);
+}
+
+/**
+ * @param {'math-inline'|'math-block'|'quote-handle'} kind
+ */
+function mathWidgetEnabled(kind) {
   var min = WIDGET_MIN_PHASE[kind];
   if (!min) return false;
   return widgetPhaseAtLeast(min);
@@ -120,5 +133,6 @@ module.exports = {
   readWidgetPhase: readWidgetPhase,
   widgetPhaseAtLeast: widgetPhaseAtLeast,
   blockWidgetEnabled: blockWidgetEnabled,
+  mathWidgetEnabled: mathWidgetEnabled,
   blockWidgetsEnabled: blockWidgetsEnabled,
 };

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-C1 / COORD-5：块 widget 高度估计与装饰层过滤
  */
 import * as path from 'path';
@@ -19,6 +19,8 @@ const {
   countSourceLines,
   BlockReplaceWidget,
   DEFAULT_LINE_HEIGHT,
+  rememberMeasuredHeight,
+  blockHeightCacheKey,
 } = require(path.join(__dirname, '../../../src/gui/renderer/editor/widgets/block-widget-base'));
 const { TableWidget } = require(path.join(
   __dirname,
@@ -38,6 +40,13 @@ describe('block-widget-base', () => {
   test('BlockReplaceWidget estimatedHeight 至少覆盖源码行数', () => {
     const w = new BlockReplaceWidget('line1\nline2\nline3', { lineHeight: 26 });
     expect(w.estimatedHeight).toBeGreaterThanOrEqual(3 * DEFAULT_LINE_HEIGHT);
+  });
+
+  test('测高缓存跨实例保留', () => {
+    const key = blockHeightCacheKey('test-cache', 10, 20, '---');
+    rememberMeasuredHeight(key, 64);
+    const w = new BlockReplaceWidget('---', { from: 10, to: 20, heightKind: 'test-cache' });
+    expect(w.estimatedHeight).toBe(64);
   });
 
   test('TableWidget estimatedHeight 大于纯行高估计', () => {

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-C3 表格竞品式交互：行/列选区、增删、剪贴板、右键菜单。
  */
 'use strict';
@@ -15,7 +15,7 @@ const {
   selectionAnchor,
   selectionBounds,
 } = require('../model/table-model');
-const { copyText, uiT } = require('./widget-common');
+const { copyText, uiT, clearBlockWidgetSelection, clearMediaSelection } = require('./widget-common');
 const { attachTableGridResize, applyTableLayout, ensureLayoutArrays } = require('./table-resize');
 const { hasTableLayoutMeta } = require('../model/parse-table');
 const {
@@ -23,15 +23,25 @@ const {
   applyTableLayoutSession,
   migrateTableLayoutSession,
 } = require('./table-layout-session');
+const {
+  setCellMarkdownContent,
+  selectTableMathAtom,
+  handleTableMathDeleteKey,
+} = require('./table-cell-content');
+const { undo, redo } = require('@codemirror/commands');
+const { attachBlockDragHandle } = require('./block-drag-handle');
 
 /** @type {string} */
 let internalClipboard = '';
 
 /**
  * @param {{ headers: string[], aligns: string[], rows: string[][] }} parsed
+ * @param {{ resolveImageUrl?: Function }} [opts]
  * @returns {HTMLTableElement}
  */
-function renderTableElement(parsed) {
+function renderTableElement(parsed, opts) {
+  opts = opts || {};
+  const cellOpts = { resolveImageUrl: opts.resolveImageUrl };
   const table = document.createElement('table');
   table.className = 'mda-cm-table';
   const thead = document.createElement('thead');
@@ -43,7 +53,7 @@ function renderTableElement(parsed) {
     th.setAttribute('spellcheck', 'true');
     th.setAttribute('data-mda-row', '-1');
     th.setAttribute('data-mda-col', String(i));
-    th.textContent = parsed.headers[i];
+    setCellMarkdownContent(th, parsed.headers[i], cellOpts);
     const align = parsed.aligns[i] || 'left';
     if (align !== 'left') th.style.textAlign = align;
     hr.appendChild(th);
@@ -61,7 +71,7 @@ function renderTableElement(parsed) {
       td.setAttribute('spellcheck', 'true');
       td.setAttribute('data-mda-row', String(r));
       td.setAttribute('data-mda-col', String(c));
-      td.textContent = row[c] != null ? row[c] : '';
+      setCellMarkdownContent(td, row[c] != null ? row[c] : '', cellOpts);
       const align = parsed.aligns[c] || 'left';
       if (align !== 'left') td.style.textAlign = align;
       tr.appendChild(td);
@@ -163,6 +173,9 @@ function closeTableMenu() {
  *   parsed: { headers: string[], aligns: string[], rows: string[][] },
  *   t?: Function,
  *   copyFn?: Function,
+ *   resolveImageUrl?: Function,
+ *   onOpenZoom?: Function,
+ *   onCopyImage?: (img: HTMLImageElement) => void,
  *   onParsedChange: (parsed: object) => void,
  *   readParsedFromDom: () => object | null,
  *   blockSource?: string,
@@ -221,6 +234,22 @@ function mountTableChrome(ctx) {
   grid.appendChild(addColBtn);
   grid.appendChild(addRowBtn);
   stage.appendChild(grid);
+
+  const widget = ctx.widget || {};
+  attachBlockDragHandle(
+    stage,
+    ctx.view,
+    { from: widget.from, to: widget.to, source: ctx.blockSource || widget.source },
+    {
+      blockRoot: ctx.root,
+      blockSelector: '.mda-cm-table-block',
+      replaceOnHover: false,
+      blockKind: 'table',
+      blockMenuHandlers: ctx.blockMenuHandlers,
+      t: t,
+      onMoveBlock: ctx.onMoveTableBlock,
+    }
+  );
 
   let parsed = cloneTableData(ctx.parsed);
   applyTableLayoutSession(ctx.blockSource || '', parsed);
@@ -346,7 +375,9 @@ function mountTableChrome(ctx) {
   function renderLocal() {
     const old = tableWrap.querySelector('table');
     if (old) old.remove();
-    const table = renderTableElement(parsed);
+    const table = renderTableElement(parsed, {
+      resolveImageUrl: ctx.resolveImageUrl,
+    });
     tableWrap.appendChild(table);
     wireCells(table);
     rebuildGutters();
@@ -401,7 +432,11 @@ function mountTableChrome(ctx) {
     stage.classList.toggle('mda-cm-table-rowcol-focus', rowCol);
     if (rowCol) {
       stage.focus();
-      if (typeof ctx.pinEditor === 'function') ctx.pinEditor();
+    }
+    // 单元格点击会 stopPropagation，根节点 pin 不到；任意表格选区都须钉 CM6 选区，
+    // 否则写回后撤销会把光标还原到文档头。
+    if (sel.kind !== 'none' && typeof ctx.pinEditor === 'function') {
+      ctx.pinEditor();
     }
   }
 
@@ -625,10 +660,53 @@ function mountTableChrome(ctx) {
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
       let cellContentDirty = false;
+
+      function findSelectedTableImage() {
+        const sel = window.getSelection && window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          let node = range.commonAncestorContainer;
+          if (node && node.nodeType === 3) node = node.parentElement;
+          let wrap =
+            node && node.nodeType === 1 && /** @type {HTMLElement} */ (node).closest
+              ? /** @type {HTMLElement} */ (node).closest('.mda-cm-table-img')
+              : null;
+          if (
+            !wrap &&
+            range.startContainer &&
+            range.startContainer.nodeType === 1 &&
+            /** @type {HTMLElement} */ (range.startContainer).classList &&
+            /** @type {HTMLElement} */ (range.startContainer).classList.contains(
+              'mda-cm-table-img'
+            )
+          ) {
+            wrap = /** @type {HTMLElement} */ (range.startContainer);
+          }
+          if (wrap && cell.contains(wrap)) {
+            const img = wrap.querySelector('img');
+            if (img) return img;
+          }
+        }
+        // 单元格内容几乎只有一张图时，Ctrl+C 也复制该图
+        const wraps = cell.querySelectorAll('.mda-cm-table-img');
+        if (wraps.length === 1) {
+          const text = String(cell.textContent || '')
+            .replace(/\u00a0/g, ' ')
+            .trim();
+          if (!text) {
+            return wraps[0].querySelector('img');
+          }
+        }
+        return null;
+      }
+
       cell.addEventListener('mousedown', function (e) {
         if (e.button !== 0) return;
         if (!e.target.closest('.mda-cm-table-menu')) closeTableMenu();
         e.stopPropagation();
+        const atomEl = e.target.closest
+          ? e.target.closest('.mda-cm-table-math, .mda-cm-table-img')
+          : null;
         const row = parseInt(cell.getAttribute('data-mda-row') || '0', 10);
         const col = parseInt(cell.getAttribute('data-mda-col') || '0', 10);
         if (e.shiftKey && dragAnchor) {
@@ -639,16 +717,114 @@ function mountTableChrome(ctx) {
         }
         requestAnimationFrame(function () {
           if (document.activeElement !== cell) cell.focus();
+          if (atomEl && cell.contains(atomEl)) selectTableMathAtom(atomEl);
+        });
+      });
+      cell.addEventListener('dblclick', function (e) {
+        const imgWrap = e.target && e.target.closest
+          ? e.target.closest('.mda-cm-table-img')
+          : null;
+        if (!imgWrap || !cell.contains(imgWrap)) return;
+        const img = imgWrap.querySelector('img');
+        if (!img || typeof ctx.onOpenZoom !== 'function') return;
+        e.preventDefault();
+        e.stopPropagation();
+        ctx.onOpenZoom({
+          node: img.cloneNode(true),
+          opts: { kind: 'image', imageSrc: img.getAttribute('src') || '' },
         });
       });
       cell.addEventListener('focus', function (e) {
         e.stopPropagation();
       });
       cell.addEventListener('keydown', function (e) {
+        // 单元格内 Ctrl+Z/Y 走 CM6 历史（公式原子删除等已写回文档的变更）
+        if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+          const key = e.key;
+          if (key === 'z' || key === 'Z') {
+            e.preventDefault();
+            e.stopPropagation();
+            const row = parseInt(cell.getAttribute('data-mda-row') || '0', 10);
+            const col = parseInt(cell.getAttribute('data-mda-col') || '0', 10);
+            if (cellContentDirty) {
+              if (typeof ctx.pinEditor === 'function') ctx.pinEditor();
+              syncFromDomIfNeeded();
+              commitParsed();
+              cellContentDirty = false;
+            }
+            if (e.shiftKey) redo(ctx.view);
+            else undo(ctx.view);
+            // 撤销后表格 widget 重建：钉回表首并尽量回到原单元格，避免视口/焦点飞到文档头
+            requestAnimationFrame(function () {
+              if (typeof ctx.pinEditor === 'function') ctx.pinEditor();
+              if (!ctx.root.isConnected) return;
+              const liveTable = tableWrap.querySelector('table');
+              if (!liveTable) return;
+              const next = liveTable.querySelector(
+                (row === -1 ? 'thead th' : 'tbody td') +
+                  '[data-mda-row="' +
+                  row +
+                  '"][data-mda-col="' +
+                  col +
+                  '"]'
+              );
+              if (next) {
+                next.focus();
+                setSelection({ kind: 'cell', row: row, col: col });
+              }
+            });
+            return;
+          }
+          if (key === 'y' || key === 'Y') {
+            e.preventDefault();
+            e.stopPropagation();
+            redo(ctx.view);
+            return;
+          }
+        }
+        if (handleTableMathDeleteKey(cell, e)) {
+          e.stopPropagation();
+          const row = parseInt(cell.getAttribute('data-mda-row') || '0', 10);
+          const col = parseInt(cell.getAttribute('data-mda-col') || '0', 10);
+          if (typeof ctx.pinEditor === 'function') ctx.pinEditor();
+          // 立即写回文档，进入 CM6 撤销栈（勿只改 DOM 等失焦）
+          syncFromDomIfNeeded();
+          commitParsed();
+          cellContentDirty = false;
+          if (ctx.root.isConnected) {
+            renderLocal();
+            requestAnimationFrame(function () {
+              const liveTable = tableWrap.querySelector('table');
+              if (!liveTable) return;
+              const next = liveTable.querySelector(
+                (row === -1 ? 'thead th' : 'tbody td') +
+                  '[data-mda-row="' +
+                  row +
+                  '"][data-mda-col="' +
+                  col +
+                  '"]'
+              );
+              if (next) {
+                next.focus();
+                setSelection({ kind: 'cell', row: row, col: col });
+              }
+            });
+          }
+          return;
+        }
         if (e.key === 'Tab') {
           e.preventDefault();
           e.stopPropagation();
           focusAdjacentCell(cell, table, e.shiftKey ? -1 : 1);
+        }
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'c' || e.key === 'C') && !e.shiftKey) {
+          const img = findSelectedTableImage();
+          if (img && typeof ctx.onCopyImage === 'function') {
+            e.preventDefault();
+            e.stopPropagation();
+            ctx.onCopyImage(img);
+            return;
+          }
         }
         if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selection.kind !== 'cell') {
           e.preventDefault();
@@ -738,6 +914,13 @@ function mountTableChrome(ctx) {
     if (!(e.target && e.target.closest && e.target.closest('.mda-cm-table-menu'))) {
       closeTableMenu();
     }
+    if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) {
+      clearBlockWidgetSelection(ctx.root.closest('.cm-editor') || document);
+      clearMediaSelection(ctx.root.closest('.cm-editor') || document);
+      ctx.root.classList.add('mda-cm-block-selected');
+      e.stopPropagation();
+      return;
+    }
     if (e.target && e.target.closest && e.target.closest('.mda-cm-table-chrome')) {
       e.stopPropagation();
       return;
@@ -769,6 +952,9 @@ function mountTableChrome(ctx) {
       e.target === chrome
     ) {
       clearTableInteraction();
+      clearBlockWidgetSelection(ctx.root.closest('.cm-editor') || document);
+      clearMediaSelection(ctx.root.closest('.cm-editor') || document);
+      ctx.root.classList.add('mda-cm-block-selected');
     }
   });
 

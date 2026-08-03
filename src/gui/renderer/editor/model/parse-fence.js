@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 围栏代码块切片解析
  */
 'use strict';
@@ -55,6 +55,9 @@ function findFenceOpenFrom(text, lineStart, maxLines) {
 }
 
 /**
+ * 从开围栏行向下扩展到闭合围栏；仅当找不到闭合时，才用块级边界截断（防未闭合围栏吞正文）。
+ * 注意：不能在寻找闭合符时把 `# comment` / `| table` 等代码正文当边界，
+ * 否则 bash 注释等会导致 replace 区间过短 → 代码块 widget + 正文双显。
  * @param {string} text
  * @param {number} openFrom
  * @param {string} marker
@@ -65,17 +68,29 @@ function expandFenceFromOpen(text, openFrom, marker) {
   const minLen = marker.length;
   const openLineEnd = text.indexOf('\n', openFrom);
   const bodyStart = openLineEnd < 0 ? len : openLineEnd + 1;
+  const closeRe = new RegExp('^ {0,3}\\' + ch + '{' + minLen + ',}\\s*$');
+
+  // Pass 1：优先找合法闭合围栏（忽略正文中的 # / | / ---）
   let scan = bodyStart;
+  while (scan < len) {
+    const lineFrom = scan;
+    const nl = text.indexOf('\n', lineFrom);
+    const lineTo = nl < 0 ? len : nl;
+    const line = text.slice(lineFrom, lineTo);
+    if (closeRe.test(line)) {
+      return { from: openFrom, to: nl < 0 ? len : nl + 1 };
+    }
+    scan = nl < 0 ? len : nl + 1;
+  }
+
+  // Pass 2：未闭合 — 在后续真正的 Markdown 块级边界处截断
+  scan = bodyStart;
   let lastContentEnd = bodyStart;
   while (scan < len) {
     const lineFrom = scan;
     const nl = text.indexOf('\n', lineFrom);
     const lineTo = nl < 0 ? len : nl;
     const line = text.slice(lineFrom, lineTo);
-    const closeRe = new RegExp('^ {0,3}\\' + ch + '{' + minLen + ',}\\s*$');
-    if (closeRe.test(line)) {
-      return { from: openFrom, to: nl < 0 ? len : nl + 1 };
-    }
     if (lineFrom >= bodyStart && isFenceBlockBoundary(line)) {
       return { from: openFrom, to: lastContentEnd };
     }

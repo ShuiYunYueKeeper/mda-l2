@@ -1,4 +1,4 @@
-﻿// MDA Renderer — Markdown 工作台 GUI
+// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -357,6 +357,39 @@
           }
           copyZoomMermaidImage({ mermaidSrc: code || '', svgNode: svg });
         },
+        onCopyMathImage: function (displayEl) {
+          function fail(err) {
+            uiAlert(uiT('alertZoomCopyFail', { error: err || uiT('unknownError') }));
+          }
+          if (!displayEl || !api.copyClipboardImage) {
+            showToast(uiT('toastNoCopy'));
+            return;
+          }
+          var katexEl =
+            displayEl.querySelector('.katex-display') ||
+            displayEl.querySelector('.katex');
+          if (!katexEl) {
+            showToast(uiT('toastNoCopy'));
+            return;
+          }
+          Promise.resolve()
+            .then(function () {
+              return katexElToPngDataUrl(katexEl);
+            })
+            .then(function (png) {
+              // katexElToPngDataUrl 返回 { dataUrl, width, height }
+              var dataUrl = png && typeof png === 'object' ? png.dataUrl : png;
+              if (!isValidPngDataUrl(dataUrl)) throw new Error(uiT('unknownError'));
+              return api.copyClipboardImage({ dataUrl: dataUrl });
+            })
+            .then(function (r) {
+              if (r && r.success) showToast(uiT('toastZoomCopiedImage'));
+              else fail(r && r.error);
+            })
+            .catch(function (e) {
+              fail(e && e.message ? e.message : String(e));
+            });
+        },
         onEditMermaidBlock: function (block) {
           if (!isCm6Ready() || !window.MDAEditor || !block) return;
           var line = fenceMermaidSource(block.code);
@@ -370,6 +403,16 @@
           var line = window.MDAEditor.serializeFencedCode
             ? window.MDAEditor.serializeFencedCode(block.lang, block.code, block.marker)
             : fenceCodeSource(block.lang, block.code);
+          var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+          if (!range) return;
+          window.MDAEditor.replaceBlockRange(cm6Editor.view, range.from, range.to, line);
+          syncDirtyFromEditor();
+        },
+        onEditMathBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          var line = window.MDAEditor.serializeMathBlock
+            ? window.MDAEditor.serializeMathBlock(block.tex)
+            : '$$\n' + (block.tex || '') + '\n$$';
           var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
           if (!range) return;
           window.MDAEditor.replaceBlockRange(cm6Editor.view, range.from, range.to, line);
@@ -432,6 +475,27 @@
         getResizeMaxWidth: function () {
           return getPreviewMediaDragMaxWidthPx() || 1200;
         },
+        onCopyImageBlock: function (block) {
+          var img =
+            document.querySelector('.mda-cm-image-frame.mda-cm-media-selected img') ||
+            document.querySelector('.mda-cm-image-block .mda-cm-media-selected img');
+          var imageSrc = (img && img.getAttribute('src')) || '';
+          if (!imageSrc && block && block.meta && block.meta.src) {
+            imageSrc = resolveImageUrlForEditor(block.meta.src) || block.meta.src;
+          }
+          if (!imageSrc && !img) {
+            showToast(uiT('toastNoCopy'));
+            return Promise.resolve(false);
+          }
+          return copyBitmapImageToClipboard(imageSrc, img);
+        },
+        onCopyImage: function (imgEl) {
+          if (!imgEl) {
+            showToast(uiT('toastNoCopy'));
+            return;
+          }
+          copyBitmapImageToClipboard(imgEl.getAttribute('src') || '', imgEl);
+        },
         onDeleteImageBlock: function (block) {
           if (!isCm6Ready() || !window.MDAEditor || !block) return;
           window.MDAEditor.deleteImageBlock(cm6Editor.view, block);
@@ -457,6 +521,54 @@
           });
         },
         onMoveImageBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+          if (!range) return;
+          window.MDAEditor.moveBlockRange(
+            cm6Editor.view,
+            range.from,
+            range.to,
+            block.targetPos
+          );
+          syncDirtyFromEditor();
+        },
+        onMoveMathBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+          if (!range) return;
+          window.MDAEditor.moveBlockRange(
+            cm6Editor.view,
+            range.from,
+            range.to,
+            block.targetPos
+          );
+          syncDirtyFromEditor();
+        },
+        onMoveTableBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+          if (!range) return;
+          window.MDAEditor.moveBlockRange(
+            cm6Editor.view,
+            range.from,
+            range.to,
+            block.targetPos
+          );
+          syncDirtyFromEditor();
+        },
+        onMoveQuoteBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+          if (!range) return;
+          window.MDAEditor.moveBlockRange(
+            cm6Editor.view,
+            range.from,
+            range.to,
+            block.targetPos
+          );
+          syncDirtyFromEditor();
+        },
+        onMoveHrBlock: function (block) {
           if (!isCm6Ready() || !window.MDAEditor || !block) return;
           var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
           if (!range) return;
@@ -3467,58 +3579,188 @@
       return;
     }
     var imageSrc = opts.imageSrc || '';
-    if (!imageSrc) {
+    var preferredImg = null;
+    if (opts.svgNode && opts.svgNode.tagName && String(opts.svgNode.tagName).toLowerCase() === 'img') {
+      preferredImg = opts.svgNode;
+    }
+    // 缩放层舞台上的 img
+    var zoomImg = document.querySelector('.mda-zoom-stage img');
+    if (!preferredImg && zoomImg) preferredImg = zoomImg;
+    if (!imageSrc && preferredImg) imageSrc = preferredImg.getAttribute('src') || '';
+    if (!imageSrc && !preferredImg) {
       showToast(uiT('toastNoCopy'));
       return;
     }
+    copyBitmapImageToClipboard(imageSrc, preferredImg).then(function (ok) {
+      if (!ok) { /* toast/alert 已由 helper 处理 */ }
+    });
+  }
+
+  /**
+   * 将已解码的 <img> 栅格化为 PNG dataUrl（GIF/WebP 首帧可用；系统剪贴板不支持动图）。
+   * @param {HTMLImageElement} img
+   * @returns {string}
+   */
+  function imgElementToPngDataUrl(img) {
+    if (!img) throw new Error(uiT('unknownError'));
+    var w = img.naturalWidth || img.width;
+    var h = img.naturalHeight || img.height;
+    if (!w || !h) throw new Error(uiT('unknownError'));
+    var canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    var ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error(uiT('unknownError'));
+    ctx.drawImage(img, 0, 0);
+    return canvas.toDataURL('image/png');
+  }
+
+  function isGifLikeSrc(src) {
+    var s = String(src || '');
+    return /^data:image\/gif/i.test(s) || /\.gif(\?|#|$)/i.test(s);
+  }
+
+  function isPreserveFormatSrc(src) {
+    var s = String(src || '');
+    return (
+      isGifLikeSrc(s) ||
+      /^data:image\/(webp|svg\+xml)/i.test(s) ||
+      /\.(webp|svg)(\?|#|$)/i.test(s)
+    );
+  }
+
+  /**
+   * 写入剪贴板图片。GIF 保留原字节供 MDA 粘贴，同时尽量写入系统位图。
+   * @param {string} imageSrc
+   * @param {HTMLImageElement | null} [preferredImg]
+   * @returns {Promise<boolean>}
+   */
+  function copyBitmapImageToClipboard(imageSrc, preferredImg) {
     function fail(err) {
       uiAlert(uiT('alertZoomCopyFail', { error: err || uiT('unknownError') }));
+      return false;
     }
-    if (/^data:image\//i.test(imageSrc)) {
-      if (!api.copyClipboardImage) { fail(uiT('unknownError')); return; }
-      api.copyClipboardImage({ dataUrl: imageSrc }).then(function (r) {
-        if (r && r.success) showToast(uiT('toastZoomCopiedImage'));
-        else fail(r && r.error);
-      });
-      return;
+    if (!api.copyClipboardImage) return Promise.resolve(fail(uiT('unknownError')));
+
+    function ok() {
+      showToast(uiT('toastZoomCopiedImage'));
+      return true;
     }
-    var localPath = fileUrlToPath(imageSrc);
-    if (localPath && api.copyClipboardImage) {
-      api.copyClipboardImage({ filePath: localPath }).then(function (r) {
-        if (r && r.success) showToast(uiT('toastZoomCopiedImage'));
-        else if (api.readFileAsDataUrl) {
-          api.readFileAsDataUrl(localPath).then(function (dr) {
-            if (!dr.success || !dr.dataUrl) { fail(dr.error || (r && r.error)); return; }
-            api.copyClipboardImage({ dataUrl: dr.dataUrl }).then(function (r2) {
-              if (r2 && r2.success) showToast(uiT('toastZoomCopiedImage'));
-              else fail(r2 && r2.error);
+
+    function writeRasterFallback(elOrSrc) {
+      return new Promise(function (resolve) {
+        function sendPng(dataUrl) {
+          api
+            .copyClipboardImage({
+              dataUrl: dataUrl,
+              keepOriginalCache: true,
+            })
+            .then(function (r2) {
+              if (r2 && r2.success) resolve(ok());
+              else resolve(fail(r2 && r2.error));
+            })
+            .catch(function (e) {
+              resolve(fail(e && e.message ? e.message : String(e)));
             });
-          });
-        } else fail(r && r.error);
+        }
+        try {
+          if (elOrSrc && elOrSrc.tagName === 'IMG') {
+            if (elOrSrc.naturalWidth) {
+              sendPng(imgElementToPngDataUrl(elOrSrc));
+              return;
+            }
+            elOrSrc.addEventListener(
+              'load',
+              function () {
+                try {
+                  sendPng(imgElementToPngDataUrl(elOrSrc));
+                } catch (e) {
+                  resolve(fail(e && e.message ? e.message : String(e)));
+                }
+              },
+              { once: true }
+            );
+            elOrSrc.addEventListener(
+              'error',
+              function () {
+                resolve(fail(uiT('unknownError')));
+              },
+              { once: true }
+            );
+            return;
+          }
+          var probe = new Image();
+          probe.onload = function () {
+            try {
+              sendPng(imgElementToPngDataUrl(probe));
+            } catch (e) {
+              resolve(fail(e && e.message ? e.message : String(e)));
+            }
+          };
+          probe.onerror = function () {
+            resolve(fail(uiT('unknownError')));
+          };
+          probe.src = String(elOrSrc || '');
+        } catch (e) {
+          resolve(fail(e && e.message ? e.message : String(e)));
+        }
       });
-      return;
     }
-    // http(s) 等：画到 canvas 再转 dataUrl
-    var img = new Image();
-    img.onload = function () {
-      try {
-        var canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth || img.width;
-        canvas.height = img.naturalHeight || img.height;
-        var ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        var dataUrl = canvas.toDataURL('image/png');
-        if (!api.copyClipboardImage) { fail(uiT('unknownError')); return; }
-        api.copyClipboardImage({ dataUrl: dataUrl }).then(function (r) {
-          if (r && r.success) showToast(uiT('toastZoomCopiedImage'));
-          else fail(r && r.error);
-        });
-      } catch (e) {
-        fail(e && e.message ? e.message : String(e));
+
+    function afterCopyResult(r, fallbackTarget) {
+      if (r && r.success && !r.needsRasterFallback) return Promise.resolve(ok());
+      if ((r && r.needsRasterFallback) || fallbackTarget) {
+        return writeRasterFallback(fallbackTarget);
       }
-    };
-    img.onerror = function () { fail(uiT('unknownError')); };
-    img.src = imageSrc;
+      return Promise.resolve(fail(r && r.error));
+    }
+
+    var src = imageSrc || (preferredImg && preferredImg.getAttribute('src')) || '';
+    var localPath = fileUrlToPath(src);
+    var fallbackTarget = preferredImg && preferredImg.naturalWidth ? preferredImg : src;
+
+    if (localPath && isPreserveFormatSrc(localPath)) {
+      return api
+        .copyClipboardImage({ filePath: localPath, preserveOriginal: true })
+        .then(function (r) {
+          return afterCopyResult(r, fallbackTarget);
+        });
+    }
+    if (isPreserveFormatSrc(src)) {
+      if (/^data:image\//i.test(src)) {
+        return api
+          .copyClipboardImage({ dataUrl: src, preserveOriginal: true })
+          .then(function (r) {
+            return afterCopyResult(r, fallbackTarget);
+          });
+      }
+      if (localPath) {
+        return api
+          .copyClipboardImage({ filePath: localPath, preserveOriginal: true })
+          .then(function (r) {
+            return afterCopyResult(r, fallbackTarget);
+          });
+      }
+    }
+
+    if (/^data:image\/(png|jpe?g|bmp)/i.test(src)) {
+      return api.copyClipboardImage({ dataUrl: src }).then(function (r) {
+        if (r && r.success) return ok();
+        return afterCopyResult(r, fallbackTarget);
+      });
+    }
+
+    if (localPath) {
+      return api.copyClipboardImage({ filePath: localPath }).then(function (r) {
+        if (r && r.success && !r.needsRasterFallback) return ok();
+        return afterCopyResult(r, fallbackTarget);
+      });
+    }
+
+    if (preferredImg || src) {
+      return writeRasterFallback(fallbackTarget || preferredImg || src);
+    }
+    return Promise.resolve(fail(uiT('toastNoCopy')));
   }
 
   /** 深色全屏预览：去掉 SVG 内近白铺底，避免浅色字落在白底上发灰发糊。 */

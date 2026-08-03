@@ -4,6 +4,7 @@ const { parseImageMarkdown } = require('../model/parse-image');
 const { createMdSurface } = require('./md-surface');
 const { createBlockToolbar, clearMediaSelection, uiT } = require('./widget-common');
 const { attachImageDrag } = require('./image-drag');
+const { attachBlockDragHandle } = require('./block-drag-handle');
 const { attachImageCornerResize, isNearFrameResizeCorner } = require('./image-edge-resize');
 const {
   setSelectedImageBlock,
@@ -44,9 +45,28 @@ function applyImageDisplayConstraints(img, opts) {
  * @param {import('@codemirror/view').EditorView} view
  * @param {{ onScaleImage?: Function }} opts
  */
-function bindImageReady(img, view, opts) {
+/**
+ * @param {HTMLImageElement} img
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ onScaleImage?: Function }} opts
+ * @param {{ _measured: number, _cacheKey?: string, _dom?: HTMLElement | null }} [widget]
+ * @param {HTMLElement} [blockRoot]
+ */
+function bindImageReady(img, view, opts, widget, blockRoot) {
+  const { syncWidgetHeightFromDom } = require('./block-widget-base');
   function onReady() {
     applyImageDisplayConstraints(img, opts);
+    if (widget) {
+      requestAnimationFrame(function () {
+        syncWidgetHeightFromDom(widget, view, blockRoot || widget._dom);
+      });
+    } else if (view) {
+      try {
+        view.requestMeasure();
+      } catch (_) {
+        /* ignore */
+      }
+    }
   }
   img.addEventListener('load', onReady);
   img.addEventListener('error', onReady);
@@ -59,12 +79,15 @@ class ImageWidget extends BlockReplaceWidget {
    * @param {{ renderMarkdown?: Function, resolveImageUrl?: Function, onOpenZoom?: Function, onScaleImage?: Function, onDeleteImageBlock?: Function, onReplaceImageBlock?: Function, onMoveImageBlock?: Function, t?: Function, from?: number, to?: number, lineHeight?: number }} [opts]
    */
   constructor(source, opts) {
-    super(source, opts);
+    super(source, Object.assign({ heightKind: 'image' }, opts || {}));
     this.opts = opts || {};
     this.meta = parseImageMarkdown(this.source);
     this._minHeight = 48;
   }
   get estimatedHeight() {
+    if (this._dom && this._dom.isConnected) {
+      return super.estimatedHeight;
+    }
     if (this._measured > 0) return this._measured;
     return Math.max(this._minHeight, this._lineHeight * 2);
   }
@@ -130,7 +153,19 @@ class ImageWidget extends BlockReplaceWidget {
         meta: self.meta,
       });
       try {
-        if (view) view.focus();
+        if (view) {
+          // 钉选区到块首，保证后续删除/撤销光标不落回文档头
+          if (
+            self.from != null &&
+            (view.state.selection.main.from !== self.from ||
+              view.state.selection.main.to !== self.from)
+          ) {
+            view.dispatch({
+              selection: { anchor: self.from, head: self.from },
+            });
+          }
+          view.focus();
+        }
       } catch (_) {
         /* ignore */
       }
@@ -159,6 +194,7 @@ class ImageWidget extends BlockReplaceWidget {
       if (e.button !== 0) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-image-toolbar')) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-image-handle-br')) return;
+      if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) return;
       if (isNearFrameResizeCorner(frame, e.clientX, e.clientY)) return;
       e.preventDefault();
       e.stopPropagation();
@@ -166,12 +202,13 @@ class ImageWidget extends BlockReplaceWidget {
     });
 
     if (img) {
-      bindImageReady(img, view, opts);
+      bindImageReady(img, view, opts, self, root);
       attachImageCornerResize(frame, img, opts, selectFrame);
     }
 
     root.addEventListener('dblclick', function (e) {
       if (e.target && e.target.closest && e.target.closest('.mda-cm-image-toolbar')) return;
+      if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) return;
       e.preventDefault();
       e.stopPropagation();
       const targetImg = inner.querySelector('img');
@@ -181,6 +218,22 @@ class ImageWidget extends BlockReplaceWidget {
         opts: { kind: 'image', imageSrc: targetImg.getAttribute('src') || '' },
       });
     });
+
+    attachBlockDragHandle(
+      frame,
+      view,
+      { from: self.from, to: self.to, source: self.source },
+      {
+        blockRoot: root,
+        blockSelector: '.mda-cm-image-block',
+        replaceOnHover: true,
+        blockKind: 'image',
+        blockMenuHandlers: opts.blockMenuHandlers,
+        t: t,
+        onMoveBlock: opts.onMoveImageBlock,
+        onDropReplaceBlock: opts.onDropReplaceImageBlock,
+      }
+    );
 
     attachImageDrag(root, view, { from: self.from, to: self.to, source: self.source }, opts);
 

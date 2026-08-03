@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const { WidgetType } = require('@codemirror/view');
 
@@ -12,6 +12,9 @@ class HiddenLineWidget extends WidgetType {
   }
   eq() {
     return true;
+  }
+  get estimatedHeight() {
+    return 0;
   }
   ignoreEvent() {
     return true;

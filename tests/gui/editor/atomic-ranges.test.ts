@@ -1,5 +1,5 @@
-﻿/**
- * M8-B8b：hide-mark mark 零宽 + atomicRanges
+/**
+ * M8-B8b：hide-mark 零宽 replace widget + atomicRanges
  */
 import * as path from 'path';
 import { EditorState } from '@codemirror/state';
@@ -21,7 +21,7 @@ const { createBlockDecoField } = require(path.join(
 ));
 
 describe('M8-B8b atomic hide-mark', () => {
-  test('B8b-1: hide-mark 使用 mark 零宽样式，非 replace widget', () => {
+  test('B8b-1: hide-mark 使用 replace 零宽 widget（禁止 mark+display:none）', () => {
     const text = '# Title\n';
     const layers = buildLayerDecos(
       [{ kind: 'hide-mark', from: 0, to: 2 }],
@@ -29,13 +29,15 @@ describe('M8-B8b atomic hide-mark', () => {
       {}
     );
     let sawReplace = false;
-    let sawMark = false;
+    let sawMarkClassOnly = false;
     layers.hide.between(0, text.length, (_f: number, _t: number, deco: { spec?: { widget?: unknown; class?: string } }) => {
       if (deco && deco.spec && deco.spec.widget) sawReplace = true;
-      if (deco && deco.spec && deco.spec.class === 'mda-cm-hide-mark') sawMark = true;
+      if (deco && deco.spec && deco.spec.class === 'mda-cm-hide-mark' && !deco.spec.widget) {
+        sawMarkClassOnly = true;
+      }
     });
-    expect(sawReplace).toBe(false);
-    expect(sawMark).toBe(true);
+    expect(sawReplace).toBe(true);
+    expect(sawMarkClassOnly).toBe(false);
   });
 
   test('B8b-2: livePreview 注册 atomicRanges facet', () => {
@@ -46,6 +48,37 @@ describe('M8-B8b atomic hide-mark', () => {
     const atomic = state.facet(EditorView.atomicRanges);
     expect(atomic.length).toBeGreaterThan(0);
     expect(typeof atomic[0]).toBe('function');
+  });
+
+  test('行内公式为整段 replace widget（配合 widget 层 atomic 整段 Backspace）', () => {
+    const text = '见 $E=mc^2$ 式';
+    const layers = buildLayerDecos(
+      [
+        {
+          kind: 'widget',
+          widget: 'math-inline',
+          from: 2,
+          to: 10,
+          source: '$E=mc^2$',
+          tex: 'E=mc^2',
+        },
+      ],
+      text,
+      {}
+    );
+    let from = -1;
+    let to = -1;
+    let hasWidget = false;
+    layers.widget.between(0, text.length, (f: number, t: number, deco: { spec?: { widget?: unknown } }) => {
+      if (deco && deco.spec && deco.spec.widget) {
+        hasWidget = true;
+        from = f;
+        to = t;
+      }
+    });
+    expect(hasWidget).toBe(true);
+    expect(from).toBe(2);
+    expect(to).toBe(10);
   });
 
   test('B8b-3: 标题语法标记被 hide-mark 覆盖', () => {

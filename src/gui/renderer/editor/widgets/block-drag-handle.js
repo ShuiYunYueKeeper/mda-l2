@@ -1,11 +1,11 @@
 /**
- * 块级 widget 左上角拖动手柄（长按后 grabbable 拖动 reposition）。
- * 供 Mermaid / 后续说明块等复用。
+ * 块级 widget 左上角拖动手柄（类型图标 + 六点；单击菜单 / 长按拖动）。
  */
 'use strict';
 
 const { resolveBlockDropTargetFromCoords } = require('./image-block-ops');
 const { showBlockHandleMenu } = require('./block-handle-menu');
+const { blockTypeIconHtml } = require('./block-menu-icons');
 
 const LONG_PRESS_MS = 200;
 const CANCEL_DRAG_PX = 10;
@@ -25,6 +25,19 @@ function readBlockRange(el, fallback) {
 }
 
 /**
+ * @param {string} [blockKind]
+ */
+function buildHandleInnerHtml(blockKind) {
+  const typeIcon = blockTypeIconHtml(blockKind);
+  return (
+    typeIcon +
+    '<span class="mda-cm-block-drag-grip" aria-hidden="true">' +
+    '<i></i><i></i><i></i><i></i><i></i><i></i>' +
+    '</span>'
+  );
+}
+
+/**
  * @param {HTMLElement} anchorEl 手柄挂载点（通常为 frame，便于左上角定位）
  * @param {import('@codemirror/view').EditorView} view
  * @param {{ from: number, to: number, source?: string }} range
@@ -37,6 +50,7 @@ function readBlockRange(el, fallback) {
  *   blockKind?: string,
  *   blockMenuHandlers?: object,
  *   t?: Function,
+ *   onHandleClick?: Function,
  * }} opts
  */
 function attachBlockDragHandle(anchorEl, view, range, opts) {
@@ -44,6 +58,7 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
   const handle = document.createElement('button');
   handle.type = 'button';
   handle.className = 'mda-cm-block-drag-handle';
+  if (opts.blockKind) handle.setAttribute('data-block-kind', opts.blockKind);
   handle.setAttribute('data-i18n-title', 'widgetBlockDragHandle');
   handle.setAttribute('data-i18n-aria', 'widgetBlockDragHandle');
   if (opts.t) {
@@ -51,10 +66,7 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
     handle.title = uiT('widgetBlockDragHandle', opts.t);
     handle.setAttribute('aria-label', uiT('widgetBlockDragHandle', opts.t));
   }
-  handle.innerHTML =
-    '<span class="mda-cm-block-drag-grip" aria-hidden="true">' +
-    '<i></i><i></i><i></i><i></i><i></i><i></i>' +
-    '</span>';
+  handle.innerHTML = buildHandleInnerHtml(opts.blockKind);
   anchorEl.insertBefore(handle, anchorEl.firstChild);
 
   let pressTimer = 0;
@@ -235,5 +247,6 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
 
 module.exports = {
   attachBlockDragHandle: attachBlockDragHandle,
+  buildHandleInnerHtml: buildHandleInnerHtml,
   LONG_PRESS_MS: LONG_PRESS_MS,
 };

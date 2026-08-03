@@ -43,9 +43,15 @@ function splitRow(line) {
   let cur = '';
   for (let i = 0; i < s.length; i++) {
     const ch = s.charAt(i);
+    // 仅 \| / \\ 为表格转义；保留 \sqrt 等 LaTeX 反斜杠
     if (ch === '\\' && i + 1 < s.length) {
-      cur += s.charAt(i + 1);
-      i += 1;
+      const next = s.charAt(i + 1);
+      if (next === '|' || next === '\\') {
+        cur += next;
+        i += 1;
+        continue;
+      }
+      cur += ch;
       continue;
     }
     if (ch === '|') {
@@ -279,7 +285,7 @@ function readTableFromDom(table) {
   const ths = table.querySelectorAll('thead th');
   const colWidths = [];
   for (let i = 0; i < ths.length; i++) {
-    headers.push(normalizeCellText(ths[i].textContent).trim());
+    headers.push(serializeTableCellMarkdown(ths[i]).trim());
     const w = parseInt(ths[i].style.width || '', 10);
     colWidths.push(w > 0 ? w : 0);
   }
@@ -302,7 +308,7 @@ function readTableFromDom(table) {
     const cells = [];
     const tds = trs[r].querySelectorAll('td');
     for (let c = 0; c < headers.length; c++) {
-      cells.push(tds[c] ? normalizeCellText(tds[c].textContent).trim() : '');
+      cells.push(tds[c] ? serializeTableCellMarkdown(tds[c]).trim() : '');
     }
     rows.push(cells);
     const rh = parseInt(trs[r].style.height || '', 10);
@@ -318,6 +324,60 @@ function readTableFromDom(table) {
     })) out.rowHeights = rowHeights;
   }
   return out;
+}
+
+/**
+ * 单元格 Markdown 序列化：公式 / 图片原子回写，避免 textContent 吃掉语法。
+ * @param {HTMLElement | null} cell
+ */
+function serializeTableCellMarkdown(cell) {
+  if (!cell) return '';
+  let out = '';
+  function walk(node) {
+    if (!node) return;
+    if (node.nodeType === 3) {
+      out += node.nodeValue || '';
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    if (node.getAttribute && node.getAttribute('data-mda-math-source')) {
+      out += node.getAttribute('data-mda-math-source') || '';
+      return;
+    }
+    if (node.getAttribute && node.hasAttribute('data-mda-math-tex')) {
+      out += '$' + (node.getAttribute('data-mda-math-tex') || '') + '$';
+      return;
+    }
+    if (node.getAttribute && node.getAttribute('data-mda-image-source')) {
+      out += node.getAttribute('data-mda-image-source') || '';
+      return;
+    }
+    if (
+      node.classList &&
+      node.classList.contains('mda-cm-table-img') &&
+      node.getAttribute
+    ) {
+      const alt = node.getAttribute('data-mda-image-alt') || '';
+      const src = node.getAttribute('data-mda-image-src') || '';
+      const title = node.getAttribute('data-mda-image-title') || '';
+      if (title) {
+        out +=
+          '![' +
+          alt +
+          '](' +
+          src +
+          ' "' +
+          String(title).replace(/\\/g, '\\\\').replace(/"/g, '\\"') +
+          '")';
+      } else {
+        out += '![' + alt + '](' + src + ')';
+      }
+      return;
+    }
+    for (let i = 0; i < node.childNodes.length; i++) walk(node.childNodes[i]);
+  }
+  walk(cell);
+  return normalizeCellText(out);
 }
 
 function isTableLine(line) {
@@ -445,6 +505,7 @@ module.exports = {
   hasTableLayoutMeta: hasTableLayoutMeta,
   tableLayoutEqual: tableLayoutEqual,
   readTableFromDom: readTableFromDom,
+  serializeTableCellMarkdown: serializeTableCellMarkdown,
   expandGfmTableRange: expandGfmTableRange,
   expandTableBlockRange: expandTableBlockRange,
   splitRow: splitRow,

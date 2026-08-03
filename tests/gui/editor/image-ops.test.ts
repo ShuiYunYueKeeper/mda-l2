@@ -7,7 +7,7 @@ const { posAtClick } = require(path.join(
   __dirname,
   '../../../src/gui/renderer/editor/click-collapse.js'
 ));
-const { insertImageAt, moveBlockRange, resolveBlockRange, resolveDropTargetFromCoords, dropReplaceImageBlock, resolveImageLineRange } = require(path.join(
+const { insertImageAt, moveBlockRange, resolveBlockRange, resolveDropTargetFromCoords, dropReplaceImageBlock, resolveImageLineRange, deleteBlockRange } = require(path.join(
   __dirname,
   '../../../src/gui/renderer/editor/widgets/image-block-ops.js'
 ));
@@ -86,6 +86,53 @@ describe('image-block-ops', () => {
     expect(text.match(/!\[img\]/g)?.length || 0).toBe(1);
     expect(text).not.toContain('![img](a.png)\n![img]');
     expect(text.indexOf('after')).toBeGreaterThan(text.indexOf('![img]'));
+  });
+
+  test('deleteBlockRange 删除前钉选区到块首（避免撤销回到文档头）', () => {
+    const doc = 'before\n![img](a.png)\nafter';
+    let text = doc;
+    let selection = { from: 0, to: 0 };
+    const dispatches: Array<{ selection?: { anchor: number; head: number }; changes?: unknown }> = [];
+    const view = {
+      state: {
+        get selection() {
+          return { main: selection };
+        },
+        doc: {
+          toString: function () {
+            return text;
+          },
+          sliceString: function (from: number, to: number) {
+            return text.slice(from, to);
+          },
+          get length() {
+            return text.length;
+          },
+        },
+      },
+      dispatch: function (tr: {
+        changes?: { from: number; to: number; insert: string };
+        selection?: { anchor: number; head: number };
+      }) {
+        dispatches.push(tr);
+        if (tr.selection) {
+          selection = { from: tr.selection.anchor, to: tr.selection.head };
+        }
+        if (tr.changes) {
+          const ch = tr.changes;
+          text = text.slice(0, ch.from) + (ch.insert || '') + text.slice(ch.to);
+        }
+      },
+    };
+    const from = text.indexOf('![img]');
+    const to = text.indexOf('\n', from) + 1;
+    deleteBlockRange(view, from, to);
+    expect(dispatches.length).toBeGreaterThanOrEqual(2);
+    expect(dispatches[0].selection).toEqual({ anchor: from, head: from });
+    expect(dispatches[1].changes).toBeTruthy();
+    expect(dispatches[1].selection?.anchor).toBe(from);
+    expect(text).toBe('before\nafter');
+    expect(text).not.toContain('![img]');
   });
 
   test('resolveBlockRange 按 from/to 定位（source 无换行）', () => {

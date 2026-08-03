@@ -2,7 +2,7 @@
 
 const { parseFencedCode } = require('../model/parse-fence');
 const { createBlockToolbar, copyText, uiT, clearMediaSelection, clearBlockWidgetSelection } = require('./widget-common');
-const { BlockReplaceWidget } = require('./block-widget-base');
+const { BlockReplaceWidget, syncWidgetHeightFromDom } = require('./block-widget-base');
 const { attachMermaidCornerResize } = require('./mermaid-edge-resize');
 const { isNearFrameResizeCorner } = require('./image-edge-resize');
 const { attachBlockDragHandle } = require('./block-drag-handle');
@@ -42,7 +42,7 @@ class MermaidWidget extends BlockReplaceWidget {
    * @param {object} [opts]
    */
   constructor(source, opts) {
-    super(source, opts);
+    super(source, Object.assign({ heightKind: 'mermaid' }, opts || {}));
     this.opts = opts || {};
     const parsed = parseFencedCode(this.source);
     this.code = parsed ? parsed.code : this.source;
@@ -265,20 +265,17 @@ class MermaidWidget extends BlockReplaceWidget {
       Promise.resolve(opts.renderMermaid(self.code, stage))
         .then(function () {
           applyMermaidDisplayConstraints(stage, opts);
-          try {
-            if (view) view.requestMeasure();
-          } catch (_) {
-            /* ignore */
-          }
+          // 须先写入实测高度再 requestMeasure；否则 estimatedHeight 仍是加载态缓存，高度图卡住
+          requestAnimationFrame(function () {
+            syncWidgetHeightFromDom(self, view, root);
+          });
         })
         .catch(function () {
           stage.textContent = uiT('mermaidFail', t, { error: '' });
           stage.classList.add('mda-mermaid-error');
-          try {
-            if (view) view.requestMeasure();
-          } catch (_) {
-            /* ignore */
-          }
+          requestAnimationFrame(function () {
+            syncWidgetHeightFromDom(self, view, root);
+          });
         });
     }
 

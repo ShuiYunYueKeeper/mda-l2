@@ -88,7 +88,7 @@ class CodeFenceWidget extends BlockReplaceWidget {
    * @param {object} [opts]
    */
   constructor(source, opts) {
-    super(source, opts);
+    super(source, Object.assign({ heightKind: 'code' }, opts || {}));
     this.opts = opts || {};
     const parsed = parseFencedCode(this.source);
     this.lang = parsed ? normalizeCodeBlockLang(parsed.lang) : '';
@@ -98,6 +98,9 @@ class CodeFenceWidget extends BlockReplaceWidget {
     this._minHeight = estimateCodeFenceHeight(this.code);
   }
   get estimatedHeight() {
+    if (this._dom && this._dom.isConnected) {
+      return Math.min(super.estimatedHeight, MAX_CODE_WIDGET_HEIGHT);
+    }
     if (this._measured > 0) {
       return Math.min(this._measured, MAX_CODE_WIDGET_HEIGHT);
     }

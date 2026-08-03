@@ -1,5 +1,5 @@
 ﻿/**
- * M8-B/C 实时预览视图层：语法隐藏（D15 = hide-mark 零宽 mark + atomicRanges）。
+ * M8-B/C 实时预览视图层：语法隐藏（D15 = hide-mark 零宽 replace widget + atomicRanges）。
  */
 'use strict';
 
@@ -15,7 +15,7 @@ const {
   computeRevealRanges,
   enclosingBlockFromTree,
 } = require('./model/reveal');
-const { HiddenLineWidget } = require('./widgets/hidden-line');
+const { HiddenLineWidget, HIDE_MARK_WIDGET } = require('./widgets/hidden-line');
 const editorConfig = require('./config');
 const { atomicRangesFromPlugin, atomicRangesFromBlockField, atomicRangesFromHideLines } = require('./view/atomic-ranges');
 const { createReadonlyChangeFilter } = require('./view/change-filter');
@@ -28,9 +28,11 @@ const {
   readBlockFocus,
 } = require('./state/block-focus');
 const { TableWidget } = require('./widgets/table');
+const { QuoteHandleWidget } = require('./widgets/quote-handle');
 const { ImageWidget } = require('./widgets/image');
 const { CodeFenceWidget } = require('./widgets/code');
 const { MermaidWidget } = require('./widgets/mermaid');
+const { InlineMathWidget, BlockMathWidget } = require('./widgets/math');
 const { createAnnoGutterField } = require('./anno-gutter');
 const { createClickCollapseExtension } = require('./click-collapse');
 const {
@@ -55,6 +57,11 @@ const {
   createImageKeydownHandler,
 } = require('./image-shortcuts');
 const { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require('./widgets/block-widget-base');
+const { attachBlockDragHandle } = require('./widgets/block-drag-handle');
+const {
+  clearBlockWidgetSelection,
+  clearMediaSelection,
+} = require('./widgets/widget-common');
 
 class BulletWidget extends WidgetType {
   toDOM() {
@@ -74,16 +81,89 @@ class BulletWidget extends WidgetType {
 
 class HrWidget extends BlockReplaceWidget {
   constructor(source, opts) {
-    super(source || '---', opts);
+    // 视觉含上下 padding，初始估高勿用单行 26，否则测高前点击会偏行
+    super(source || '---', Object.assign({ minHeight: 52, heightKind: 'hr' }, opts || {}));
+    this.opts = opts || {};
   }
   toDOM(view) {
-    const el = document.createElement('hr');
-    el.className = 'mda-cm-hr';
-    this.bindMeasure(view, el);
-    return el;
+    const self = this;
+    const opts = this.opts;
+    const root = document.createElement('div');
+    root.className = 'mda-cm-hr-block';
+    root.setAttribute('contenteditable', 'false');
+    if (self.from != null) root.setAttribute('data-mda-block-from', String(self.from));
+    if (self.to != null) root.setAttribute('data-mda-block-to', String(self.to));
+    if (self.source) root.setAttribute('data-mda-block-source', self.source);
+
+    const frame = document.createElement('div');
+    frame.className = 'mda-cm-hr-frame';
+    const line = document.createElement('hr');
+    line.className = 'mda-cm-hr';
+    frame.appendChild(line);
+
+    function pinCaret() {
+      if (!view || self.from == null) return;
+      try {
+        const pos = Math.max(0, Math.min(self.from, view.state.doc.length));
+        const sel = view.state.selection.main;
+        if (sel.from !== pos || sel.to !== pos) {
+          view.dispatch({ selection: { anchor: pos, head: pos } });
+        }
+        view.focus();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
+    function clearSelect() {
+      root.classList.remove('mda-cm-block-selected');
+      frame.classList.remove('mda-cm-hr-selected');
+    }
+
+    function selectBlock() {
+      clearMediaSelection(view.dom);
+      clearBlockWidgetSelection(view.dom);
+      root.classList.add('mda-cm-block-selected');
+      frame.classList.add('mda-cm-hr-selected');
+      // 收拢选区到块起点，避免旧光标残留导致双光标
+      pinCaret();
+    }
+
+    attachBlockDragHandle(
+      frame,
+      view,
+      { from: self.from, to: self.to, source: self.source },
+      {
+        blockRoot: root,
+        blockSelector: '.mda-cm-hr-block',
+        replaceOnHover: false,
+        blockKind: 'hr',
+        blockMenuHandlers: opts.blockMenuHandlers,
+        t: opts.t,
+        onMoveBlock: opts.onMoveHrBlock,
+      }
+    );
+
+    root.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) return;
+      if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // 已选中时再点分割线位 → 取消选中
+      if (root.classList.contains('mda-cm-block-selected')) {
+        clearSelect();
+        pinCaret();
+        return;
+      }
+      selectBlock();
+    });
+
+    root.appendChild(frame);
+    this.bindMeasure(view, root);
+    return root;
   }
   eq(other) {
-    return other instanceof HrWidget;
+    return other instanceof HrWidget && other.source === this.source;
   }
 }
 
@@ -210,6 +290,19 @@ function expandBlockRange(text, from, to) {
   return { from: start, to: end };
 }
 
+/**
+ * 块级 replace：须 inclusiveEnd:false。
+ * 默认 inclusive 会把终点位置（常为下一空行 from===to）吞进装饰，空行塌成 0 高且不可点。
+ * @param {import('@codemirror/view').WidgetType} widget
+ */
+function blockReplaceDeco(widget) {
+  return cmView.Decoration.replace({
+    widget: widget,
+    block: true,
+    inclusiveEnd: false,
+  });
+}
+
 function overlapsHide(from, to, hideRanges) {
   for (let i = 0; i < hideRanges.length; i++) {
     const h = hideRanges[i];
@@ -226,7 +319,17 @@ function overlapsBlock(from, to, blockRanges) {
   return false;
 }
 
-/** 块级 widget 分阶段闸门，见 editor/config.js（默认 text = 仅标题/正文） */
+/** 块级 / 行内 widget 分阶段闸门，见 editor/config.js */
+function widgetEnabled(kind) {
+  if (kind === 'math-inline' || kind === 'math-block') {
+    return editorConfig.mathWidgetEnabled(kind);
+  }
+  if (kind === 'quote-handle') {
+    return editorConfig.blockWidgetEnabled('quote-handle');
+  }
+  return editorConfig.blockWidgetEnabled(kind);
+}
+
 function blockWidgetEnabled(kind) {
   return editorConfig.blockWidgetEnabled(kind);
 }
@@ -249,6 +352,7 @@ function buildLayerDecos(specs, text, liveOpts) {
     t: liveOpts.t,
     copyText: liveOpts.copyText,
     onOpenZoom: liveOpts.onOpenZoom,
+    onCopyImage: liveOpts.onCopyImage,
     onScaleImage: liveOpts.onScaleImage,
     getSavedDisplayWidth: liveOpts.getSavedDisplayWidth,
     onDeleteImageBlock: liveOpts.onDeleteImageBlock,
@@ -267,13 +371,19 @@ function buildLayerDecos(specs, text, liveOpts) {
     onMermaidResizeEnd: liveOpts.onMermaidResizeEnd,
     onMermaidResizeReset: liveOpts.onMermaidResizeReset,
     onCopyMermaidImage: liveOpts.onCopyMermaidImage,
+    onCopyMathImage: liveOpts.onCopyMathImage,
     onEditMermaidBlock: liveOpts.onEditMermaidBlock,
     onDeleteMermaidBlock: liveOpts.onDeleteMermaidBlock,
     onMoveMermaidBlock: liveOpts.onMoveMermaidBlock,
     onEditCodeBlock: liveOpts.onEditCodeBlock,
+    onEditMathBlock: liveOpts.onEditMathBlock,
     onScaleCodeBlock: liveOpts.onScaleCodeBlock,
     onDeleteCodeBlock: liveOpts.onDeleteCodeBlock,
     onMoveCodeBlock: liveOpts.onMoveCodeBlock,
+    onMoveMathBlock: liveOpts.onMoveMathBlock,
+    onMoveTableBlock: liveOpts.onMoveTableBlock,
+    onMoveQuoteBlock: liveOpts.onMoveQuoteBlock,
+    onMoveHrBlock: liveOpts.onMoveHrBlock,
     onSwitchSource: liveOpts.onSwitchSource,
     blockMenuHandlers: liveOpts.blockMenuHandlers,
     onFocusBlock: liveOpts.onFocusBlock,
@@ -306,7 +416,8 @@ function buildLayerDecos(specs, text, liveOpts) {
       s.widget === 'hr' ||
       s.widget === 'table' ||
       s.widget === 'code' ||
-      s.widget === 'image'
+      s.widget === 'image' ||
+      s.widget === 'math-block'
     ) {
       const br =
         s.widget === 'table'
@@ -346,7 +457,8 @@ function buildLayerDecos(specs, text, liveOpts) {
       (s.widget === 'hr' ||
         s.widget === 'table' ||
         s.widget === 'code' ||
-        s.widget === 'image');
+        s.widget === 'image' ||
+        s.widget === 'math-block');
     if (
       blockWidgetRanges.length > 0 &&
       !isBlockWidgetSpec &&
@@ -357,13 +469,12 @@ function buildLayerDecos(specs, text, liveOpts) {
 
     if (s.kind === 'hide-mark') {
       if (s.from < s.to) {
+        // 必须用 replace 零宽 widget + atomicRanges。
+        // Decoration.mark + display:none 会让字符在文档坐标系仍占宽、视觉为 0，横向 Δ 可达数百 px。
         hides.push({
           from: s.from,
           to: s.to,
-          deco: cmView.Decoration.mark({
-            class: 'mda-cm-hide-mark',
-            attributes: { 'aria-hidden': 'true' },
-          }),
+          deco: cmView.Decoration.replace({ widget: HIDE_MARK_WIDGET }),
         });
       }
     } else if (s.kind === 'style' || s.kind === 'raw') {
@@ -377,6 +488,28 @@ function buildLayerDecos(specs, text, liveOpts) {
         deco: cmView.Decoration.line({ class: s.cls || '' }),
       });
     } else if (s.kind === 'widget') {
+      if (s.widget === 'quote-handle') {
+        if (!widgetEnabled('quote-handle')) continue;
+        const qFrom = s.blockFrom != null ? s.blockFrom : s.from;
+        const qTo = s.blockTo != null ? s.blockTo : s.to;
+        widgets.push({
+          from: qFrom,
+          to: qFrom,
+          deco: cmView.Decoration.widget({
+            widget: new QuoteHandleWidget({
+              from: qFrom,
+              to: qTo,
+              source: s.source || text.slice(qFrom, qTo),
+              quoteKind: s.quoteKind || 'quote',
+              t: widgetOpts.t,
+              blockMenuHandlers: widgetOpts.blockMenuHandlers,
+              onMoveQuoteBlock: widgetOpts.onMoveQuoteBlock,
+            }),
+            side: -1,
+          }),
+        });
+        continue;
+      }
       if (s.from >= s.to) continue;
       let deco = null;
       let from = s.from;
@@ -398,13 +531,13 @@ function buildLayerDecos(specs, text, liveOpts) {
         blockWidgets.push({
           from: br.from,
           to: br.to,
-          deco: cmView.Decoration.replace({
-            widget: new HrWidget(text.slice(br.from, br.to), Object.assign({}, widgetOpts, {
+          deco: blockReplaceDeco(
+            new HrWidget(text.slice(br.from, br.to), Object.assign({}, widgetOpts, {
               from: br.from,
               to: br.to,
-            })),
-            block: true,
-          }),
+              onMoveHrBlock: widgetOpts.onMoveHrBlock,
+            }))
+          ),
         });
         continue;
       } else if (s.widget === 'table') {
@@ -413,18 +546,18 @@ function buildLayerDecos(specs, text, liveOpts) {
         blockWidgets.push({
           from: br.from,
           to: br.to,
-          deco: cmView.Decoration.replace({
-            widget: new TableWidget(text.slice(br.from, br.to), Object.assign({}, widgetOpts, {
+          deco: blockReplaceDeco(
+            new TableWidget(text.slice(br.from, br.to), Object.assign({}, widgetOpts, {
               from: br.from,
               to: br.to,
-            })),
-            block: true,
-          }),
+            }))
+          ),
         });
         continue;
       } else if (s.widget === 'code') {
         const br = expandFenceBlockRange(text, s.from, s.to);
-        const src = s.source || text.slice(s.from, s.to);
+        // 必须以收缩后的区间切片为源，避免语法树偏大 / 旧 source 与 replace 区间不一致导致双显
+        const src = text.slice(br.from, br.to);
         const parsed = parseFencedCode(src);
         const isMermaid = parsed && /^mermaid$/i.test(parsed.lang || '');
         if (isMermaid ? !blockWidgetEnabled('mermaid') : !blockWidgetEnabled('code')) continue;
@@ -432,13 +565,31 @@ function buildLayerDecos(specs, text, liveOpts) {
         blockWidgets.push({
           from: br.from,
           to: br.to,
-          deco: cmView.Decoration.replace({
-            widget: new W(src, Object.assign({}, widgetOpts, {
+          deco: blockReplaceDeco(
+            new W(src, Object.assign({}, widgetOpts, {
               from: br.from,
               to: br.to,
-            })),
-            block: true,
-          }),
+            }))
+          ),
+        });
+        continue;
+      } else if (s.widget === 'math-inline') {
+        if (!widgetEnabled('math-inline')) continue;
+        deco = cmView.Decoration.replace({
+          widget: new InlineMathWidget(s.source || text.slice(s.from, s.to), s.tex || ''),
+        });
+      } else if (s.widget === 'math-block') {
+        if (!widgetEnabled('math-block')) continue;
+        const br = expandBlockRange(text, s.from, s.to);
+        blockWidgets.push({
+          from: br.from,
+          to: br.to,
+          deco: blockReplaceDeco(
+            new BlockMathWidget(s.source || text.slice(br.from, br.to), Object.assign({}, widgetOpts, {
+              from: br.from,
+              to: br.to,
+            }))
+          ),
         });
         continue;
       } else if (s.widget === 'image') {
@@ -447,13 +598,12 @@ function buildLayerDecos(specs, text, liveOpts) {
         blockWidgets.push({
           from: br.from,
           to: br.to,
-          deco: cmView.Decoration.replace({
-            widget: new ImageWidget(s.source || text.slice(s.from, s.to), Object.assign({}, widgetOpts, {
+          deco: blockReplaceDeco(
+            new ImageWidget(s.source || text.slice(br.from, br.to), Object.assign({}, widgetOpts, {
               from: br.from,
               to: br.to,
-            })),
-            block: true,
-          }),
+            }))
+          ),
         });
         continue;
       }
@@ -547,7 +697,7 @@ function buildDecosFromState(state, lastReveal, liveOpts, viewHints, blockFocusF
       focusedBlock: focusedBlock,
       fullHide: true,
       widgetEnabled: function (kind) {
-        return blockWidgetEnabled(kind);
+        return widgetEnabled(kind);
       },
     });
     return {
@@ -600,14 +750,15 @@ function createBlockDecoField(liveOpts, blockFocusField) {
       const docLen = tr.state.doc.length;
       const prevTreeLen = prev.treeLen || 0;
       const treeStillIncomplete = prevTreeLen < docLen;
-      if (!tr.docChanged && !tr.selectionSet && !focusChanged && !treeStillIncomplete) {
+      if (!tr.docChanged && !focusChanged && !treeStillIncomplete) {
         return prev;
       }
       const built = buildDecosFromState(tr.state, prev.reveal || [], liveOpts, {}, blockFocusField);
       const nextTreeLen = built.treeLen || 0;
+      // 不因 selectionSet 重建：fullHide/never 下选区不改变装饰；
+      // 重建会换新 widget 实例并短暂丢失测高 → 点击/光标 Δ 飙升。
       if (
         !tr.docChanged &&
-        !tr.selectionSet &&
         !focusChanged &&
         nextTreeLen === prevTreeLen &&
         nextTreeLen >= docLen
@@ -724,7 +875,6 @@ function makeLayerPlugin(layerKey, liveOpts, pluginOpts, blockFocusField) {
           !(
             this._imePending ||
             update.docChanged ||
-            update.selectionSet ||
             update.viewportChanged ||
             treeGrew ||
             focusChanged
@@ -737,7 +887,22 @@ function makeLayerPlugin(layerKey, liveOpts, pluginOpts, blockFocusField) {
         const built = getBuiltLayers(update.view, this._lastReveal, liveOpts, blockFocusField);
         this._lastReveal = built.reveal;
         this._treeLen = treeLen;
+        const prevDeco = this.decorations;
         this.decorations = built.layers[layerKey] || cmView.Decoration.none;
+        // 行装饰（标题行高）/ 块测高变化后强制重测，避免 posAtCoords 纵向漂移
+        if (
+          (layerKey === 'line' || layerKey === 'block') &&
+          prevDeco !== this.decorations
+        ) {
+          const v = update.view;
+          requestAnimationFrame(function () {
+            try {
+              v.requestMeasure();
+            } catch (_) {
+              /* ignore */
+            }
+          });
+        }
       }
     },
     spec
@@ -817,6 +982,8 @@ function livePreview(opts) {
     t: opts.t,
     onDeleteMermaidBlock: opts.onDeleteMermaidBlock,
     onDeleteCodeBlock: opts.onDeleteCodeBlock,
+    onDeleteImageBlock: opts.onDeleteImageBlock,
+    onCopyImageBlock: opts.onCopyImageBlock,
     onSoon: opts.onBlockMenuSoon,
     onAiAction: opts.onBlockMenuAi,
   });
@@ -858,7 +1025,7 @@ function livePreview(opts) {
       if (target && target.closest) {
         if (
           target.closest(
-            '.mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-image-block'
+            '.mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-image-block, .mda-cm-math-block, .mda-cm-quote-handle-anchor, .mda-cm-hr-block'
           )
         ) {
           return false;
@@ -923,7 +1090,8 @@ function livePreview(opts) {
   ]
     .concat(makeLayerPlugin('hide', liveOpts, { atomic: true }, blockFocusField))
     .concat(makeLayerPlugin('style', liveOpts, {}, blockFocusField))
-    .concat(makeLayerPlugin('widget', liveOpts, {}, blockFocusField))
+    // 行内 replace（公式 / 任务勾选 / 无序圆点）须 atomic，否则 Backspace 会逐字拆开源码
+    .concat(makeLayerPlugin('widget', liveOpts, { atomic: true }, blockFocusField))
     .concat(makeLayerPlugin('line', liveOpts, {}, blockFocusField))
     .concat([
       linkClick,
@@ -969,6 +1137,7 @@ module.exports = {
   flattenStyles: flattenStyles,
   buildLayerDecos: buildLayerDecos,
   expandBlockRange: expandBlockRange,
+  blockReplaceDeco: blockReplaceDeco,
   createBlockDecoField: createBlockDecoField,
   parseTreeForState: parseTreeForState,
   syntaxTreeBudget: syntaxTreeBudget,

@@ -292,8 +292,17 @@ function deleteBlockRange(view, from, to) {
   ) {
     delTo += 1;
   }
+  // 选图/块时 CM6 选区常仍在文档头；若不先钉到块首，history 会把撤销后的光标还原到 0。
+  const sel = view.state.selection.main;
+  if (sel.from !== delFrom || sel.to !== delFrom) {
+    view.dispatch({
+      selection: { anchor: delFrom, head: delFrom },
+    });
+  }
+  const caret = Math.min(delFrom, view.state.doc.length - (delTo - delFrom));
   view.dispatch({
     changes: { from: delFrom, to: delTo, insert: '' },
+    selection: { anchor: caret, head: caret },
     userEvent: 'delete',
   });
 }

@@ -493,15 +493,8 @@ function registerIpcHandlers() {
   ipcMain.handle('copy-clipboard-image', async (_event, payload) => {
     try {
       const { nativeImage } = require('electron');
-      let img = null;
-      if (payload && payload.dataUrl) {
-        img = nativeImage.createFromDataURL(String(payload.dataUrl));
-      } else if (payload && payload.filePath) {
-        img = nativeImage.createFromPath(path.resolve(String(payload.filePath)));
-      }
-      if (!img || img.isEmpty()) return { success: false, error: t('errImageEmpty') };
-      clipboard.writeImage(img);
-      return { success: true };
+      const { copyClipboardImage } = require('./main/clipboard-image');
+      return await copyClipboardImage(payload || {}, t, nativeImage);
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -509,20 +502,9 @@ function registerIpcHandlers() {
 
   ipcMain.handle('save-clipboard-image-asset', async (_event, payload) => {
     try {
-      const baseFile = payload && payload.baseFile;
-      if (!baseFile) return { success: false, error: 'baseFile required' };
       const { nativeImage } = require('electron');
-      const img = clipboard.readImage();
-      if (!img || img.isEmpty()) return { success: false, error: t('errImageEmpty') };
-      const docDir = path.dirname(path.resolve(String(baseFile)));
-      const assetsDir = path.join(docDir, 'assets');
-      await fs.promises.mkdir(assetsDir, { recursive: true });
-      const fileName = 'paste-' + Date.now() + '.png';
-      const absPath = path.join(assetsDir, fileName);
-      await fs.promises.writeFile(absPath, img.toPNG());
-      let rel = path.relative(docDir, absPath).split(path.sep).join('/');
-      if (!rel.startsWith('.')) rel = './' + rel;
-      return { success: true, filePath: absPath, relativePath: rel };
+      const { saveClipboardImageAsset } = require('./main/clipboard-image');
+      return await saveClipboardImageAsset(payload && payload.baseFile, t, nativeImage);
     } catch (err) {
       return { success: false, error: err.message };
     }

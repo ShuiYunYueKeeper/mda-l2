@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -1001,22 +1001,40 @@
     body.mda-cm6-active #editor-pane { display: none !important; }
     body.mda-cm6-active #split-left { display: none !important; }
     .mda-cm6-host { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
-    /* hide-mark：不占水平宽度，保证 posAtCoords/coordsAtPos 一致 */
+    /* hide-mark：replace 零宽 widget，勿用 display:none 的 mark（会横向错位） */
     .mda-cm6-host .mda-cm-hide-mark {
-      display: none !important;
+      display: inline-block;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+      padding: 0;
+      margin: 0;
+      border: 0;
+      vertical-align: middle;
+      pointer-events: none;
     }
-    .mda-cm6-host .mda-cm-h1-line { padding-top: 14px; padding-bottom: 6px; }
-    .mda-cm6-host .mda-cm-h2-line { padding-top: 12px; padding-bottom: 5px; }
-    .mda-cm6-host .mda-cm-h3-line { padding-top: 10px; padding-bottom: 4px; }
-    .mda-cm6-host .mda-cm-h4-line { padding-top: 8px; padding-bottom: 4px; }
-    .mda-cm6-host .mda-cm-h5-line { padding-top: 6px; padding-bottom: 3px; }
-    .mda-cm6-host .mda-cm-h6-line { padding-top: 4px; padding-bottom: 2px; color: var(--text-muted); }
-    .mda-cm6-host .mda-cm-h1 { font-size: 1.75em; line-height: 26px; }
-    .mda-cm6-host .mda-cm-h2 { font-size: 1.45em; line-height: 26px; }
-    .mda-cm6-host .mda-cm-h3 { font-size: 1.25em; line-height: 26px; }
-    .mda-cm6-host .mda-cm-h4 { font-size: 1.1em; line-height: 26px; }
-    .mda-cm6-host .mda-cm-h5 { font-size: 1em; line-height: 26px; }
-    .mda-cm6-host .mda-cm-h6 { font-size: 0.95em; line-height: 26px; color: var(--text-muted); }
+    /* 标题间距并入行高（勿用 padding）：padding 易使高度图与点击落点纵向错位 */
+    .mda-cm6-host .mda-cm-h1-line { padding: 0; line-height: 46px; }
+    .mda-cm6-host .mda-cm-h2-line { padding: 0; line-height: 43px; }
+    .mda-cm6-host .mda-cm-h3-line { padding: 0; line-height: 40px; }
+    .mda-cm6-host .mda-cm-h4-line { padding: 0; line-height: 38px; }
+    .mda-cm6-host .mda-cm-h5-line { padding: 0; line-height: 35px; }
+    .mda-cm6-host .mda-cm-h6-line { padding: 0; line-height: 32px; color: var(--text-muted); }
+    .mda-cm6-host .mda-cm-h1 { font-size: 1.75em; line-height: inherit; }
+    .mda-cm6-host .mda-cm-h2 { font-size: 1.45em; line-height: inherit; }
+    .mda-cm6-host .mda-cm-h3 { font-size: 1.25em; line-height: inherit; }
+    .mda-cm6-host .mda-cm-h4 { font-size: 1.1em; line-height: inherit; }
+    .mda-cm6-host .mda-cm-h5 { font-size: 1em; line-height: inherit; }
+    .mda-cm6-host .mda-cm-h6 { font-size: 0.95em; line-height: inherit; color: var(--text-muted); }
+    .mda-cm6-host .mda-cm-hidden-line {
+      display: block;
+      height: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      overflow: hidden;
+      font-size: 0;
+      line-height: 0;
+    }
     .mda-cm6-host .mda-cm-h1, .mda-cm6-host .mda-cm-h2, .mda-cm6-host .mda-cm-h3,
     .mda-cm6-host .mda-cm-h4, .mda-cm6-host .mda-cm-h5, .mda-cm6-host .mda-cm-h6 {
       font-weight: normal; text-shadow: 0.4px 0 0 currentColor;
@@ -1056,13 +1074,79 @@
       color: var(--text-muted); user-select: none;
     }
     .mda-cm6-host .mda-cm-task { vertical-align: baseline; cursor: pointer; }
-    .mda-cm6-host .mda-cm-hr { border: none; border-top: 1px solid var(--border); }
+    .mda-cm6-host .mda-cm-hr {
+      border: none; border-top: 1px solid var(--border);
+    }
+    .mda-cm6-host .mda-cm-hr-block {
+      position: relative;
+      margin: 8px 0;
+      padding: 10px 0;
+      overflow: visible;
+    }
+    .mda-cm6-host .mda-cm-hr-frame {
+      position: relative;
+      display: block;
+      width: 100%;
+      padding: 8px 0;
+      border-radius: 6px;
+      box-sizing: border-box;
+      overflow: visible;
+    }
+    .mda-cm6-host .mda-cm-hr-frame > .mda-cm-block-drag-handle {
+      top: 50%;
+      left: 0;
+      transform: translate(calc(-100% - 3px), -50%);
+    }
+    .mda-cm6-host .mda-cm-hr-block.mda-cm-block-selected > .mda-cm-hr-frame,
+    .mda-cm6-host .mda-cm-hr-frame.mda-cm-hr-selected {
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+    }
+    /* 分割线选中时隐藏 CM6 文本光标，避免与旧落点叠成双光标 */
+    .mda-cm6-host .cm-editor:has(.mda-cm-hr-block.mda-cm-block-selected) .cm-cursor,
+    .mda-cm6-host .cm-editor:has(.mda-cm-hr-block.mda-cm-block-selected) .cm-dropCursor {
+      display: none !important;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-hr-block) {
+      overflow: visible;
+    }
     .mda-cm6-host .cm-line:has(.mda-cm-blockquote-line),
     .mda-cm6-host .cm-line.mda-cm-blockquote-line {
       border-left: 3px solid var(--blockquote-bar);
       padding-left: 12px;
       background: transparent;
       color: var(--text-muted);
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-highlight-line),
+    .mda-cm6-host .cm-line.mda-cm-highlight-line {
+      border-left: 3px solid var(--accent);
+      padding-left: 12px;
+      background: var(--bg-tertiary);
+      color: var(--text);
+      border-radius: 0 4px 4px 0;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-quote-handle-anchor) {
+      overflow: visible;
+    }
+    .mda-cm6-host .mda-cm-quote-handle-anchor {
+      position: relative;
+      display: inline-block;
+      width: 0;
+      height: 0;
+      vertical-align: top;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .mda-cm6-host .mda-cm-quote-handle-anchor > .mda-cm-block-drag-handle {
+      pointer-events: auto;
+      top: 1px;
+      /* 相对内容起点：越过行 padding(12) + 竖条 border(3) 后再隔 3px */
+      left: 0;
+      transform: translateX(calc(-100% - 12px - 3px - 3px));
+    }
+    /* 引用/高亮选中：2px 描边（与图片/代码等统一） */
+    .mda-cm6-host .cm-line:has(.mda-cm-quote-handle-anchor.mda-cm-block-selected) {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
     }
     .mda-cm6-host .cm-editor { flex: 1; min-height: 0; outline: none; display: flex; flex-direction: column; }
     .mda-cm6-host .cm-scroller {
@@ -1123,36 +1207,34 @@
       border: 1px solid var(--border);
       border-radius: 8px;
       background: var(--code-block-bg, var(--bg-tertiary));
-      overflow: hidden;
+      /* 须 visible：手柄在框外 translateX，hidden 会导致 hover 看不见 */
+      overflow: visible;
       position: relative;
     }
-    .mda-cm6-host .mda-cm-code-frame:has(.mda-cm-code-lang-open) {
-      overflow: visible;
+    .mda-cm6-host .mda-cm-code-frame > .mda-cm-block-toolbar {
+      border-radius: 7px 7px 0 0;
+      overflow: hidden;
     }
     .mda-cm6-host .mda-cm-code-frame:has(.mda-cm-code-lang-open) .mda-cm-code-preview {
       overflow: visible;
     }
     .mda-cm6-host .mda-cm-code-frame.mda-cm-media-block.mda-cm-media-selected {
-      outline: none;
       border-color: var(--accent);
       border-radius: 8px;
-      overflow: visible;
     }
+    /* 选中描边叠在内容之上，避免 gutter/滚动条切掉 outline */
     .mda-cm6-host .mda-cm-code-frame.mda-cm-media-block.mda-cm-media-selected::after {
       content: '';
       position: absolute;
-      inset: -3px;
+      inset: 0;
       border: 2px solid var(--accent);
-      border-radius: 10px;
+      border-radius: inherit;
       pointer-events: none;
-      z-index: 10;
+      z-index: 20;
       box-sizing: border-box;
     }
     .mda-cm6-host .mda-cm-code-block.mda-cm-block-selected .mda-cm-code-preview {
-      overflow: visible;
-    }
-    .mda-cm6-host .mda-cm-code-block.mda-cm-block-selected > .mda-cm-code-frame > .mda-cm-block-drag-handle {
-      display: flex;
+      overflow: hidden;
     }
     .mda-cm6-host .mda-cm-code-preview {
       margin: 0;
@@ -1160,6 +1242,7 @@
       overflow: hidden;
       max-width: 100%;
       box-sizing: border-box;
+      border-radius: 0 0 7px 7px;
     }
     .mda-cm6-host .mda-cm-code-stage {
       position: relative;
@@ -1327,15 +1410,20 @@
     .mda-cm6-host .mda-cm-block-drag-handle {
       position: absolute;
       top: 6px;
-      left: -30px;
+      /* 右缘相对块左边框外侧固定 3px 水平间隔（宽度自适应） */
+      left: 0;
+      right: auto;
+      transform: translateX(calc(-100% - 3px));
       z-index: 4;
       display: none;
       align-items: center;
       justify-content: center;
-      width: 24px;
+      gap: 4px;
+      width: auto;
+      min-width: 36px;
       height: 24px;
       margin: 0;
-      padding: 0;
+      padding: 0 5px;
       border: 1px solid var(--border);
       border-radius: 6px;
       background: var(--bg-secondary);
@@ -1343,12 +1431,44 @@
       box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
       cursor: grab;
       pointer-events: auto;
+      box-sizing: border-box;
     }
-    .mda-cm6-host .mda-cm-media-block.mda-cm-media-selected > .mda-cm-block-drag-handle {
+    .mda-cm6-host .mda-cm-block-drag-handle .mda-cm-block-type-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex: 0 0 auto;
+      color: var(--text-muted);
+    }
+    .mda-cm6-host .mda-cm-block-drag-handle .mda-cm-block-type-icon svg {
+      width: 14px;
+      height: 14px;
+      display: block;
+    }
+    /* hover 或选中即显示块手柄（图片/流程图/公式/表格/代码/引用/高亮/分割线） */
+    .mda-cm6-host .mda-cm-image-block:hover .mda-cm-image-frame > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-image-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-mermaid-block:hover .mda-cm-mermaid-frame > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-math-block:hover .mda-cm-math-frame > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-math-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-code-block:hover .mda-cm-code-frame > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-code-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-table-block:hover .mda-cm-table-stage > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-table-block.mda-cm-block-selected > .mda-cm-table-stage > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-hr-block:hover .mda-cm-hr-frame > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-hr-block.mda-cm-block-selected > .mda-cm-hr-frame > .mda-cm-block-drag-handle,
+    .mda-cm6-host .cm-line:has(.mda-cm-quote-handle-anchor):hover > .mda-cm-quote-handle-anchor > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-quote-handle-anchor.mda-cm-block-selected > .mda-cm-block-drag-handle {
       display: flex;
     }
-    .mda-cm6-host .mda-cm-mermaid-block.mda-cm-block-selected .mda-cm-mermaid-frame.mda-cm-media-selected > .mda-cm-block-drag-handle {
-      display: flex;
+    /* stage 左 padding 12px 处为表体外边框；手柄相对该边再隔 3px */
+    .mda-cm6-host .mda-cm-table-stage > .mda-cm-block-drag-handle {
+      top: 8px;
+      left: 12px;
+      transform: translateX(calc(-100% - 3px));
     }
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-mermaid-source-mode > .mda-cm-block-drag-handle {
       display: none !important;
@@ -1362,6 +1482,7 @@
       grid-template-columns: repeat(2, 3px);
       grid-template-rows: repeat(3, 3px);
       gap: 2px;
+      flex: 0 0 auto;
     }
     .mda-cm-block-drag-grip i {
       display: block;
@@ -1484,7 +1605,7 @@
       color: var(--accent);
       font-weight: 700;
     }
-    .mda-cm6-host .mda-cm-mermaid-stage { padding: 12px; overflow: auto; margin: 0 auto; }
+    .mda-cm6-host .mda-cm-mermaid-stage { padding: 12px; overflow: auto; margin: 0 auto; border-radius: 0 0 7px 7px; }
     .mda-cm6-host .mda-cm-mermaid-source {
       display: none;
       margin: 0;
@@ -1519,14 +1640,18 @@
     .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"]::selection,
     .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection,
     .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
-    .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection {
+    .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection,
+    .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"]::selection,
+    .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"] *::selection {
       background-color: var(--table-text-sel) !important;
       color: #24292f !important;
     }
     [data-theme="dark"] .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"]::selection,
     [data-theme="dark"] .mda-cm6-host .mda-cm-mermaid-source-input[contenteditable="true"] *::selection,
     [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"]::selection,
-    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection {
+    [data-theme="dark"] .mda-cm6-host .mda-cm-code-input[contenteditable="true"] *::selection,
+    [data-theme="dark"] .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"]::selection,
+    [data-theme="dark"] .mda-cm6-host .mda-cm-math-source-input[contenteditable="true"] *::selection {
       background-color: var(--table-text-sel) !important;
       color: #c9d1d9 !important;
     }
@@ -1553,6 +1678,134 @@
     .mda-cm6-host .cm-line:has(.mda-cm-mermaid-block-line) { overflow: visible; }
     .mda-cm6-host .cm-content:has(.mda-cm-mermaid-block.mda-cm-block-selected) {
       overflow: visible;
+    }
+    /* ================= CM6 公式 (KaTeX) ================= */
+    .mda-cm6-host .mda-cm-math-inline {
+      display: inline;
+      vertical-align: baseline;
+    }
+    .mda-cm6-host .mda-cm-math-inline .katex {
+      font-size: 1.05em;
+      line-height: 1.2;
+      vertical-align: -0.04em;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-math-block-line) {
+      overflow: visible;
+      display: block;
+      width: 100%;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-math-block-line) .cm-widget,
+    .mda-cm6-host .cm-line:has(.mda-cm-math-block-line) .cm-widgetBuffer {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-math-block-line) .cm-selectionBackground {
+      background: transparent !important;
+    }
+    .mda-cm6-host .mda-cm-math-block-line {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      padding: 6px 0 10px;
+      margin: 0;
+      overflow: visible;
+      position: relative;
+    }
+    .mda-cm6-host .mda-cm-math-frame {
+      position: relative;
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg-secondary);
+      overflow: visible;
+      box-sizing: border-box;
+    }
+    .mda-cm6-host .mda-cm-math-frame > .mda-cm-block-toolbar {
+      border-radius: 7px 7px 0 0;
+      overflow: hidden;
+    }
+    .mda-cm6-host .mda-cm-math-frame.mda-cm-media-block.mda-cm-media-selected {
+      border-color: var(--accent);
+      border-radius: 8px;
+    }
+    .mda-cm6-host .mda-cm-math-frame.mda-cm-media-block.mda-cm-media-selected::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border: 2px solid var(--accent);
+      border-radius: inherit;
+      pointer-events: none;
+      z-index: 20;
+      box-sizing: border-box;
+    }
+    .mda-cm6-host .mda-cm-math-frame.mda-cm-media-selected > .mda-cm-block-toolbar {
+      border-radius: 6px 6px 0 0;
+    }
+    .mda-cm6-host .mda-cm-math-display {
+      padding: 10px 14px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      text-align: center;
+      box-sizing: border-box;
+    }
+    /* 块卡片由 .mda-cm-math-frame 提供，去掉 KaTeX display 自带外边距，避免估高/圆角错位 */
+    .mda-cm6-host .mda-cm-math-display .katex-display {
+      display: block;
+      margin: 0 auto;
+      padding: 0;
+      border: none;
+      background: transparent;
+      overflow: visible;
+      text-align: center;
+    }
+    .mda-cm6-host .mda-cm-math-display .katex-display > .katex {
+      display: inline-block;
+      text-align: left;
+    }
+    .mda-cm6-host .mda-cm-math-source {
+      display: none;
+      border-top: 1px solid var(--border);
+      padding: 8px 12px 12px;
+    }
+    .mda-cm6-host .mda-cm-math-source-input {
+      min-height: 72px;
+      padding: 8px 10px;
+      font-family: var(--font-mono, 'Cascadia Code', Consolas, monospace);
+      font-size: 13px;
+      line-height: 21px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-primary);
+      color: var(--text);
+      outline: none;
+    }
+    .mda-cm6-host .mda-cm-math-frame.mda-cm-math-source-mode .mda-cm-math-display {
+      display: none;
+    }
+    .mda-cm6-host .mda-cm-math-frame.mda-cm-math-source-mode .mda-cm-math-source {
+      display: block;
+    }
+    .mda-cm6-host .mda-cm-math-error {
+      color: var(--danger, #dc2626);
+      font-family: var(--font-mono, monospace);
+      font-size: 12px;
+    }
+    .mda-cm6-host .cm-editor:has(.mda-cm-math-source-input:focus) .cm-cursor,
+    .mda-cm6-host .cm-editor:has(.mda-cm-math-source-input:focus) .cm-dropCursor {
+      display: none !important;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-math-frame.mda-cm-math-source-mode) .cm-selectionBackground,
+    .mda-cm6-host .cm-editor:has(.mda-cm-math-source-input:focus) .cm-selectionBackground {
+      background: transparent !important;
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-math-frame {
+      background: var(--bg-tertiary);
     }
     .mda-cm6-host .cm-line:has(.mda-cm-table-block) { overflow: visible; }
     .mda-cm6-host .cm-line:has(.mda-cm-table-block) .cm-selectionBackground {
@@ -1830,7 +2083,9 @@
       background: var(--bg);
     }
     .mda-cm6-host .cm-editor:has(.mda-cm-table th[contenteditable]:focus, .mda-cm-table td[contenteditable]:focus) .cm-cursor,
-    .mda-cm6-host .cm-editor:has(.mda-cm-table th[contenteditable]:focus, .mda-cm-table td[contenteditable]:focus) .cm-dropCursor {
+    .mda-cm6-host .cm-editor:has(.mda-cm-table th[contenteditable]:focus, .mda-cm-table td[contenteditable]:focus) .cm-dropCursor,
+    .mda-cm6-host .cm-editor:has(.mda-cm-table-block.mda-cm-block-selected) .cm-cursor,
+    .mda-cm6-host .cm-editor:has(.mda-cm-table-block.mda-cm-block-selected) .cm-dropCursor {
       display: none !important;
     }
     .mda-cm6-host .mda-cm-table th.mda-cm-table-cell-selected,
@@ -1847,6 +2102,45 @@
     [data-theme="dark"] .mda-cm6-host .mda-cm-table [contenteditable="true"] *::selection {
       background-color: var(--table-text-sel) !important;
       color: #c9d1d9 !important;
+    }
+    .mda-cm6-host .mda-cm-table .mda-cm-table-math {
+      display: inline;
+      vertical-align: baseline;
+      cursor: default;
+      user-select: all;
+      -webkit-user-select: all;
+      border-radius: 3px;
+      padding: 0 1px;
+    }
+    .mda-cm6-host .mda-cm-table .mda-cm-table-math .katex {
+      font-size: 1.05em;
+      line-height: 1.2;
+      vertical-align: -0.04em;
+    }
+    .mda-cm6-host .mda-cm-table .mda-cm-table-math:hover {
+      background: rgba(37, 99, 235, 0.08);
+    }
+    .mda-cm6-host .mda-cm-table .mda-cm-table-img {
+      display: inline-block;
+      max-width: 100%;
+      vertical-align: middle;
+      cursor: default;
+      user-select: all;
+      -webkit-user-select: all;
+      line-height: 0;
+      border-radius: 3px;
+    }
+    .mda-cm6-host .mda-cm-table .mda-cm-table-img img {
+      display: block;
+      max-width: min(100%, 280px);
+      max-height: 200px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      border-radius: 2px;
+    }
+    .mda-cm6-host .mda-cm-table .mda-cm-table-img:hover {
+      outline: 1px solid rgba(37, 99, 235, 0.35);
     }
     .mda-cm6-host .mda-cm-table-add-btn {
       display: flex;
@@ -1953,31 +2247,30 @@
       background: var(--code-block-bg, var(--bg-tertiary));
       overflow: hidden;
     }
-    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block {
-      overflow: hidden;
-    }
-    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-media-selected,
-    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-mermaid-resize-active {
+    /* 代码/流程图/公式：框外手柄，frame 必须 visible；圆角裁切交给内部 */
+    .mda-cm6-host .mda-cm-code-frame.mda-cm-media-block,
+    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block,
+    .mda-cm6-host .mda-cm-math-frame.mda-cm-media-block,
+    .mda-cm6-host .mda-cm-image-frame.mda-cm-media-block {
       overflow: visible;
     }
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block > .mda-cm-block-toolbar {
       border-radius: 7px 7px 0 0;
+      overflow: hidden;
     }
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-media-selected {
-      outline: none;
       border-color: var(--accent);
       border-radius: 8px;
-      overflow: visible;
     }
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-media-selected::after,
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-mermaid-resize-active::after {
       content: '';
       position: absolute;
-      inset: -3px;
+      inset: 0;
       border: 2px solid var(--accent);
-      border-radius: 10px;
+      border-radius: inherit;
       pointer-events: none;
-      z-index: 10;
+      z-index: 20;
       box-sizing: border-box;
     }
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-selected > .mda-cm-block-toolbar {
@@ -1987,10 +2280,21 @@
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-selected > .mda-cm-mermaid-source {
       border-radius: 0 0 6px 6px;
     }
-    .mda-cm6-host .mda-cm-media-block.mda-cm-media-selected:not(.mda-cm-code-frame):not(.mda-cm-mermaid-frame) {
+    /* 图片等通用 media 选中：统一 2px 描边 */
+    .mda-cm6-host .mda-cm-media-block.mda-cm-media-selected:not(.mda-cm-code-frame):not(.mda-cm-mermaid-frame):not(.mda-cm-math-frame) {
       outline: 2px solid var(--accent);
       outline-offset: -2px;
       border-radius: 0;
+    }
+    /* 公式块：覆盖 media-block 的 fit-content，保持通栏卡片；框外手柄须 visible */
+    .mda-cm6-host .mda-cm-math-frame.mda-cm-media-block {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      overflow: visible;
+    }
+    .mda-cm6-host .mda-cm-math-display {
+      border-radius: 0 0 7px 7px;
     }
     .mda-cm6-host .mda-cm-image-block-line {
       display: flex;
@@ -2022,7 +2326,7 @@
       margin: 0;
     }
     .mda-cm6-host .mda-cm-image-frame.mda-cm-media-block {
-      overflow: hidden;
+      overflow: visible;
     }
     .mda-cm6-host .mda-cm-image-frame.mda-cm-media-block.mda-cm-media-selected,
     .mda-cm6-host .mda-cm-image-frame.mda-cm-media-block.mda-cm-img-resize-active {

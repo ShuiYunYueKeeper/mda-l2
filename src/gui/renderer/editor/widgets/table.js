@@ -14,6 +14,7 @@ const { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require('./block-widget-base
 const { mountTableChrome, closeTableMenu } = require('./table-chrome');
 const { deleteBlockRange } = require('./image-block-ops');
 const { applyTableLayoutSession } = require('./table-layout-session');
+const { clearBlockWidgetSelection } = require('./widget-common');
 
 /**
  * @param {import('@codemirror/view').EditorView} view
@@ -101,8 +102,17 @@ function syncParsedToDoc(view, widget, parsed) {
   widget.source = newSource;
   widget.from = from;
   widget.to = from + insert.length;
+  // 写回前钉选区到表首：单元格编辑时常未 pin，history 会把撤销光标还原到 0。
+  const sel = view.state.selection.main;
+  if (sel.from !== from || sel.to !== from) {
+    view.dispatch({
+      selection: { anchor: from, head: from },
+    });
+  }
   view.dispatch({
     changes: { from: from, to: to, insert: insert },
+    selection: { anchor: from, head: from },
+    userEvent: 'input',
   });
 }
 
@@ -128,7 +138,7 @@ class TableWidget extends BlockReplaceWidget {
    * @param {{ from?: number, to?: number, lineHeight?: number, t?: Function, copyText?: Function }} [opts]
    */
   constructor(source, opts) {
-    super(source, opts);
+    super(source, Object.assign({ heightKind: 'table' }, opts || {}));
     this.opts = opts || {};
     this._maxMeasuredHeight = MAX_TABLE_WIDGET_HEIGHT;
     const normalized = String(source || '').replace(/\r\n/g, '\n').replace(/\n$/, '');
@@ -161,6 +171,9 @@ class TableWidget extends BlockReplaceWidget {
     return Math.min(h, MAX_TABLE_WIDGET_HEIGHT);
   }
   get estimatedHeight() {
+    if (this._dom && this._dom.isConnected) {
+      return Math.min(super.estimatedHeight, MAX_TABLE_WIDGET_HEIGHT);
+    }
     if (this._measured > 0) {
       return Math.min(this._measured, MAX_TABLE_WIDGET_HEIGHT);
     }
@@ -185,6 +198,9 @@ class TableWidget extends BlockReplaceWidget {
     const root = document.createElement('div');
     root.className = 'mda-cm-table-block';
     root.setAttribute('contenteditable', 'false');
+    if (self.from != null) root.setAttribute('data-mda-block-from', String(self.from));
+    if (self.to != null) root.setAttribute('data-mda-block-to', String(self.to));
+    if (self.source) root.setAttribute('data-mda-block-source', self.source);
 
     const normalized = String(this.source || '').replace(/\r\n/g, '\n').replace(/\n$/, '');
     const parsed = parseGfmTableBlock(normalized);
@@ -198,6 +214,11 @@ class TableWidget extends BlockReplaceWidget {
         blockSource: normalized,
         t: opts.t,
         copyFn: opts.copyText,
+        resolveImageUrl: opts.resolveImageUrl,
+        blockMenuHandlers: opts.blockMenuHandlers,
+        onMoveTableBlock: opts.onMoveTableBlock,
+        onOpenZoom: opts.onOpenZoom,
+        onCopyImage: opts.onCopyImage,
         pinEditor: function () {
           pinEditorToTable(view, self);
         },
@@ -222,9 +243,6 @@ class TableWidget extends BlockReplaceWidget {
     }
 
     root.addEventListener('mousedown', function (e) {
-      if (e.target && e.target.closest && e.target.closest('th[contenteditable], td[contenteditable]')) {
-        return;
-      }
       if (
         e.target &&
         e.target.closest &&
@@ -232,8 +250,21 @@ class TableWidget extends BlockReplaceWidget {
       ) {
         return;
       }
-      e.stopPropagation();
+      if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) {
+        clearBlockWidgetSelection(view.dom);
+        root.classList.add('mda-cm-block-selected');
+        pinEditorToTable(view, self);
+        e.stopPropagation();
+        return;
+      }
+      // 单元格就地编辑也须 pin + 选中块，隐藏 CM6 光标，避免列表上残留「双光标」
       pinEditorToTable(view, self);
+      clearBlockWidgetSelection(view.dom);
+      root.classList.add('mda-cm-block-selected');
+      if (e.target && e.target.closest && e.target.closest('th[contenteditable], td[contenteditable]')) {
+        return;
+      }
+      e.stopPropagation();
     });
 
     this.bindMeasure(view, root);
