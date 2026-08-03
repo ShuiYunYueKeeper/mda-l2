@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-C1：块 widget 共用工具（顶栏、复制、i18n）。
  */
 'use strict';
@@ -142,6 +142,11 @@ function clearMediaSelection(container, selectedClass) {
 }
 
 /**
+ * 悬停 UI 移出后延迟关闭（手柄 / 子菜单 / 语言下拉等共用）。
+ */
+const HOVER_LEAVE_MS = 200;
+
+/**
  * @param {HTMLElement | Document} container
  */
 function clearBlockWidgetSelection(container) {
@@ -159,4 +164,5 @@ module.exports = {
   refreshBlockToolbars: refreshBlockToolbars,
   clearMediaSelection: clearMediaSelection,
   clearBlockWidgetSelection: clearBlockWidgetSelection,
+  HOVER_LEAVE_MS: HOVER_LEAVE_MS,
 };

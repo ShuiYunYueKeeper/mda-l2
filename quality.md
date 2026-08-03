@@ -86,6 +86,8 @@ npm test          # jest，含覆盖率
 | **预览左侧大纲** | 改动 `outline-panel.js` / 预览布局 / 大纲同步 | 左侧可收起；hover 才显示边线；点击跳转；滚动预览与点击编辑/预览时高亮应对准当前节（勿偏上一节）；收起按钮不挡正文；收放正文不跳动 |
 | **最近打开 / 启动** | 改动 `recent-files` / 启动 `did-finish-load` / `refreshWorkspaceTree` | 清空最近列表不关当前文档；列表为空时重启应为起始页；恢复工作区不得自动打开首个 md |
 | **GUI i18n** | 改动 `i18n.js` 或新增用户可见文案 | 视图→界面语言切换 zh/en；弹窗/toast/菜单无硬编码；`uiT(key, vars)` 插值生效（勿原样显示 `{name}`） |
+| **CM6 块选中 / 撤销** | 改动块 widget 删除、选中态、`*-selection.js` / `block-selection.js` | 选中→Delete→Ctrl+Z：蓝框与光标回到块；单击表格单元格无整格蓝底（未拖选文字时） |
+| **悬停菜单 200ms** | 改动语言子菜单 / 块手柄菜单 / `HOVER_LEAVE_MS` | 鼠标移出菜单或触发器后约 200ms 关闭；移回取消关闭 |
 | **Free 门禁（M6-5）** | Phase A 集成完成 | 对照 `.project-setup/verification-report.md`；用户明确确认前不得开工 M7 |
 | 阶段确认门禁 | P0–P3 每阶段产出后 | 设计取舍需人工确认后才进入下一阶段 |
 | **GUI 截图 / 录屏** | GUI 功能变更且用户确认实机通过 | 交付素材须人工产出；AI 在 Step 5 列出待补清单并提示用户补充，见 `docs/screenshots/README.md` |

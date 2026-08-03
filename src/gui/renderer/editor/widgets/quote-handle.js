@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 引用 / 高亮块（> [!NOTE]）左上角拖动手柄：不替换正文，挂在块首零宽 widget。
  */
 'use strict';
@@ -7,6 +7,10 @@ const { WidgetType } = require('@codemirror/view');
 const { attachBlockDragHandle } = require('./block-drag-handle');
 const { showBlockHandleMenu } = require('./block-handle-menu');
 const { clearBlockWidgetSelection, clearMediaSelection, uiT } = require('./widget-common');
+const { setSelectedBlock } = require('./block-selection');
+const { clearSelectedImageBlock } = require('./image-selection');
+const { clearSelectedMermaidBlock } = require('./mermaid-selection');
+const { Transaction } = require('@codemirror/state');
 
 /**
  * @param {string} firstLine
@@ -76,7 +80,30 @@ class QuoteHandleWidget extends WidgetType {
     function selectAnchor() {
       clearMediaSelection(view.dom);
       clearBlockWidgetSelection(view.dom);
+      clearSelectedImageBlock();
+      clearSelectedMermaidBlock();
       wrap.classList.add('mda-cm-block-selected');
+      setSelectedBlock({
+        kind: self.quoteKind === 'highlight' ? 'highlight' : 'quote',
+        from: self.from,
+        to: self.to,
+        source: self.source,
+      });
+      try {
+        if (self.from != null) {
+          const pos = Math.max(0, Math.min(self.from, view.state.doc.length));
+          const sel = view.state.selection.main;
+          if (sel.from !== pos || sel.to !== pos) {
+            view.dispatch({
+              selection: { anchor: pos, head: pos },
+              annotations: Transaction.addToHistory.of(false),
+            });
+          }
+          view.focus();
+        }
+      } catch (_) {
+        /* ignore */
+      }
     }
 
     attachBlockDragHandle(wrap, view, range, {

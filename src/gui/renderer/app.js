@@ -1,4 +1,4 @@
-// MDA Renderer — Markdown 工作台 GUI
+﻿// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -422,10 +422,8 @@
           if (!isCm6Ready() || !window.MDAEditor || !block) return;
           var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
           if (!range) return;
+          // 保留选中内存态，撤销后由 selection sync 恢复蓝框
           window.MDAEditor.deleteBlockRange(cm6Editor.view, range.from, range.to);
-          if (window.MDAEditor.clearSelectedMermaidBlock) {
-            window.MDAEditor.clearSelectedMermaidBlock();
-          }
           syncDirtyFromEditor();
           if (cm6Editor.view) cm6Editor.view.focus();
         },
@@ -445,10 +443,8 @@
           if (!isCm6Ready() || !window.MDAEditor || !block) return;
           var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
           if (!range) return;
+          // 保留选中内存态，撤销后由 selection sync 恢复蓝框
           window.MDAEditor.deleteBlockRange(cm6Editor.view, range.from, range.to);
-          if (window.MDAEditor.clearSelectedCodeBlock) {
-            window.MDAEditor.clearSelectedCodeBlock();
-          }
           syncDirtyFromEditor();
           if (cm6Editor.view) cm6Editor.view.focus();
         },

@@ -41,6 +41,9 @@ const {
 const {
   createMermaidSelectionSyncPlugin,
 } = require('./widgets/mermaid-selection');
+const {
+  createBlockSelectionSyncPlugin,
+} = require('./widgets/block-selection');
 const { createBlockMenuHandlers } = require('./widgets/block-menu-handlers');
 const {
   createMermaidShortcutKeymap,
@@ -62,6 +65,9 @@ const {
   clearBlockWidgetSelection,
   clearMediaSelection,
 } = require('./widgets/widget-common');
+const { setSelectedBlock, clearSelectedBlock } = require('./widgets/block-selection');
+const { clearSelectedImageBlock } = require('./widgets/image-selection');
+const { clearSelectedMermaidBlock } = require('./widgets/mermaid-selection');
 
 class BulletWidget extends WidgetType {
   toDOM() {
@@ -107,7 +113,10 @@ class HrWidget extends BlockReplaceWidget {
         const pos = Math.max(0, Math.min(self.from, view.state.doc.length));
         const sel = view.state.selection.main;
         if (sel.from !== pos || sel.to !== pos) {
-          view.dispatch({ selection: { anchor: pos, head: pos } });
+          view.dispatch({
+            selection: { anchor: pos, head: pos },
+            annotations: Transaction.addToHistory.of(false),
+          });
         }
         view.focus();
       } catch (_) {
@@ -118,13 +127,22 @@ class HrWidget extends BlockReplaceWidget {
     function clearSelect() {
       root.classList.remove('mda-cm-block-selected');
       frame.classList.remove('mda-cm-hr-selected');
+      clearSelectedBlock();
     }
 
     function selectBlock() {
       clearMediaSelection(view.dom);
       clearBlockWidgetSelection(view.dom);
+      clearSelectedImageBlock();
+      clearSelectedMermaidBlock();
       root.classList.add('mda-cm-block-selected');
       frame.classList.add('mda-cm-hr-selected');
+      setSelectedBlock({
+        kind: 'hr',
+        from: self.from,
+        to: self.to,
+        source: self.source,
+      });
       // 收拢选区到块起点，避免旧光标残留导致双光标
       pinCaret();
     }
@@ -1115,10 +1133,14 @@ function livePreview(opts) {
     ext.push(createCodeShortcutKeymap(liveOpts));
     ext.push(createCodeKeydownHandler(liveOpts));
   }
+  ext.push(createBlockSelectionSyncPlugin());
   if (
     editorConfig.blockWidgetEnabled('image') ||
     editorConfig.blockWidgetEnabled('mermaid') ||
-    editorConfig.blockWidgetEnabled('code')
+    editorConfig.blockWidgetEnabled('code') ||
+    editorConfig.blockWidgetEnabled('table') ||
+    editorConfig.blockWidgetEnabled('quote-handle') ||
+    editorConfig.blockWidgetEnabled('hr')
   ) {
     ext.push(createMediaOutsideClickPlugin());
   }

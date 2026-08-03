@@ -136,7 +136,25 @@ function reportClickDebug(view, event) {
   if (mappedPos == null && hitBlock) {
     lines.push('<span style="color:#8b949e">说明: 点在块 widget 上，CM6 head 可能仍停在旧位置；表格编辑时 CM6 光标应已隐藏</span>');
   } else if (mappedPos != null && mappedPos !== selHead) {
-    lines.push('<span style="color:#ff7b72">校准落点与 head 不一致 (差 ' + (selHead - mappedPos) + ') — 选区被其它逻辑改写</span>');
+    var main = view.state.selection.main;
+    if (main.from !== main.to) {
+      // 非空选区时点在 head 上属正常；mapped≠head 不一定是被改写
+      lines.push(
+        '<span style="color:#8b949e">说明: 当前为范围选区 [' +
+          main.from +
+          ',' +
+          main.to +
+          ')，校准落点与 head 差 ' +
+          (selHead - mappedPos) +
+          '</span>'
+      );
+    } else {
+      lines.push(
+        '<span style="color:#ff7b72">校准落点与 head 不一致 (差 ' +
+          (selHead - mappedPos) +
+          ') — 选区被其它逻辑改写</span>'
+      );
+    }
   } else if (clickToCursor && Math.abs(clickToCursor.dx) > 40 && Math.abs(clickToCursor.dy) <= 8) {
     lines.push('<span style="color:#8b949e">说明: 横向偏差大且纵向接近 — 常见于点在行尾空白（光标吸附行末）</span>');
   }

@@ -1,14 +1,17 @@
-/**
+﻿/**
  * 块级 widget 左上角拖动手柄（类型图标 + 六点；单击菜单 / 长按拖动）。
  */
 'use strict';
 
 const { resolveBlockDropTargetFromCoords } = require('./image-block-ops');
-const { showBlockHandleMenu } = require('./block-handle-menu');
+const { showBlockHandleMenu, isBlockHandleMenuOpenFor } = require('./block-handle-menu');
 const { blockTypeIconHtml } = require('./block-menu-icons');
+const { HOVER_LEAVE_MS } = require('./widget-common');
 
 const LONG_PRESS_MS = 200;
 const CANCEL_DRAG_PX = 10;
+/** 手柄在块外，移出块到手柄会短暂离开 hover；延迟隐藏避免闪没 */
+const HANDLE_HIDE_MS = HOVER_LEAVE_MS;
 
 /**
  * @param {HTMLElement} el
@@ -73,6 +76,36 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
   let dragging = false;
   let dropLine = null;
   let lastResolved = null;
+  let hideTimer = 0;
+
+  function showHandle() {
+    window.clearTimeout(hideTimer);
+    hideTimer = 0;
+    blockRoot.classList.add('mda-cm-block-handle-show');
+  }
+
+  function scheduleHideHandle() {
+    window.clearTimeout(hideTimer);
+    hideTimer = window.setTimeout(function () {
+      hideTimer = 0;
+      if (dragging || handle.classList.contains('mda-cm-block-drag-handle-active')) return;
+      if (typeof document !== 'undefined' && document.body.classList.contains('mda-cm-block-drag-active')) {
+        return;
+      }
+      if (isBlockHandleMenuOpenFor(blockRoot)) return;
+      blockRoot.classList.remove('mda-cm-block-handle-show');
+    }, HANDLE_HIDE_MS);
+  }
+
+  const hoverTargets = [blockRoot, handle];
+  if (blockRoot.classList.contains('mda-cm-quote-handle-anchor')) {
+    const line = blockRoot.closest('.cm-line');
+    if (line && hoverTargets.indexOf(line) < 0) hoverTargets.push(line);
+  }
+  for (let hi = 0; hi < hoverTargets.length; hi++) {
+    hoverTargets[hi].addEventListener('mouseenter', showHandle);
+    hoverTargets[hi].addEventListener('mouseleave', scheduleHideHandle);
+  }
 
   function ensureDropLine() {
     if (dropLine && dropLine.parentNode) return dropLine;
@@ -249,4 +282,5 @@ module.exports = {
   attachBlockDragHandle: attachBlockDragHandle,
   buildHandleInnerHtml: buildHandleInnerHtml,
   LONG_PRESS_MS: LONG_PRESS_MS,
+  HANDLE_HIDE_MS: HANDLE_HIDE_MS,
 };

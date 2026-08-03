@@ -11,7 +11,10 @@ const {
   getSelectedMermaidBlock,
   syncSelectedMermaidFrameClass,
 } = require('./mermaid-selection');
+const { clearSelectedImageBlock } = require('./image-selection');
+const { clearSelectedBlock } = require('./block-selection');
 const { syncMermaidFrameToStage } = require('./mermaid-layout');
+const { Transaction } = require('@codemirror/state');
 
 /**
  * @param {HTMLElement} stage
@@ -155,6 +158,8 @@ class MermaidWidget extends BlockReplaceWidget {
       const editorRoot = root.closest('.cm-editor');
       clearMediaSelection(editorRoot, 'mda-cm-media-selected');
       clearBlockWidgetSelection(editorRoot || document);
+      clearSelectedImageBlock();
+      clearSelectedBlock();
       frame.classList.add('mda-cm-media-selected');
       root.classList.add('mda-cm-block-selected');
       setSelectedMermaidBlock({
@@ -164,7 +169,17 @@ class MermaidWidget extends BlockReplaceWidget {
         code: self.code,
       });
       try {
-        if (view) view.focus();
+        if (view && self.from != null) {
+          const pos = Math.max(0, Math.min(self.from, view.state.doc.length));
+          const sel = view.state.selection.main;
+          if (sel.from !== pos || sel.to !== pos) {
+            view.dispatch({
+              selection: { anchor: pos, head: pos },
+              annotations: Transaction.addToHistory.of(false),
+            });
+          }
+          view.focus();
+        }
       } catch (_) {
         /* ignore */
       }

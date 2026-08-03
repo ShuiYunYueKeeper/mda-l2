@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const cmView = require('@codemirror/view');
 const WidgetType = cmView.WidgetType;
@@ -12,8 +12,11 @@ const {
   clearBlockWidgetSelection,
 } = require('./widget-common');
 const { BlockReplaceWidget, syncWidgetHeightFromDom } = require('./block-widget-base');
-const { clearSelectedMathBlock } = require('./math-selection');
+const { setSelectedMathBlock } = require('./math-selection');
+const { clearSelectedImageBlock } = require('./image-selection');
+const { clearSelectedMermaidBlock } = require('./mermaid-selection');
 const { attachBlockDragHandle } = require('./block-drag-handle');
+const { Transaction } = require('@codemirror/state');
 
 const MAX_MATH_WIDGET_HEIGHT = 480;
 const TOOLBAR_H = 36;
@@ -166,11 +169,27 @@ class BlockMathWidget extends BlockReplaceWidget {
       const editorRoot = root.closest('.cm-editor');
       clearMediaSelection(editorRoot, 'mda-cm-media-selected');
       clearBlockWidgetSelection(editorRoot || document);
-      clearSelectedMathBlock();
+      clearSelectedImageBlock();
+      clearSelectedMermaidBlock();
       frame.classList.add('mda-cm-media-selected');
       root.classList.add('mda-cm-block-selected');
+      setSelectedMathBlock({
+        from: self.from,
+        to: self.to,
+        source: self.source,
+      });
       try {
-        if (view) view.focus();
+        if (view && self.from != null) {
+          const pos = Math.max(0, Math.min(self.from, view.state.doc.length));
+          const sel = view.state.selection.main;
+          if (sel.from !== pos || sel.to !== pos) {
+            view.dispatch({
+              selection: { anchor: pos, head: pos },
+              annotations: Transaction.addToHistory.of(false),
+            });
+          }
+          view.focus();
+        }
       } catch (_) {
         /* ignore */
       }

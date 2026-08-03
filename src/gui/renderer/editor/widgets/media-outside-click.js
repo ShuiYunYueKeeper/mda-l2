@@ -1,5 +1,5 @@
-/**
- * 图片 / Mermaid 块：点击块外取消选中（与表格 onDocPointer 一致）。
+﻿/**
+ * 图片 / Mermaid / 块 widget：点击块外取消选中（与表格 onDocPointer 一致）。
  */
 'use strict';
 
@@ -8,6 +8,7 @@ const { clearMediaSelection, clearBlockWidgetSelection } = require('./widget-com
 const { getSelectedImageBlock, clearSelectedImageBlock } = require('./image-selection');
 const { getSelectedMermaidBlock, clearSelectedMermaidBlock } = require('./mermaid-selection');
 const { clearSelectedMathBlock } = require('./math-selection');
+const { getSelectedBlock, clearSelectedBlock } = require('./block-selection');
 const { closeBlockHandleMenu } = require('./block-handle-menu');
 
 /**
@@ -37,22 +38,33 @@ function createMediaOutsideClickPlugin() {
           }
           const imgSel = getSelectedImageBlock();
           const merSel = getSelectedMermaidBlock();
-          if (!imgSel && !merSel && !self.view.dom.querySelector('.mda-cm-block-selected')) return;
+          const blockSel = getSelectedBlock();
+          if (
+            !imgSel &&
+            !merSel &&
+            !blockSel &&
+            !self.view.dom.querySelector('.mda-cm-block-selected')
+          ) {
+            return;
+          }
           const target = e.target;
           if (target && target.closest && target.closest('#mda-block-handle-menu')) return;
           if (target && target.closest && target.closest('.mda-block-handle-submenu')) return;
+          if (target && target.closest && target.closest('.mda-cm-code-lang-submenu')) return;
+          if (target && target.closest && target.closest('.mda-cm-code-lang-picker')) return;
           if (blockContainsTarget(self.view, imgSel, 'mda-cm-image-block', target)) return;
           if (blockContainsTarget(self.view, merSel, 'mda-cm-mermaid-block', target)) return;
-          if (target && target.closest && target.closest('.mda-cm-code-block.mda-cm-block-selected')) return;
-          if (target && target.closest && target.closest('.mda-cm-math-block.mda-cm-block-selected')) return;
-          if (target && target.closest && target.closest('.mda-cm-table-block.mda-cm-block-selected')) return;
-          if (target && target.closest && target.closest('.mda-cm-quote-handle-anchor.mda-cm-block-selected')) return;
-          if (target && target.closest && target.closest('.mda-cm-hr-block.mda-cm-block-selected')) return;
+          if (blockContainsTarget(self.view, blockSel, 'mda-cm-code-block', target)) return;
+          if (blockContainsTarget(self.view, blockSel, 'mda-cm-math-block', target)) return;
+          if (blockContainsTarget(self.view, blockSel, 'mda-cm-table-block', target)) return;
+          if (blockContainsTarget(self.view, blockSel, 'mda-cm-quote-handle-anchor', target)) return;
+          if (blockContainsTarget(self.view, blockSel, 'mda-cm-hr-block', target)) return;
           if (target && target.closest && target.closest('.mda-cm-code-input')) return;
           if (target && target.closest && target.closest('.mda-cm-math-source-input')) return;
           clearSelectedImageBlock();
           clearSelectedMermaidBlock();
           clearSelectedMathBlock();
+          clearSelectedBlock();
           clearMediaSelection(self.view.dom);
           clearBlockWidgetSelection(self.view.dom);
           closeBlockHandleMenu();

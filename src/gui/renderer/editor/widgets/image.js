@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const { parseImageMarkdown } = require('../model/parse-image');
 const { createMdSurface } = require('./md-surface');
@@ -11,8 +11,11 @@ const {
   getSelectedImageBlock,
   syncSelectedImageFrameClass,
 } = require('./image-selection');
+const { clearSelectedMermaidBlock } = require('./mermaid-selection');
+const { clearSelectedBlock } = require('./block-selection');
 const { BlockReplaceWidget } = require('./block-widget-base');
 const { syncFrameToImage, applyLiveImageWidth } = require('./image-layout');
+const { Transaction } = require('@codemirror/state');
 
 /**
  * @param {HTMLImageElement} img
@@ -145,6 +148,8 @@ class ImageWidget extends BlockReplaceWidget {
     function selectFrame() {
       const editorRoot = root.closest('.cm-editor');
       clearMediaSelection(editorRoot, 'mda-cm-media-selected');
+      clearSelectedMermaidBlock();
+      clearSelectedBlock();
       frame.classList.add('mda-cm-media-selected');
       setSelectedImageBlock({
         from: self.from,
@@ -162,6 +167,7 @@ class ImageWidget extends BlockReplaceWidget {
           ) {
             view.dispatch({
               selection: { anchor: self.from, head: self.from },
+              annotations: Transaction.addToHistory.of(false),
             });
           }
           view.focus();

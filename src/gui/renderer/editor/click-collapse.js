@@ -1,8 +1,9 @@
 /**
  * 预览模式：单击定位光标（hide-mark atomic / 标题行高 / 块 widget 邻接偶发冲突）。
- * 不阻断 mousedown 默认行为，以保留鼠标拖选；仅在单击未拖选时于 mouseup 校准落点。
+ * 不阻断 mousedown 默认行为，以保留鼠标拖选；仅在「未拖选的单击」于 mouseup 校准落点。
+ * 拖选（含 mousemove 未送达时的位移判断、亚阈值非空选区）绝不坍缩。
  *
- * 优先用 caretRangeFromPoint + posAtDOM（跟视觉 DOM 对齐），避免高度图/隐藏语法导致的横纵漂移。
+ * 优先用 caretRangeFromPoint + posAtDOM，并与 posAtCoords 交叉校验，避免落到行首。
  */
 'use strict';
 
@@ -171,33 +172,68 @@ function refinePosAtClick(view, clientX, clientY, hintPos) {
 
 /**
  * @param {import('@codemirror/view').EditorView} view
+ * @param {number} pos
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+function clickScoreAtPos(view, pos, clientX, clientY) {
+  const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+  if (!caret) return Infinity;
+  const dx = caret.left - clientX;
+  const dy = (caret.top + caret.bottom) / 2 - clientY;
+  return dx * dx + dy * dy;
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
  * @param {number} clientX
  * @param {number} clientY
  */
 function posAtClick(view, clientX, clientY) {
-  const fromDom = posAtClickFromDom(view, clientX, clientY);
-  if (fromDom != null) return fromDom;
-
   if (typeof document !== 'undefined' && document.elementFromPoint) {
     const el = document.elementFromPoint(clientX, clientY);
     if (isBlockWidgetTarget(el)) return null;
   }
 
-  let pos = view.posAtCoords({ x: clientX, y: clientY }, 1);
-  if (pos == null) pos = view.posAtCoords({ x: clientX, y: clientY }, -1);
-  if (pos == null) return null;
+  const fromDom = posAtClickFromDom(view, clientX, clientY);
 
+  let fromCoords = view.posAtCoords({ x: clientX, y: clientY }, 1);
+  if (fromCoords == null) fromCoords = view.posAtCoords({ x: clientX, y: clientY }, -1);
+
+  if (fromDom != null && fromCoords != null && fromDom !== fromCoords) {
+    // caretRangeFromPoint 偶发落到行首/隐藏标记旁；与 posAtCoords 比视觉距离
+    const sDom = clickScoreAtPos(view, fromDom, clientX, clientY);
+    const sCo = clickScoreAtPos(view, fromCoords, clientX, clientY);
+    if (sCo + 9 < sDom) {
+      fromCoords = refineIfFar(view, clientX, clientY, fromCoords);
+      return fromCoords;
+    }
+    return fromDom;
+  }
+
+  if (fromDom != null) return fromDom;
+  if (fromCoords == null) return null;
+
+  return refineIfFar(view, clientX, clientY, fromCoords);
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} clientX
+ * @param {number} clientY
+ * @param {number} pos
+ */
+function refineIfFar(view, clientX, clientY, pos) {
   const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
   if (caret) {
     const dx = caret.left - clientX;
     const dy = (caret.top + caret.bottom) / 2 - clientY;
     if (dx * dx + dy * dy > REFINE_DIST_PX * REFINE_DIST_PX) {
-      pos = refinePosAtClick(view, clientX, clientY, pos);
+      return refinePosAtClick(view, clientX, clientY, pos);
     }
-  } else {
-    pos = refinePosAtClick(view, clientX, clientY, pos);
+    return pos;
   }
-  return pos;
+  return refinePosAtClick(view, clientX, clientY, pos);
 }
 
 /**
@@ -251,13 +287,18 @@ function createClickCollapseExtension() {
       if (isBlockWidgetTarget(event.target)) return false;
       if (start.shiftKey || event.shiftKey) return false;
       if (event.detail >= 2) return false;
-      // 仅跳过用户真实拖选；CM6 单击 atomic hide-mark 会整段选中（from≠to），
-      // 若因此跳过校准，就会出现「校准落点对、head 飘走、横向 Δ 上百 px」。
-      if (start.dragging) return false;
+      // 以 mouseup 相对 mousedown 的位移为准（不依赖 mousemove 一定送达）
+      const dx = event.clientX - start.x;
+      const dy = event.clientY - start.y;
+      const moved =
+        start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
+      if (moved) return false;
       const x = event.clientX;
       const y = event.clientY;
-      // 延后一帧，盖过 CM6 同步阶段的选区写入
+      // 单击：即使 CM6 因 atomic（行内 code 的 ` 等）整段选中，也要坍缩为 caret。
+      // 只有真正拖选（moved）才保留非空选区，避免「点一下就像选中了」。
       requestAnimationFrame(function () {
+        if (!view || view.destroyed) return;
         placeCaret(view, x, y);
       });
       return false;

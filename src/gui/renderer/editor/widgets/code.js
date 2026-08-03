@@ -12,6 +12,10 @@ const { BlockReplaceWidget, countSourceLines } = require('./block-widget-base');
 const { createCodeLangPicker } = require('./code-lang-picker');
 const { normalizeCodeBlockLang } = require('./code-languages');
 const { attachBlockDragHandle } = require('./block-drag-handle');
+const { setSelectedCodeBlock } = require('./code-selection');
+const { clearSelectedImageBlock } = require('./image-selection');
+const { clearSelectedMermaidBlock } = require('./mermaid-selection');
+const { Transaction } = require('@codemirror/state');
 
 /**
  * @param {string} code
@@ -246,10 +250,27 @@ class CodeFenceWidget extends BlockReplaceWidget {
       const editorRoot = root.closest('.cm-editor');
       clearMediaSelection(editorRoot, 'mda-cm-media-selected');
       clearBlockWidgetSelection(editorRoot || document);
+      clearSelectedImageBlock();
+      clearSelectedMermaidBlock();
       frame.classList.add('mda-cm-media-selected');
       root.classList.add('mda-cm-block-selected');
+      setSelectedCodeBlock({
+        from: self.from,
+        to: self.to,
+        source: self.source,
+      });
       try {
-        if (view) view.focus();
+        if (view && self.from != null) {
+          const pos = Math.max(0, Math.min(self.from, view.state.doc.length));
+          const sel = view.state.selection.main;
+          if (sel.from !== pos || sel.to !== pos) {
+            view.dispatch({
+              selection: { anchor: pos, head: pos },
+              annotations: Transaction.addToHistory.of(false),
+            });
+          }
+          view.focus();
+        }
       } catch (_) {
         /* ignore */
       }

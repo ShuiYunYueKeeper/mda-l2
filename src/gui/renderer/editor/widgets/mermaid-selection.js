@@ -1,4 +1,4 @@
-/**
+﻿/**
  * CM6 Mermaid 块选中态。
  */
 'use strict';
@@ -30,6 +30,7 @@ function clearSelectedMermaidBlock() {
 function syncSelectedMermaidFrameClass(editorRoot) {
   const sel = getSelectedMermaidBlock();
   if (!sel || !editorRoot) return;
+  clearMediaSelection(editorRoot, 'mda-cm-media-selected');
   const block = editorRoot.querySelector(
     '.mda-cm-mermaid-block[data-mda-block-from="' +
       sel.from +
@@ -37,7 +38,9 @@ function syncSelectedMermaidFrameClass(editorRoot) {
       sel.to +
       '"]'
   );
-  const frame = block && block.querySelector('.mda-cm-mermaid-frame');
+  if (!block) return;
+  block.classList.add('mda-cm-block-selected');
+  const frame = block.querySelector('.mda-cm-mermaid-frame');
   if (frame) frame.classList.add('mda-cm-media-selected');
 }
 

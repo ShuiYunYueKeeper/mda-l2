@@ -10,7 +10,7 @@ const {
   __dirname,
   '../../../src/gui/renderer/editor/widgets/block-menu-icons.js'
 ));
-const { buildHandleInnerHtml } = require(path.join(
+const { buildHandleInnerHtml, HANDLE_HIDE_MS } = require(path.join(
   __dirname,
   '../../../src/gui/renderer/editor/widgets/block-drag-handle.js'
 ));
@@ -50,5 +50,9 @@ describe('block handle type icons', () => {
     const html = buildHandleInnerHtml('unknown');
     expect(html).not.toContain('mda-cm-block-type-icon');
     expect(html).toContain('mda-cm-block-drag-grip');
+  });
+
+  test('手柄移出延迟隐藏常数合理', () => {
+    expect(HANDLE_HIDE_MS).toBe(200);
   });
 });

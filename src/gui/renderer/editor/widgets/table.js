@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const {
   parseGfmTable,
@@ -15,6 +15,10 @@ const { mountTableChrome, closeTableMenu } = require('./table-chrome');
 const { deleteBlockRange } = require('./image-block-ops');
 const { applyTableLayoutSession } = require('./table-layout-session');
 const { clearBlockWidgetSelection } = require('./widget-common');
+const { setSelectedBlock, clearSelectedBlock } = require('./block-selection');
+const { clearSelectedImageBlock } = require('./image-selection');
+const { clearSelectedMermaidBlock } = require('./mermaid-selection');
+const { Transaction } = require('@codemirror/state');
 
 /**
  * @param {import('@codemirror/view').EditorView} view
@@ -40,7 +44,28 @@ function pinEditorToTable(view, widget) {
   if (sel.from === pos && sel.to === pos && sel.head === pos) return;
   view.dispatch({
     selection: { anchor: pos, head: pos },
+    annotations: Transaction.addToHistory.of(false),
   });
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ from: number, to: number, source: string }} widget
+ */
+function markTableSelected(view, widget) {
+  clearSelectedImageBlock();
+  clearSelectedMermaidBlock();
+  clearBlockWidgetSelection(view.dom);
+  if (widget && widget.from != null) {
+    setSelectedBlock({
+      kind: 'table',
+      from: widget.from,
+      to: widget.to,
+      source: widget.source || '',
+    });
+  } else {
+    clearSelectedBlock();
+  }
 }
 
 /**
@@ -251,7 +276,7 @@ class TableWidget extends BlockReplaceWidget {
         return;
       }
       if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) {
-        clearBlockWidgetSelection(view.dom);
+        markTableSelected(view, self);
         root.classList.add('mda-cm-block-selected');
         pinEditorToTable(view, self);
         e.stopPropagation();
@@ -259,7 +284,7 @@ class TableWidget extends BlockReplaceWidget {
       }
       // 单元格就地编辑也须 pin + 选中块，隐藏 CM6 光标，避免列表上残留「双光标」
       pinEditorToTable(view, self);
-      clearBlockWidgetSelection(view.dom);
+      markTableSelected(view, self);
       root.classList.add('mda-cm-block-selected');
       if (e.target && e.target.closest && e.target.closest('th[contenteditable], td[contenteditable]')) {
         return;

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-C3 表格竞品式交互：行/列选区、增删、剪贴板、右键菜单。
  */
 'use strict';
@@ -30,9 +30,32 @@ const {
 } = require('./table-cell-content');
 const { undo, redo } = require('@codemirror/commands');
 const { attachBlockDragHandle } = require('./block-drag-handle');
+const { setSelectedBlock } = require('./block-selection');
+const { clearSelectedImageBlock } = require('./image-selection');
+const { clearSelectedMermaidBlock } = require('./mermaid-selection');
 
 /** @type {string} */
 let internalClipboard = '';
+
+/**
+ * @param {{
+ *   widget?: { from?: number, to?: number, source?: string },
+ *   blockSource?: string,
+ * }} ctx
+ */
+function rememberTableBlockSelected(ctx) {
+  clearSelectedImageBlock();
+  clearSelectedMermaidBlock();
+  const w = ctx.widget || {};
+  if (w.from != null && w.to != null) {
+    setSelectedBlock({
+      kind: 'table',
+      from: w.from,
+      to: w.to,
+      source: w.source || ctx.blockSource || '',
+    });
+  }
+}
 
 /**
  * @param {{ headers: string[], aligns: string[], rows: string[][] }} parsed
@@ -91,6 +114,9 @@ function applySelectionHighlight(table, selection) {
   for (let i = 0; i < cells.length; i++) {
     cells[i].classList.remove('mda-cm-table-cell-selected');
   }
+  // 单击进格编辑（kind=cell）：不铺整格蓝底，仅 caret / 文字 ::selection
+  // 行列/多格框选（row/col/rect）仍高亮
+  if (!selection || selection.kind === 'none' || selection.kind === 'cell') return;
   const b = selectionBounds(selection);
   if (!b || !table) return;
   const maxCol = table.querySelectorAll('thead th').length - 1;
@@ -917,6 +943,7 @@ function mountTableChrome(ctx) {
     if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) {
       clearBlockWidgetSelection(ctx.root.closest('.cm-editor') || document);
       clearMediaSelection(ctx.root.closest('.cm-editor') || document);
+      rememberTableBlockSelected(ctx);
       ctx.root.classList.add('mda-cm-block-selected');
       e.stopPropagation();
       return;
@@ -954,6 +981,7 @@ function mountTableChrome(ctx) {
       clearTableInteraction();
       clearBlockWidgetSelection(ctx.root.closest('.cm-editor') || document);
       clearMediaSelection(ctx.root.closest('.cm-editor') || document);
+      rememberTableBlockSelected(ctx);
       ctx.root.classList.add('mda-cm-block-selected');
     }
   });

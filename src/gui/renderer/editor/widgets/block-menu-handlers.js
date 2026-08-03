@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 块手柄菜单动作：复制 / 剪切 / 删除 / 插入；AI 占位。
  */
 'use strict';
@@ -8,9 +8,6 @@ const {
   insertSnippetNearBlock,
   deleteBlock,
 } = require('./block-handle-ops');
-const { clearSelectedMermaidBlock } = require('./mermaid-selection');
-const { clearSelectedMathBlock } = require('./math-selection');
-const { clearSelectedCodeBlock } = require('./code-selection');
 
 /**
  * @param {{
@@ -75,11 +72,8 @@ function createBlockMenuHandlers(liveOpts) {
       opts.onDeleteImageBlock(block);
       return;
     }
-    if (deleteBlock(view, block)) {
-      clearSelectedMermaidBlock();
-      clearSelectedMathBlock();
-      clearSelectedCodeBlock();
-    }
+    // 删除后保留内存选中态，便于撤销后恢复蓝框 / 光标
+    deleteBlock(view, block);
   }
 
   function onInsert(where, type, block) {

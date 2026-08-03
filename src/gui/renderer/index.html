@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -1042,8 +1042,9 @@
     .mda-cm6-host .mda-cm-strong { font-weight: normal; text-shadow: 0.4px 0 0 currentColor; }
     .mda-cm6-host .mda-cm-em { font-style: italic; }
     .mda-cm6-host .mda-cm-strike { text-decoration: line-through; opacity: 0.85; }
+    /* 行内 code：灰底胶囊，勿接近选区蓝，避免被当成「已选中」 */
     .mda-cm6-host .mda-cm-code {
-      background: color-mix(in srgb, var(--code-bg, #f3f4f6) 42%, transparent);
+      background: #eef0f3;
       border-radius: 4px;
       padding: 1px 5px;
       font-size: 0.9em;
@@ -1052,22 +1053,35 @@
       font-feature-settings: "liga" 0, "calt" 0;
     }
     [data-theme="dark"] .mda-cm6-host .mda-cm-code {
-      background: color-mix(in srgb, var(--code-bg, #161b22) 50%, transparent);
+      background: rgba(110, 118, 129, 0.28);
     }
     .mda-cm6-host .mda-cm-link { color: var(--link); text-decoration: none; cursor: pointer; }
     .mda-cm6-host .mda-cm-link:hover { text-decoration: underline; }
-    /* CM6 选区层：仅覆盖实际选中字符，不用整段装饰 class */
-    .mda-cm6-host {
-      --cm-sel-bg: rgba(56, 139, 253, 0.28);
+    /* 正文选区：藏默认 CM6 层 + 原生透明；只用无空格单 class 的紧致层 */
+    .mda-cm6-host .cm-selectionLayer {
+      display: none !important;
     }
-    [data-theme="dark"] .mda-cm6-host {
-      --cm-sel-bg: rgba(88, 166, 255, 0.32);
+    .mda-cm6-host .mda-cm-tight-sel-layer {
+      display: block !important;
+      visibility: visible !important;
+      pointer-events: none;
     }
-    .mda-cm6-host .cm-selectionBackground {
-      background: var(--cm-sel-bg) !important;
+    .mda-cm6-host .mda-cm-tight-sel-layer .mda-cm-tight-sel {
+      display: block !important;
+      opacity: 1 !important;
+      background: var(--table-text-sel) !important;
     }
-    .mda-cm6-host .cm-activeLine {
+    .mda-cm6-host .cm-content ::selection,
+    .mda-cm6-host .cm-content *::selection,
+    .mda-cm6-host .cm-line::selection,
+    .mda-cm6-host .cm-line *::selection {
+      background-color: transparent !important;
+      color: inherit !important;
+    }
+    .mda-cm6-host .cm-activeLine,
+    .mda-cm6-host .cm-line.cm-activeLine {
       background: transparent !important;
+      background-color: transparent !important;
     }
     .mda-cm6-host .mda-cm-bullet {
       display: inline-block; width: 2ch; text-align: left;
@@ -1447,20 +1461,21 @@
       height: 14px;
       display: block;
     }
-    /* hover 或选中即显示块手柄（图片/流程图/公式/表格/代码/引用/高亮/分割线） */
-    .mda-cm6-host .mda-cm-image-block:hover .mda-cm-image-frame > .mda-cm-block-drag-handle,
+    /* 选中或 JS 延迟 hover（.mda-cm-block-handle-show）显示块手柄 */
+    .mda-cm6-host .mda-cm-image-block.mda-cm-block-handle-show .mda-cm-image-frame > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-image-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
-    .mda-cm6-host .mda-cm-mermaid-block:hover .mda-cm-mermaid-frame > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-mermaid-block.mda-cm-block-handle-show .mda-cm-mermaid-frame > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
-    .mda-cm6-host .mda-cm-math-block:hover .mda-cm-math-frame > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-math-block.mda-cm-block-handle-show .mda-cm-math-frame > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-math-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
-    .mda-cm6-host .mda-cm-code-block:hover .mda-cm-code-frame > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-code-block.mda-cm-block-handle-show .mda-cm-code-frame > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-code-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
-    .mda-cm6-host .mda-cm-table-block:hover .mda-cm-table-stage > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-table-block.mda-cm-block-handle-show .mda-cm-table-stage > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-table-block.mda-cm-block-selected > .mda-cm-table-stage > .mda-cm-block-drag-handle,
-    .mda-cm6-host .mda-cm-hr-block:hover .mda-cm-hr-frame > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-hr-block.mda-cm-block-handle-show .mda-cm-hr-frame > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-hr-block.mda-cm-block-selected > .mda-cm-hr-frame > .mda-cm-block-drag-handle,
-    .mda-cm6-host .cm-line:has(.mda-cm-quote-handle-anchor):hover > .mda-cm-quote-handle-anchor > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-quote-handle-anchor.mda-cm-block-handle-show > .mda-cm-block-drag-handle,
+    .mda-cm6-host .cm-line.mda-cm-block-handle-show > .mda-cm-quote-handle-anchor > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-quote-handle-anchor.mda-cm-block-selected > .mda-cm-block-drag-handle {
       display: flex;
     }
@@ -1512,37 +1527,73 @@
       min-width: 0;
       max-width: min(220px, 45vw);
     }
-    .mda-cm6-host .mda-cm-code-lang-trigger {
+    .mda-cm6-host .mda-cm-code-lang-trigger-group {
       display: flex;
-      align-items: center;
-      gap: 4px;
+      align-items: stretch;
       max-width: 100%;
-      padding: 2px 8px;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-muted);
       border: 1px solid var(--border);
       border-radius: 4px;
       background: var(--bg);
+      overflow: hidden;
+    }
+    .mda-cm6-host .mda-cm-code-lang-trigger-label-btn,
+    .mda-cm6-host .mda-cm-code-lang-trigger-chevron-btn {
+      margin: 0;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
       cursor: pointer;
+      line-height: 1.2;
     }
-    .mda-cm6-host .mda-cm-code-lang-trigger:hover,
-    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger {
-      border-color: var(--accent);
-      color: var(--accent);
-    }
-    .mda-cm6-host .mda-cm-code-lang-trigger-label {
+    .mda-cm6-host .mda-cm-code-lang-trigger-label-btn {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 2px 6px 2px 8px;
+      text-align: left;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .mda-cm6-host .mda-cm-code-lang-trigger-chevron-btn {
+      flex: 0 0 auto;
+      padding: 2px 6px;
+      border-left: 1px solid var(--border-light);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .mda-cm6-host .mda-cm-code-lang-trigger-label-btn:hover,
+    .mda-cm6-host .mda-cm-code-lang-trigger-chevron-btn:hover,
+    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-group,
+    .mda-cm6-host .mda-cm-code-lang-submenu-open .mda-cm-code-lang-trigger-group {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-group,
+    .mda-cm6-host .mda-cm-code-lang-submenu-open .mda-cm-code-lang-trigger-group {
+      border-color: var(--accent);
     }
     .mda-cm6-host .mda-cm-code-lang-trigger-chevron {
       flex: 0 0 auto;
       font-size: 10px;
       opacity: 0.7;
     }
-    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-chevron {
+    .mda-cm6-host .mda-cm-code-lang-open .mda-cm-code-lang-trigger-chevron,
+    .mda-cm6-host .mda-cm-code-lang-submenu-open .mda-cm-code-lang-trigger-chevron {
       transform: rotate(180deg);
+    }
+    .mda-cm-code-lang-submenu {
+      position: fixed;
+      z-index: 10050;
+      min-width: 160px;
+      max-height: min(360px, 50vh);
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+    .mda-cm-code-lang-submenu .mda-menu-item-active {
+      color: var(--accent);
     }
     .mda-cm6-host .mda-cm-code-lang-panel {
       position: absolute;
@@ -2079,8 +2130,9 @@
     .mda-cm6-host .mda-cm-table th[contenteditable]:focus,
     .mda-cm6-host .mda-cm-table td[contenteditable]:focus {
       outline: none;
-      box-shadow: inset 0 0 0 2px var(--table-sel-accent);
-      background: var(--bg);
+      /* 点击进编辑：无整格蓝底，仅细描边提示焦点 */
+      box-shadow: inset 0 0 0 1px var(--border);
+      background: transparent;
     }
     .mda-cm6-host .cm-editor:has(.mda-cm-table th[contenteditable]:focus, .mda-cm-table td[contenteditable]:focus) .cm-cursor,
     .mda-cm6-host .cm-editor:has(.mda-cm-table th[contenteditable]:focus, .mda-cm-table td[contenteditable]:focus) .cm-dropCursor,

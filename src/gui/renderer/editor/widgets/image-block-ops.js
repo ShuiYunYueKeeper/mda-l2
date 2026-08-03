@@ -1,4 +1,6 @@
-'use strict';
+﻿'use strict';
+
+const { Transaction } = require('@codemirror/state');
 
 const IMAGE_LINE_RE = /^\s*!\[[^\]]*\]\([^)]*\)/;
 
@@ -293,10 +295,12 @@ function deleteBlockRange(view, from, to) {
     delTo += 1;
   }
   // 选图/块时 CM6 选区常仍在文档头；若不先钉到块首，history 会把撤销后的光标还原到 0。
+  // 钉选区不入历史，避免多占一步 undo。
   const sel = view.state.selection.main;
   if (sel.from !== delFrom || sel.to !== delFrom) {
     view.dispatch({
       selection: { anchor: delFrom, head: delFrom },
+      annotations: Transaction.addToHistory.of(false),
     });
   }
   const caret = Math.min(delFrom, view.state.doc.length - (delTo - delFrom));

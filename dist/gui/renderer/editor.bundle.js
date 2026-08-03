@@ -32649,6 +32649,7 @@ var MDAEditorBundle = (() => {
         const nodes = container.querySelectorAll("." + sel);
         for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove(sel);
       }
+      var HOVER_LEAVE_MS = 200;
       function clearBlockWidgetSelection(container) {
         if (!container || !container.querySelectorAll) return;
         const nodes = container.querySelectorAll(".mda-cm-block-selected");
@@ -32662,7 +32663,8 @@ var MDAEditorBundle = (() => {
         createBlockToolbar,
         refreshBlockToolbars,
         clearMediaSelection,
-        clearBlockWidgetSelection
+        clearBlockWidgetSelection,
+        HOVER_LEAVE_MS
       };
     }
   });
@@ -47551,40 +47553,11 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/widgets/math-selection.js
-  var require_math_selection = __commonJS({
-    "src/gui/renderer/editor/widgets/math-selection.js"(exports, module) {
-      "use strict";
-      function getSelectedMathBlock() {
-        const el = document.querySelector(".mda-cm-math-block.mda-cm-block-selected");
-        if (!el) return null;
-        const from = parseInt(el.getAttribute("data-mda-block-from") || "", 10);
-        const to = parseInt(el.getAttribute("data-mda-block-to") || "", 10);
-        if (!(from >= 0) || !(to > from)) return null;
-        const source = el.getAttribute("data-mda-block-source") || "";
-        return { from, to, source };
-      }
-      function clearSelectedMathBlock() {
-        const nodes = document.querySelectorAll(".mda-cm-math-block.mda-cm-block-selected");
-        for (let i = 0; i < nodes.length; i++) {
-          nodes[i].classList.remove("mda-cm-block-selected");
-        }
-        const frames = document.querySelectorAll(".mda-cm-math-frame.mda-cm-media-selected");
-        for (let j = 0; j < frames.length; j++) {
-          frames[j].classList.remove("mda-cm-media-selected");
-        }
-      }
-      module.exports = {
-        getSelectedMathBlock,
-        clearSelectedMathBlock
-      };
-    }
-  });
-
   // src/gui/renderer/editor/widgets/image-block-ops.js
   var require_image_block_ops = __commonJS({
     "src/gui/renderer/editor/widgets/image-block-ops.js"(exports, module) {
       "use strict";
+      var { Transaction } = require_dist2();
       var IMAGE_LINE_RE = /^\s*!\[[^\]]*\]\([^)]*\)/;
       function docText(doc) {
         if (typeof doc.toString === "function") return doc.toString();
@@ -47770,7 +47743,8 @@ var MDAEditorBundle = (() => {
         const sel = view.state.selection.main;
         if (sel.from !== delFrom || sel.to !== delFrom) {
           view.dispatch({
-            selection: { anchor: delFrom, head: delFrom }
+            selection: { anchor: delFrom, head: delFrom },
+            annotations: Transaction.addToHistory.of(false)
           });
         }
         const caret = Math.min(delFrom, view.state.doc.length - (delTo - delFrom));
@@ -47885,6 +47859,338 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widgets/block-selection.js
+  var require_block_selection = __commonJS({
+    "src/gui/renderer/editor/widgets/block-selection.js"(exports, module) {
+      "use strict";
+      var { ViewPlugin } = require_dist4();
+      var { findNearestSourceRange } = require_image_block_ops();
+      var { clearBlockWidgetSelection, clearMediaSelection } = require_widget_common();
+      var selected = null;
+      var KIND_CONFIG = {
+        code: { rootSel: ".mda-cm-code-block", frameSel: ".mda-cm-code-frame", media: true },
+        math: { rootSel: ".mda-cm-math-block", frameSel: ".mda-cm-math-frame", media: true },
+        table: { rootSel: ".mda-cm-table-block" },
+        quote: { rootSel: ".mda-cm-quote-handle-anchor" },
+        highlight: { rootSel: ".mda-cm-quote-handle-anchor" },
+        hr: { rootSel: ".mda-cm-hr-block", frameSel: ".mda-cm-hr-frame", hrSelected: true }
+      };
+      function setSelectedBlock(block) {
+        selected = block;
+      }
+      function getSelectedBlock() {
+        return selected;
+      }
+      function getSelectedBlockOfKind(kind) {
+        return selected && selected.kind === kind ? selected : null;
+      }
+      function clearSelectedBlock() {
+        selected = null;
+      }
+      function syncSelectedBlockClass(editorRoot) {
+        const sel = selected;
+        if (!sel || !editorRoot) return;
+        const cfg = KIND_CONFIG[sel.kind];
+        if (!cfg) return;
+        clearBlockWidgetSelection(editorRoot);
+        if (cfg.media) clearMediaSelection(editorRoot, "mda-cm-media-selected");
+        const block = editorRoot.querySelector(
+          cfg.rootSel + '[data-mda-block-from="' + sel.from + '"][data-mda-block-to="' + sel.to + '"]'
+        );
+        if (!block) return;
+        block.classList.add("mda-cm-block-selected");
+        if (cfg.media && cfg.frameSel) {
+          const frame = block.querySelector(cfg.frameSel);
+          if (frame) frame.classList.add("mda-cm-media-selected");
+        }
+        if (cfg.hrSelected) {
+          const frame = block.querySelector(".mda-cm-hr-frame");
+          if (frame) frame.classList.add("mda-cm-hr-selected");
+        }
+      }
+      function reconcileSelectedBlock(view) {
+        const sel = selected;
+        if (!sel || !view || !view.dom) return;
+        if (sel.source) {
+          const text = typeof view.state.doc.toString === "function" ? view.state.doc.toString() : view.state.doc.sliceString(0, view.state.doc.length);
+          const range = findNearestSourceRange(text, sel.source, sel.from);
+          if (range && (sel.from !== range.from || sel.to !== range.to)) {
+            selected = {
+              kind: sel.kind,
+              from: range.from,
+              to: range.to,
+              source: sel.source
+            };
+          }
+        }
+        syncSelectedBlockClass(view.dom);
+      }
+      function createBlockSelectionSyncPlugin() {
+        return ViewPlugin.fromClass(
+          class {
+            constructor() {
+              this._raf = 0;
+            }
+            update(update) {
+              if (!update.docChanged || !selected) return;
+              const view = update.view;
+              const self2 = this;
+              if (self2._raf) cancelAnimationFrame(self2._raf);
+              self2._raf = requestAnimationFrame(function() {
+                self2._raf = 0;
+                reconcileSelectedBlock(view);
+              });
+            }
+            destroy() {
+              if (this._raf) cancelAnimationFrame(this._raf);
+            }
+          }
+        );
+      }
+      module.exports = {
+        setSelectedBlock,
+        getSelectedBlock,
+        getSelectedBlockOfKind,
+        clearSelectedBlock,
+        syncSelectedBlockClass,
+        reconcileSelectedBlock,
+        createBlockSelectionSyncPlugin
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/math-selection.js
+  var require_math_selection = __commonJS({
+    "src/gui/renderer/editor/widgets/math-selection.js"(exports, module) {
+      "use strict";
+      var {
+        setSelectedBlock,
+        getSelectedBlockOfKind,
+        clearSelectedBlock
+      } = require_block_selection();
+      function setSelectedMathBlock(block) {
+        if (!block) {
+          clearSelectedBlock();
+          return;
+        }
+        setSelectedBlock({
+          kind: "math",
+          from: block.from,
+          to: block.to,
+          source: block.source || ""
+        });
+      }
+      function getSelectedMathBlock() {
+        const mem = getSelectedBlockOfKind("math");
+        if (mem) {
+          return { from: mem.from, to: mem.to, source: mem.source };
+        }
+        const el = document.querySelector(".mda-cm-math-block.mda-cm-block-selected");
+        if (!el) return null;
+        const from = parseInt(el.getAttribute("data-mda-block-from") || "", 10);
+        const to = parseInt(el.getAttribute("data-mda-block-to") || "", 10);
+        if (!(from >= 0) || !(to > from)) return null;
+        const source = el.getAttribute("data-mda-block-source") || "";
+        return { from, to, source };
+      }
+      function clearSelectedMathBlock() {
+        const mem = getSelectedBlockOfKind("math");
+        if (mem) clearSelectedBlock();
+        const nodes = document.querySelectorAll(".mda-cm-math-block.mda-cm-block-selected");
+        for (let i = 0; i < nodes.length; i++) {
+          nodes[i].classList.remove("mda-cm-block-selected");
+        }
+        const frames = document.querySelectorAll(".mda-cm-math-frame.mda-cm-media-selected");
+        for (let j = 0; j < frames.length; j++) {
+          frames[j].classList.remove("mda-cm-media-selected");
+        }
+      }
+      module.exports = {
+        setSelectedMathBlock,
+        getSelectedMathBlock,
+        clearSelectedMathBlock
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/image-selection.js
+  var require_image_selection = __commonJS({
+    "src/gui/renderer/editor/widgets/image-selection.js"(exports, module) {
+      "use strict";
+      var { ViewPlugin } = require_dist4();
+      var { resolveImageLineRange } = require_image_block_ops();
+      var { clearMediaSelection } = require_widget_common();
+      var selected = null;
+      function setSelectedImageBlock(block) {
+        selected = block;
+      }
+      function getSelectedImageBlock() {
+        return selected;
+      }
+      function clearSelectedImageBlock() {
+        selected = null;
+      }
+      function syncSelectedImageFrameClass(editorRoot) {
+        const sel = getSelectedImageBlock();
+        if (!sel || !editorRoot) return;
+        clearMediaSelection(editorRoot, "mda-cm-media-selected");
+        const block = editorRoot.querySelector(
+          '.mda-cm-image-block[data-mda-block-from="' + sel.from + '"][data-mda-block-to="' + sel.to + '"]'
+        );
+        const frame = block && block.querySelector(".mda-cm-image-frame");
+        if (frame) frame.classList.add("mda-cm-media-selected");
+      }
+      function reconcileSelectedImageBlock(view) {
+        const sel = getSelectedImageBlock();
+        if (!sel || !view || !view.dom) return;
+        if (!sel.source) {
+          syncSelectedImageFrameClass(view.dom);
+          return;
+        }
+        const range = resolveImageLineRange(view, sel);
+        if (!range) {
+          clearMediaSelection(view.dom, "mda-cm-media-selected");
+          return;
+        }
+        if (sel.from !== range.from || sel.to !== range.to) {
+          setSelectedImageBlock({
+            from: range.from,
+            to: range.to,
+            source: sel.source,
+            meta: sel.meta
+          });
+        }
+        syncSelectedImageFrameClass(view.dom);
+      }
+      function createImageSelectionSyncPlugin() {
+        return ViewPlugin.fromClass(
+          class {
+            constructor() {
+              this._raf = 0;
+            }
+            update(update) {
+              if (!update.docChanged || !getSelectedImageBlock()) return;
+              const view = update.view;
+              const self2 = this;
+              if (self2._raf) cancelAnimationFrame(self2._raf);
+              self2._raf = requestAnimationFrame(function() {
+                self2._raf = 0;
+                reconcileSelectedImageBlock(view);
+              });
+            }
+            destroy() {
+              if (this._raf) cancelAnimationFrame(this._raf);
+            }
+          }
+        );
+      }
+      module.exports = {
+        setSelectedImageBlock,
+        getSelectedImageBlock,
+        clearSelectedImageBlock,
+        syncSelectedImageFrameClass,
+        reconcileSelectedImageBlock,
+        createImageSelectionSyncPlugin
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/mermaid-selection.js
+  var require_mermaid_selection = __commonJS({
+    "src/gui/renderer/editor/widgets/mermaid-selection.js"(exports, module) {
+      "use strict";
+      var { ViewPlugin } = require_dist4();
+      var { clearMediaSelection } = require_widget_common();
+      var selected = null;
+      function setSelectedMermaidBlock(block) {
+        selected = block;
+      }
+      function getSelectedMermaidBlock() {
+        return selected;
+      }
+      function clearSelectedMermaidBlock() {
+        selected = null;
+      }
+      function syncSelectedMermaidFrameClass(editorRoot) {
+        const sel = getSelectedMermaidBlock();
+        if (!sel || !editorRoot) return;
+        clearMediaSelection(editorRoot, "mda-cm-media-selected");
+        const block = editorRoot.querySelector(
+          '.mda-cm-mermaid-block[data-mda-block-from="' + sel.from + '"][data-mda-block-to="' + sel.to + '"]'
+        );
+        if (!block) return;
+        block.classList.add("mda-cm-block-selected");
+        const frame = block.querySelector(".mda-cm-mermaid-frame");
+        if (frame) frame.classList.add("mda-cm-media-selected");
+      }
+      function reconcileSelectedMermaidBlock(view) {
+        const sel = getSelectedMermaidBlock();
+        if (!sel || !view || !view.dom) return;
+        if (!sel.source) {
+          syncSelectedMermaidFrameClass(view.dom);
+          return;
+        }
+        const blocks = view.dom.querySelectorAll(
+          ".mda-cm-mermaid-block[data-mda-block-source][data-mda-block-from][data-mda-block-to]"
+        );
+        let best = null;
+        for (let i = 0; i < blocks.length; i++) {
+          const el = blocks[i];
+          const source = el.getAttribute("data-mda-block-source") || "";
+          if (source !== sel.source) continue;
+          const from = parseInt(el.getAttribute("data-mda-block-from") || "", 10);
+          const to = parseInt(el.getAttribute("data-mda-block-to") || "", 10);
+          if (!(from >= 0 && to > from)) continue;
+          const dist = Math.abs(from - sel.from);
+          if (!best || dist < best.dist) best = { from, to, dist };
+        }
+        if (!best) {
+          clearMediaSelection(view.dom, "mda-cm-media-selected");
+          return;
+        }
+        if (sel.from !== best.from || sel.to !== best.to) {
+          setSelectedMermaidBlock({
+            from: best.from,
+            to: best.to,
+            source: sel.source,
+            code: sel.code
+          });
+        }
+        syncSelectedMermaidFrameClass(view.dom);
+      }
+      function createMermaidSelectionSyncPlugin() {
+        return ViewPlugin.fromClass(
+          class {
+            constructor() {
+              this._raf = 0;
+            }
+            update(update) {
+              if (!update.docChanged || !getSelectedMermaidBlock()) return;
+              const view = update.view;
+              const self2 = this;
+              if (self2._raf) cancelAnimationFrame(self2._raf);
+              self2._raf = requestAnimationFrame(function() {
+                self2._raf = 0;
+                reconcileSelectedMermaidBlock(view);
+              });
+            }
+            destroy() {
+              if (this._raf) cancelAnimationFrame(this._raf);
+            }
+          }
+        );
+      }
+      module.exports = {
+        setSelectedMermaidBlock,
+        getSelectedMermaidBlock,
+        clearSelectedMermaidBlock,
+        syncSelectedMermaidFrameClass,
+        reconcileSelectedMermaidBlock,
+        createMermaidSelectionSyncPlugin
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/block-menu-icons.js
   var require_block_menu_icons = __commonJS({
     "src/gui/renderer/editor/widgets/block-menu-icons.js"(exports, module) {
@@ -47950,7 +48256,7 @@ var MDAEditorBundle = (() => {
   var require_block_handle_menu = __commonJS({
     "src/gui/renderer/editor/widgets/block-handle-menu.js"(exports, module) {
       "use strict";
-      var { uiT } = require_widget_common();
+      var { uiT, HOVER_LEAVE_MS } = require_widget_common();
       var { menuIconHtml } = require_block_menu_icons();
       var activeMenu = null;
       var activeSubmenu = null;
@@ -47963,8 +48269,8 @@ var MDAEditorBundle = (() => {
       var menuCloseTimer = 0;
       var menuGraceUntil = 0;
       var MENU_GRACE_MS = 380;
-      var SUB_CLOSE_MS = 280;
-      var MENU_CLOSE_MS = 320;
+      var SUB_CLOSE_MS = HOVER_LEAVE_MS;
+      var MENU_CLOSE_MS = HOVER_LEAVE_MS;
       var MOD_KEY = typeof navigator !== "undefined" && (navigator.platform || "").toLowerCase().indexOf("mac") >= 0 ? "\u2318" : "Ctrl+";
       var AI_ITEMS = [
         { id: "continue", key: "blockMenuAiContinue", icon: "continue", soon: true },
@@ -48024,11 +48330,18 @@ var MDAEditorBundle = (() => {
         clearSubTimers();
         closeActiveSubmenu();
         removeOrphanSubmenus();
+        const prevRoot = menuBlockRoot;
         if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
         activeMenu = null;
         menuAnchorEl = null;
         menuBlockRoot = null;
         menuGraceUntil = 0;
+        if (prevRoot && !prevRoot.matches(":hover")) {
+          const handle = prevRoot.querySelector(".mda-cm-block-drag-handle");
+          if (!handle || !handle.matches(":hover")) {
+            prevRoot.classList.remove("mda-cm-block-handle-show");
+          }
+        }
         if (dismissFn) {
           document.removeEventListener("mousedown", dismissFn, true);
           document.removeEventListener("contextmenu", dismissFn, true);
@@ -48039,6 +48352,9 @@ var MDAEditorBundle = (() => {
           document.removeEventListener("keydown", escFn, true);
           escFn = null;
         }
+      }
+      function isBlockHandleMenuOpenFor(blockRoot) {
+        return !!(activeMenu && menuBlockRoot && blockRoot && menuBlockRoot === blockRoot);
       }
       function addMenuSeparator(menu) {
         const sep = document.createElement("div");
@@ -48154,6 +48470,7 @@ var MDAEditorBundle = (() => {
         menuAnchorEl = anchor;
         menuBlockRoot = ctx.blockRoot || null;
         menuGraceUntil = Date.now() + MENU_GRACE_MS;
+        if (menuBlockRoot) menuBlockRoot.classList.add("mda-cm-block-handle-show");
         const menu = document.createElement("div");
         menu.className = "mda-context-menu mda-block-handle-menu";
         menu.id = "mda-block-handle-menu";
@@ -48268,6 +48585,7 @@ var MDAEditorBundle = (() => {
       module.exports = {
         showBlockHandleMenu,
         closeBlockHandleMenu,
+        isBlockHandleMenuOpenFor,
         MOD_KEY
       };
     }
@@ -48278,10 +48596,12 @@ var MDAEditorBundle = (() => {
     "src/gui/renderer/editor/widgets/block-drag-handle.js"(exports, module) {
       "use strict";
       var { resolveBlockDropTargetFromCoords } = require_image_block_ops();
-      var { showBlockHandleMenu } = require_block_handle_menu();
+      var { showBlockHandleMenu, isBlockHandleMenuOpenFor } = require_block_handle_menu();
       var { blockTypeIconHtml } = require_block_menu_icons();
+      var { HOVER_LEAVE_MS } = require_widget_common();
       var LONG_PRESS_MS = 200;
       var CANCEL_DRAG_PX = 10;
+      var HANDLE_HIDE_MS = HOVER_LEAVE_MS;
       function readBlockRange(el, fallback) {
         const fromRaw = el.getAttribute("data-mda-block-from");
         const toRaw = el.getAttribute("data-mda-block-to");
@@ -48313,6 +48633,33 @@ var MDAEditorBundle = (() => {
         let dragging = false;
         let dropLine = null;
         let lastResolved = null;
+        let hideTimer = 0;
+        function showHandle() {
+          window.clearTimeout(hideTimer);
+          hideTimer = 0;
+          blockRoot.classList.add("mda-cm-block-handle-show");
+        }
+        function scheduleHideHandle() {
+          window.clearTimeout(hideTimer);
+          hideTimer = window.setTimeout(function() {
+            hideTimer = 0;
+            if (dragging || handle.classList.contains("mda-cm-block-drag-handle-active")) return;
+            if (typeof document !== "undefined" && document.body.classList.contains("mda-cm-block-drag-active")) {
+              return;
+            }
+            if (isBlockHandleMenuOpenFor(blockRoot)) return;
+            blockRoot.classList.remove("mda-cm-block-handle-show");
+          }, HANDLE_HIDE_MS);
+        }
+        const hoverTargets = [blockRoot, handle];
+        if (blockRoot.classList.contains("mda-cm-quote-handle-anchor")) {
+          const line = blockRoot.closest(".cm-line");
+          if (line && hoverTargets.indexOf(line) < 0) hoverTargets.push(line);
+        }
+        for (let hi = 0; hi < hoverTargets.length; hi++) {
+          hoverTargets[hi].addEventListener("mouseenter", showHandle);
+          hoverTargets[hi].addEventListener("mouseleave", scheduleHideHandle);
+        }
         function ensureDropLine() {
           if (dropLine && dropLine.parentNode) return dropLine;
           dropLine = document.createElement("div");
@@ -48467,7 +48814,8 @@ var MDAEditorBundle = (() => {
       module.exports = {
         attachBlockDragHandle,
         buildHandleInnerHtml,
-        LONG_PRESS_MS
+        LONG_PRESS_MS,
+        HANDLE_HIDE_MS
       };
     }
   });
@@ -48488,8 +48836,11 @@ var MDAEditorBundle = (() => {
         clearBlockWidgetSelection
       } = require_widget_common();
       var { BlockReplaceWidget, syncWidgetHeightFromDom } = require_block_widget_base();
-      var { clearSelectedMathBlock } = require_math_selection();
+      var { setSelectedMathBlock } = require_math_selection();
+      var { clearSelectedImageBlock } = require_image_selection();
+      var { clearSelectedMermaidBlock } = require_mermaid_selection();
       var { attachBlockDragHandle } = require_block_drag_handle();
+      var { Transaction } = require_dist2();
       var MAX_MATH_WIDGET_HEIGHT = 480;
       var TOOLBAR_H = 36;
       var DISPLAY_PAD = 28;
@@ -48609,11 +48960,27 @@ var MDAEditorBundle = (() => {
             const editorRoot = root.closest(".cm-editor");
             clearMediaSelection(editorRoot, "mda-cm-media-selected");
             clearBlockWidgetSelection(editorRoot || document);
-            clearSelectedMathBlock();
+            clearSelectedImageBlock();
+            clearSelectedMermaidBlock();
             frame.classList.add("mda-cm-media-selected");
             root.classList.add("mda-cm-block-selected");
+            setSelectedMathBlock({
+              from: self2.from,
+              to: self2.to,
+              source: self2.source
+            });
             try {
-              if (view) view.focus();
+              if (view && self2.from != null) {
+                const pos = Math.max(0, Math.min(self2.from, view.state.doc.length));
+                const sel = view.state.selection.main;
+                if (sel.from !== pos || sel.to !== pos) {
+                  view.dispatch({
+                    selection: { anchor: pos, head: pos },
+                    annotations: Transaction.addToHistory.of(false)
+                  });
+                }
+                view.focus();
+              }
             } catch (_) {
             }
           }
@@ -49027,7 +49394,23 @@ var MDAEditorBundle = (() => {
       } = require_table_cell_content();
       var { undo, redo } = require_dist8();
       var { attachBlockDragHandle } = require_block_drag_handle();
+      var { setSelectedBlock } = require_block_selection();
+      var { clearSelectedImageBlock } = require_image_selection();
+      var { clearSelectedMermaidBlock } = require_mermaid_selection();
       var internalClipboard = "";
+      function rememberTableBlockSelected(ctx) {
+        clearSelectedImageBlock();
+        clearSelectedMermaidBlock();
+        const w = ctx.widget || {};
+        if (w.from != null && w.to != null) {
+          setSelectedBlock({
+            kind: "table",
+            from: w.from,
+            to: w.to,
+            source: w.source || ctx.blockSource || ""
+          });
+        }
+      }
       function renderTableElement(parsed, opts) {
         opts = opts || {};
         const cellOpts = { resolveImageUrl: opts.resolveImageUrl };
@@ -49075,6 +49458,7 @@ var MDAEditorBundle = (() => {
         for (let i = 0; i < cells.length; i++) {
           cells[i].classList.remove("mda-cm-table-cell-selected");
         }
+        if (!selection || selection.kind === "none" || selection.kind === "cell") return;
         const b = selectionBounds(selection);
         if (!b || !table) return;
         const maxCol = table.querySelectorAll("thead th").length - 1;
@@ -49792,6 +50176,7 @@ var MDAEditorBundle = (() => {
           if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) {
             clearBlockWidgetSelection(ctx.root.closest(".cm-editor") || document);
             clearMediaSelection(ctx.root.closest(".cm-editor") || document);
+            rememberTableBlockSelected(ctx);
             ctx.root.classList.add("mda-cm-block-selected");
             e.stopPropagation();
             return;
@@ -49816,6 +50201,7 @@ var MDAEditorBundle = (() => {
             clearTableInteraction();
             clearBlockWidgetSelection(ctx.root.closest(".cm-editor") || document);
             clearMediaSelection(ctx.root.closest(".cm-editor") || document);
+            rememberTableBlockSelected(ctx);
             ctx.root.classList.add("mda-cm-block-selected");
           }
         });
@@ -49928,6 +50314,10 @@ var MDAEditorBundle = (() => {
       var { deleteBlockRange } = require_image_block_ops();
       var { applyTableLayoutSession } = require_table_layout_session();
       var { clearBlockWidgetSelection } = require_widget_common();
+      var { setSelectedBlock, clearSelectedBlock } = require_block_selection();
+      var { clearSelectedImageBlock } = require_image_selection();
+      var { clearSelectedMermaidBlock } = require_mermaid_selection();
+      var { Transaction } = require_dist2();
       function resolveTableBlockRange(view, widget) {
         const text = view.state.doc.toString();
         const len = text.length;
@@ -49942,8 +50332,24 @@ var MDAEditorBundle = (() => {
         const sel = view.state.selection.main;
         if (sel.from === pos && sel.to === pos && sel.head === pos) return;
         view.dispatch({
-          selection: { anchor: pos, head: pos }
+          selection: { anchor: pos, head: pos },
+          annotations: Transaction.addToHistory.of(false)
         });
+      }
+      function markTableSelected(view, widget) {
+        clearSelectedImageBlock();
+        clearSelectedMermaidBlock();
+        clearBlockWidgetSelection(view.dom);
+        if (widget && widget.from != null) {
+          setSelectedBlock({
+            kind: "table",
+            from: widget.from,
+            to: widget.to,
+            source: widget.source || ""
+          });
+        } else {
+          clearSelectedBlock();
+        }
       }
       function deleteTableBlock(view, widget) {
         if (!view || !widget) return;
@@ -50116,14 +50522,14 @@ var MDAEditorBundle = (() => {
               return;
             }
             if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) {
-              clearBlockWidgetSelection(view.dom);
+              markTableSelected(view, self2);
               root.classList.add("mda-cm-block-selected");
               pinEditorToTable(view, self2);
               e.stopPropagation();
               return;
             }
             pinEditorToTable(view, self2);
-            clearBlockWidgetSelection(view.dom);
+            markTableSelected(view, self2);
             root.classList.add("mda-cm-block-selected");
             if (e.target && e.target.closest && e.target.closest("th[contenteditable], td[contenteditable]")) {
               return;
@@ -50162,6 +50568,10 @@ var MDAEditorBundle = (() => {
       var { attachBlockDragHandle } = require_block_drag_handle();
       var { showBlockHandleMenu } = require_block_handle_menu();
       var { clearBlockWidgetSelection, clearMediaSelection, uiT } = require_widget_common();
+      var { setSelectedBlock } = require_block_selection();
+      var { clearSelectedImageBlock } = require_image_selection();
+      var { clearSelectedMermaidBlock } = require_mermaid_selection();
+      var { Transaction } = require_dist2();
       function isHighlightCalloutLine(firstLine) {
         return /^\s*>\s*\[![A-Za-z][\w-]*\]/.test(String(firstLine || ""));
       }
@@ -50210,7 +50620,29 @@ var MDAEditorBundle = (() => {
           function selectAnchor() {
             clearMediaSelection(view.dom);
             clearBlockWidgetSelection(view.dom);
+            clearSelectedImageBlock();
+            clearSelectedMermaidBlock();
             wrap.classList.add("mda-cm-block-selected");
+            setSelectedBlock({
+              kind: self2.quoteKind === "highlight" ? "highlight" : "quote",
+              from: self2.from,
+              to: self2.to,
+              source: self2.source
+            });
+            try {
+              if (self2.from != null) {
+                const pos = Math.max(0, Math.min(self2.from, view.state.doc.length));
+                const sel = view.state.selection.main;
+                if (sel.from !== pos || sel.to !== pos) {
+                  view.dispatch({
+                    selection: { anchor: pos, head: pos },
+                    annotations: Transaction.addToHistory.of(false)
+                  });
+                }
+                view.focus();
+              }
+            } catch (_) {
+            }
           }
           attachBlockDragHandle(wrap, view, range, {
             blockRoot: wrap,
@@ -50583,88 +51015,6 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/widgets/image-selection.js
-  var require_image_selection = __commonJS({
-    "src/gui/renderer/editor/widgets/image-selection.js"(exports, module) {
-      "use strict";
-      var { ViewPlugin } = require_dist4();
-      var { resolveImageLineRange } = require_image_block_ops();
-      var { clearMediaSelection } = require_widget_common();
-      var selected = null;
-      function setSelectedImageBlock(block) {
-        selected = block;
-      }
-      function getSelectedImageBlock() {
-        return selected;
-      }
-      function clearSelectedImageBlock() {
-        selected = null;
-      }
-      function syncSelectedImageFrameClass(editorRoot) {
-        const sel = getSelectedImageBlock();
-        if (!sel || !editorRoot) return;
-        clearMediaSelection(editorRoot, "mda-cm-media-selected");
-        const block = editorRoot.querySelector(
-          '.mda-cm-image-block[data-mda-block-from="' + sel.from + '"][data-mda-block-to="' + sel.to + '"]'
-        );
-        const frame = block && block.querySelector(".mda-cm-image-frame");
-        if (frame) frame.classList.add("mda-cm-media-selected");
-      }
-      function reconcileSelectedImageBlock(view) {
-        const sel = getSelectedImageBlock();
-        if (!sel || !view || !view.dom) return;
-        if (!sel.source) {
-          syncSelectedImageFrameClass(view.dom);
-          return;
-        }
-        const range = resolveImageLineRange(view, sel);
-        if (!range) {
-          clearMediaSelection(view.dom, "mda-cm-media-selected");
-          return;
-        }
-        if (sel.from !== range.from || sel.to !== range.to) {
-          setSelectedImageBlock({
-            from: range.from,
-            to: range.to,
-            source: sel.source,
-            meta: sel.meta
-          });
-        }
-        syncSelectedImageFrameClass(view.dom);
-      }
-      function createImageSelectionSyncPlugin() {
-        return ViewPlugin.fromClass(
-          class {
-            constructor() {
-              this._raf = 0;
-            }
-            update(update) {
-              if (!update.docChanged || !getSelectedImageBlock()) return;
-              const view = update.view;
-              const self2 = this;
-              if (self2._raf) cancelAnimationFrame(self2._raf);
-              self2._raf = requestAnimationFrame(function() {
-                self2._raf = 0;
-                reconcileSelectedImageBlock(view);
-              });
-            }
-            destroy() {
-              if (this._raf) cancelAnimationFrame(this._raf);
-            }
-          }
-        );
-      }
-      module.exports = {
-        setSelectedImageBlock,
-        getSelectedImageBlock,
-        clearSelectedImageBlock,
-        syncSelectedImageFrameClass,
-        reconcileSelectedImageBlock,
-        createImageSelectionSyncPlugin
-      };
-    }
-  });
-
   // src/gui/renderer/editor/widgets/image.js
   var require_image = __commonJS({
     "src/gui/renderer/editor/widgets/image.js"(exports, module) {
@@ -50680,8 +51030,11 @@ var MDAEditorBundle = (() => {
         getSelectedImageBlock,
         syncSelectedImageFrameClass
       } = require_image_selection();
+      var { clearSelectedMermaidBlock } = require_mermaid_selection();
+      var { clearSelectedBlock } = require_block_selection();
       var { BlockReplaceWidget } = require_block_widget_base();
       var { syncFrameToImage, applyLiveImageWidth } = require_image_layout();
+      var { Transaction } = require_dist2();
       function applyImageDisplayConstraints(img, opts) {
         if (!img) return;
         let saved = parseInt(img.getAttribute("data-mda-display-width") || "", 10);
@@ -50783,6 +51136,8 @@ var MDAEditorBundle = (() => {
           function selectFrame() {
             const editorRoot = root.closest(".cm-editor");
             clearMediaSelection(editorRoot, "mda-cm-media-selected");
+            clearSelectedMermaidBlock();
+            clearSelectedBlock();
             frame.classList.add("mda-cm-media-selected");
             setSelectedImageBlock({
               from: self2.from,
@@ -50794,7 +51149,8 @@ var MDAEditorBundle = (() => {
               if (view) {
                 if (self2.from != null && (view.state.selection.main.from !== self2.from || view.state.selection.main.to !== self2.from)) {
                   view.dispatch({
-                    selection: { anchor: self2.from, head: self2.from }
+                    selection: { anchor: self2.from, head: self2.from },
+                    annotations: Transaction.addToHistory.of(false)
                   });
                 }
                 view.focus();
@@ -51001,7 +51357,7 @@ var MDAEditorBundle = (() => {
   var require_code_lang_picker = __commonJS({
     "src/gui/renderer/editor/widgets/code-lang-picker.js"(exports, module) {
       "use strict";
-      var { uiT } = require_widget_common();
+      var { uiT, HOVER_LEAVE_MS } = require_widget_common();
       var {
         CODE_BLOCK_LANGUAGES,
         normalizeCodeBlockLang,
@@ -51009,26 +51365,35 @@ var MDAEditorBundle = (() => {
         filterCodeLanguages
       } = require_code_languages();
       var openPickerClose = null;
+      var openSubmenuClose = null;
       function createCodeLangPicker(opts) {
         const t = opts.t;
         let currentLang = normalizeCodeBlockLang(opts.lang);
         const root = document.createElement("div");
         root.className = "mda-cm-code-lang-picker";
-        const trigger = document.createElement("button");
-        trigger.type = "button";
-        trigger.className = "mda-cm-code-lang-trigger";
-        trigger.setAttribute("data-i18n-title", "widgetCodeLangSwitch");
-        trigger.title = uiT("widgetCodeLangSwitch", t);
-        trigger.setAttribute("aria-haspopup", "listbox");
-        trigger.setAttribute("aria-expanded", "false");
-        const triggerLabel = document.createElement("span");
-        triggerLabel.className = "mda-cm-code-lang-trigger-label";
-        const triggerChevron = document.createElement("span");
-        triggerChevron.className = "mda-cm-code-lang-trigger-chevron";
-        triggerChevron.setAttribute("aria-hidden", "true");
-        triggerChevron.textContent = "\u25BE";
-        trigger.appendChild(triggerLabel);
-        trigger.appendChild(triggerChevron);
+        const group = document.createElement("div");
+        group.className = "mda-cm-code-lang-trigger-group";
+        const labelBtn = document.createElement("button");
+        labelBtn.type = "button";
+        labelBtn.className = "mda-cm-code-lang-trigger-label-btn";
+        labelBtn.setAttribute("data-i18n-title", "widgetCodeLangSwitch");
+        labelBtn.title = uiT("widgetCodeLangSwitch", t);
+        const chevronBtn = document.createElement("button");
+        chevronBtn.type = "button";
+        chevronBtn.className = "mda-cm-code-lang-trigger-chevron-btn";
+        chevronBtn.setAttribute("data-i18n-title", "widgetCodeLangMenu");
+        chevronBtn.setAttribute("data-i18n-aria", "widgetCodeLangMenu");
+        chevronBtn.title = uiT("widgetCodeLangMenu", t);
+        chevronBtn.setAttribute("aria-label", uiT("widgetCodeLangMenu", t));
+        chevronBtn.setAttribute("aria-haspopup", "menu");
+        chevronBtn.setAttribute("aria-expanded", "false");
+        const chevronMark = document.createElement("span");
+        chevronMark.className = "mda-cm-code-lang-trigger-chevron";
+        chevronMark.setAttribute("aria-hidden", "true");
+        chevronMark.textContent = "\u25BE";
+        chevronBtn.appendChild(chevronMark);
+        group.appendChild(labelBtn);
+        group.appendChild(chevronBtn);
         const panel = document.createElement("div");
         panel.className = "mda-cm-code-lang-panel";
         panel.hidden = true;
@@ -51044,10 +51409,26 @@ var MDAEditorBundle = (() => {
         list.setAttribute("role", "listbox");
         panel.appendChild(search);
         panel.appendChild(list);
-        root.appendChild(trigger);
+        root.appendChild(group);
         root.appendChild(panel);
+        let submenuEl = null;
+        let submenuLeaveTimer = 0;
+        function clearSubmenuLeaveTimer() {
+          window.clearTimeout(submenuLeaveTimer);
+          submenuLeaveTimer = 0;
+        }
+        function isInLangSubCluster(target) {
+          if (!target || !(target instanceof Node)) return false;
+          if (root.contains(target)) return true;
+          if (submenuEl && submenuEl.contains(target)) return true;
+          return false;
+        }
+        function scheduleCloseSubmenu() {
+          clearSubmenuLeaveTimer();
+          submenuLeaveTimer = window.setTimeout(closeSubmenu, HOVER_LEAVE_MS);
+        }
         function setTriggerLabel() {
-          triggerLabel.textContent = getCodeLangLabel(currentLang, t);
+          labelBtn.textContent = getCodeLangLabel(currentLang, t);
         }
         function renderList() {
           const items = filterCodeLanguages(search.value);
@@ -51077,18 +51458,30 @@ var MDAEditorBundle = (() => {
         function closePanel() {
           if (panel.hidden) return;
           panel.hidden = true;
-          trigger.setAttribute("aria-expanded", "false");
           root.classList.remove("mda-cm-code-lang-open");
           search.value = "";
           if (openPickerClose === closePanel) openPickerClose = null;
           document.removeEventListener("mousedown", onDocPointer, true);
         }
+        function closeSubmenu() {
+          clearSubmenuLeaveTimer();
+          if (submenuEl && submenuEl.parentNode) submenuEl.parentNode.removeChild(submenuEl);
+          submenuEl = null;
+          chevronBtn.setAttribute("aria-expanded", "false");
+          root.classList.remove("mda-cm-code-lang-submenu-open");
+          if (openSubmenuClose === closeSubmenu) openSubmenuClose = null;
+          document.removeEventListener("mousedown", onDocSubPointer, true);
+        }
+        function closeAll() {
+          closePanel();
+          closeSubmenu();
+        }
         function openPanel() {
+          closeSubmenu();
           if (typeof openPickerClose === "function" && openPickerClose !== closePanel) {
             openPickerClose();
           }
           panel.hidden = false;
-          trigger.setAttribute("aria-expanded", "true");
           root.classList.add("mda-cm-code-lang-open");
           renderList();
           openPickerClose = closePanel;
@@ -51098,33 +51491,130 @@ var MDAEditorBundle = (() => {
             search.select();
           });
         }
+        function placeSubmenu(menu) {
+          document.body.appendChild(menu);
+          const rect = chevronBtn.getBoundingClientRect();
+          const pad = 8;
+          let left = rect.left;
+          let top = rect.bottom + 4;
+          menu.style.left = left + "px";
+          menu.style.top = top + "px";
+          if (left + menu.offsetWidth > window.innerWidth - pad) {
+            left = Math.max(pad, window.innerWidth - menu.offsetWidth - pad);
+            menu.style.left = left + "px";
+          }
+          if (top + menu.offsetHeight > window.innerHeight - pad) {
+            top = Math.max(pad, rect.top - menu.offsetHeight - 4);
+            menu.style.top = top + "px";
+          }
+        }
+        function openSubmenu() {
+          closePanel();
+          if (typeof openSubmenuClose === "function" && openSubmenuClose !== closeSubmenu) {
+            openSubmenuClose();
+          }
+          if (typeof openPickerClose === "function") openPickerClose();
+          const menu = document.createElement("div");
+          menu.className = "mda-context-menu mda-cm-code-lang-submenu";
+          menu.setAttribute("role", "menu");
+          for (let i = 0; i < CODE_BLOCK_LANGUAGES.length; i++) {
+            const item = CODE_BLOCK_LANGUAGES[i];
+            const row = document.createElement("div");
+            row.className = "mda-menu-item";
+            row.setAttribute("role", "menuitem");
+            row.dataset.lang = item.id;
+            if (item.id === currentLang) row.classList.add("mda-menu-item-active");
+            const lab = document.createElement("span");
+            lab.className = "mda-menu-label";
+            lab.textContent = item.id ? item.label : uiT("widgetCodeLangPlain", t);
+            row.appendChild(lab);
+            if (item.id === currentLang) {
+              const mark = document.createElement("span");
+              mark.className = "mda-menu-key";
+              mark.setAttribute("aria-hidden", "true");
+              mark.textContent = "\u2713";
+              row.appendChild(mark);
+            }
+            menu.appendChild(row);
+          }
+          menu.addEventListener("mousedown", function(e) {
+            e.stopPropagation();
+          });
+          menu.addEventListener("click", function(e) {
+            const row = e.target && e.target.closest ? e.target.closest("[data-lang]") : null;
+            if (!row) return;
+            e.preventDefault();
+            e.stopPropagation();
+            pickLang(row.getAttribute("data-lang") || "");
+          });
+          menu.addEventListener("mouseenter", function() {
+            clearSubmenuLeaveTimer();
+          });
+          menu.addEventListener("mouseleave", function(e) {
+            if (isInLangSubCluster(e.relatedTarget)) return;
+            scheduleCloseSubmenu();
+          });
+          submenuEl = menu;
+          chevronBtn.setAttribute("aria-expanded", "true");
+          root.classList.add("mda-cm-code-lang-submenu-open");
+          placeSubmenu(menu);
+          openSubmenuClose = closeSubmenu;
+          document.addEventListener("mousedown", onDocSubPointer, true);
+        }
         function onDocPointer(e) {
           if (!root.contains(
             /** @type {Node} */
             e.target
           )) closePanel();
         }
+        function onDocSubPointer(e) {
+          const target = (
+            /** @type {Node} */
+            e.target
+          );
+          if (root.contains(target)) return;
+          if (submenuEl && submenuEl.contains(target)) return;
+          closeSubmenu();
+        }
         function pickLang(next) {
           const normalized = normalizeCodeBlockLang(next);
           if (normalized === currentLang) {
-            closePanel();
+            closeAll();
             return;
           }
           currentLang = normalized;
           setTriggerLabel();
-          closePanel();
+          closeAll();
           if (typeof opts.onChange === "function") opts.onChange(currentLang);
         }
         setTriggerLabel();
         renderList();
-        trigger.addEventListener("mousedown", function(e) {
+        labelBtn.addEventListener("mousedown", function(e) {
           e.stopPropagation();
         });
-        trigger.addEventListener("click", function(e) {
+        labelBtn.addEventListener("click", function(e) {
           e.preventDefault();
           e.stopPropagation();
           if (panel.hidden) openPanel();
           else closePanel();
+        });
+        chevronBtn.addEventListener("mousedown", function(e) {
+          e.stopPropagation();
+        });
+        chevronBtn.addEventListener("click", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          clearSubmenuLeaveTimer();
+          if (submenuEl) closeSubmenu();
+          else openSubmenu();
+        });
+        root.addEventListener("mouseenter", function() {
+          if (submenuEl) clearSubmenuLeaveTimer();
+        });
+        root.addEventListener("mouseleave", function(e) {
+          if (!submenuEl) return;
+          if (isInLangSubCluster(e.relatedTarget)) return;
+          scheduleCloseSubmenu();
         });
         search.addEventListener("mousedown", function(e) {
           e.stopPropagation();
@@ -51136,7 +51626,7 @@ var MDAEditorBundle = (() => {
           if (e.key === "Escape") {
             e.preventDefault();
             closePanel();
-            trigger.focus();
+            labelBtn.focus();
           }
         });
         list.addEventListener("mousedown", function(e) {
@@ -51154,12 +51644,62 @@ var MDAEditorBundle = (() => {
           setTriggerLabel();
           renderList();
         };
-        root.closePanel = closePanel;
+        root.closePanel = closeAll;
         return root;
       }
       module.exports = {
         createCodeLangPicker,
         CODE_BLOCK_LANGUAGES
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/code-selection.js
+  var require_code_selection = __commonJS({
+    "src/gui/renderer/editor/widgets/code-selection.js"(exports, module) {
+      "use strict";
+      var {
+        setSelectedBlock,
+        getSelectedBlockOfKind,
+        clearSelectedBlock
+      } = require_block_selection();
+      function setSelectedCodeBlock(block) {
+        if (!block) {
+          clearSelectedBlock();
+          return;
+        }
+        setSelectedBlock({
+          kind: "code",
+          from: block.from,
+          to: block.to,
+          source: block.source || ""
+        });
+      }
+      function getSelectedCodeBlock() {
+        const mem = getSelectedBlockOfKind("code");
+        if (mem) {
+          return { from: mem.from, to: mem.to, source: mem.source };
+        }
+        const el = document.querySelector(".mda-cm-code-block.mda-cm-block-selected");
+        if (!el) return null;
+        const from = parseInt(el.getAttribute("data-mda-block-from") || "", 10);
+        const to = parseInt(el.getAttribute("data-mda-block-to") || "", 10);
+        if (!(from >= 0) || !(to > from)) return null;
+        const source = el.getAttribute("data-mda-block-source") || "";
+        return { from, to, source };
+      }
+      function clearSelectedCodeBlock() {
+        const mem = getSelectedBlockOfKind("code");
+        if (mem) clearSelectedBlock();
+        const nodes = document.querySelectorAll(".mda-cm-code-block.mda-cm-block-selected");
+        for (let i = 0; i < nodes.length; i++) {
+          nodes[i].classList.remove("mda-cm-block-selected");
+        }
+      }
+      module.exports = {
+        setSelectedCodeBlock,
+        getSelectedCodeBlock,
+        clearSelectedCodeBlock
       };
     }
   });
@@ -51180,6 +51720,10 @@ var MDAEditorBundle = (() => {
       var { createCodeLangPicker } = require_code_lang_picker();
       var { normalizeCodeBlockLang } = require_code_languages();
       var { attachBlockDragHandle } = require_block_drag_handle();
+      var { setSelectedCodeBlock } = require_code_selection();
+      var { clearSelectedImageBlock } = require_image_selection();
+      var { clearSelectedMermaidBlock } = require_mermaid_selection();
+      var { Transaction } = require_dist2();
       function highlightFenceBody(code, lang, highlightCode) {
         if (typeof highlightCode === "function") {
           try {
@@ -51361,10 +51905,27 @@ var MDAEditorBundle = (() => {
             const editorRoot = root.closest(".cm-editor");
             clearMediaSelection(editorRoot, "mda-cm-media-selected");
             clearBlockWidgetSelection(editorRoot || document);
+            clearSelectedImageBlock();
+            clearSelectedMermaidBlock();
             frame.classList.add("mda-cm-media-selected");
             root.classList.add("mda-cm-block-selected");
+            setSelectedCodeBlock({
+              from: self2.from,
+              to: self2.to,
+              source: self2.source
+            });
             try {
-              if (view) view.focus();
+              if (view && self2.from != null) {
+                const pos = Math.max(0, Math.min(self2.from, view.state.doc.length));
+                const sel = view.state.selection.main;
+                if (sel.from !== pos || sel.to !== pos) {
+                  view.dispatch({
+                    selection: { anchor: pos, head: pos },
+                    annotations: Transaction.addToHistory.of(false)
+                  });
+                }
+                view.focus();
+              }
             } catch (_) {
             }
           }
@@ -51610,99 +52171,6 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/widgets/mermaid-selection.js
-  var require_mermaid_selection = __commonJS({
-    "src/gui/renderer/editor/widgets/mermaid-selection.js"(exports, module) {
-      "use strict";
-      var { ViewPlugin } = require_dist4();
-      var { clearMediaSelection } = require_widget_common();
-      var selected = null;
-      function setSelectedMermaidBlock(block) {
-        selected = block;
-      }
-      function getSelectedMermaidBlock() {
-        return selected;
-      }
-      function clearSelectedMermaidBlock() {
-        selected = null;
-      }
-      function syncSelectedMermaidFrameClass(editorRoot) {
-        const sel = getSelectedMermaidBlock();
-        if (!sel || !editorRoot) return;
-        const block = editorRoot.querySelector(
-          '.mda-cm-mermaid-block[data-mda-block-from="' + sel.from + '"][data-mda-block-to="' + sel.to + '"]'
-        );
-        const frame = block && block.querySelector(".mda-cm-mermaid-frame");
-        if (frame) frame.classList.add("mda-cm-media-selected");
-      }
-      function reconcileSelectedMermaidBlock(view) {
-        const sel = getSelectedMermaidBlock();
-        if (!sel || !view || !view.dom) return;
-        if (!sel.source) {
-          syncSelectedMermaidFrameClass(view.dom);
-          return;
-        }
-        const blocks = view.dom.querySelectorAll(
-          ".mda-cm-mermaid-block[data-mda-block-source][data-mda-block-from][data-mda-block-to]"
-        );
-        let best = null;
-        for (let i = 0; i < blocks.length; i++) {
-          const el = blocks[i];
-          const source = el.getAttribute("data-mda-block-source") || "";
-          if (source !== sel.source) continue;
-          const from = parseInt(el.getAttribute("data-mda-block-from") || "", 10);
-          const to = parseInt(el.getAttribute("data-mda-block-to") || "", 10);
-          if (!(from >= 0 && to > from)) continue;
-          const dist = Math.abs(from - sel.from);
-          if (!best || dist < best.dist) best = { from, to, dist };
-        }
-        if (!best) {
-          clearMediaSelection(view.dom, "mda-cm-media-selected");
-          return;
-        }
-        if (sel.from !== best.from || sel.to !== best.to) {
-          setSelectedMermaidBlock({
-            from: best.from,
-            to: best.to,
-            source: sel.source,
-            code: sel.code
-          });
-        }
-        syncSelectedMermaidFrameClass(view.dom);
-      }
-      function createMermaidSelectionSyncPlugin() {
-        return ViewPlugin.fromClass(
-          class {
-            constructor() {
-              this._raf = 0;
-            }
-            update(update) {
-              if (!update.docChanged || !getSelectedMermaidBlock()) return;
-              const view = update.view;
-              const self2 = this;
-              if (self2._raf) cancelAnimationFrame(self2._raf);
-              self2._raf = requestAnimationFrame(function() {
-                self2._raf = 0;
-                reconcileSelectedMermaidBlock(view);
-              });
-            }
-            destroy() {
-              if (this._raf) cancelAnimationFrame(this._raf);
-            }
-          }
-        );
-      }
-      module.exports = {
-        setSelectedMermaidBlock,
-        getSelectedMermaidBlock,
-        clearSelectedMermaidBlock,
-        syncSelectedMermaidFrameClass,
-        reconcileSelectedMermaidBlock,
-        createMermaidSelectionSyncPlugin
-      };
-    }
-  });
-
   // src/gui/renderer/editor/widgets/mermaid.js
   var require_mermaid = __commonJS({
     "src/gui/renderer/editor/widgets/mermaid.js"(exports, module) {
@@ -51718,7 +52186,10 @@ var MDAEditorBundle = (() => {
         getSelectedMermaidBlock,
         syncSelectedMermaidFrameClass
       } = require_mermaid_selection();
+      var { clearSelectedImageBlock } = require_image_selection();
+      var { clearSelectedBlock } = require_block_selection();
       var { syncMermaidFrameToStage } = require_mermaid_layout();
+      var { Transaction } = require_dist2();
       function applyMermaidDisplayConstraints(stage, opts) {
         if (!stage) return;
         let saved = parseInt(stage.getAttribute("data-mda-display-width") || "", 10);
@@ -51840,6 +52311,8 @@ var MDAEditorBundle = (() => {
             const editorRoot = root.closest(".cm-editor");
             clearMediaSelection(editorRoot, "mda-cm-media-selected");
             clearBlockWidgetSelection(editorRoot || document);
+            clearSelectedImageBlock();
+            clearSelectedBlock();
             frame.classList.add("mda-cm-media-selected");
             root.classList.add("mda-cm-block-selected");
             setSelectedMermaidBlock({
@@ -51849,7 +52322,17 @@ var MDAEditorBundle = (() => {
               code: self2.code
             });
             try {
-              if (view) view.focus();
+              if (view && self2.from != null) {
+                const pos = Math.max(0, Math.min(self2.from, view.state.doc.length));
+                const sel = view.state.selection.main;
+                if (sel.from !== pos || sel.to !== pos) {
+                  view.dispatch({
+                    selection: { anchor: pos, head: pos },
+                    annotations: Transaction.addToHistory.of(false)
+                  });
+                }
+                view.focus();
+              }
             } catch (_) {
             }
           }
@@ -52175,27 +52658,45 @@ var MDAEditorBundle = (() => {
         }
         return foundInY ? bestPos : hintPos;
       }
+      function clickScoreAtPos(view, pos, clientX, clientY) {
+        const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+        if (!caret) return Infinity;
+        const dx = caret.left - clientX;
+        const dy = (caret.top + caret.bottom) / 2 - clientY;
+        return dx * dx + dy * dy;
+      }
       function posAtClick(view, clientX, clientY) {
-        const fromDom = posAtClickFromDom(view, clientX, clientY);
-        if (fromDom != null) return fromDom;
         if (typeof document !== "undefined" && document.elementFromPoint) {
           const el = document.elementFromPoint(clientX, clientY);
           if (isBlockWidgetTarget(el)) return null;
         }
-        let pos = view.posAtCoords({ x: clientX, y: clientY }, 1);
-        if (pos == null) pos = view.posAtCoords({ x: clientX, y: clientY }, -1);
-        if (pos == null) return null;
+        const fromDom = posAtClickFromDom(view, clientX, clientY);
+        let fromCoords = view.posAtCoords({ x: clientX, y: clientY }, 1);
+        if (fromCoords == null) fromCoords = view.posAtCoords({ x: clientX, y: clientY }, -1);
+        if (fromDom != null && fromCoords != null && fromDom !== fromCoords) {
+          const sDom = clickScoreAtPos(view, fromDom, clientX, clientY);
+          const sCo = clickScoreAtPos(view, fromCoords, clientX, clientY);
+          if (sCo + 9 < sDom) {
+            fromCoords = refineIfFar(view, clientX, clientY, fromCoords);
+            return fromCoords;
+          }
+          return fromDom;
+        }
+        if (fromDom != null) return fromDom;
+        if (fromCoords == null) return null;
+        return refineIfFar(view, clientX, clientY, fromCoords);
+      }
+      function refineIfFar(view, clientX, clientY, pos) {
         const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
         if (caret) {
           const dx = caret.left - clientX;
           const dy = (caret.top + caret.bottom) / 2 - clientY;
           if (dx * dx + dy * dy > REFINE_DIST_PX * REFINE_DIST_PX) {
-            pos = refinePosAtClick(view, clientX, clientY, pos);
+            return refinePosAtClick(view, clientX, clientY, pos);
           }
-        } else {
-          pos = refinePosAtClick(view, clientX, clientY, pos);
+          return pos;
         }
-        return pos;
+        return refinePosAtClick(view, clientX, clientY, pos);
       }
       function placeCaret(view, clientX, clientY) {
         if (!view || view.destroyed) return;
@@ -52241,10 +52742,14 @@ var MDAEditorBundle = (() => {
             if (isBlockWidgetTarget(event.target)) return false;
             if (start.shiftKey || event.shiftKey) return false;
             if (event.detail >= 2) return false;
-            if (start.dragging) return false;
+            const dx = event.clientX - start.x;
+            const dy = event.clientY - start.y;
+            const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
+            if (moved) return false;
             const x = event.clientX;
             const y = event.clientY;
             requestAnimationFrame(function() {
+              if (!view || view.destroyed) return;
               placeCaret(view, x, y);
             });
             return false;
@@ -52348,32 +52853,6 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/widgets/code-selection.js
-  var require_code_selection = __commonJS({
-    "src/gui/renderer/editor/widgets/code-selection.js"(exports, module) {
-      "use strict";
-      function getSelectedCodeBlock() {
-        const el = document.querySelector(".mda-cm-code-block.mda-cm-block-selected");
-        if (!el) return null;
-        const from = parseInt(el.getAttribute("data-mda-block-from") || "", 10);
-        const to = parseInt(el.getAttribute("data-mda-block-to") || "", 10);
-        if (!(from >= 0) || !(to > from)) return null;
-        const source = el.getAttribute("data-mda-block-source") || "";
-        return { from, to, source };
-      }
-      function clearSelectedCodeBlock() {
-        const nodes = document.querySelectorAll(".mda-cm-code-block.mda-cm-block-selected");
-        for (let i = 0; i < nodes.length; i++) {
-          nodes[i].classList.remove("mda-cm-block-selected");
-        }
-      }
-      module.exports = {
-        getSelectedCodeBlock,
-        clearSelectedCodeBlock
-      };
-    }
-  });
-
   // src/gui/renderer/editor/widgets/block-menu-handlers.js
   var require_block_menu_handlers = __commonJS({
     "src/gui/renderer/editor/widgets/block-menu-handlers.js"(exports, module) {
@@ -52383,9 +52862,6 @@ var MDAEditorBundle = (() => {
         insertSnippetNearBlock,
         deleteBlock
       } = require_block_handle_ops();
-      var { clearSelectedMermaidBlock } = require_mermaid_selection();
-      var { clearSelectedMathBlock } = require_math_selection();
-      var { clearSelectedCodeBlock } = require_code_selection();
       function createBlockMenuHandlers(liveOpts) {
         const opts = liveOpts || {};
         function getView() {
@@ -52433,11 +52909,7 @@ var MDAEditorBundle = (() => {
             opts.onDeleteImageBlock(block);
             return;
           }
-          if (deleteBlock(view, block)) {
-            clearSelectedMermaidBlock();
-            clearSelectedMathBlock();
-            clearSelectedCodeBlock();
-          }
+          deleteBlock(view, block);
         }
         function onInsert(where, type, block) {
           const view = getView();
@@ -52623,6 +53095,7 @@ var MDAEditorBundle = (() => {
       var { getSelectedImageBlock, clearSelectedImageBlock } = require_image_selection();
       var { getSelectedMermaidBlock, clearSelectedMermaidBlock } = require_mermaid_selection();
       var { clearSelectedMathBlock } = require_math_selection();
+      var { getSelectedBlock, clearSelectedBlock } = require_block_selection();
       var { closeBlockHandleMenu } = require_block_handle_menu();
       function blockContainsTarget(view, sel, className, target) {
         if (!sel || !target || !view.dom) return false;
@@ -52647,22 +53120,28 @@ var MDAEditorBundle = (() => {
                 }
                 const imgSel = getSelectedImageBlock();
                 const merSel = getSelectedMermaidBlock();
-                if (!imgSel && !merSel && !self2.view.dom.querySelector(".mda-cm-block-selected")) return;
+                const blockSel = getSelectedBlock();
+                if (!imgSel && !merSel && !blockSel && !self2.view.dom.querySelector(".mda-cm-block-selected")) {
+                  return;
+                }
                 const target = e.target;
                 if (target && target.closest && target.closest("#mda-block-handle-menu")) return;
                 if (target && target.closest && target.closest(".mda-block-handle-submenu")) return;
+                if (target && target.closest && target.closest(".mda-cm-code-lang-submenu")) return;
+                if (target && target.closest && target.closest(".mda-cm-code-lang-picker")) return;
                 if (blockContainsTarget(self2.view, imgSel, "mda-cm-image-block", target)) return;
                 if (blockContainsTarget(self2.view, merSel, "mda-cm-mermaid-block", target)) return;
-                if (target && target.closest && target.closest(".mda-cm-code-block.mda-cm-block-selected")) return;
-                if (target && target.closest && target.closest(".mda-cm-math-block.mda-cm-block-selected")) return;
-                if (target && target.closest && target.closest(".mda-cm-table-block.mda-cm-block-selected")) return;
-                if (target && target.closest && target.closest(".mda-cm-quote-handle-anchor.mda-cm-block-selected")) return;
-                if (target && target.closest && target.closest(".mda-cm-hr-block.mda-cm-block-selected")) return;
+                if (blockContainsTarget(self2.view, blockSel, "mda-cm-code-block", target)) return;
+                if (blockContainsTarget(self2.view, blockSel, "mda-cm-math-block", target)) return;
+                if (blockContainsTarget(self2.view, blockSel, "mda-cm-table-block", target)) return;
+                if (blockContainsTarget(self2.view, blockSel, "mda-cm-quote-handle-anchor", target)) return;
+                if (blockContainsTarget(self2.view, blockSel, "mda-cm-hr-block", target)) return;
                 if (target && target.closest && target.closest(".mda-cm-code-input")) return;
                 if (target && target.closest && target.closest(".mda-cm-math-source-input")) return;
                 clearSelectedImageBlock();
                 clearSelectedMermaidBlock();
                 clearSelectedMathBlock();
+                clearSelectedBlock();
                 clearMediaSelection(self2.view.dom);
                 clearBlockWidgetSelection(self2.view.dom);
                 closeBlockHandleMenu();
@@ -52855,6 +53334,9 @@ var MDAEditorBundle = (() => {
       var {
         createMermaidSelectionSyncPlugin
       } = require_mermaid_selection();
+      var {
+        createBlockSelectionSyncPlugin
+      } = require_block_selection();
       var { createBlockMenuHandlers } = require_block_menu_handlers();
       var {
         createMermaidShortcutKeymap,
@@ -52876,6 +53358,9 @@ var MDAEditorBundle = (() => {
         clearBlockWidgetSelection,
         clearMediaSelection
       } = require_widget_common();
+      var { setSelectedBlock, clearSelectedBlock } = require_block_selection();
+      var { clearSelectedImageBlock } = require_image_selection();
+      var { clearSelectedMermaidBlock } = require_mermaid_selection();
       var BulletWidget = class extends WidgetType {
         toDOM() {
           const el = document.createElement("span");
@@ -52916,7 +53401,10 @@ var MDAEditorBundle = (() => {
               const pos = Math.max(0, Math.min(self2.from, view.state.doc.length));
               const sel = view.state.selection.main;
               if (sel.from !== pos || sel.to !== pos) {
-                view.dispatch({ selection: { anchor: pos, head: pos } });
+                view.dispatch({
+                  selection: { anchor: pos, head: pos },
+                  annotations: Transaction.addToHistory.of(false)
+                });
               }
               view.focus();
             } catch (_) {
@@ -52925,12 +53413,21 @@ var MDAEditorBundle = (() => {
           function clearSelect() {
             root.classList.remove("mda-cm-block-selected");
             frame.classList.remove("mda-cm-hr-selected");
+            clearSelectedBlock();
           }
           function selectBlock() {
             clearMediaSelection(view.dom);
             clearBlockWidgetSelection(view.dom);
+            clearSelectedImageBlock();
+            clearSelectedMermaidBlock();
             root.classList.add("mda-cm-block-selected");
             frame.classList.add("mda-cm-hr-selected");
+            setSelectedBlock({
+              kind: "hr",
+              from: self2.from,
+              to: self2.to,
+              source: self2.source
+            });
             pinCaret();
           }
           attachBlockDragHandle(
@@ -53749,7 +54246,8 @@ var MDAEditorBundle = (() => {
           ext.push(createCodeShortcutKeymap(liveOpts));
           ext.push(createCodeKeydownHandler(liveOpts));
         }
-        if (editorConfig.blockWidgetEnabled("image") || editorConfig.blockWidgetEnabled("mermaid") || editorConfig.blockWidgetEnabled("code")) {
+        ext.push(createBlockSelectionSyncPlugin());
+        if (editorConfig.blockWidgetEnabled("image") || editorConfig.blockWidgetEnabled("mermaid") || editorConfig.blockWidgetEnabled("code") || editorConfig.blockWidgetEnabled("table") || editorConfig.blockWidgetEnabled("quote-handle") || editorConfig.blockWidgetEnabled("hr")) {
           ext.push(createMediaOutsideClickPlugin());
         }
         if (annoGutterField) {
@@ -53973,7 +54471,16 @@ var MDAEditorBundle = (() => {
         if (mappedPos == null && hitBlock) {
           lines.push('<span style="color:#8b949e">\u8BF4\u660E: \u70B9\u5728\u5757 widget \u4E0A\uFF0CCM6 head \u53EF\u80FD\u4ECD\u505C\u5728\u65E7\u4F4D\u7F6E\uFF1B\u8868\u683C\u7F16\u8F91\u65F6 CM6 \u5149\u6807\u5E94\u5DF2\u9690\u85CF</span>');
         } else if (mappedPos != null && mappedPos !== selHead) {
-          lines.push('<span style="color:#ff7b72">\u6821\u51C6\u843D\u70B9\u4E0E head \u4E0D\u4E00\u81F4 (\u5DEE ' + (selHead - mappedPos) + ") \u2014 \u9009\u533A\u88AB\u5176\u5B83\u903B\u8F91\u6539\u5199</span>");
+          var main = view.state.selection.main;
+          if (main.from !== main.to) {
+            lines.push(
+              '<span style="color:#8b949e">\u8BF4\u660E: \u5F53\u524D\u4E3A\u8303\u56F4\u9009\u533A [' + main.from + "," + main.to + ")\uFF0C\u6821\u51C6\u843D\u70B9\u4E0E head \u5DEE " + (selHead - mappedPos) + "</span>"
+            );
+          } else {
+            lines.push(
+              '<span style="color:#ff7b72">\u6821\u51C6\u843D\u70B9\u4E0E head \u4E0D\u4E00\u81F4 (\u5DEE ' + (selHead - mappedPos) + ") \u2014 \u9009\u533A\u88AB\u5176\u5B83\u903B\u8F91\u6539\u5199</span>"
+            );
+          }
         } else if (clickToCursor && Math.abs(clickToCursor.dx) > 40 && Math.abs(clickToCursor.dy) <= 8) {
           lines.push('<span style="color:#8b949e">\u8BF4\u660E: \u6A2A\u5411\u504F\u5DEE\u5927\u4E14\u7EB5\u5411\u63A5\u8FD1 \u2014 \u5E38\u89C1\u4E8E\u70B9\u5728\u884C\u5C3E\u7A7A\u767D\uFF08\u5149\u6807\u5438\u9644\u884C\u672B\uFF09</span>');
         }
@@ -54019,6 +54526,189 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/view/tight-selection.js
+  var require_tight_selection = __commonJS({
+    "src/gui/renderer/editor/view/tight-selection.js"(exports, module) {
+      "use strict";
+      var { Prec } = require_dist2();
+      var { EditorView, layer, RectangleMarker, Direction } = require_dist4();
+      var TIGHT_LAYER_CLASS = "mda-cm-tight-sel-layer";
+      var TIGHT_MARK_CLASS = "mda-cm-tight-sel";
+      function getBase(view) {
+        const rect = view.scrollDOM.getBoundingClientRect();
+        const left = view.textDirection === Direction.LTR ? rect.left : rect.right - view.scrollDOM.clientWidth * view.scaleX;
+        return {
+          left: left - view.scrollDOM.scrollLeft * view.scaleX,
+          top: rect.top - view.scrollDOM.scrollTop * view.scaleY
+        };
+      }
+      function tightMarkersForRange(view, range) {
+        if (!range || range.from === range.to) return [];
+        if (range.to <= view.viewport.from || range.from >= view.viewport.to) return [];
+        let from = Math.max(range.from, view.viewport.from);
+        let to = Math.min(range.to, view.viewport.to);
+        if (from >= to) return [];
+        const base = getBase(view);
+        const markers = [];
+        const len = to - from;
+        const fromLine = view.state.doc.lineAt(from);
+        const toLine = view.state.doc.lineAt(Math.max(from, to - 1));
+        if (fromLine.number !== toLine.number && len > 400) {
+          let pos = from;
+          while (pos < to) {
+            const line = view.state.doc.lineAt(pos);
+            const a = Math.max(from, line.from);
+            const b = Math.min(to, line.to);
+            if (a < b) {
+              const part = tightMarkersForRange(view, { from: a, to: b });
+              for (let i = 0; i < part.length; i++) markers.push(part[i]);
+            }
+            if (line.to >= to) break;
+            pos = line.to + 1;
+          }
+          return markers;
+        }
+        let rowFrom = -1;
+        let rowTop = null;
+        let rowBottom = null;
+        let rowLeft = null;
+        let rowRight = null;
+        function resetRow() {
+          rowFrom = -1;
+          rowTop = rowBottom = rowLeft = rowRight = null;
+        }
+        function flush(endPos) {
+          if (rowFrom < 0 || rowLeft == null || rowTop == null) {
+            resetRow();
+            return;
+          }
+          const last = Math.max(rowFrom, endPos - 1);
+          const cLast = view.coordsAtPos(last, -1) || view.coordsAtPos(last, 1);
+          let right = rowRight;
+          let top = rowTop;
+          let bottom = rowBottom;
+          let left = rowLeft;
+          if (cLast) {
+            right = Math.max(right, cLast.right);
+            top = Math.min(top, cLast.top);
+            bottom = Math.max(bottom, cLast.bottom);
+            left = Math.min(left, cLast.left);
+          }
+          if (right > left && bottom > top) {
+            markers.push(
+              new RectangleMarker(TIGHT_MARK_CLASS, left - base.left, top - base.top, right - left, bottom - top)
+            );
+          }
+          resetRow();
+        }
+        for (let pos = from; pos < to; pos++) {
+          const c = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+          if (!c) continue;
+          if (rowTop == null) {
+            rowFrom = pos;
+            rowTop = c.top;
+            rowBottom = c.bottom;
+            rowLeft = c.left;
+            rowRight = c.right;
+            continue;
+          }
+          if (Math.abs(c.top - rowTop) > 3) {
+            flush(pos);
+            rowFrom = pos;
+            rowTop = c.top;
+            rowBottom = c.bottom;
+            rowLeft = c.left;
+            rowRight = c.right;
+          } else {
+            rowLeft = Math.min(rowLeft, c.left);
+            rowRight = Math.max(rowRight, c.right);
+            rowBottom = Math.max(rowBottom, c.bottom);
+            rowTop = Math.min(rowTop, c.top);
+          }
+        }
+        flush(to);
+        return markers;
+      }
+      function createTightSelectionLayer() {
+        return layer({
+          above: false,
+          // 单个 token，禁止空格（classList.add）
+          class: TIGHT_LAYER_CLASS,
+          markers: function(view) {
+            const out = [];
+            const ranges = view.state.selection.ranges;
+            for (let i = 0; i < ranges.length; i++) {
+              const r = ranges[i];
+              if (r.empty) continue;
+              const part = tightMarkersForRange(view, r);
+              for (let j = 0; j < part.length; j++) out.push(part[j]);
+            }
+            return out;
+          },
+          update: function(update) {
+            return update.docChanged || update.selectionSet || update.viewportChanged;
+          }
+        });
+      }
+      function createProseSelectionTheme() {
+        return Prec.highest(
+          EditorView.theme({
+            // 隐藏 CM6 默认选区层
+            ".cm-selectionLayer": {
+              display: "none !important"
+            },
+            // 紧致层（cm-layer 由 CM6 自动加）
+            ["." + TIGHT_LAYER_CLASS]: {
+              display: "block !important",
+              visibility: "visible !important",
+              pointerEvents: "none"
+            },
+            ["." + TIGHT_LAYER_CLASS + " ." + TIGHT_MARK_CLASS]: {
+              display: "block !important",
+              opacity: "1 !important",
+              background: "var(--table-text-sel) !important"
+            },
+            // 原生选区透明
+            ".cm-line": {
+              caretColor: "transparent !important",
+              "&::selection": {
+                backgroundColor: "transparent !important",
+                color: "inherit !important"
+              },
+              "& *::selection": {
+                backgroundColor: "transparent !important",
+                color: "inherit !important"
+              }
+            },
+            ".cm-content": {
+              caretColor: "transparent !important",
+              "&::selection": {
+                backgroundColor: "transparent !important"
+              },
+              "& *::selection": {
+                backgroundColor: "transparent !important"
+              }
+            }
+          })
+        );
+      }
+      function createProseSelectionExtension() {
+        return [createTightSelectionLayer(), createProseSelectionTheme()];
+      }
+      module.exports = {
+        createProseSelectionExtension,
+        createTightSelectionExtension: createProseSelectionExtension,
+        createTightSelectionLayer,
+        tightMarkersForRange,
+        TIGHT_LAYER_CLASS,
+        TIGHT_MARK_CLASS,
+        visualSegments: function() {
+          return [];
+        }
+      };
+    }
+  });
+
   // src/gui/renderer/editor/mount.js
   var require_mount = __commonJS({
     "src/gui/renderer/editor/mount.js"(exports, module) {
@@ -54028,7 +54718,6 @@ var MDAEditorBundle = (() => {
         EditorView,
         keymap,
         drawSelection,
-        highlightActiveLine,
         placeholder
       } = require_dist4();
       var { defaultKeymap, history, historyKeymap, undo, redo } = require_dist8();
@@ -54042,6 +54731,7 @@ var MDAEditorBundle = (() => {
         reconfigureMode
       } = require_mode();
       var { createClickDebugExtension } = require_click_debug();
+      var { createProseSelectionExtension } = require_tight_selection();
       var { syncSelectedImageFrameClass } = require_image_selection();
       var { syncSelectedMermaidFrameClass } = require_mermaid_selection();
       var { refreshBlockToolbars } = require_widget_common();
@@ -54070,14 +54760,15 @@ var MDAEditorBundle = (() => {
         function buildExtensions(currentMode) {
           const list = [
             history(),
-            drawSelection(),
-            highlightActiveLine(),
+            drawSelection()
+            // 正文：原生选区透明 + 自绘紧致层（只盖字符）；默认 CM6 选区层会铺行宽
+          ].concat(createProseSelectionExtension()).concat([
+            // 不用 highlightActiveLine：整行浅底会像「选中了一整行」
             markdown({ extensions: GFM }),
             keymap.of(defaultKeymap.concat(historyKeymap)),
             updateListener,
             createClickDebugExtension()
-            // 预览模式折行由 mode.js lineWrappingComp 提供；须配合 .cm-line pre-wrap
-          ].concat(extensionsForMode(currentMode, comps, opts));
+          ]).concat(extensionsForMode(currentMode, comps, opts));
           if (opts.placeholder) list.push(placeholder(opts.placeholder));
           return list;
         }

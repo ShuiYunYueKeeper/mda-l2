@@ -1,4 +1,4 @@
-﻿// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
+// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
 (function (global) {
   var STRINGS = {
     zh: {
@@ -190,6 +190,7 @@
       widgetCodeEdit: '编辑代码',
       widgetCodeLangPlain: '纯文本',
       widgetCodeLangSwitch: '切换代码块语言',
+      widgetCodeLangMenu: '语言列表',
       widgetCodeLangSearch: '搜索语言…',
       widgetMathLabel: '公式',
       widgetMathCopyTex: '复制 TeX',
@@ -509,6 +510,7 @@
       widgetCodeEdit: 'Edit code',
       widgetCodeLangPlain: 'Plain text',
       widgetCodeLangSwitch: 'Switch code block language',
+      widgetCodeLangMenu: 'Language list',
       widgetCodeLangSearch: 'Search languages…',
       widgetMathLabel: 'Formula',
       widgetMathCopyTex: 'Copy TeX',

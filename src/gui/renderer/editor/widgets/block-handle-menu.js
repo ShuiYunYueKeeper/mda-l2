@@ -1,10 +1,10 @@
-/**
+﻿/**
  * 块左上角手柄菜单（AI / 插入 / 复制 / 剪切 / 删除）。
  * 部分 AI 与插入项为占位入口，后续补齐能力。
  */
 'use strict';
 
-const { uiT } = require('./widget-common');
+const { uiT, HOVER_LEAVE_MS } = require('./widget-common');
 const { menuIconHtml } = require('./block-menu-icons');
 
 /** @type {HTMLElement | null} */
@@ -25,8 +25,8 @@ let menuCloseTimer = 0;
 let menuGraceUntil = 0;
 
 const MENU_GRACE_MS = 380;
-const SUB_CLOSE_MS = 280;
-const MENU_CLOSE_MS = 320;
+const SUB_CLOSE_MS = HOVER_LEAVE_MS;
+const MENU_CLOSE_MS = HOVER_LEAVE_MS;
 
 const MOD_KEY =
   typeof navigator !== 'undefined' &&
@@ -98,11 +98,18 @@ function closeBlockHandleMenu() {
   clearSubTimers();
   closeActiveSubmenu();
   removeOrphanSubmenus();
+  const prevRoot = menuBlockRoot;
   if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
   activeMenu = null;
   menuAnchorEl = null;
   menuBlockRoot = null;
   menuGraceUntil = 0;
+  if (prevRoot && !prevRoot.matches(':hover')) {
+    const handle = prevRoot.querySelector('.mda-cm-block-drag-handle');
+    if (!handle || !handle.matches(':hover')) {
+      prevRoot.classList.remove('mda-cm-block-handle-show');
+    }
+  }
   if (dismissFn) {
     document.removeEventListener('mousedown', dismissFn, true);
     document.removeEventListener('contextmenu', dismissFn, true);
@@ -113,6 +120,13 @@ function closeBlockHandleMenu() {
     document.removeEventListener('keydown', escFn, true);
     escFn = null;
   }
+}
+
+/**
+ * @param {HTMLElement | null | undefined} blockRoot
+ */
+function isBlockHandleMenuOpenFor(blockRoot) {
+  return !!(activeMenu && menuBlockRoot && blockRoot && menuBlockRoot === blockRoot);
 }
 
 /**
@@ -289,6 +303,7 @@ function showBlockHandleMenu(ctx) {
   menuAnchorEl = anchor;
   menuBlockRoot = ctx.blockRoot || null;
   menuGraceUntil = Date.now() + MENU_GRACE_MS;
+  if (menuBlockRoot) menuBlockRoot.classList.add('mda-cm-block-handle-show');
 
   const menu = document.createElement('div');
   menu.className = 'mda-context-menu mda-block-handle-menu';
@@ -412,5 +427,6 @@ function showBlockHandleMenu(ctx) {
 module.exports = {
   showBlockHandleMenu: showBlockHandleMenu,
   closeBlockHandleMenu: closeBlockHandleMenu,
+  isBlockHandleMenuOpenFor: isBlockHandleMenuOpenFor,
   MOD_KEY: MOD_KEY,
 };

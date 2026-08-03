@@ -67,6 +67,8 @@
 | `13d-katex-preview-polish.png` | 浅/深主题下行内公式与块级紧凑卡片 | 建议补（M6b-2） |
 | `22-copy-preview-katex.png` | 微信公众号粘贴结果：行内/块级公式均为清晰 PNG | 建议补（M6b-5） |
 | `10b-welcome-pitch.png` | 欢迎页副文案 | 建议更新 `10-welcome.png`；暂不强制 |
+| `23-code-lang-submenu.png` | 代码块语言 ▾ 子菜单（移出 200ms 关闭） | 建议补；暂不强制 |
+| `23b-block-undo-selected.png` | 块删除后 Ctrl+Z 恢复选中蓝框 | 建议补；暂不强制 |
 
 录屏建议场景仍可选补，见下表；当前以静态截图为主。
 

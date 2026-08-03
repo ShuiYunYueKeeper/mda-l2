@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 创建 / 销毁 CM6 EditorView；BOM 不进模型，由调用方在保存时拼回。
  */
 'use strict';
@@ -8,7 +8,6 @@ const {
   EditorView,
   keymap,
   drawSelection,
-  highlightActiveLine,
   placeholder,
 } = require('@codemirror/view');
 const { defaultKeymap, history, historyKeymap, undo, redo } = require('@codemirror/commands');
@@ -22,6 +21,7 @@ const {
   reconfigureMode,
 } = require('./mode');
 const { createClickDebugExtension } = require('./click-debug');
+const { createProseSelectionExtension } = require('./view/tight-selection');
 const { syncSelectedImageFrameClass } = require('./widgets/image-selection');
 const { syncSelectedMermaidFrameClass } = require('./widgets/mermaid-selection');
 const { refreshBlockToolbars } = require('./widgets/widget-common');
@@ -65,13 +65,17 @@ function createEditor(opts) {
     const list = [
       history(),
       drawSelection(),
-      highlightActiveLine(),
-      markdown({ extensions: GFM }),
-      keymap.of(defaultKeymap.concat(historyKeymap)),
-      updateListener,
-      createClickDebugExtension(),
-      // 预览模式折行由 mode.js lineWrappingComp 提供；须配合 .cm-line pre-wrap
-    ].concat(extensionsForMode(currentMode, comps, opts));
+      // 正文：原生选区透明 + 自绘紧致层（只盖字符）；默认 CM6 选区层会铺行宽
+    ]
+      .concat(createProseSelectionExtension())
+      .concat([
+        // 不用 highlightActiveLine：整行浅底会像「选中了一整行」
+        markdown({ extensions: GFM }),
+        keymap.of(defaultKeymap.concat(historyKeymap)),
+        updateListener,
+        createClickDebugExtension(),
+      ])
+      .concat(extensionsForMode(currentMode, comps, opts));
     if (opts.placeholder) list.push(placeholder(opts.placeholder));
     return list;
   }
