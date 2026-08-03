@@ -1734,6 +1734,14 @@
     .mda-cm6-host .mda-cm-math-inline {
       display: inline;
       vertical-align: baseline;
+      border-radius: 3px;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+    .mda-cm6-host .mda-cm-math-inline.mda-cm-math-inline-selected {
+      outline: 2px solid var(--table-sel-accent, var(--accent, #4c8bf5));
+      outline-offset: 2px;
+      background: var(--table-cell-sel-bg, rgba(76, 139, 245, 0.12));
     }
     .mda-cm6-host .mda-cm-math-inline .katex {
       font-size: 1.05em;

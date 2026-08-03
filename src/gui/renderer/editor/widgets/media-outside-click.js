@@ -9,6 +9,11 @@ const { getSelectedImageBlock, clearSelectedImageBlock } = require('./image-sele
 const { getSelectedMermaidBlock, clearSelectedMermaidBlock } = require('./mermaid-selection');
 const { clearSelectedMathBlock } = require('./math-selection');
 const { getSelectedBlock, clearSelectedBlock } = require('./block-selection');
+const {
+  getSelectedInlineMath,
+  clearSelectedInlineMath,
+  clearInlineMathSelectedClass,
+} = require('./inline-math-selection');
 const { closeBlockHandleMenu } = require('./block-handle-menu');
 
 /**
@@ -39,11 +44,14 @@ function createMediaOutsideClickPlugin() {
           const imgSel = getSelectedImageBlock();
           const merSel = getSelectedMermaidBlock();
           const blockSel = getSelectedBlock();
+          const inlineMathSel = getSelectedInlineMath();
           if (
             !imgSel &&
             !merSel &&
             !blockSel &&
-            !self.view.dom.querySelector('.mda-cm-block-selected')
+            !inlineMathSel &&
+            !self.view.dom.querySelector('.mda-cm-block-selected') &&
+            !self.view.dom.querySelector('.mda-cm-math-inline-selected')
           ) {
             return;
           }
@@ -59,12 +67,16 @@ function createMediaOutsideClickPlugin() {
           if (blockContainsTarget(self.view, blockSel, 'mda-cm-table-block', target)) return;
           if (blockContainsTarget(self.view, blockSel, 'mda-cm-quote-handle-anchor', target)) return;
           if (blockContainsTarget(self.view, blockSel, 'mda-cm-hr-block', target)) return;
+          if (target && target.closest && target.closest('.mda-cm-math-inline-selected')) return;
+          if (target && target.closest && target.closest('.mda-cm-math-inline')) return;
           if (target && target.closest && target.closest('.mda-cm-code-input')) return;
           if (target && target.closest && target.closest('.mda-cm-math-source-input')) return;
           clearSelectedImageBlock();
           clearSelectedMermaidBlock();
           clearSelectedMathBlock();
           clearSelectedBlock();
+          clearSelectedInlineMath();
+          clearInlineMathSelectedClass(self.view.dom);
           clearMediaSelection(self.view.dom);
           clearBlockWidgetSelection(self.view.dom);
           closeBlockHandleMenu();

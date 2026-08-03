@@ -13,6 +13,7 @@ const {
 } = require('./image-selection');
 const { clearSelectedMermaidBlock } = require('./mermaid-selection');
 const { clearSelectedBlock } = require('./block-selection');
+const { clearSelectedInlineMath, clearInlineMathSelectedClass } = require('./inline-math-selection');
 const { BlockReplaceWidget } = require('./block-widget-base');
 const { syncFrameToImage, applyLiveImageWidth } = require('./image-layout');
 const { Transaction } = require('@codemirror/state');
@@ -150,6 +151,8 @@ class ImageWidget extends BlockReplaceWidget {
       clearMediaSelection(editorRoot, 'mda-cm-media-selected');
       clearSelectedMermaidBlock();
       clearSelectedBlock();
+      clearSelectedInlineMath();
+      clearInlineMathSelectedClass(editorRoot);
       frame.classList.add('mda-cm-media-selected');
       setSelectedImageBlock({
         from: self.from,

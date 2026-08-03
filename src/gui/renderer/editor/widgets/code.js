@@ -15,6 +15,7 @@ const { attachBlockDragHandle } = require('./block-drag-handle');
 const { setSelectedCodeBlock } = require('./code-selection');
 const { clearSelectedImageBlock } = require('./image-selection');
 const { clearSelectedMermaidBlock } = require('./mermaid-selection');
+const { clearSelectedInlineMath, clearInlineMathSelectedClass } = require('./inline-math-selection');
 const { Transaction } = require('@codemirror/state');
 
 /**
@@ -252,6 +253,8 @@ class CodeFenceWidget extends BlockReplaceWidget {
       clearBlockWidgetSelection(editorRoot || document);
       clearSelectedImageBlock();
       clearSelectedMermaidBlock();
+      clearSelectedInlineMath();
+      clearInlineMathSelectedClass(editorRoot);
       frame.classList.add('mda-cm-media-selected');
       root.classList.add('mda-cm-block-selected');
       setSelectedCodeBlock({

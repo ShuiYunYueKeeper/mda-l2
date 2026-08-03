@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 预览模式：单击定位光标（hide-mark atomic / 标题行高 / 块 widget 邻接偶发冲突）。
  * 不阻断 mousedown 默认行为，以保留鼠标拖选；仅在「未拖选的单击」于 mouseup 校准落点。
  * 拖选（含 mousemove 未送达时的位移判断、亚阈值非空选区）绝不坍缩。
@@ -22,7 +22,7 @@ let mouseDown = null;
 function isBlockWidgetTarget(target) {
   if (!target || !target.closest) return false;
   return !!target.closest(
-    '.mda-cm-image-block, .mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-math-block, .mda-cm-hr-block'
+    '.mda-cm-image-block, .mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-math-block, .mda-cm-hr-block, .mda-cm-math-inline'
   );
 }
 

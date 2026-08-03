@@ -10,6 +10,7 @@ const { clearBlockWidgetSelection, clearMediaSelection, uiT } = require('./widge
 const { setSelectedBlock } = require('./block-selection');
 const { clearSelectedImageBlock } = require('./image-selection');
 const { clearSelectedMermaidBlock } = require('./mermaid-selection');
+const { clearSelectedInlineMath, clearInlineMathSelectedClass } = require('./inline-math-selection');
 const { Transaction } = require('@codemirror/state');
 
 /**
@@ -82,6 +83,8 @@ class QuoteHandleWidget extends WidgetType {
       clearBlockWidgetSelection(view.dom);
       clearSelectedImageBlock();
       clearSelectedMermaidBlock();
+      clearSelectedInlineMath();
+      clearInlineMathSelectedClass(view.dom);
       wrap.classList.add('mda-cm-block-selected');
       setSelectedBlock({
         kind: self.quoteKind === 'highlight' ? 'highlight' : 'quote',

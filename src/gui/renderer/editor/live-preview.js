@@ -47,6 +47,10 @@ const {
 const {
   createBlockSelectionSyncPlugin,
 } = require('./widgets/block-selection');
+const {
+  createInlineMathSelectionSyncPlugin,
+  createInlineMathShortcutKeymap,
+} = require('./widgets/inline-math-selection');
 const { createBlockMenuHandlers } = require('./widgets/block-menu-handlers');
 const {
   createMermaidShortcutKeymap,
@@ -598,7 +602,11 @@ function buildLayerDecos(specs, text, liveOpts) {
       } else if (s.widget === 'math-inline') {
         if (!widgetEnabled('math-inline')) continue;
         deco = cmView.Decoration.replace({
-          widget: new InlineMathWidget(s.source || text.slice(s.from, s.to), s.tex || ''),
+          widget: new InlineMathWidget(s.source || text.slice(s.from, s.to), s.tex || '', {
+            from: s.from,
+            to: s.to,
+            copyText: widgetOpts.copyText,
+          }),
         });
       } else if (s.widget === 'math-block') {
         if (!widgetEnabled('math-block')) continue;
@@ -1140,6 +1148,10 @@ function livePreview(opts) {
     ext.push(createCodeShortcutKeymap(liveOpts));
     ext.push(createCodeKeydownHandler(liveOpts));
   }
+  if (editorConfig.mathWidgetEnabled('math-inline')) {
+    ext.push(createInlineMathShortcutKeymap(liveOpts));
+    ext.push(createInlineMathSelectionSyncPlugin());
+  }
   ext.push(createBlockSelectionSyncPlugin());
   if (
     editorConfig.blockWidgetEnabled('image') ||
@@ -1147,7 +1159,8 @@ function livePreview(opts) {
     editorConfig.blockWidgetEnabled('code') ||
     editorConfig.blockWidgetEnabled('table') ||
     editorConfig.blockWidgetEnabled('quote-handle') ||
-    editorConfig.blockWidgetEnabled('hr')
+    editorConfig.blockWidgetEnabled('hr') ||
+    editorConfig.mathWidgetEnabled('math-inline')
   ) {
     ext.push(createMediaOutsideClickPlugin());
   }

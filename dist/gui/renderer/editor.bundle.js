@@ -48988,6 +48988,219 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widgets/inline-math-selection.js
+  var require_inline_math_selection = __commonJS({
+    "src/gui/renderer/editor/widgets/inline-math-selection.js"(exports, module) {
+      "use strict";
+      var { ViewPlugin, keymap } = require_dist4();
+      var { Prec, Transaction } = require_dist2();
+      var { copyText } = require_widget_common();
+      var selected = null;
+      var copyFn = null;
+      function findNearestInlineMathRange(text, src, nearFrom) {
+        const needle = String(src || "");
+        if (!needle) return null;
+        let best = null;
+        let i = 0;
+        while (i < text.length) {
+          const idx = text.indexOf(needle, i);
+          if (idx < 0) break;
+          const dist = Math.abs(idx - (nearFrom != null ? nearFrom : idx));
+          if (!best || dist < best.dist) best = { from: idx, to: idx + needle.length, dist };
+          i = idx + 1;
+        }
+        return best ? { from: best.from, to: best.to } : null;
+      }
+      function setSelectedInlineMath(block) {
+        selected = block;
+      }
+      function getSelectedInlineMath() {
+        return selected;
+      }
+      function clearSelectedInlineMath() {
+        selected = null;
+      }
+      function setInlineMathCopyFn(fn) {
+        copyFn = typeof fn === "function" ? fn : null;
+      }
+      function clearInlineMathSelectedClass(editorRoot) {
+        if (!editorRoot || !editorRoot.querySelectorAll) return;
+        const nodes = editorRoot.querySelectorAll(".mda-cm-math-inline-selected");
+        for (let i = 0; i < nodes.length; i++) {
+          nodes[i].classList.remove("mda-cm-math-inline-selected");
+        }
+      }
+      function syncSelectedInlineMathClass(editorRoot) {
+        const sel = selected;
+        if (!sel || !editorRoot) return;
+        clearInlineMathSelectedClass(editorRoot);
+        const el = editorRoot.querySelector(
+          '.mda-cm-math-inline[data-mda-inline-math-from="' + sel.from + '"][data-mda-inline-math-to="' + sel.to + '"]'
+        );
+        if (el) el.classList.add("mda-cm-math-inline-selected");
+      }
+      function reconcileSelectedInlineMath(view) {
+        const sel = selected;
+        if (!sel || !view || !view.dom) return;
+        if (!sel.source) {
+          syncSelectedInlineMathClass(view.dom);
+          return;
+        }
+        const text = typeof view.state.doc.toString === "function" ? view.state.doc.toString() : view.state.doc.sliceString(0, view.state.doc.length);
+        const range = findNearestInlineMathRange(text, sel.source, sel.from);
+        if (!range) {
+          clearInlineMathSelectedClass(view.dom);
+          return;
+        }
+        if (sel.from !== range.from || sel.to !== range.to) {
+          selected = {
+            from: range.from,
+            to: range.to,
+            source: sel.source,
+            tex: sel.tex
+          };
+        }
+        syncSelectedInlineMathClass(view.dom);
+      }
+      function selectInlineMath(view, block) {
+        if (!view || !block || block.from == null || !(block.to > block.from)) return;
+        setSelectedInlineMath({
+          from: block.from,
+          to: block.to,
+          source: block.source || "",
+          tex: block.tex
+        });
+        try {
+          view.dispatch({
+            selection: { anchor: block.from, head: block.to }
+          });
+          view.focus();
+        } catch (_) {
+        }
+        syncSelectedInlineMathClass(view.dom);
+      }
+      function copySelectedInlineMath(view) {
+        const sel = getSelectedInlineMath();
+        if (!sel || !sel.source) return false;
+        copyText(sel.source, copyFn);
+        return true;
+      }
+      function resolveSelectedInlineMathRange(view) {
+        const sel = getSelectedInlineMath();
+        if (!sel || !view || !sel.source) return null;
+        const text = typeof view.state.doc.toString === "function" ? view.state.doc.toString() : view.state.doc.sliceString(0, view.state.doc.length);
+        const range = findNearestInlineMathRange(text, sel.source, sel.from);
+        if (!range) return null;
+        if (sel.from !== range.from || sel.to !== range.to) {
+          selected = {
+            from: range.from,
+            to: range.to,
+            source: sel.source,
+            tex: sel.tex
+          };
+        }
+        return range;
+      }
+      function deleteSelectedInlineMath(view) {
+        const range = resolveSelectedInlineMathRange(view);
+        if (!range || !view) return false;
+        const from = range.from;
+        const to = range.to;
+        const main = view.state.selection.main;
+        if (main.from !== from || main.to !== from) {
+          view.dispatch({
+            selection: { anchor: from, head: from },
+            annotations: Transaction.addToHistory.of(false)
+          });
+        }
+        view.dispatch({
+          changes: { from, to, insert: "" },
+          selection: { anchor: from, head: from },
+          userEvent: "delete"
+        });
+        return true;
+      }
+      function cutSelectedInlineMath(view) {
+        if (!copySelectedInlineMath(view)) return false;
+        return deleteSelectedInlineMath(view);
+      }
+      function createInlineMathSelectionSyncPlugin() {
+        return ViewPlugin.fromClass(
+          class {
+            constructor() {
+              this._raf = 0;
+            }
+            update(update) {
+              if (!update.docChanged || !selected) return;
+              const view = update.view;
+              const self2 = this;
+              if (self2._raf) cancelAnimationFrame(self2._raf);
+              self2._raf = requestAnimationFrame(function() {
+                self2._raf = 0;
+                reconcileSelectedInlineMath(view);
+              });
+            }
+            destroy() {
+              if (this._raf) cancelAnimationFrame(this._raf);
+            }
+          }
+        );
+      }
+      function createInlineMathShortcutKeymap(opts) {
+        if (opts && typeof opts.copyText === "function") {
+          setInlineMathCopyFn(opts.copyText);
+        }
+        return Prec.high(
+          keymap.of([
+            {
+              key: "Delete",
+              run: function(view) {
+                if (!getSelectedInlineMath()) return false;
+                return deleteSelectedInlineMath(view);
+              }
+            },
+            {
+              key: "Backspace",
+              run: function(view) {
+                if (!getSelectedInlineMath()) return false;
+                return deleteSelectedInlineMath(view);
+              }
+            },
+            {
+              key: "Mod-c",
+              run: function(view) {
+                if (!getSelectedInlineMath()) return false;
+                return copySelectedInlineMath(view);
+              }
+            },
+            {
+              key: "Mod-x",
+              run: function(view) {
+                if (!getSelectedInlineMath()) return false;
+                return cutSelectedInlineMath(view);
+              }
+            }
+          ])
+        );
+      }
+      module.exports = {
+        setSelectedInlineMath,
+        getSelectedInlineMath,
+        clearSelectedInlineMath,
+        setInlineMathCopyFn,
+        selectInlineMath,
+        syncSelectedInlineMathClass,
+        clearInlineMathSelectedClass,
+        reconcileSelectedInlineMath,
+        copySelectedInlineMath,
+        cutSelectedInlineMath,
+        deleteSelectedInlineMath,
+        createInlineMathSelectionSyncPlugin,
+        createInlineMathShortcutKeymap
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/math.js
   var require_math = __commonJS({
     "src/gui/renderer/editor/widgets/math.js"(exports, module) {
@@ -49009,6 +49222,14 @@ var MDAEditorBundle = (() => {
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
       var { attachBlockDragHandle } = require_block_drag_handle();
       var { Transaction } = require_dist2();
+      var {
+        selectInlineMath,
+        setInlineMathCopyFn,
+        getSelectedInlineMath,
+        clearSelectedInlineMath,
+        clearInlineMathSelectedClass
+      } = require_inline_math_selection();
+      var { clearSelectedBlock } = require_block_selection();
       var MAX_MATH_WIDGET_HEIGHT = 480;
       var TOOLBAR_H = 36;
       var DISPLAY_PAD = 28;
@@ -49033,20 +49254,55 @@ var MDAEditorBundle = (() => {
         /**
          * @param {string} source
          * @param {string} tex
+         * @param {{ from?: number, to?: number, copyText?: Function }} [opts]
          */
-        constructor(source, tex) {
+        constructor(source, tex, opts) {
           super();
+          opts = opts || {};
           this.source = source || "";
           this.tex = tex || "";
+          this.from = opts.from;
+          this.to = opts.to;
+          this.opts = opts;
         }
         eq(other) {
-          return other instanceof _InlineMathWidget && other.source === this.source;
+          return other instanceof _InlineMathWidget && other.source === this.source && other.from === this.from && other.to === this.to;
         }
-        toDOM() {
+        toDOM(view) {
+          const self2 = this;
           const el = document.createElement("span");
           el.className = "mda-cm-math-inline katex-inline-wrap";
           el.setAttribute("contenteditable", "false");
+          if (self2.from != null) el.setAttribute("data-mda-inline-math-from", String(self2.from));
+          if (self2.to != null) el.setAttribute("data-mda-inline-math-to", String(self2.to));
+          if (self2.source) el.setAttribute("data-mda-inline-math-source", self2.source);
+          el.setAttribute("title", self2.source || "$" + self2.tex + "$");
           el.innerHTML = renderKatexHtml(this.tex, false);
+          el.addEventListener("mousedown", function(e) {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (self2.from == null || !(self2.to > self2.from)) return;
+            clearSelectedImageBlock();
+            clearSelectedMermaidBlock();
+            clearSelectedBlock();
+            clearBlockWidgetSelection(view.dom);
+            clearMediaSelection(view.dom, "mda-cm-media-selected");
+            if (typeof self2.opts.copyText === "function") setInlineMathCopyFn(self2.opts.copyText);
+            selectInlineMath(view, {
+              from: self2.from,
+              to: self2.to,
+              source: self2.source,
+              tex: self2.tex
+            });
+          });
+          try {
+            const sel = getSelectedInlineMath();
+            if (sel && sel.from === self2.from && sel.to === self2.to) {
+              el.classList.add("mda-cm-math-inline-selected");
+            }
+          } catch (_) {
+          }
           return el;
         }
         ignoreEvent() {
@@ -49130,6 +49386,8 @@ var MDAEditorBundle = (() => {
             clearBlockWidgetSelection(editorRoot || document);
             clearSelectedImageBlock();
             clearSelectedMermaidBlock();
+            clearSelectedInlineMath();
+            clearInlineMathSelectedClass(editorRoot);
             frame.classList.add("mda-cm-media-selected");
             root.classList.add("mda-cm-block-selected");
             setSelectedMathBlock({
@@ -49570,10 +49828,12 @@ var MDAEditorBundle = (() => {
       var { setSelectedBlock } = require_block_selection();
       var { clearSelectedImageBlock } = require_image_selection();
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
+      var { clearSelectedInlineMath } = require_inline_math_selection();
       var internalClipboard = "";
       function rememberTableBlockSelected(ctx) {
         clearSelectedImageBlock();
         clearSelectedMermaidBlock();
+        clearSelectedInlineMath();
         const w = ctx.widget || {};
         if (w.from != null && w.to != null) {
           setSelectedBlock({
@@ -50610,6 +50870,7 @@ var MDAEditorBundle = (() => {
       var { setSelectedBlock, clearSelectedBlock } = require_block_selection();
       var { clearSelectedImageBlock } = require_image_selection();
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
+      var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
       var { Transaction } = require_dist2();
       function resolveTableBlockRange(view, widget) {
         const text = view.state.doc.toString();
@@ -50632,6 +50893,8 @@ var MDAEditorBundle = (() => {
       function markTableSelected(view, widget) {
         clearSelectedImageBlock();
         clearSelectedMermaidBlock();
+        clearSelectedInlineMath();
+        clearInlineMathSelectedClass(view && view.dom);
         clearBlockWidgetSelection(view.dom);
         if (widget && widget.from != null) {
           setSelectedBlock({
@@ -50865,6 +51128,7 @@ var MDAEditorBundle = (() => {
       var { setSelectedBlock } = require_block_selection();
       var { clearSelectedImageBlock } = require_image_selection();
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
+      var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
       var { Transaction } = require_dist2();
       function isHighlightCalloutLine(firstLine) {
         return /^\s*>\s*\[![A-Za-z][\w-]*\]/.test(String(firstLine || ""));
@@ -50916,6 +51180,8 @@ var MDAEditorBundle = (() => {
             clearBlockWidgetSelection(view.dom);
             clearSelectedImageBlock();
             clearSelectedMermaidBlock();
+            clearSelectedInlineMath();
+            clearInlineMathSelectedClass(view.dom);
             wrap.classList.add("mda-cm-block-selected");
             setSelectedBlock({
               kind: self2.quoteKind === "highlight" ? "highlight" : "quote",
@@ -51326,6 +51592,7 @@ var MDAEditorBundle = (() => {
       } = require_image_selection();
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
       var { clearSelectedBlock } = require_block_selection();
+      var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
       var { BlockReplaceWidget } = require_block_widget_base();
       var { syncFrameToImage, applyLiveImageWidth } = require_image_layout();
       var { Transaction } = require_dist2();
@@ -51432,6 +51699,8 @@ var MDAEditorBundle = (() => {
             clearMediaSelection(editorRoot, "mda-cm-media-selected");
             clearSelectedMermaidBlock();
             clearSelectedBlock();
+            clearSelectedInlineMath();
+            clearInlineMathSelectedClass(editorRoot);
             frame.classList.add("mda-cm-media-selected");
             setSelectedImageBlock({
               from: self2.from,
@@ -52017,6 +52286,7 @@ var MDAEditorBundle = (() => {
       var { setSelectedCodeBlock } = require_code_selection();
       var { clearSelectedImageBlock } = require_image_selection();
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
+      var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
       var { Transaction } = require_dist2();
       function highlightFenceBody(code, lang, highlightCode) {
         if (typeof highlightCode === "function") {
@@ -52201,6 +52471,8 @@ var MDAEditorBundle = (() => {
             clearBlockWidgetSelection(editorRoot || document);
             clearSelectedImageBlock();
             clearSelectedMermaidBlock();
+            clearSelectedInlineMath();
+            clearInlineMathSelectedClass(editorRoot);
             frame.classList.add("mda-cm-media-selected");
             root.classList.add("mda-cm-block-selected");
             setSelectedCodeBlock({
@@ -52481,6 +52753,7 @@ var MDAEditorBundle = (() => {
         syncSelectedMermaidFrameClass
       } = require_mermaid_selection();
       var { clearSelectedImageBlock } = require_image_selection();
+      var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
       var { clearSelectedBlock } = require_block_selection();
       var { syncMermaidFrameToStage } = require_mermaid_layout();
       var { Transaction } = require_dist2();
@@ -52607,6 +52880,8 @@ var MDAEditorBundle = (() => {
             clearBlockWidgetSelection(editorRoot || document);
             clearSelectedImageBlock();
             clearSelectedBlock();
+            clearSelectedInlineMath();
+            clearInlineMathSelectedClass(editorRoot);
             frame.classList.add("mda-cm-media-selected");
             root.classList.add("mda-cm-block-selected");
             setSelectedMermaidBlock({
@@ -52846,7 +53121,7 @@ var MDAEditorBundle = (() => {
       function isBlockWidgetTarget(target) {
         if (!target || !target.closest) return false;
         return !!target.closest(
-          ".mda-cm-image-block, .mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-math-block, .mda-cm-hr-block"
+          ".mda-cm-image-block, .mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-math-block, .mda-cm-hr-block, .mda-cm-math-inline"
         );
       }
       function caretNodeFromPoint(clientX, clientY) {
@@ -53390,6 +53665,11 @@ var MDAEditorBundle = (() => {
       var { getSelectedMermaidBlock, clearSelectedMermaidBlock } = require_mermaid_selection();
       var { clearSelectedMathBlock } = require_math_selection();
       var { getSelectedBlock, clearSelectedBlock } = require_block_selection();
+      var {
+        getSelectedInlineMath,
+        clearSelectedInlineMath,
+        clearInlineMathSelectedClass
+      } = require_inline_math_selection();
       var { closeBlockHandleMenu } = require_block_handle_menu();
       function blockContainsTarget(view, sel, className, target) {
         if (!sel || !target || !view.dom) return false;
@@ -53415,7 +53695,8 @@ var MDAEditorBundle = (() => {
                 const imgSel = getSelectedImageBlock();
                 const merSel = getSelectedMermaidBlock();
                 const blockSel = getSelectedBlock();
-                if (!imgSel && !merSel && !blockSel && !self2.view.dom.querySelector(".mda-cm-block-selected")) {
+                const inlineMathSel = getSelectedInlineMath();
+                if (!imgSel && !merSel && !blockSel && !inlineMathSel && !self2.view.dom.querySelector(".mda-cm-block-selected") && !self2.view.dom.querySelector(".mda-cm-math-inline-selected")) {
                   return;
                 }
                 const target = e.target;
@@ -53430,12 +53711,16 @@ var MDAEditorBundle = (() => {
                 if (blockContainsTarget(self2.view, blockSel, "mda-cm-table-block", target)) return;
                 if (blockContainsTarget(self2.view, blockSel, "mda-cm-quote-handle-anchor", target)) return;
                 if (blockContainsTarget(self2.view, blockSel, "mda-cm-hr-block", target)) return;
+                if (target && target.closest && target.closest(".mda-cm-math-inline-selected")) return;
+                if (target && target.closest && target.closest(".mda-cm-math-inline")) return;
                 if (target && target.closest && target.closest(".mda-cm-code-input")) return;
                 if (target && target.closest && target.closest(".mda-cm-math-source-input")) return;
                 clearSelectedImageBlock();
                 clearSelectedMermaidBlock();
                 clearSelectedMathBlock();
                 clearSelectedBlock();
+                clearSelectedInlineMath();
+                clearInlineMathSelectedClass(self2.view.dom);
                 clearMediaSelection(self2.view.dom);
                 clearBlockWidgetSelection(self2.view.dom);
                 closeBlockHandleMenu();
@@ -53634,6 +53919,10 @@ var MDAEditorBundle = (() => {
       var {
         createBlockSelectionSyncPlugin
       } = require_block_selection();
+      var {
+        createInlineMathSelectionSyncPlugin,
+        createInlineMathShortcutKeymap
+      } = require_inline_math_selection();
       var { createBlockMenuHandlers } = require_block_menu_handlers();
       var {
         createMermaidShortcutKeymap,
@@ -54105,7 +54394,11 @@ var MDAEditorBundle = (() => {
             } else if (s.widget === "math-inline") {
               if (!widgetEnabled("math-inline")) continue;
               deco = cmView.Decoration.replace({
-                widget: new InlineMathWidget(s.source || text.slice(s.from, s.to), s.tex || "")
+                widget: new InlineMathWidget(s.source || text.slice(s.from, s.to), s.tex || "", {
+                  from: s.from,
+                  to: s.to,
+                  copyText: widgetOpts.copyText
+                })
               });
             } else if (s.widget === "math-block") {
               if (!widgetEnabled("math-block")) continue;
@@ -54547,8 +54840,12 @@ var MDAEditorBundle = (() => {
           ext.push(createCodeShortcutKeymap(liveOpts));
           ext.push(createCodeKeydownHandler(liveOpts));
         }
+        if (editorConfig.mathWidgetEnabled("math-inline")) {
+          ext.push(createInlineMathShortcutKeymap(liveOpts));
+          ext.push(createInlineMathSelectionSyncPlugin());
+        }
         ext.push(createBlockSelectionSyncPlugin());
-        if (editorConfig.blockWidgetEnabled("image") || editorConfig.blockWidgetEnabled("mermaid") || editorConfig.blockWidgetEnabled("code") || editorConfig.blockWidgetEnabled("table") || editorConfig.blockWidgetEnabled("quote-handle") || editorConfig.blockWidgetEnabled("hr")) {
+        if (editorConfig.blockWidgetEnabled("image") || editorConfig.blockWidgetEnabled("mermaid") || editorConfig.blockWidgetEnabled("code") || editorConfig.blockWidgetEnabled("table") || editorConfig.blockWidgetEnabled("quote-handle") || editorConfig.blockWidgetEnabled("hr") || editorConfig.mathWidgetEnabled("math-inline")) {
           ext.push(createMediaOutsideClickPlugin());
         }
         if (annoGutterField) {

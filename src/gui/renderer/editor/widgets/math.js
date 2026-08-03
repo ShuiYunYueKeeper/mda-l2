@@ -17,6 +17,14 @@ const { clearSelectedImageBlock } = require('./image-selection');
 const { clearSelectedMermaidBlock } = require('./mermaid-selection');
 const { attachBlockDragHandle } = require('./block-drag-handle');
 const { Transaction } = require('@codemirror/state');
+const {
+  selectInlineMath,
+  setInlineMathCopyFn,
+  getSelectedInlineMath,
+  clearSelectedInlineMath,
+  clearInlineMathSelectedClass,
+} = require('./inline-math-selection');
+const { clearSelectedBlock } = require('./block-selection');
 
 const MAX_MATH_WIDGET_HEIGHT = 480;
 const TOOLBAR_H = 36;
@@ -60,20 +68,64 @@ class InlineMathWidget extends WidgetType {
   /**
    * @param {string} source
    * @param {string} tex
+   * @param {{ from?: number, to?: number, copyText?: Function }} [opts]
    */
-  constructor(source, tex) {
+  constructor(source, tex, opts) {
     super();
+    opts = opts || {};
     this.source = source || '';
     this.tex = tex || '';
+    this.from = opts.from;
+    this.to = opts.to;
+    this.opts = opts;
   }
   eq(other) {
-    return other instanceof InlineMathWidget && other.source === this.source;
+    return (
+      other instanceof InlineMathWidget &&
+      other.source === this.source &&
+      other.from === this.from &&
+      other.to === this.to
+    );
   }
-  toDOM() {
+  toDOM(view) {
+    const self = this;
     const el = document.createElement('span');
     el.className = 'mda-cm-math-inline katex-inline-wrap';
     el.setAttribute('contenteditable', 'false');
+    if (self.from != null) el.setAttribute('data-mda-inline-math-from', String(self.from));
+    if (self.to != null) el.setAttribute('data-mda-inline-math-to', String(self.to));
+    if (self.source) el.setAttribute('data-mda-inline-math-source', self.source);
+    el.setAttribute('title', self.source || ('$' + self.tex + '$'));
     el.innerHTML = renderKatexHtml(this.tex, false);
+
+    el.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (self.from == null || !(self.to > self.from)) return;
+      clearSelectedImageBlock();
+      clearSelectedMermaidBlock();
+      clearSelectedBlock();
+      clearBlockWidgetSelection(view.dom);
+      clearMediaSelection(view.dom, 'mda-cm-media-selected');
+      if (typeof self.opts.copyText === 'function') setInlineMathCopyFn(self.opts.copyText);
+      selectInlineMath(view, {
+        from: self.from,
+        to: self.to,
+        source: self.source,
+        tex: self.tex,
+      });
+    });
+
+    try {
+      const sel = getSelectedInlineMath();
+      if (sel && sel.from === self.from && sel.to === self.to) {
+        el.classList.add('mda-cm-math-inline-selected');
+      }
+    } catch (_) {
+      /* ignore */
+    }
+
     return el;
   }
   ignoreEvent() {
@@ -171,6 +223,8 @@ class BlockMathWidget extends BlockReplaceWidget {
       clearBlockWidgetSelection(editorRoot || document);
       clearSelectedImageBlock();
       clearSelectedMermaidBlock();
+      clearSelectedInlineMath();
+      clearInlineMathSelectedClass(editorRoot);
       frame.classList.add('mda-cm-media-selected');
       root.classList.add('mda-cm-block-selected');
       setSelectedMathBlock({

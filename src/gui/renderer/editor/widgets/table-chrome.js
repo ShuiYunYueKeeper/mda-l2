@@ -38,6 +38,7 @@ const { attachBlockDragHandle } = require('./block-drag-handle');
 const { setSelectedBlock } = require('./block-selection');
 const { clearSelectedImageBlock } = require('./image-selection');
 const { clearSelectedMermaidBlock } = require('./mermaid-selection');
+const { clearSelectedInlineMath } = require('./inline-math-selection');
 
 /** @type {string} */
 let internalClipboard = '';
@@ -51,6 +52,7 @@ let internalClipboard = '';
 function rememberTableBlockSelected(ctx) {
   clearSelectedImageBlock();
   clearSelectedMermaidBlock();
+  clearSelectedInlineMath();
   const w = ctx.widget || {};
   if (w.from != null && w.to != null) {
     setSelectedBlock({

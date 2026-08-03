@@ -18,6 +18,7 @@ const { clearBlockWidgetSelection } = require('./widget-common');
 const { setSelectedBlock, clearSelectedBlock } = require('./block-selection');
 const { clearSelectedImageBlock } = require('./image-selection');
 const { clearSelectedMermaidBlock } = require('./mermaid-selection');
+const { clearSelectedInlineMath, clearInlineMathSelectedClass } = require('./inline-math-selection');
 const { Transaction } = require('@codemirror/state');
 
 /**
@@ -55,6 +56,8 @@ function pinEditorToTable(view, widget) {
 function markTableSelected(view, widget) {
   clearSelectedImageBlock();
   clearSelectedMermaidBlock();
+  clearSelectedInlineMath();
+  clearInlineMathSelectedClass(view && view.dom);
   clearBlockWidgetSelection(view.dom);
   if (widget && widget.from != null) {
     setSelectedBlock({
