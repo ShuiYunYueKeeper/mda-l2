@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
+﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -988,9 +988,27 @@ function registerIpcHandlers() {
     rendererDirty = !!dirty;
   });
   ipcMain.on('confirm-close', () => {
-    allowClose = true;
-    if (mainWindow) mainWindow.close();
+    finishAppClose();
   });
+}
+
+/** 尽快结束进程，避免窗口隐藏后 Chromium/Electron 收尾拖住系统输入 */
+function finishAppClose() {
+  allowClose = true;
+  if (boundsSaveTimer) {
+    clearTimeout(boundsSaveTimer);
+    boundsSaveTimer = null;
+  }
+  persistMainWindowBounds();
+  const win = mainWindow;
+  mainWindow = null;
+  rendererDirty = false;
+  settingsModalOpen = false;
+  if (win && !win.isDestroyed()) {
+    win.removeAllListeners('close');
+    win.destroy();
+  }
+  app.exit(0);
 }
 
 function isWindowBoundsOnScreen(bounds) {
@@ -1014,6 +1032,7 @@ function isWindowBoundsOnScreen(bounds) {
 }
 
 let boundsSaveTimer = null;
+let lastPersistedBoundsKey = null;
 
 function persistMainWindowBounds() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1024,13 +1043,16 @@ function persistMainWindowBounds() {
     const b = typeof mainWindow.getNormalBounds === 'function'
       ? mainWindow.getNormalBounds()
       : mainWindow.getBounds();
-    setWindowBounds(ud, {
+    const payload = {
       x: b.x,
       y: b.y,
       width: b.width,
       height: b.height,
       isMaximized,
-    });
+    };
+    const key = JSON.stringify(payload);
+    if (key === lastPersistedBoundsKey) return;
+    if (setWindowBounds(ud, payload)) lastPersistedBoundsKey = key;
   } catch (_) { /* ignore */ }
 }
 
@@ -1087,11 +1109,20 @@ function createWindow(initialFile) {
       sendToRenderer('settings-modal-blocked-close');
       return;
     }
-    persistMainWindowBounds();
-    if (!allowClose && rendererDirty) {
-      e.preventDefault();
-      sendToRenderer('app-close-request');
+    if (allowClose) {
+      persistMainWindowBounds();
+      return;
     }
+
+    e.preventDefault();
+    persistMainWindowBounds();
+
+    // 无未保存改动：先隐藏窗口，再在渲染进程释放 CM6 后真正关闭
+    if (!rendererDirty && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.hide();
+    }
+
+    sendToRenderer('app-close-request');
   });
   mainWindow.on('closed', () => {
     mainWindow = null;

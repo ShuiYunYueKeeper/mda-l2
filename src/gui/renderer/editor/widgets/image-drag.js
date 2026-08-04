@@ -1,7 +1,11 @@
-'use strict';
+﻿'use strict';
 
 const { isNearFrameResizeCorner } = require('./image-edge-resize');
-const { resolveDropTargetFromCoords } = require('./image-block-ops');
+const {
+  resolveDropTargetFromCoords,
+  getEditorDropLineBounds,
+  getDropIndicatorTop,
+} = require('./image-block-ops');
 
 const LONG_PRESS_MS = 200;
 const CANCEL_DRAG_PX = 10;
@@ -91,15 +95,14 @@ function attachImageDrag(root, view, range, opts) {
       if (dropLine) dropLine.style.display = 'none';
       return resolved;
     }
-    const coords = view.coordsAtPos(dropPos);
-    if (!coords) return resolved;
+    const top = getDropIndicatorTop(view, dropPos);
+    if (top == null) return resolved;
     const line = ensureDropLine();
-    const host = root.closest('.cm-editor');
-    const hostRect = host ? host.getBoundingClientRect() : { left: 0, width: window.innerWidth };
+    const bounds = getEditorDropLineBounds(view);
     line.style.display = 'block';
-    line.style.top = coords.top + 'px';
-    line.style.left = hostRect.left + 'px';
-    line.style.width = hostRect.width + 'px';
+    line.style.top = top + 'px';
+    line.style.left = bounds.left + 'px';
+    line.style.width = bounds.width + 'px';
     return resolved;
   }
 

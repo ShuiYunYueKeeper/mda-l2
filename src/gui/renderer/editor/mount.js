@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 创建 / 销毁 CM6 EditorView；BOM 不进模型，由调用方在保存时拼回。
  */
 'use strict';
@@ -25,6 +25,8 @@ const { createProseSelectionExtension } = require('./view/tight-selection');
 const { syncSelectedImageFrameClass } = require('./widgets/image-selection');
 const { syncSelectedMermaidFrameClass } = require('./widgets/mermaid-selection');
 const { refreshBlockToolbars } = require('./widgets/widget-common');
+const { outlineFlashExtension, flashOutlineLine } = require('./outline-flash');
+const { getOutlineActiveLine } = require('./outline-scroll');
 
 function stripBom(text) {
   if (typeof text !== 'string') return { text: '', bom: '' };
@@ -52,12 +54,14 @@ function createEditor(opts) {
   const comps = createModeCompartments();
 
   const updateListener = EditorView.updateListener.of((update) => {
-    if (!update.docChanged) return;
-    if (typeof opts.onChange === 'function') {
+    if (update.docChanged && typeof opts.onChange === 'function') {
       opts.onChange({
         text: update.state.doc.toString(),
         dirtyHint: true,
       });
+    }
+    if (update.viewportChanged && typeof opts.onViewportChange === 'function') {
+      opts.onViewportChange();
     }
   });
 
@@ -74,6 +78,7 @@ function createEditor(opts) {
         keymap.of(defaultKeymap.concat(historyKeymap)),
         updateListener,
         createClickDebugExtension(),
+        outlineFlashExtension(),
       ])
       .concat(extensionsForMode(currentMode, comps, opts));
     if (opts.placeholder) list.push(placeholder(opts.placeholder));
@@ -87,6 +92,9 @@ function createEditor(opts) {
     }),
     parent: parent,
   });
+
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let outlineFlashTimer = null;
 
   return {
     view: view,
@@ -146,6 +154,42 @@ function createEditor(opts) {
     },
     focus: function () {
       view.focus();
+    },
+    /**
+     * 大纲跳转：滚到 1-based 行，光标落行尾，标题闪高亮后清除。
+     * @param {number} line1Based
+     * @param {{ skipFocus?: boolean, flashMs?: number }} [opts]
+     */
+    scrollToLine: function (line1Based, opts) {
+      const doc = view.state.doc;
+      if (doc.lines < 1) return;
+      const n = Math.min(Math.max(1, line1Based | 0), doc.lines);
+      const line = doc.line(n);
+      // 行尾：标题可见文本末；隐藏的 ATX `#` 标记不改变 line.to
+      view.dispatch({
+        selection: { anchor: line.to, head: line.to },
+        effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+      });
+      flashOutlineLine(view, n, opts && opts.flashMs, {
+        clearTimer: function () {
+          if (outlineFlashTimer) {
+            clearTimeout(outlineFlashTimer);
+            outlineFlashTimer = null;
+          }
+        },
+        setTimer: function (tid) {
+          outlineFlashTimer = tid;
+        },
+      });
+      if (!(opts && opts.skipFocus)) view.focus();
+    },
+    /**
+     * 大纲滚动高亮：视口内标题 DOM 真实位置（见 outline-scroll.js）。
+     * @param {number[]} headingLines 1-based 标题行号（升序）
+     * @returns {number|null}
+     */
+    getOutlineActiveLine: function (headingLines) {
+      return getOutlineActiveLine(view, headingLines);
     },
     hasSelection: function () {
       const sel = view.state.selection.main;
@@ -227,6 +271,10 @@ function createEditor(opts) {
       syncSelectedMermaidFrameClass(view.dom);
     },
     destroy: function () {
+      if (outlineFlashTimer) {
+        clearTimeout(outlineFlashTimer);
+        outlineFlashTimer = null;
+      }
       view.destroy();
     },
   };

@@ -1,28 +1,43 @@
-const fs = require('fs');
+﻿const fs = require('fs');
 const path = require('path');
 
 const STORE_FILE = 'workspace-prefs.json';
 const MIN_W = 900;
 const MIN_H = 600;
 
+/** @type {Map<string, Record<string, unknown>>} */
+const storeCache = new Map();
+
 function storePath(userData) {
   return path.join(userData, STORE_FILE);
 }
 
 function readStore(userData) {
+  const cached = storeCache.get(userData);
+  if (cached) return { ...cached };
   const p = storePath(userData);
   try {
-    if (!fs.existsSync(p)) return {};
+    if (!fs.existsSync(p)) {
+      const empty = {};
+      storeCache.set(userData, empty);
+      return { ...empty };
+    }
     const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
-    return data && typeof data === 'object' ? data : {};
+    const out = data && typeof data === 'object' ? data : {};
+    storeCache.set(userData, out);
+    return { ...out };
   } catch {
-    return {};
+    const empty = {};
+    storeCache.set(userData, empty);
+    return { ...empty };
   }
 }
 
 function writeStore(userData, data) {
+  const copy = data && typeof data === 'object' ? { ...data } : {};
+  storeCache.set(userData, copy);
   fs.mkdirSync(userData, { recursive: true });
-  fs.writeFileSync(storePath(userData), JSON.stringify(data, null, 2), 'utf-8');
+  fs.writeFileSync(storePath(userData), JSON.stringify(copy, null, 2), 'utf-8');
 }
 
 function getWorkspaceRoot(userData) {
@@ -96,6 +111,8 @@ function setWindowBounds(userData, bounds) {
   const normalized = normalizeWindowBounds(bounds);
   if (!normalized) return false;
   const data = readStore(userData);
+  const prev = data.windowBounds;
+  if (prev && JSON.stringify(prev) === JSON.stringify(normalized)) return true;
   data.windowBounds = normalized;
   writeStore(userData, data);
   return true;

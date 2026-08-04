@@ -1,13 +1,31 @@
-/**
+﻿/**
  * 表格列宽 / 行高拖拽调整。
  * 默认：表格铺满预览区宽度；仅在用户拖拽或源码含 @mda-table meta 时锁定像素尺寸。
  */
 'use strict';
 
 const { hasTableLayoutMeta, MAX_TABLE_COL_WIDTH, MAX_TABLE_ROW_HEIGHT } = require('../model/parse-table');
+const { uiT } = require('./widget-common');
 
 const MIN_COL_WIDTH = 48;
 const MIN_ROW_HEIGHT = 28;
+/** wrap 1px 边框（border-box 下需计入总宽） */
+const TABLE_WRAP_BORDER_X = 2;
+const RESIZE_HANDLE_HIT = 8;
+const RESIZE_HANDLE_HALF = RESIZE_HANDLE_HIT / 2;
+
+/**
+ * wrap 内容区（padding box）在视口中的原点；手柄相对 overlay 定位须用此原点。
+ * @param {HTMLElement} wrap
+ */
+function getWrapContentOrigin(wrap) {
+  const rect = wrap.getBoundingClientRect();
+  const cs = window.getComputedStyle(wrap);
+  return {
+    left: rect.left + (parseFloat(cs.borderLeftWidth) || 0),
+    top: rect.top + (parseFloat(cs.borderTopWidth) || 0),
+  };
+}
 
 function capLayout(n, max) {
   const v = Number(n);
@@ -57,8 +75,8 @@ function syncTableWrapLayout(wrap, table, totalW) {
     wrap.style.maxWidth = '100%';
   } else {
     wrap.removeAttribute('data-mda-overflow');
-    wrap.style.width = totalW + 'px';
-    wrap.style.maxWidth = '100%';
+    wrap.style.width = (totalW + TABLE_WRAP_BORDER_X) + 'px';
+    wrap.style.maxWidth = limit > 0 ? limit + 'px' : '100%';
   }
 }
 
@@ -176,11 +194,48 @@ function applyTableLayout(table, parsed, wrap) {
 }
 
 /**
+ * @param {'col' | 'row'} kind
+ * @param {Function} [t]
+ */
+function createTableAddBtn(kind, t) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'mda-cm-table-add-btn';
+  btn.textContent = '+';
+  const i18nKey = kind === 'col' ? 'widgetTableAddCol' : 'widgetTableAddRow';
+  btn.setAttribute('data-i18n-title', i18nKey);
+  if (t) btn.title = uiT(i18nKey, t);
+  btn.addEventListener('mousedown', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  return btn;
+}
+
+/**
+ * @param {HTMLElement} wrap
+ * @param {Function} [t]
+ */
+function refreshTableAddBtnI18n(wrap, t) {
+  if (!wrap || !t) return;
+  const colBtns = wrap.querySelectorAll('.mda-cm-table-col-resize-handle .mda-cm-table-add-btn');
+  for (let i = 0; i < colBtns.length; i++) {
+    colBtns[i].title = uiT('widgetTableAddCol', t);
+  }
+  const rowBtns = wrap.querySelectorAll('.mda-cm-table-row-resize-handle .mda-cm-table-add-btn');
+  for (let j = 0; j < rowBtns.length; j++) {
+    rowBtns[j].title = uiT('widgetTableAddRow', t);
+  }
+}
+
+/**
  * @param {HTMLElement} wrap
  * @param {HTMLTableElement} table
  * @param {{
  *   getParsed: () => object,
  *   onLayoutCommit?: (parsed: object) => void,
+ *   onAddColumn?: (colIndex: number) => void,
+ *   onAddRow?: (visualRowIndex: number) => void,
  *   t?: Function,
  * }} ctx
  */
@@ -200,32 +255,52 @@ function attachTableGridResize(wrap, table, ctx) {
   function rebuildHandles() {
     overlay.innerHTML = '';
     if (!table.isConnected || !wrap.isConnected) return;
-    const wrapRect = wrap.getBoundingClientRect();
-    const layerW = table.offsetWidth || wrapRect.width;
+    const origin = getWrapContentOrigin(wrap);
+    const tableRect = table.getBoundingClientRect();
+    const tableTop = tableRect.top - origin.top;
+    const tableLeft = tableRect.left - origin.left;
+    const tableW = table.offsetWidth;
+    const tableH = table.offsetHeight;
     const ths = table.querySelectorAll('thead th');
     for (let c = 0; c < ths.length; c++) {
       const rect = ths[c].getBoundingClientRect();
+      const borderX = rect.right - origin.left;
       const handle = document.createElement('div');
       handle.className = 'mda-cm-table-col-resize-handle';
       handle.dataset.col = String(c);
       handle.setAttribute('data-i18n-title', 'widgetTableResizeCol');
       if (ctx.t) handle.title = ctx.t('widgetTableResizeCol');
-      handle.style.left = rect.right - wrapRect.left - 4 + 'px';
-      handle.style.top = '0';
-      handle.style.height = wrapRect.height + 'px';
+      handle.style.left = Math.round(borderX - RESIZE_HANDLE_HALF) + 'px';
+      handle.style.top = Math.round(tableTop) + 'px';
+      handle.style.height = tableH + 'px';
+      const addBtn = createTableAddBtn('col', ctx.t);
+      addBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof ctx.onAddColumn === 'function') ctx.onAddColumn(c);
+      });
+      handle.appendChild(addBtn);
       overlay.appendChild(handle);
     }
     const rows = table.querySelectorAll('tr');
     for (let r = 0; r < rows.length; r++) {
       const rect = rows[r].getBoundingClientRect();
+      const borderY = rect.bottom - origin.top;
       const handle = document.createElement('div');
       handle.className = 'mda-cm-table-row-resize-handle';
       handle.dataset.row = String(r);
       handle.setAttribute('data-i18n-title', 'widgetTableResizeRow');
       if (ctx.t) handle.title = ctx.t('widgetTableResizeRow');
-      handle.style.top = rect.bottom - wrapRect.top - 4 + 'px';
-      handle.style.left = '0';
-      handle.style.width = layerW + 'px';
+      handle.style.top = Math.round(borderY - RESIZE_HANDLE_HALF) + 'px';
+      handle.style.left = Math.round(tableLeft) + 'px';
+      handle.style.width = tableW + 'px';
+      const addBtn = createTableAddBtn('row', ctx.t);
+      addBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof ctx.onAddRow === 'function') ctx.onAddRow(r);
+      });
+      handle.appendChild(addBtn);
       overlay.appendChild(handle);
     }
   }
@@ -241,6 +316,7 @@ function attachTableGridResize(wrap, table, ctx) {
 
   overlay.addEventListener('mousedown', function (e) {
     if (e.button !== 0) return;
+    if (e.target && e.target.closest && e.target.closest('.mda-cm-table-add-btn')) return;
     const colHandle =
       e.target && e.target.closest ? e.target.closest('.mda-cm-table-col-resize-handle') : null;
     const rowHandle =
@@ -329,6 +405,9 @@ function attachTableGridResize(wrap, table, ctx) {
       rebuildHandles();
     },
     rebuildHandles: rebuildHandles,
+    refreshAddBtnI18n: function (tFn) {
+      refreshTableAddBtnI18n(wrap, tFn);
+    },
     dispose: function () {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
@@ -346,4 +425,5 @@ module.exports = {
   syncTableWrapLayout: syncTableWrapLayout,
   captureLayoutFromTable: captureLayoutFromTable,
   ensureLayoutArrays: ensureLayoutArrays,
+  refreshTableAddBtnI18n: refreshTableAddBtnI18n,
 };

@@ -218,6 +218,7 @@
     var docOpen = docState === 'open' || docState === 'untitled';
     document.body.classList.toggle('mda-cm6-doc-open', docOpen);
     if (cm6HostEl) cm6HostEl.classList.toggle('hidden', !docOpen);
+    if (docOpen) bindCm6OutlineScroll();
   }
 
   function initCm6Editor() {
@@ -258,6 +259,9 @@
             var text = getEditorTextValue();
             parseAndRender(text, currentFilePath, { cm6Live: true });
           }, 250);
+        },
+        onViewportChange: function () {
+          scheduleOutlineActiveFromScroll();
         },
         onOpenLink: function (href) {
           handleLinkClick(href);
@@ -471,6 +475,10 @@
           if (!payload || !payload.root) return;
           applyDefaultScaleToCodeBlock(payload.root);
         },
+        onScaleTableBlock: function (payload) {
+          if (!payload || !payload.root) return;
+          applyDefaultScaleToTableBlock(payload.root);
+        },
         toast: showToast,
         onBlockMenuSoon: function () {
           showToast(uiT('blockMenuSoon'));
@@ -637,6 +645,8 @@
       return;
     }
     applyCm6DocumentUi();
+    bindCm6OutlineScroll();
+    bindCm6AutosaveBlur();
   }
 
   function focusActiveEditor() {
@@ -936,8 +946,11 @@
     if (window.MDAOutlinePanel && outlineHost) {
       outlinePanelUi = window.MDAOutlinePanel.mount(outlineHost, function (line) {
         outlineJumpLock = true;
-        // 大纲点击：同步预览（与高亮）及源码光标；编辑栏未开时不强行展开
-        if (syncScrollCtrl) {
+        // 大纲点击：CM6 直接滚编辑器；2.0 同步预览与源码光标
+        if (isCm6Ready() && cm6Editor && typeof cm6Editor.scrollToLine === 'function') {
+          cm6Editor.scrollToLine(line, { skipFocus: false });
+          cursorLine = line;
+        } else if (syncScrollCtrl) {
           syncScrollCtrl.scrollEditorToLine(line, { skipFocus: !editorVisible });
         } else if (editorVisible) {
           jumpEditorToLine(line);
@@ -956,7 +969,7 @@
         if (outlinePanelUi && outlinePanelUi.setActiveLine) {
           outlinePanelUi.setActiveLine(line, { force: true, skipScroll: true });
         }
-        setTimeout(function () { outlineJumpLock = false; }, 150);
+        setTimeout(function () { outlineJumpLock = false; }, 280);
       }, {
         onCollapsedChange: syncOutlineCollapsedState,
       });
@@ -978,7 +991,7 @@
             if (line) {
               outlineJumpLock = true;
               updateOutlineActiveFromLine(line);
-              setTimeout(function () { outlineJumpLock = false; }, 120);
+              setTimeout(function () { outlineJumpLock = false; }, 280);
             }
           },
         }
@@ -2045,30 +2058,93 @@
     outlinePanelUi.setActiveLine(active, opts || {});
   }
 
+  function scheduleOutlineActiveFromScroll() {
+    if (outlineJumpLock) return;
+    if (outlineScrollRaf) cancelAnimationFrame(outlineScrollRaf);
+    outlineScrollRaf = requestAnimationFrame(function () {
+      outlineScrollRaf = null;
+      updateOutlineActiveFromScroll();
+    });
+  }
+
   function updateOutlineActiveFromScroll() {
     if (outlineJumpLock || !outlinePanelUi || !outlinePanelUi.setActiveLine) return;
     if (outlinePanelUi.isCollapsed && outlinePanelUi.isCollapsed()) return;
     var headings = outlinePanelUi.getFlatHeadings ? outlinePanelUi.getFlatHeadings() : [];
-    if (!headings.length || !previewScrollEl || !previewEl) return;
-    // 与 sync-scroll 将块滚到约 15% 视口对齐；固定 64px 会偏上，常高亮成上一节标题
-    var anchorY = previewScrollEl.getBoundingClientRect().top + Math.max(48, previewScrollEl.clientHeight * 0.2);
-    var activeLine = headings[0].line;
-    for (var i = 0; i < headings.length; i++) {
-      var block = previewEl.querySelector('[data-line="' + headings[i].line + '"]');
-      if (!block) continue;
-      if (block.getBoundingClientRect().top <= anchorY) activeLine = headings[i].line;
-      else break;
+    if (!headings.length) return;
+    if (isCm6Ready() && cm6Editor && typeof cm6Editor.getOutlineActiveLine === 'function') {
+      var lines = [];
+      for (var hi = 0; hi < headings.length; hi++) lines.push(headings[hi].line);
+      var cm6Active = cm6Editor.getOutlineActiveLine(lines);
+      if (cm6Active != null) outlinePanelUi.setActiveLine(cm6Active);
+      return;
     }
-    outlinePanelUi.setActiveLine(activeLine);
+    if (!previewScrollEl || !previewEl) return;
+    var pScrollTop = previewScrollEl.scrollTop;
+    var pClientH = previewScrollEl.clientHeight;
+    var pScrollH = previewScrollEl.scrollHeight;
+    var pScrollerRect = previewScrollEl.getBoundingClientRect();
+    if (pScrollTop <= 4) {
+      outlinePanelUi.setActiveLine(headings[0].line);
+      return;
+    }
+    if (pScrollTop + pClientH >= pScrollH - 8) {
+      outlinePanelUi.setActiveLine(headings[headings.length - 1].line);
+      return;
+    }
+    var pEntries = [];
+    for (var pi = 0; pi < headings.length; pi++) {
+      var pBlock = previewEl.querySelector('[data-line="' + headings[pi].line + '"]');
+      if (!pBlock) continue;
+      var pRect = pBlock.getBoundingClientRect();
+      pEntries.push({
+        line: headings[pi].line,
+        docTop: pScrollTop + (pRect.top - pScrollerRect.top),
+        inViewport: pRect.bottom > pScrollerRect.top + 1 && pRect.top < pScrollerRect.bottom - 1,
+      });
+    }
+    var pActive = headings[0].line;
+    if (pEntries.length) {
+      var pBand = Math.max(80, pClientH * 0.6);
+      var pTopVisible = null;
+      var pTopDocTop = Infinity;
+      for (var pk = 0; pk < pEntries.length; pk++) {
+        if (!pEntries[pk].inViewport) continue;
+        if (pEntries[pk].docTop < pTopDocTop) {
+          pTopDocTop = pEntries[pk].docTop;
+          pTopVisible = pEntries[pk].line;
+        }
+      }
+      if (pTopVisible != null && pTopDocTop - pScrollTop <= pBand) {
+        pActive = pTopVisible;
+      } else {
+        var pPassTop = pScrollTop + Math.min(64, Math.max(16, pClientH * 0.08));
+        for (var pl = 0; pl < pEntries.length; pl++) {
+          if (pEntries[pl].docTop <= pPassTop + 0.5) pActive = pEntries[pl].line;
+          else if (pEntries[pl].inViewport) break;
+        }
+      }
+    }
+    outlinePanelUi.setActiveLine(pActive);
+  }
+
+  function bindCm6OutlineScroll() {
+    if (!isCm6Ready() || !cm6Editor || !cm6Editor.view) return;
+    var scroller = cm6Editor.view.scrollDOM;
+    if (!scroller || scroller.dataset.outlineScrollBound) return;
+    scroller.dataset.outlineScrollBound = '1';
+    scroller.addEventListener('scroll', function () {
+      scheduleOutlineActiveFromScroll();
+    }, { passive: true });
+    scheduleOutlineActiveFromScroll();
   }
 
   function setupOutlineScrollSync() {
     if (!previewScrollEl) return;
     previewScrollEl.addEventListener('scroll', function () {
-      if (outlineJumpLock) return;
-      if (outlineScrollRaf) cancelAnimationFrame(outlineScrollRaf);
-      outlineScrollRaf = requestAnimationFrame(updateOutlineActiveFromScroll);
+      scheduleOutlineActiveFromScroll();
     }, { passive: true });
+    bindCm6OutlineScroll();
   }
 
   function activateWorkspace(folderPath, opts) {
@@ -4016,18 +4092,56 @@
         if (autosavePref === 'blur') tryAutosave();
       });
     }
+    bindCm6AutosaveBlur();
+  }
+
+  function bindCm6AutosaveBlur() {
+    if (!isCm6Ready() || !cm6Editor || !cm6Editor.view) return;
+    var dom = cm6Editor.view.dom;
+    if (!dom || dom.dataset.autosaveBlurBound) return;
+    dom.dataset.autosaveBlurBound = '1';
+    // focusout：块内 widget 互点不触发；离开编辑器才失焦保存
+    dom.addEventListener('focusout', function (e) {
+      if (autosavePref !== 'blur') return;
+      var related = e.relatedTarget;
+      if (related && dom.contains(related)) return;
+      tryAutosave();
+    });
+  }
+
+  function clearCloseTimers() {
+    clearAutosaveTimer();
+    if (previewTimer) {
+      clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    if (outlineScrollRaf) {
+      cancelAnimationFrame(outlineScrollRaf);
+      outlineScrollRaf = null;
+    }
   }
 
   function handleAppCloseRequest() {
-    if (!dirty) { api.confirmClose(); return; }
+    if (document.getElementById('settings-dialog')) return;
+    if (!dirty) {
+      clearCloseTimers();
+      api.confirmClose();
+      return;
+    }
     if (closePromptOpen) return;
     closePromptOpen = true;
     uiCloseConfirm().then(function (choice) {
       closePromptOpen = false;
       if (choice === 'cancel') return;
-      if (choice === 'discard') { api.confirmClose(); return; }
-      // 保存后关闭
-      saveFile(function () { api.confirmClose(); });
+      if (choice === 'discard') {
+        clearCloseTimers();
+        api.confirmClose();
+        return;
+      }
+      saveFile(function () {
+        clearCloseTimers();
+        api.confirmClose();
+      });
     });
   }
 
@@ -4347,6 +4461,8 @@
     var liveEdit = !!opts.liveEdit;
     var myGen = opts.liveEditGen || 0;
     var selectAnnoId = opts.selectAnnoId || null;
+    var skipOutlineSync = !!opts.skipOutlineSync;
+    var onReady = typeof opts.onReady === 'function' ? opts.onReady : null;
     var savedScroll = opts.preserveScroll
       ? (opts.savedScroll || captureViewScroll())
       : null;
@@ -4355,6 +4471,7 @@
       previewEl.innerHTML = '<p style="color:var(--danger)">' + escHtml(uiT('alertRenderError', { error: result.error })) + '</p>';
       updateToolbar();
       if (liveEdit) unfreezeEditorScroll();
+      if (onReady) onReady(false);
       return;
     }
     htmlContent = result.html;
@@ -4390,16 +4507,19 @@
       }
       applyAnchorHighlights();
       updateToolbar();
+      if (onReady) onReady(true);
       requestAnimationFrame(function () {
         if (liveEdit && myGen !== liveEditGen) return;
-        if (liveEdit) {
-          var caretLine = 1;
-          if (window.MDASyncScroll && editorEl) {
-            caretLine = window.MDASyncScroll.lineAtCaret(editorEl);
+        if (!skipOutlineSync) {
+          if (liveEdit) {
+            var caretLine = 1;
+            if (window.MDASyncScroll && editorEl) {
+              caretLine = window.MDASyncScroll.lineAtCaret(editorEl);
+            }
+            updateOutlineActiveFromLine(caretLine, { skipScroll: true });
+          } else {
+            updateOutlineActiveFromScroll();
           }
-          updateOutlineActiveFromLine(caretLine, { skipScroll: true });
-        } else {
-          updateOutlineActiveFromScroll();
         }
         // 新建/编辑批注后：预览 DOM 与色条就绪再选中定位
         if (selectAnnoId) {
@@ -4412,6 +4532,7 @@
       });
     }).catch(function () {
       if (liveEdit && myGen === liveEditGen) unfreezeEditorScroll();
+      if (onReady) onReady(false);
     });
   }
 
@@ -5059,8 +5180,33 @@
     };
   }
 
+  /**
+   * CM6 下 #preview-content 常为空；导出/微信复制前用当前源码填入隐藏预览 DOM（不闪界面）。
+   * @returns {Promise<boolean>}
+   */
+  function ensurePreviewHtmlForExport() {
+    return new Promise(function (resolve) {
+      var text = getEditorTextValue();
+      if (!text || !String(text).trim()) {
+        resolve(false);
+        return;
+      }
+      if (!isCm6Ready() && previewEl && previewEl.textContent && previewEl.textContent.trim()) {
+        resolve(true);
+        return;
+      }
+      renderMarkdownContent(text, {
+        skipOutlineSync: true,
+        onReady: function () {
+          resolve(!!(previewEl && previewEl.textContent && previewEl.textContent.trim()));
+        },
+      });
+    });
+  }
+
   async function copyPreviewForArticle() {
-    if (!previewEl || !previewEl.textContent.trim()) {
+    var ready = await ensurePreviewHtmlForExport();
+    if (!ready) {
       uiAlert(uiT('alertPreviewEmpty'));
       return;
     }
@@ -5265,7 +5411,8 @@
   }
 
   async function exportPreviewHtml() {
-    if (!previewEl || !previewEl.textContent.trim()) {
+    var ready = await ensurePreviewHtmlForExport();
+    if (!ready) {
       uiAlert(uiT('alertPreviewEmpty'));
       return;
     }
@@ -5296,7 +5443,8 @@
   }
 
   async function exportPreviewPdf() {
-    if (!previewEl || !previewEl.textContent.trim()) {
+    var ready = await ensurePreviewHtmlForExport();
+    if (!ready) {
       uiAlert(uiT('alertPreviewEmpty'));
       return;
     }
@@ -5327,7 +5475,8 @@
   }
 
   async function exportPreviewDocx() {
-    if (!previewEl || !previewEl.textContent.trim()) {
+    var ready = await ensurePreviewHtmlForExport();
+    if (!ready) {
       uiAlert(uiT('alertPreviewEmpty'));
       return;
     }
@@ -5560,6 +5709,34 @@
     }
   }
 
+  /** CM6 表格块：默认宽与围栏代码块一致（正文栏宽 × 媒体默认比例） */
+  function applyDefaultScaleToTableBlock(root) {
+    if (!root) return;
+    var autoW = getCm6TextColumnWidthPx(root);
+    var w = scaledWidthFromAuto(autoW, getMediaScaleFactor(), 24);
+    if (!(w > 0)) return;
+    root.style.display = 'block';
+    root.style.width = w + 'px';
+    root.style.maxWidth = w + 'px';
+    root.style.boxSizing = 'border-box';
+    var stage = root.querySelector('.mda-cm-table-stage');
+    if (stage) {
+      stage.style.width = '100%';
+      stage.style.maxWidth = '100%';
+      stage.style.boxSizing = 'border-box';
+    }
+    var wrap = root.querySelector('.mda-cm-table-wrap');
+    if (wrap && !wrap.hasAttribute('data-mda-snap')) {
+      wrap.style.width = '100%';
+      wrap.style.maxWidth = '100%';
+    }
+    var table = root.querySelector('table.mda-cm-table');
+    if (table && table.getAttribute('data-mda-layout') !== 'fixed') {
+      table.style.width = '100%';
+      table.style.tableLayout = 'fixed';
+    }
+  }
+
   function applyDefaultScaleToImage(img) {
     var scale = getMediaScaleFactor();
     var inCm6 = !!(img && img.closest && img.closest('.mda-cm-image-frame'));
@@ -5720,9 +5897,17 @@
         applyDefaultScaleToCodeBlock(blocks[k]);
       }
     }
+    function reapplyTableBlocksInRoot(root) {
+      if (!root) return;
+      var blocks = root.querySelectorAll('.mda-cm-table-block-line');
+      for (var t = 0; t < blocks.length; t++) {
+        applyDefaultScaleToTableBlock(blocks[t]);
+      }
+    }
     function reapplyInRoot(root) {
       if (!root) return;
       reapplyCodeBlocksInRoot(root);
+      reapplyTableBlocksInRoot(root);
       var imgs = root.querySelectorAll('img');
       for (var j = 0; j < imgs.length; j++) {
         var img = imgs[j];

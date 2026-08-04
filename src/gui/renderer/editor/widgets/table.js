@@ -14,6 +14,7 @@ const { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require('./block-widget-base
 const { mountTableChrome, closeTableMenu } = require('./table-chrome');
 const { deleteBlockRange } = require('./image-block-ops');
 const { applyTableLayoutSession } = require('./table-layout-session');
+const { attachTableBlockLayout, detachTableBlockLayout } = require('./table-layout-width');
 const { clearBlockWidgetSelection } = require('./widget-common');
 const { setSelectedBlock, clearSelectedBlock } = require('./block-selection');
 const { clearSelectedImageBlock } = require('./image-selection');
@@ -224,7 +225,7 @@ class TableWidget extends BlockReplaceWidget {
     const self = this;
     const opts = this.opts;
     const root = document.createElement('div');
-    root.className = 'mda-cm-table-block';
+    root.className = 'mda-cm-table-block mda-cm-table-block-line';
     root.setAttribute('contenteditable', 'false');
     if (self.from != null) root.setAttribute('data-mda-block-from', String(self.from));
     if (self.to != null) root.setAttribute('data-mda-block-to', String(self.to));
@@ -264,6 +265,7 @@ class TableWidget extends BlockReplaceWidget {
       });
       root.appendChild(chrome.stage);
       root._mdaTableChrome = chrome;
+      attachTableBlockLayout(root, opts, view);
     } else {
       const fallback = document.createElement('pre');
       fallback.className = 'mda-cm-table-fallback';
@@ -300,6 +302,7 @@ class TableWidget extends BlockReplaceWidget {
     return root;
   }
   destroy(dom) {
+    detachTableBlockLayout(dom);
     if (dom && dom._mdaTableChrome) {
       if (typeof dom._mdaTableChrome.dispose === 'function') {
         dom._mdaTableChrome.dispose();

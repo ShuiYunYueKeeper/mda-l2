@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const { resolveBlockDropTargetFromCoords } = require('./image-block-ops');
+const { resolveBlockDropTargetFromCoords, getEditorDropLineBounds, getDropIndicatorTop } = require('./image-block-ops');
 const { showBlockHandleMenu, isBlockHandleMenuOpenFor } = require('./block-handle-menu');
 const { blockTypeIconHtml } = require('./block-menu-icons');
 const { HOVER_LEAVE_MS } = require('./widget-common');
@@ -182,6 +182,11 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
     return dropLine;
   }
 
+  /** 拖放指示线对齐编辑区内容宽，不穿过滚动条 */
+  function getDropLineBounds() {
+    return getEditorDropLineBounds(view);
+  }
+
   function removeDropLine() {
     if (dropLine && dropLine.parentNode) dropLine.parentNode.removeChild(dropLine);
     dropLine = null;
@@ -219,15 +224,14 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
       if (dropLine) dropLine.style.display = 'none';
       return resolved;
     }
-    const coords = view.coordsAtPos(dropPos);
-    if (!coords) return resolved;
+    const top = getDropIndicatorTop(view, dropPos);
+    if (top == null) return resolved;
     const line = ensureDropLine();
-    const host = blockRoot.closest('.cm-editor');
-    const hostRect = host ? host.getBoundingClientRect() : { left: 0, width: window.innerWidth };
+    const bounds = getDropLineBounds();
     line.style.display = 'block';
-    line.style.top = coords.top + 'px';
-    line.style.left = hostRect.left + 'px';
-    line.style.width = hostRect.width + 'px';
+    line.style.top = top + 'px';
+    line.style.left = bounds.left + 'px';
+    line.style.width = bounds.width + 'px';
     return resolved;
   }
 

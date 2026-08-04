@@ -246,27 +246,11 @@ function mountTableChrome(ctx) {
 
   colGutterClip.appendChild(colGutter);
 
-  const addColBtn = document.createElement('button');
-  addColBtn.type = 'button';
-  addColBtn.className = 'mda-cm-table-add-btn mda-cm-table-add-col';
-  addColBtn.setAttribute('data-i18n-title', 'widgetTableAddCol');
-  addColBtn.title = uiT('widgetTableAddCol', t);
-  addColBtn.textContent = '+';
-
-  const addRowBtn = document.createElement('button');
-  addRowBtn.type = 'button';
-  addRowBtn.className = 'mda-cm-table-add-btn mda-cm-table-add-row';
-  addRowBtn.setAttribute('data-i18n-title', 'widgetTableAddRow');
-  addRowBtn.title = uiT('widgetTableAddRow', t);
-  addRowBtn.textContent = '+';
-
   body.appendChild(tableWrap);
   chrome.appendChild(colGutterClip);
   chrome.appendChild(rowGutter);
   body.appendChild(chrome);
   grid.appendChild(body);
-  grid.appendChild(addColBtn);
-  grid.appendChild(addRowBtn);
   stage.appendChild(grid);
 
   const widget = ctx.widget || {};
@@ -1071,30 +1055,6 @@ function mountTableChrome(ctx) {
     }
   });
 
-  addColBtn.addEventListener('mousedown', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  });
-  addColBtn.addEventListener('click', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-    mutate(function (p) {
-      insertTableColumn(p, p.headers.length - 1, 'after');
-    });
-  });
-
-  addRowBtn.addEventListener('mousedown', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-  });
-  addRowBtn.addEventListener('click', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-    mutate(function (p) {
-      insertTableRow(p, p.rows.length, 'before');
-    });
-  });
-
   stage.addEventListener('contextmenu', function (e) {
     if (!stage.contains(e.target)) return;
     e.preventDefault();
@@ -1190,6 +1150,17 @@ function mountTableChrome(ctx) {
       onLayoutCommit: function () {
         commitLayout();
       },
+      onAddColumn: function (colIndex) {
+        mutate(function (p) {
+          insertTableColumn(p, colIndex, 'after');
+        });
+      },
+      onAddRow: function (visualRow) {
+        mutate(function (p) {
+          if (visualRow <= 0) insertTableRow(p, 0, 'before');
+          else insertTableRow(p, visualRow - 1, 'after');
+        });
+      },
       t: t,
     });
   }
@@ -1232,8 +1203,7 @@ function mountTableChrome(ctx) {
     },
     refreshI18n: function (tFn) {
       const tt = tFn || t;
-      addColBtn.title = uiT('widgetTableAddCol', tt);
-      addRowBtn.title = uiT('widgetTableAddRow', tt);
+      if (resizeCtl && resizeCtl.refreshAddBtnI18n) resizeCtl.refreshAddBtnI18n(tt);
     },
   };
 }

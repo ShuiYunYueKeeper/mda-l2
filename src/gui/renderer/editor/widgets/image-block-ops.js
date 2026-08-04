@@ -190,6 +190,54 @@ function resolveDropTargetPos(view, from, to, targetPos) {
 }
 
 /**
+ * 拖放指示线水平范围：对齐 scroller 内容区，不穿过滚动条。
+ * @param {import('@codemirror/view').EditorView} view
+ */
+function getEditorDropLineBounds(view) {
+  const scroller = view && view.scrollDOM;
+  if (scroller) {
+    const rect = scroller.getBoundingClientRect();
+    return {
+      left: rect.left,
+      width: Math.max(0, scroller.clientWidth),
+    };
+  }
+  const host = view && view.dom ? view.dom.closest('.cm-editor') : null;
+  const rect = host ? host.getBoundingClientRect() : { left: 0, width: window.innerWidth };
+  return {
+    left: rect.left,
+    width: host ? host.clientWidth : rect.width,
+  };
+}
+
+/**
+ * 拖放指示线纵坐标：落在目标块/行视觉顶边，而非字符中间（图2）。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} dropPos
+ * @returns {number | null}
+ */
+function getDropIndicatorTop(view, dropPos) {
+  if (!view) return null;
+  const len = view.state.doc.length;
+  const pos = Math.max(0, Math.min(dropPos, len));
+  try {
+    const domAt = view.domAtPos(pos > 0 && pos === len ? pos - 1 : pos);
+    let node = domAt.node;
+    if (node.nodeType === 3) node = node.parentElement;
+    if (node && node.closest) {
+      const blockEl = node.closest('[data-mda-block-from], .mda-cm-quote-handle-anchor');
+      if (blockEl) return blockEl.getBoundingClientRect().top;
+      const cmLine = node.closest('.cm-line');
+      if (cmLine) return cmLine.getBoundingClientRect().top;
+    }
+  } catch (_) {
+    /* fall through */
+  }
+  const coords = view.coordsAtPos(pos, -1) || view.coordsAtPos(pos, 1);
+  return coords ? coords.top : null;
+}
+
+/**
  * @param {string} src
  * @param {string} [fallbackDoc]
  * @returns {string}
@@ -433,6 +481,8 @@ module.exports = {
   resolveDropTargetPos: resolveDropTargetPos,
   resolveDropTargetFromCoords: resolveDropTargetFromCoords,
   resolveBlockDropTargetFromCoords: resolveBlockDropTargetFromCoords,
+  getEditorDropLineBounds: getEditorDropLineBounds,
+  getDropIndicatorTop: getDropIndicatorTop,
   findBlockAtPoint: findBlockAtPoint,
   findImageBlockAtPoint: findImageBlockAtPoint,
   resolveImageLineRange: resolveImageLineRange,

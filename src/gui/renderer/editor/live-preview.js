@@ -404,6 +404,7 @@ function buildLayerDecos(specs, text, liveOpts) {
     onEditCodeBlock: liveOpts.onEditCodeBlock,
     onEditMathBlock: liveOpts.onEditMathBlock,
     onScaleCodeBlock: liveOpts.onScaleCodeBlock,
+    onScaleTableBlock: liveOpts.onScaleTableBlock,
     onDeleteCodeBlock: liveOpts.onDeleteCodeBlock,
     onMoveCodeBlock: liveOpts.onMoveCodeBlock,
     onMoveMathBlock: liveOpts.onMoveMathBlock,
