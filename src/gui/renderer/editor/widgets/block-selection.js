@@ -17,7 +17,6 @@ const KIND_CONFIG = {
   math: { rootSel: '.mda-cm-math-block', frameSel: '.mda-cm-math-frame', media: true },
   table: { rootSel: '.mda-cm-table-block' },
   quote: { rootSel: '.mda-cm-quote-handle-anchor' },
-  highlight: { rootSel: '.mda-cm-quote-handle-anchor' },
   hr: { rootSel: '.mda-cm-hr-block', frameSel: '.mda-cm-hr-frame', hrSelected: true },
 };
 

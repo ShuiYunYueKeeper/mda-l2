@@ -41,6 +41,52 @@ function buildHandleInnerHtml(blockKind) {
 }
 
 /**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} from
+ * @param {number} to
+ * @returns {HTMLElement[]}
+ */
+function collectCmLinesInRange(view, from, to) {
+  /** @type {HTMLElement[]} */
+  const lines = [];
+  if (!view || from == null || to == null) return lines;
+  const doc = view.state.doc;
+  const len = doc.length;
+  if (len <= 0) return lines;
+  let pos = Math.max(0, Math.min(from, len - 1));
+  const end = Math.max(pos, Math.min(to, len));
+  let guard = 0;
+  while (pos < end || (pos === from && from === to)) {
+    if (++guard > 500) break;
+    let lineEl = null;
+    try {
+      const at = view.domAtPos(pos);
+      const node = at && at.node;
+      if (node) {
+        lineEl =
+          node.nodeType === 1
+            ? /** @type {HTMLElement} */ (node).closest('.cm-line')
+            : node.parentElement && node.parentElement.closest('.cm-line');
+      }
+    } catch (_) {
+      lineEl = null;
+    }
+    if (lineEl && lines.indexOf(lineEl) < 0) lines.push(lineEl);
+    let next = pos + 1;
+    try {
+      const lb = view.lineBlockAt(pos);
+      next = lb.to > pos ? lb.to : pos + 1;
+    } catch (_) {
+      next = pos + 1;
+    }
+    if (next <= pos) break;
+    pos = next;
+    if (pos >= end) break;
+  }
+  return lines;
+}
+
+/**
  * @param {HTMLElement} anchorEl 手柄挂载点（通常为 frame，便于左上角定位）
  * @param {import('@codemirror/view').EditorView} view
  * @param {{ from: number, to: number, source?: string }} range
@@ -97,14 +143,34 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
     }, HANDLE_HIDE_MS);
   }
 
+  /** @type {HTMLElement[]} */
   const hoverTargets = [blockRoot, handle];
-  if (blockRoot.classList.contains('mda-cm-quote-handle-anchor')) {
-    const line = blockRoot.closest('.cm-line');
-    if (line && hoverTargets.indexOf(line) < 0) hoverTargets.push(line);
+  /** @type {{ el: HTMLElement, enter: Function, leave: Function }[]} */
+  const boundHover = [];
+
+  function bindHoverTarget(el) {
+    if (!el || hoverTargets.indexOf(el) >= 0) return;
+    hoverTargets.push(el);
+    el.addEventListener('mouseenter', showHandle);
+    el.addEventListener('mouseleave', scheduleHideHandle);
+    boundHover.push({ el: el, enter: showHandle, leave: scheduleHideHandle });
   }
+
   for (let hi = 0; hi < hoverTargets.length; hi++) {
     hoverTargets[hi].addEventListener('mouseenter', showHandle);
     hoverTargets[hi].addEventListener('mouseleave', scheduleHideHandle);
+  }
+
+  // toDOM 时 widget 尚未挂到 .cm-line，须延后绑定；引用/高亮还须覆盖块内所有行
+  if (blockRoot.classList.contains('mda-cm-quote-handle-anchor')) {
+    const bindQuoteLines = function () {
+      if (!blockRoot.isConnected) return;
+      const line = blockRoot.closest('.cm-line');
+      if (line) bindHoverTarget(line);
+      const lines = collectCmLinesInRange(view, range.from, range.to);
+      for (let i = 0; i < lines.length; i++) bindHoverTarget(lines[i]);
+    };
+    requestAnimationFrame(bindQuoteLines);
   }
 
   function ensureDropLine() {
@@ -281,6 +347,7 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
 module.exports = {
   attachBlockDragHandle: attachBlockDragHandle,
   buildHandleInnerHtml: buildHandleInnerHtml,
+  collectCmLinesInRange: collectCmLinesInRange,
   LONG_PRESS_MS: LONG_PRESS_MS,
   HANDLE_HIDE_MS: HANDLE_HIDE_MS,
 };

@@ -1129,14 +1129,7 @@
       padding-left: 12px;
       background: transparent;
       color: var(--text-muted);
-    }
-    .mda-cm6-host .cm-line:has(.mda-cm-highlight-line),
-    .mda-cm6-host .cm-line.mda-cm-highlight-line {
-      border-left: 3px solid var(--accent);
-      padding-left: 12px;
-      background: var(--bg-tertiary);
-      color: var(--text);
-      border-radius: 0 4px 4px 0;
+      min-height: 26px;
     }
     .mda-cm6-host .cm-line:has(.mda-cm-quote-handle-anchor) {
       overflow: visible;
@@ -1153,14 +1146,13 @@
     .mda-cm6-host .mda-cm-quote-handle-anchor > .mda-cm-block-drag-handle {
       pointer-events: auto;
       top: 1px;
-      /* 相对内容起点：越过行 padding(12) + 竖条 border(3) 后再隔 3px */
       left: 0;
       transform: translateX(calc(-100% - 12px - 3px - 3px));
     }
-    /* 引用/高亮选中：2px 描边（与图片/代码等统一） */
-    .mda-cm6-host .cm-line:has(.mda-cm-quote-handle-anchor.mda-cm-block-selected) {
-      outline: 2px solid var(--accent);
-      outline-offset: -2px;
+    /* 引用不画选中蓝框（仅手柄；与图片/代码块不同） */
+    /* CSS 兜底：首行悬停也显手柄（JS 延后绑定时尚未就绪） */
+    .mda-cm6-host .cm-line:has(.mda-cm-quote-handle-anchor):hover > .mda-cm-quote-handle-anchor > .mda-cm-block-drag-handle {
+      display: flex;
     }
     .mda-cm6-host .cm-editor { flex: 1; min-height: 0; outline: none; display: flex; flex-direction: column; }
     .mda-cm6-host .cm-scroller {

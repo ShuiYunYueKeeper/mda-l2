@@ -1,10 +1,10 @@
 ﻿/**
- * 引用 / 高亮块（> [!NOTE]）左上角拖动手柄：不替换正文，挂在块首零宽 widget。
+ * 引用块左上角拖动手柄：不替换正文，挂在块首零宽 widget。
  */
 'use strict';
 
 const { WidgetType } = require('@codemirror/view');
-const { attachBlockDragHandle } = require('./block-drag-handle');
+const { attachBlockDragHandle, collectCmLinesInRange } = require('./block-drag-handle');
 const { showBlockHandleMenu } = require('./block-handle-menu');
 const { clearBlockWidgetSelection, clearMediaSelection, uiT } = require('./widget-common');
 const { setSelectedBlock } = require('./block-selection');
@@ -14,20 +14,13 @@ const { clearSelectedInlineMath, clearInlineMathSelectedClass } = require('./inl
 const { Transaction } = require('@codemirror/state');
 
 /**
- * @param {string} firstLine
+ * 去掉引用标记后是否几乎无正文（空块可点选）。
+ * @param {string} lineText
  */
-function isHighlightCalloutLine(firstLine) {
-  return /^\s*>\s*\[![A-Za-z][\w-]*\]/.test(String(firstLine || ''));
-}
-
-/**
- * @param {string} source
- */
-function detectQuoteKind(source) {
-  const raw = String(source || '');
-  const nl = raw.indexOf('\n');
-  const first = nl < 0 ? raw : raw.slice(0, nl);
-  return isHighlightCalloutLine(first) ? 'highlight' : 'quote';
+function isEmptyQuoteLineText(lineText) {
+  return !String(lineText || '')
+    .replace(/^\s*>\s*/, '')
+    .trim();
 }
 
 class QuoteHandleWidget extends WidgetType {
@@ -36,7 +29,6 @@ class QuoteHandleWidget extends WidgetType {
    *   from: number,
    *   to: number,
    *   source?: string,
-   *   quoteKind?: string,
    *   t?: Function,
    *   blockMenuHandlers?: object,
    *   onMoveQuoteBlock?: Function,
@@ -48,7 +40,6 @@ class QuoteHandleWidget extends WidgetType {
     this.from = opts.from;
     this.to = opts.to;
     this.source = opts.source || '';
-    this.quoteKind = opts.quoteKind || detectQuoteKind(this.source);
     this.opts = opts;
   }
 
@@ -57,8 +48,7 @@ class QuoteHandleWidget extends WidgetType {
       other instanceof QuoteHandleWidget &&
       other.from === this.from &&
       other.to === this.to &&
-      other.source === this.source &&
-      other.quoteKind === this.quoteKind
+      other.source === this.source
     );
   }
 
@@ -66,14 +56,12 @@ class QuoteHandleWidget extends WidgetType {
     const self = this;
     const opts = this.opts;
     const wrap = document.createElement('span');
-    wrap.className =
-      'mda-cm-quote-handle-anchor' +
-      (this.quoteKind === 'highlight' ? ' mda-cm-quote-handle-highlight' : '');
+    wrap.className = 'mda-cm-quote-handle-anchor';
     wrap.setAttribute('contenteditable', 'false');
     wrap.setAttribute('data-mda-block-from', String(this.from));
     wrap.setAttribute('data-mda-block-to', String(this.to));
     if (this.source) wrap.setAttribute('data-mda-block-source', this.source);
-    wrap.setAttribute('data-mda-block-kind', this.quoteKind);
+    wrap.setAttribute('data-mda-block-kind', 'quote');
 
     const t = opts.t;
     const range = { from: self.from, to: self.to, source: self.source };
@@ -87,7 +75,7 @@ class QuoteHandleWidget extends WidgetType {
       clearInlineMathSelectedClass(view.dom);
       wrap.classList.add('mda-cm-block-selected');
       setSelectedBlock({
-        kind: self.quoteKind === 'highlight' ? 'highlight' : 'quote',
+        kind: 'quote',
         from: self.from,
         to: self.to,
         source: self.source,
@@ -113,7 +101,7 @@ class QuoteHandleWidget extends WidgetType {
       blockRoot: wrap,
       blockSelector: '.mda-cm-quote-handle-anchor',
       replaceOnHover: false,
-      blockKind: self.quoteKind,
+      blockKind: 'quote',
       blockMenuHandlers: opts.blockMenuHandlers,
       t: t,
       onMoveBlock: opts.onMoveQuoteBlock,
@@ -124,7 +112,7 @@ class QuoteHandleWidget extends WidgetType {
           blockRoot: wrap,
           view: view,
           block: block,
-          blockKind: self.quoteKind,
+          blockKind: 'quote',
           t: t,
           handlers: opts.blockMenuHandlers,
         });
@@ -145,6 +133,25 @@ class QuoteHandleWidget extends WidgetType {
       }
     });
 
+    // 空块行：点击行身即可选中（toDOM 时尚未入树，延后绑定）
+    requestAnimationFrame(function () {
+      if (!wrap.isConnected) return;
+      const lines = collectCmLinesInRange(view, self.from, self.to);
+      for (let i = 0; i < lines.length; i++) {
+        const lineEl = lines[i];
+        lineEl.addEventListener('mousedown', function (e) {
+          if (e.button !== 0) return;
+          if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) {
+            return;
+          }
+          const raw = lineEl.textContent || '';
+          if (!isEmptyQuoteLineText(raw)) return;
+          e.preventDefault();
+          selectAnchor();
+        });
+      }
+    });
+
     return wrap;
   }
 
@@ -160,6 +167,5 @@ class QuoteHandleWidget extends WidgetType {
 
 module.exports = {
   QuoteHandleWidget: QuoteHandleWidget,
-  detectQuoteKind: detectQuoteKind,
-  isHighlightCalloutLine: isHighlightCalloutLine,
+  isEmptyQuoteLineText: isEmptyQuoteLineText,
 };

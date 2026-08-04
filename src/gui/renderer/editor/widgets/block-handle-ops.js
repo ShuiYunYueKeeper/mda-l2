@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 块手柄菜单：复制 / 剪切 / 删除 / 插入片段。
  */
 'use strict';
@@ -8,7 +8,7 @@ const {
   deleteBlockRange,
   expandBlockRange,
 } = require('./image-block-ops');
-const { getInsertSnippet } = require('./block-insert-snippets');
+const { getInsertSnippet, caretOffsetInSnippet } = require('./block-insert-snippets');
 const { copyText } = require('./widget-common');
 
 /**
@@ -59,11 +59,31 @@ function insertSnippetNearBlock(view, block, where, type) {
     if (pos >= doc.length || doc.charAt(pos) !== '\n') insert += '\n';
   }
 
+  const lead = insert.indexOf(snippet);
+  const snippetStart = pos + (lead >= 0 ? lead : 0);
+  const caret = snippetStart + caretOffsetInSnippet(type, snippet);
+
   view.dispatch({
     changes: { from: pos, to: pos, insert: insert },
-    selection: { anchor: pos + insert.length },
+    selection: { anchor: caret, head: caret },
     userEvent: 'input',
   });
+
+  // 引用插入后短暂显手柄（不自动选中/蓝框），方便发现空块
+  if (type === 'quote') {
+    requestAnimationFrame(function () {
+      const anchor = view.dom.querySelector(
+        '.mda-cm-quote-handle-anchor[data-mda-block-from="' + snippetStart + '"]'
+      );
+      if (anchor) anchor.classList.add('mda-cm-block-handle-show');
+    });
+  }
+
+  try {
+    view.focus();
+  } catch (_) {
+    /* ignore */
+  }
   return true;
 }
 

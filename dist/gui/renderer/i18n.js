@@ -1,4 +1,4 @@
-// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
+﻿// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
 (function (global) {
   var STRINGS = {
     zh: {
@@ -230,7 +230,6 @@
       blockMenuInsertTable: '表格',
       blockMenuInsertCode: '代码块',
       blockMenuInsertQuote: '引用',
-      blockMenuInsertHighlight: '高亮块',
       blockMenuInsertMermaid: '流程图',
       blockMenuInsertHr: '分隔线',
       blockMenuAiContinue: '续写',
@@ -550,7 +549,6 @@
       blockMenuInsertTable: 'Table',
       blockMenuInsertCode: 'Code block',
       blockMenuInsertQuote: 'Quote',
-      blockMenuInsertHighlight: 'Highlight block',
       blockMenuInsertMermaid: 'Diagram',
       blockMenuInsertHr: 'Divider',
       blockMenuAiContinue: 'Continue writing',

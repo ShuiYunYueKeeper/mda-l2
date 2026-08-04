@@ -526,7 +526,6 @@ function buildLayerDecos(specs, text, liveOpts) {
               from: qFrom,
               to: qTo,
               source: s.source || text.slice(qFrom, qTo),
-              quoteKind: s.quoteKind || 'quote',
               t: widgetOpts.t,
               blockMenuHandlers: widgetOpts.blockMenuHandlers,
               onMoveQuoteBlock: widgetOpts.onMoveQuoteBlock,

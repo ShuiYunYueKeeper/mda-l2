@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 块手柄类型图标
  */
 import * as path from 'path';
@@ -23,7 +23,6 @@ describe('block handle type icons', () => {
     'table',
     'code',
     'quote',
-    'highlight',
     'hr',
   ];
 

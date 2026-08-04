@@ -1,4 +1,4 @@
-/**
+﻿/**
  * P2 §4.1 装饰构建（纯函数）：文本 + 节点 + reveal → Spec[]，不碰 DOM。
  */
 'use strict';
@@ -83,38 +83,15 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
     }
   }
 
-  /** @type {{ from: number, to: number }[]} */
-  const highlightQuoteRanges = [];
-  for (let hi = 0; hi < nodes.length; hi++) {
-    const hn = nodes[hi];
-    if (!hn || hn.type !== 'Blockquote' || hn.from >= hn.to) continue;
-    const chunk = text.slice(hn.from, hn.to);
-    const nl = chunk.indexOf('\n');
-    const firstLine = nl < 0 ? chunk : chunk.slice(0, nl);
-    if (/^\s*>\s*\[![A-Za-z][\w-]*\]/.test(firstLine)) {
-      highlightQuoteRanges.push({ from: hn.from, to: hn.to });
-    }
-  }
-
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
     if (!node || node.from >= node.to) continue;
     if (skipTypes[node.type]) continue;
 
-    // 引用 / 高亮块手柄（零宽 side widget）；标题不加手柄
+    // 引用块手柄（零宽 side widget）；标题不加手柄
     if (node.type === 'Blockquote') {
       if (widgetEnabled('quote-handle')) {
         const source = text.slice(node.from, node.to);
-        let isHighlight = false;
-        for (let h = 0; h < highlightQuoteRanges.length; h++) {
-          if (
-            highlightQuoteRanges[h].from === node.from &&
-            highlightQuoteRanges[h].to === node.to
-          ) {
-            isHighlight = true;
-            break;
-          }
-        }
         specs.push({
           kind: 'widget',
           widget: 'quote-handle',
@@ -122,7 +99,7 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
           to: node.from,
           blockFrom: node.from,
           blockTo: node.to,
-          quoteKind: isHighlight ? 'highlight' : 'quote',
+          quoteKind: 'quote',
           source: source,
           priority: PRIORITY.widget,
         });
@@ -231,27 +208,32 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
         to: node.to,
         priority: PRIORITY['hide-mark'],
       });
+      // 行内仅 `> `（无正文）时保留空格，避免整行都被 atomic hide，无法落点输入
       if (node.to < text.length && text.charAt(node.to) === ' ') {
-        specs.push({
-          kind: 'hide-mark',
-          from: node.to,
-          to: node.to + 1,
-          priority: PRIORITY['hide-mark'],
-        });
-      }
-      let quoteLineCls = 'mda-cm-blockquote-line';
-      for (let hq = 0; hq < highlightQuoteRanges.length; hq++) {
-        const hr = highlightQuoteRanges[hq];
-        if (node.from >= hr.from && node.from < hr.to) {
-          quoteLineCls = 'mda-cm-highlight-line';
-          break;
+        let i = node.to + 1;
+        let hasBody = false;
+        while (i < text.length && text.charAt(i) !== '\n') {
+          const ch = text.charAt(i);
+          if (ch !== ' ' && ch !== '\t') {
+            hasBody = true;
+            break;
+          }
+          i += 1;
+        }
+        if (hasBody) {
+          specs.push({
+            kind: 'hide-mark',
+            from: node.to,
+            to: node.to + 1,
+            priority: PRIORITY['hide-mark'],
+          });
         }
       }
       specs.push({
         kind: 'line-style',
         from: node.from,
         to: node.from,
-        cls: quoteLineCls,
+        cls: 'mda-cm-blockquote-line',
         priority: PRIORITY['line-style'],
       });
       continue;

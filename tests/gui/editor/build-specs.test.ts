@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-B：buildDecorationSpecs / reveal 纯函数（E49–E52 雏形）
  */
 import * as path from 'path';
@@ -166,7 +166,7 @@ describe('buildDecorationSpecs (M8-B S6–S12)', () => {
     expect(hr[0]).toMatchObject({ kind: 'widget', widget: 'hr' });
   });
 
-  test('引用 / 高亮块：左上角手柄 widget；标题不加', () => {
+  test('引用块：左上角手柄 widget；标题不加', () => {
     const quote = buildDecorationSpecs(
       '> hello',
       [
@@ -182,22 +182,37 @@ describe('buildDecorationSpecs (M8-B S6–S12)', () => {
       true
     );
 
-    const hlText = '> [!NOTE]\n> tip';
-    const hl = buildDecorationSpecs(
-      hlText,
+    // 含 [!NOTE] 的引用按普通引用处理（暂不做高亮块）
+    const noteText = '> [!NOTE]\n> tip';
+    const note = buildDecorationSpecs(
+      noteText,
       [
-        { type: 'Blockquote', from: 0, to: hlText.length },
+        { type: 'Blockquote', from: 0, to: noteText.length },
         { type: 'QuoteMark', from: 0, to: 1 },
         { type: 'QuoteMark', from: 10, to: 11 },
       ],
       []
     );
-    expect(hl.some((s: any) => s.widget === 'quote-handle' && s.quoteKind === 'highlight')).toBe(
+    expect(note.some((s: any) => s.widget === 'quote-handle' && s.quoteKind === 'quote')).toBe(
       true
     );
-    expect(hl.some((s: any) => s.kind === 'line-style' && s.cls === 'mda-cm-highlight-line')).toBe(
+    expect(note.some((s: any) => s.cls === 'mda-cm-highlight-line')).toBe(false);
+    expect(note.some((s: any) => s.kind === 'line-style' && s.cls === 'mda-cm-blockquote-line')).toBe(
       true
     );
+
+    const emptyQuote = buildDecorationSpecs(
+      '> ',
+      [
+        { type: 'Blockquote', from: 0, to: 2 },
+        { type: 'QuoteMark', from: 0, to: 1 },
+      ],
+      []
+    );
+    // 空引用保留行末空格，不整行 atomic
+    expect(
+      emptyQuote.some((s: any) => s.kind === 'hide-mark' && s.from === 1 && s.to === 2)
+    ).toBe(false);
 
     const heading = buildDecorationSpecs('# Title', [{ type: 'ATXHeading1', from: 0, to: 7 }], []);
     expect(heading.some((s: any) => s.widget === 'quote-handle')).toBe(false);

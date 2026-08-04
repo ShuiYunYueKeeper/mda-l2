@@ -31096,17 +31096,6 @@ var MDAEditorBundle = (() => {
             });
           }
         }
-        const highlightQuoteRanges = [];
-        for (let hi = 0; hi < nodes.length; hi++) {
-          const hn = nodes[hi];
-          if (!hn || hn.type !== "Blockquote" || hn.from >= hn.to) continue;
-          const chunk = text.slice(hn.from, hn.to);
-          const nl = chunk.indexOf("\n");
-          const firstLine = nl < 0 ? chunk : chunk.slice(0, nl);
-          if (/^\s*>\s*\[![A-Za-z][\w-]*\]/.test(firstLine)) {
-            highlightQuoteRanges.push({ from: hn.from, to: hn.to });
-          }
-        }
         for (let i = 0; i < nodes.length; i++) {
           const node = nodes[i];
           if (!node || node.from >= node.to) continue;
@@ -31114,13 +31103,6 @@ var MDAEditorBundle = (() => {
           if (node.type === "Blockquote") {
             if (widgetEnabled("quote-handle")) {
               const source = text.slice(node.from, node.to);
-              let isHighlight = false;
-              for (let h = 0; h < highlightQuoteRanges.length; h++) {
-                if (highlightQuoteRanges[h].from === node.from && highlightQuoteRanges[h].to === node.to) {
-                  isHighlight = true;
-                  break;
-                }
-              }
               specs.push({
                 kind: "widget",
                 widget: "quote-handle",
@@ -31128,7 +31110,7 @@ var MDAEditorBundle = (() => {
                 to: node.from,
                 blockFrom: node.from,
                 blockTo: node.to,
-                quoteKind: isHighlight ? "highlight" : "quote",
+                quoteKind: "quote",
                 source,
                 priority: PRIORITY.widget
               });
@@ -31215,26 +31197,30 @@ var MDAEditorBundle = (() => {
               priority: PRIORITY["hide-mark"]
             });
             if (node.to < text.length && text.charAt(node.to) === " ") {
-              specs.push({
-                kind: "hide-mark",
-                from: node.to,
-                to: node.to + 1,
-                priority: PRIORITY["hide-mark"]
-              });
-            }
-            let quoteLineCls = "mda-cm-blockquote-line";
-            for (let hq = 0; hq < highlightQuoteRanges.length; hq++) {
-              const hr = highlightQuoteRanges[hq];
-              if (node.from >= hr.from && node.from < hr.to) {
-                quoteLineCls = "mda-cm-highlight-line";
-                break;
+              let i2 = node.to + 1;
+              let hasBody = false;
+              while (i2 < text.length && text.charAt(i2) !== "\n") {
+                const ch = text.charAt(i2);
+                if (ch !== " " && ch !== "	") {
+                  hasBody = true;
+                  break;
+                }
+                i2 += 1;
+              }
+              if (hasBody) {
+                specs.push({
+                  kind: "hide-mark",
+                  from: node.to,
+                  to: node.to + 1,
+                  priority: PRIORITY["hide-mark"]
+                });
               }
             }
             specs.push({
               kind: "line-style",
               from: node.from,
               to: node.from,
-              cls: quoteLineCls,
+              cls: "mda-cm-blockquote-line",
               priority: PRIORITY["line-style"]
             });
             continue;
@@ -48040,7 +48026,6 @@ var MDAEditorBundle = (() => {
         math: { rootSel: ".mda-cm-math-block", frameSel: ".mda-cm-math-frame", media: true },
         table: { rootSel: ".mda-cm-table-block" },
         quote: { rootSel: ".mda-cm-quote-handle-anchor" },
-        highlight: { rootSel: ".mda-cm-quote-handle-anchor" },
         hr: { rootSel: ".mda-cm-hr-block", frameSel: ".mda-cm-hr-frame", hrSelected: true }
       };
       function setSelectedBlock(block) {
@@ -48385,7 +48370,6 @@ var MDAEditorBundle = (() => {
         table: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="3" width="10" height="10" rx="1"/><path d="M3 8h10M8 3v10"/></svg>',
         code: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 3.5C4.6 3.5 4 4.6 4 5.8v1.1c0 .9-.4 1.3-1.2 1.3.8 0 1.2.4 1.2 1.3v1.1c0 1.2.6 2.3 2.2 2.3M9.8 3.5c1.6 0 2.2 1.1 2.2 2.3v1.1c0 .9.4 1.3 1.2 1.3-.8 0-1.2.4-1.2 1.3v1.1c0 1.2-.6 2.3-2.2 2.3"/></svg>',
         quote: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.2 11.5V8.2C3.2 5.6 4.8 3.8 7.2 3.2l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H3.2zm5.7 0V8.2c0-2.6 1.6-4.4 4-5l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H8.9z"/></svg>',
-        highlight: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="2.5" width="9" height="11" rx="1.2"/><path d="M5.5 12.5h5" stroke-width="2" stroke-linecap="round"/></svg>',
         mermaid: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 5.5V3.5h2M10.5 3.5h2v2M12.5 10.5v2h-2M5.5 12.5h-2v-2"/></svg>',
         math: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h3.2M5.6 4.5v7M4 11.5h3.2M9.2 5.2l3.6 5.6M12.8 5.2l-3.6 5.6"/></svg>',
         hr: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 8h10"/></svg>'
@@ -48397,7 +48381,6 @@ var MDAEditorBundle = (() => {
         table: "table",
         code: "code",
         quote: "quote",
-        highlight: "highlight",
         hr: "hr"
       };
       function menuIconHtml(name) {
@@ -48457,7 +48440,6 @@ var MDAEditorBundle = (() => {
         { id: "table", key: "blockMenuInsertTable", icon: "table", soon: false },
         { id: "code", key: "blockMenuInsertCode", icon: "code", soon: false },
         { id: "quote", key: "blockMenuInsertQuote", icon: "quote", soon: false },
-        { id: "highlight", key: "blockMenuInsertHighlight", icon: "highlight", soon: false },
         { id: "mermaid", key: "blockMenuInsertMermaid", icon: "mermaid", soon: false },
         { id: "hr", key: "blockMenuInsertHr", icon: "hr", soon: false }
       ];
@@ -48782,6 +48764,44 @@ var MDAEditorBundle = (() => {
         const typeIcon = blockTypeIconHtml(blockKind);
         return typeIcon + '<span class="mda-cm-block-drag-grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>';
       }
+      function collectCmLinesInRange(view, from, to) {
+        const lines = [];
+        if (!view || from == null || to == null) return lines;
+        const doc = view.state.doc;
+        const len = doc.length;
+        if (len <= 0) return lines;
+        let pos = Math.max(0, Math.min(from, len - 1));
+        const end = Math.max(pos, Math.min(to, len));
+        let guard = 0;
+        while (pos < end || pos === from && from === to) {
+          if (++guard > 500) break;
+          let lineEl = null;
+          try {
+            const at = view.domAtPos(pos);
+            const node = at && at.node;
+            if (node) {
+              lineEl = node.nodeType === 1 ? (
+                /** @type {HTMLElement} */
+                node.closest(".cm-line")
+              ) : node.parentElement && node.parentElement.closest(".cm-line");
+            }
+          } catch (_) {
+            lineEl = null;
+          }
+          if (lineEl && lines.indexOf(lineEl) < 0) lines.push(lineEl);
+          let next = pos + 1;
+          try {
+            const lb = view.lineBlockAt(pos);
+            next = lb.to > pos ? lb.to : pos + 1;
+          } catch (_) {
+            next = pos + 1;
+          }
+          if (next <= pos) break;
+          pos = next;
+          if (pos >= end) break;
+        }
+        return lines;
+      }
       function attachBlockDragHandle(anchorEl, view, range, opts) {
         const blockRoot = opts.blockRoot || anchorEl;
         const handle = document.createElement("button");
@@ -48820,13 +48840,27 @@ var MDAEditorBundle = (() => {
           }, HANDLE_HIDE_MS);
         }
         const hoverTargets = [blockRoot, handle];
-        if (blockRoot.classList.contains("mda-cm-quote-handle-anchor")) {
-          const line = blockRoot.closest(".cm-line");
-          if (line && hoverTargets.indexOf(line) < 0) hoverTargets.push(line);
+        const boundHover = [];
+        function bindHoverTarget(el) {
+          if (!el || hoverTargets.indexOf(el) >= 0) return;
+          hoverTargets.push(el);
+          el.addEventListener("mouseenter", showHandle);
+          el.addEventListener("mouseleave", scheduleHideHandle);
+          boundHover.push({ el, enter: showHandle, leave: scheduleHideHandle });
         }
         for (let hi = 0; hi < hoverTargets.length; hi++) {
           hoverTargets[hi].addEventListener("mouseenter", showHandle);
           hoverTargets[hi].addEventListener("mouseleave", scheduleHideHandle);
+        }
+        if (blockRoot.classList.contains("mda-cm-quote-handle-anchor")) {
+          const bindQuoteLines = function() {
+            if (!blockRoot.isConnected) return;
+            const line = blockRoot.closest(".cm-line");
+            if (line) bindHoverTarget(line);
+            const lines = collectCmLinesInRange(view, range.from, range.to);
+            for (let i = 0; i < lines.length; i++) bindHoverTarget(lines[i]);
+          };
+          requestAnimationFrame(bindQuoteLines);
         }
         function ensureDropLine() {
           if (dropLine && dropLine.parentNode) return dropLine;
@@ -48982,6 +49016,7 @@ var MDAEditorBundle = (() => {
       module.exports = {
         attachBlockDragHandle,
         buildHandleInnerHtml,
+        collectCmLinesInRange,
         LONG_PRESS_MS,
         HANDLE_HIDE_MS
       };
@@ -51122,7 +51157,7 @@ var MDAEditorBundle = (() => {
     "src/gui/renderer/editor/widgets/quote-handle.js"(exports, module) {
       "use strict";
       var { WidgetType } = require_dist4();
-      var { attachBlockDragHandle } = require_block_drag_handle();
+      var { attachBlockDragHandle, collectCmLinesInRange } = require_block_drag_handle();
       var { showBlockHandleMenu } = require_block_handle_menu();
       var { clearBlockWidgetSelection, clearMediaSelection, uiT } = require_widget_common();
       var { setSelectedBlock } = require_block_selection();
@@ -51130,14 +51165,8 @@ var MDAEditorBundle = (() => {
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
       var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
       var { Transaction } = require_dist2();
-      function isHighlightCalloutLine(firstLine) {
-        return /^\s*>\s*\[![A-Za-z][\w-]*\]/.test(String(firstLine || ""));
-      }
-      function detectQuoteKind(source) {
-        const raw = String(source || "");
-        const nl = raw.indexOf("\n");
-        const first = nl < 0 ? raw : raw.slice(0, nl);
-        return isHighlightCalloutLine(first) ? "highlight" : "quote";
+      function isEmptyQuoteLineText(lineText) {
+        return !String(lineText || "").replace(/^\s*>\s*/, "").trim();
       }
       var QuoteHandleWidget = class _QuoteHandleWidget extends WidgetType {
         /**
@@ -51145,7 +51174,6 @@ var MDAEditorBundle = (() => {
          *   from: number,
          *   to: number,
          *   source?: string,
-         *   quoteKind?: string,
          *   t?: Function,
          *   blockMenuHandlers?: object,
          *   onMoveQuoteBlock?: Function,
@@ -51157,22 +51185,21 @@ var MDAEditorBundle = (() => {
           this.from = opts.from;
           this.to = opts.to;
           this.source = opts.source || "";
-          this.quoteKind = opts.quoteKind || detectQuoteKind(this.source);
           this.opts = opts;
         }
         eq(other) {
-          return other instanceof _QuoteHandleWidget && other.from === this.from && other.to === this.to && other.source === this.source && other.quoteKind === this.quoteKind;
+          return other instanceof _QuoteHandleWidget && other.from === this.from && other.to === this.to && other.source === this.source;
         }
         toDOM(view) {
           const self2 = this;
           const opts = this.opts;
           const wrap = document.createElement("span");
-          wrap.className = "mda-cm-quote-handle-anchor" + (this.quoteKind === "highlight" ? " mda-cm-quote-handle-highlight" : "");
+          wrap.className = "mda-cm-quote-handle-anchor";
           wrap.setAttribute("contenteditable", "false");
           wrap.setAttribute("data-mda-block-from", String(this.from));
           wrap.setAttribute("data-mda-block-to", String(this.to));
           if (this.source) wrap.setAttribute("data-mda-block-source", this.source);
-          wrap.setAttribute("data-mda-block-kind", this.quoteKind);
+          wrap.setAttribute("data-mda-block-kind", "quote");
           const t = opts.t;
           const range = { from: self2.from, to: self2.to, source: self2.source };
           function selectAnchor() {
@@ -51184,7 +51211,7 @@ var MDAEditorBundle = (() => {
             clearInlineMathSelectedClass(view.dom);
             wrap.classList.add("mda-cm-block-selected");
             setSelectedBlock({
-              kind: self2.quoteKind === "highlight" ? "highlight" : "quote",
+              kind: "quote",
               from: self2.from,
               to: self2.to,
               source: self2.source
@@ -51208,7 +51235,7 @@ var MDAEditorBundle = (() => {
             blockRoot: wrap,
             blockSelector: ".mda-cm-quote-handle-anchor",
             replaceOnHover: false,
-            blockKind: self2.quoteKind,
+            blockKind: "quote",
             blockMenuHandlers: opts.blockMenuHandlers,
             t,
             onMoveBlock: opts.onMoveQuoteBlock,
@@ -51219,7 +51246,7 @@ var MDAEditorBundle = (() => {
                 blockRoot: wrap,
                 view,
                 block,
-                blockKind: self2.quoteKind,
+                blockKind: "quote",
                 t,
                 handlers: opts.blockMenuHandlers
               });
@@ -51237,6 +51264,23 @@ var MDAEditorBundle = (() => {
               return;
             }
           });
+          requestAnimationFrame(function() {
+            if (!wrap.isConnected) return;
+            const lines = collectCmLinesInRange(view, self2.from, self2.to);
+            for (let i = 0; i < lines.length; i++) {
+              const lineEl = lines[i];
+              lineEl.addEventListener("mousedown", function(e) {
+                if (e.button !== 0) return;
+                if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) {
+                  return;
+                }
+                const raw = lineEl.textContent || "";
+                if (!isEmptyQuoteLineText(raw)) return;
+                e.preventDefault();
+                selectAnchor();
+              });
+            }
+          });
           return wrap;
         }
         ignoreEvent() {
@@ -51249,8 +51293,7 @@ var MDAEditorBundle = (() => {
       };
       module.exports = {
         QuoteHandleWidget,
-        detectQuoteKind,
-        isHighlightCalloutLine
+        isEmptyQuoteLineText
       };
     }
   });
@@ -53362,8 +53405,8 @@ var MDAEditorBundle = (() => {
       var INSERT_SNIPPETS = {
         code: "```\n\n```",
         mermaid: "```mermaid\ngraph TD\n  A-->B\n```",
+        // 行末保留空格：hide-mark 不藏「仅空格」行，便于落点输入
         quote: "> ",
-        highlight: "> [!NOTE]\n> ",
         table: "| \u52171 | \u52172 |\n| --- | --- |\n|  |  |",
         hr: "---",
         image: "![](path/to/image.png)"
@@ -53371,9 +53414,22 @@ var MDAEditorBundle = (() => {
       function getInsertSnippet(type) {
         return Object.prototype.hasOwnProperty.call(INSERT_SNIPPETS, type) ? INSERT_SNIPPETS[type] : null;
       }
+      function caretOffsetInSnippet(type, snippet) {
+        const s = String(snippet || "");
+        if (type === "code") {
+          const nl = s.indexOf("\n");
+          return nl >= 0 ? nl + 1 : s.length;
+        }
+        if (type === "table") {
+          const cell = s.indexOf("|  |");
+          return cell >= 0 ? cell + 2 : s.length;
+        }
+        return s.length;
+      }
       module.exports = {
         INSERT_SNIPPETS,
-        getInsertSnippet
+        getInsertSnippet,
+        caretOffsetInSnippet
       };
     }
   });
@@ -53387,7 +53443,7 @@ var MDAEditorBundle = (() => {
         deleteBlockRange,
         expandBlockRange
       } = require_image_block_ops();
-      var { getInsertSnippet } = require_block_insert_snippets();
+      var { getInsertSnippet, caretOffsetInSnippet } = require_block_insert_snippets();
       var { copyText } = require_widget_common();
       function getBlockSource(view, block) {
         if (!view) return "";
@@ -53418,11 +53474,26 @@ var MDAEditorBundle = (() => {
           if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
           if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
         }
+        const lead = insert.indexOf(snippet);
+        const snippetStart = pos + (lead >= 0 ? lead : 0);
+        const caret = snippetStart + caretOffsetInSnippet(type, snippet);
         view.dispatch({
           changes: { from: pos, to: pos, insert },
-          selection: { anchor: pos + insert.length },
+          selection: { anchor: caret, head: caret },
           userEvent: "input"
         });
+        if (type === "quote") {
+          requestAnimationFrame(function() {
+            const anchor = view.dom.querySelector(
+              '.mda-cm-quote-handle-anchor[data-mda-block-from="' + snippetStart + '"]'
+            );
+            if (anchor) anchor.classList.add("mda-cm-block-handle-show");
+          });
+        }
+        try {
+          view.focus();
+        } catch (_) {
+        }
         return true;
       }
       function deleteBlock(view, block) {
@@ -54339,7 +54410,6 @@ var MDAEditorBundle = (() => {
                     from: qFrom,
                     to: qTo,
                     source: s.source || text.slice(qFrom, qTo),
-                    quoteKind: s.quoteKind || "quote",
                     t: widgetOpts.t,
                     blockMenuHandlers: widgetOpts.blockMenuHandlers,
                     onMoveQuoteBlock: widgetOpts.onMoveQuoteBlock

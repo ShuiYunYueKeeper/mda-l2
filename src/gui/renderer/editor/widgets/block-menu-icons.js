@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 块手柄菜单 / 块类型图标（内联 SVG，16×16）。
  */
 'use strict';
@@ -41,8 +41,6 @@ const ICONS = {
   code: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 3.5C4.6 3.5 4 4.6 4 5.8v1.1c0 .9-.4 1.3-1.2 1.3.8 0 1.2.4 1.2 1.3v1.1c0 1.2.6 2.3 2.2 2.3M9.8 3.5c1.6 0 2.2 1.1 2.2 2.3v1.1c0 .9.4 1.3 1.2 1.3-.8 0-1.2.4-1.2 1.3v1.1c0 1.2-.6 2.3-2.2 2.3"/></svg>',
   quote:
     '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.2 11.5V8.2C3.2 5.6 4.8 3.8 7.2 3.2l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H3.2zm5.7 0V8.2c0-2.6 1.6-4.4 4-5l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H8.9z"/></svg>',
-  highlight:
-    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3.5" y="2.5" width="9" height="11" rx="1.2"/><path d="M5.5 12.5h5" stroke-width="2" stroke-linecap="round"/></svg>',
   mermaid:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 5.5V3.5h2M10.5 3.5h2v2M12.5 10.5v2h-2M5.5 12.5h-2v-2"/></svg>',
   math: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h3.2M5.6 4.5v7M4 11.5h3.2M9.2 5.2l3.6 5.6M12.8 5.2l-3.6 5.6"/></svg>',
@@ -57,7 +55,6 @@ const BLOCK_KIND_ICON = {
   table: 'table',
   code: 'code',
   quote: 'quote',
-  highlight: 'highlight',
   hr: 'hr',
 };
 

@@ -52,7 +52,6 @@ const INSERT_ITEMS = [
   { id: 'table', key: 'blockMenuInsertTable', icon: 'table', soon: false },
   { id: 'code', key: 'blockMenuInsertCode', icon: 'code', soon: false },
   { id: 'quote', key: 'blockMenuInsertQuote', icon: 'quote', soon: false },
-  { id: 'highlight', key: 'blockMenuInsertHighlight', icon: 'highlight', soon: false },
   { id: 'mermaid', key: 'blockMenuInsertMermaid', icon: 'mermaid', soon: false },
   { id: 'hr', key: 'blockMenuInsertHr', icon: 'hr', soon: false },
 ];

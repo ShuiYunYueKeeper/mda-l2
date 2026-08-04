@@ -58,6 +58,7 @@
 | [`prompts/prompt-21-overall-code-review-adjustments.md`](prompts/prompt-21-overall-code-review-adjustments.md) | 整体代码审查、修复原因与后续风险 |
 | [`prompts/prompt-22-sel1-prose-selection-fail.md`](prompts/prompt-22-sel1-prose-selection-fail.md) | M8：正文选取 SEL-1 不过关记录（阻塞） |
 | [`prompts/prompt-23-block-select-undo-hover.md`](prompts/prompt-23-block-select-undo-hover.md) | M8：表格单击 / 块撤销恢复选中 / 悬停 200ms（✅） |
+| [`prompts/prompt-29-quote-insert-no-highlight.md`](prompts/prompt-29-quote-insert-no-highlight.md) | M8：引用插入/空块手柄；暂不做高亮块（✅） |
 | [`few-shot-examples.md`](few-shot-examples.md) §10 | 缩放遮罩：矢量放大、深色底、Timeline 统一色 |
 | [`few-shot-examples.md`](few-shot-examples.md) §19 | 批量 add 批注：自下而上 / 禁并行 / 空行不可作 line |
 | [`few-shot-examples.md`](few-shot-examples.md) §20 | 设置入口与清空全部批注 |
