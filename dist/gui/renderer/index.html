@@ -649,8 +649,8 @@
       font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
       font-size: 13px; line-height: 1.5; background: transparent; padding: 0;
     }
-    code { font-family: 'Cascadia Code', Consolas, 'Courier New', monospace; background: var(--bg-tertiary); padding: 1px 4px; border-radius: 3px; font-size: 0.92em; }
-    pre code { background: transparent; padding: 0; }
+    code { font-family: 'Cascadia Code', Consolas, 'Courier New', monospace; background: var(--bg-tertiary); padding: 1px 4px; border: 1px solid var(--border-light); border-radius: 3px; font-size: 0.92em; box-sizing: border-box; }
+    pre code { background: transparent; padding: 0; border: none; }
 
     /* ================= 右键菜单 ================= */
     .mda-context-menu {
@@ -1147,9 +1147,10 @@
     }
     .mda-cm6-host .mda-cm-em { font-style: italic; }
     .mda-cm6-host .mda-cm-strike { text-decoration: line-through; opacity: 0.85; }
-    /* 行内 code：灰底胶囊，勿接近选区蓝，避免被当成「已选中」 */
+    /* 行内 code：灰底胶囊 + 细边框，勿接近选区蓝，避免被当成「已选中」 */
     .mda-cm6-host .mda-cm-code {
       background: #eef0f3;
+      border: 1px solid var(--border-light);
       border-radius: 4px;
       padding: 1px 5px;
       font-size: 0.9em;
@@ -1157,9 +1158,11 @@
       color: var(--text-emphasis);
       font-variant-ligatures: none;
       font-feature-settings: "liga" 0, "calt" 0;
+      box-sizing: border-box;
     }
     [data-theme="dark"] .mda-cm6-host .mda-cm-code {
       background: rgba(110, 118, 129, 0.28);
+      border-color: var(--border);
     }
     .mda-cm6-host .mda-cm-link { color: var(--link); text-decoration: none; cursor: pointer; }
     .mda-cm6-host .mda-cm-link:hover { text-decoration: underline; }
@@ -1236,6 +1239,20 @@
       background: transparent;
       color: var(--text-muted);
       min-height: 26px;
+    }
+    /* 块复制为图片：截图瞬间隐藏手柄、光标、选区与菜单，避免落入导出图 */
+    .mda-cm6-host.mda-export-capture .mda-cm-block-drag-handle,
+    .mda-cm6-host.mda-export-capture .mda-cm-quote-handle-anchor,
+    .mda-cm6-host.mda-export-capture .cm-cursor,
+    .mda-cm6-host.mda-export-capture .cm-dropCursor,
+    .mda-cm6-host.mda-export-capture .mda-cm-tight-sel-layer,
+    .mda-cm6-host.mda-export-capture .cm-selectionBackground {
+      visibility: hidden !important;
+      opacity: 0 !important;
+    }
+    body.mda-export-capture #mda-block-handle-menu,
+    body.mda-export-capture .mda-block-handle-submenu {
+      display: none !important;
     }
     .mda-cm6-host .cm-line:has(.mda-cm-quote-handle-anchor) {
       overflow: visible;
@@ -1361,6 +1378,12 @@
       max-width: 100%;
       box-sizing: border-box;
       border-radius: 0 0 7px 7px;
+    }
+    .mda-cm6-host .mda-cm-code-frame.mda-cm-code-editing .mda-cm-code-preview {
+      overflow: visible;
+    }
+    .mda-cm6-host .mda-cm-code-frame.mda-cm-code-editing .mda-cm-code-scroll {
+      overflow-y: visible;
     }
     .mda-cm6-host .mda-cm-code-stage {
       position: relative;

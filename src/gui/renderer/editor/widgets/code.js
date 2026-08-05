@@ -21,6 +21,28 @@ const { clearSelectedMermaidBlock } = require('./mermaid-selection');
 const { clearSelectedInlineMath, clearInlineMathSelectedClass } = require('./inline-math-selection');
 const { Transaction } = require('@codemirror/state');
 
+/** @type {{ from: number, caret: number } | null} */
+let codeEditResume = null;
+
+/**
+ * @param {number} from
+ * @param {number} caret
+ */
+function stashCodeEditResume(from, caret) {
+  codeEditResume = { from: from, caret: caret };
+}
+
+/**
+ * @param {number} from
+ * @returns {{ caret: number } | null}
+ */
+function takeCodeEditResume(from) {
+  if (!codeEditResume || codeEditResume.from !== from) return null;
+  const s = codeEditResume;
+  codeEditResume = null;
+  return s;
+}
+
 /**
  * @param {string} code
  * @param {string} lang
@@ -222,6 +244,7 @@ class CodeFenceWidget extends BlockReplaceWidget {
 
     let composing = false;
     let plainEditing = false;
+    let flushTimer = null;
 
     function readCodeText() {
       return (codeInput.innerText || '')
@@ -290,10 +313,16 @@ class CodeFenceWidget extends BlockReplaceWidget {
     });
     toolbar.insertBefore(langPicker, toolbar.firstChild);
 
-    function commitCodeEdit() {
+    function commitCodeEdit(keepCaret) {
       const next = readCodeText();
       syncLineNumbers();
+      self._minHeight = estimateCodeFenceHeight(next);
+      requestHeightMeasure();
+      syncWidgetHeightFromDom(self, view, root);
       if (next === self.code) return;
+      const caret = keepCaret ? caretOffsetIn(codeInput) : 0;
+      if (keepCaret) stashCodeEditResume(self.from, caret);
+      self.code = next;
       if (typeof opts.onEditCodeBlock === 'function') {
         opts.onEditCodeBlock({
           from: self.from,
@@ -304,6 +333,14 @@ class CodeFenceWidget extends BlockReplaceWidget {
           marker: self.marker,
         });
       }
+    }
+
+    function scheduleCommitCodeEdit(keepCaret, delayMs) {
+      if (flushTimer) clearTimeout(flushTimer);
+      flushTimer = setTimeout(function () {
+        flushTimer = null;
+        commitCodeEdit(!!keepCaret);
+      }, delayMs == null ? 0 : delayMs);
     }
 
     function requestHeightMeasure() {
@@ -386,15 +423,21 @@ class CodeFenceWidget extends BlockReplaceWidget {
     });
     codeInput.addEventListener('input', function () {
       if (composing) return;
-      // 编辑中保持纯文本，勿重绘 hljs（否则 ::selection 再次失效）
       syncLineNumbers();
+      self._minHeight = estimateCodeFenceHeight(readCodeText());
       requestHeightMeasure();
+      syncWidgetHeightFromDom(self, view, root);
+      scheduleCommitCodeEdit(true, 200);
     });
     codeInput.addEventListener('keydown', function (e) {
       e.stopPropagation();
       if (e.key !== 'Enter' || e.isComposing) return;
       e.preventDefault();
       document.execCommand('insertText', false, '\n');
+      requestAnimationFrame(function () {
+        scheduleCommitCodeEdit(true, 0);
+        syncWidgetHeightFromDom(self, view, root);
+      });
     });
     codeInput.addEventListener('paste', function (e) {
       e.preventDefault();
@@ -411,7 +454,11 @@ class CodeFenceWidget extends BlockReplaceWidget {
       });
     });
     codeInput.addEventListener('blur', function () {
-      commitCodeEdit();
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      commitCodeEdit(false);
       plainEditing = false;
       paintHighlight(false);
       syncLineNumbers();
@@ -448,6 +495,17 @@ class CodeFenceWidget extends BlockReplaceWidget {
     root.appendChild(frame);
     attachCodeBlockLayout(root, frame, opts, view, requestHeightMeasure);
     this.bindMeasure(view, root);
+
+    const resumed = takeCodeEditResume(self.from);
+    if (resumed) {
+      requestAnimationFrame(function () {
+        enterEditMode();
+        flattenToPlain();
+        codeInput.focus();
+        setCaretOffsetIn(codeInput, resumed.caret);
+      });
+    }
+
     return root;
   }
   destroy(dom) {
