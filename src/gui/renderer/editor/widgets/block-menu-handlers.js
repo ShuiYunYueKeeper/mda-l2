@@ -5,6 +5,7 @@
 
 const {
   copyBlockSource,
+  insertSnippetAtBlankLine,
   insertSnippetNearBlock,
   deleteBlock,
 } = require('./block-handle-ops');
@@ -83,6 +84,13 @@ function createBlockMenuHandlers(liveOpts) {
     if (typeof opts.onSoon === 'function') opts.onSoon('insert-' + where, type);
   }
 
+  function onBlankInsert(type, block) {
+    const view = getView();
+    if (!view) return;
+    if (insertSnippetAtBlankLine(view, block, type)) return;
+    if (typeof opts.onSoon === 'function') opts.onSoon('insert-blank', type);
+  }
+
   function onAi(id, block, kind) {
     if (typeof opts.onAiAction === 'function') {
       opts.onAiAction(id, block, kind);
@@ -100,6 +108,7 @@ function createBlockMenuHandlers(liveOpts) {
     onCut: onCut,
     onDelete: onDelete,
     onInsert: onInsert,
+    onBlankInsert: onBlankInsert,
     onAi: onAi,
     onSoon: onSoon,
   };

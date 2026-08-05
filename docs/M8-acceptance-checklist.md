@@ -129,6 +129,9 @@ MDA_EDITOR_RELEASE=1 npm run build:editor
 | CM6 大纲跳转 + 滚动高亮 | 2026-08-04 | ✅ | `outline-scroll.js`；点击 `scrollToLine` + 闪高亮 |
 | CM6 排版强调色 | 2026-08-04 | ✅ | `--text-emphasis`；标题/粗体/代码块对齐 2.0 观感 |
 | 关闭流程优化 | 2026-08-04 | ✅ | hide + prefs 缓存 + `app.exit(0)`；环境性退出卡顿已记录 |
+| CM6 空白行「+」插入菜单 | 2026-08-05 | ✅ | hover 提示；6 项扁平菜单；空行占位 i18n |
+| 大纲滚动不展开折叠节 | 2026-08-05 | ✅ | `expandAncestors: false`；点击标题仍展开 |
+| 块手柄插入撤销光标 | 2026-08-05 | ✅ | `pinSelectionForHistory` 插入前钉选区 |
 | M8 总验收 | | ⬜ | 含 SEL-1 未过不得总签 |
 
 ## 自动化

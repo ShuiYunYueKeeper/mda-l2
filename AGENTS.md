@@ -285,13 +285,14 @@ npm test               # jest（含覆盖率）
 4g. **【GUI 缩放】遮罩去栅格化 + 边界 + 复制**：图片/流程图缩放遮罩的舞台元素**禁止**加 `will-change: transform`（会先按原尺寸栅格化再缩放导致放大模糊，SVG 亦然）。流程图（SVG）缩放须改 `width`/`height` 做矢量放大，平移用 `left`/`top`，**勿**对舞台 `transform: scale` / `translate`（易糊字）。深色模式下缩放层 SVG 背景须用深色（与 Mermaid dark 主题浅色字匹配），并中和 SVG 内近白铺底 rect，禁止强制白底导致浅字发灰发糊；Timeline 连接线须统一浅灰（覆盖 Mermaid `.section-N line` 分段色）。默认全屏适配约 **72%–75%** 视口。缩放钳制 0.3×–8×；平移须钳制中心留在视口内；`+/-` 按钮点击/双击要 `stopPropagation`，仅内容本身双击才复位（避免连点误复位）。工具栏「复制」/ `Ctrl+C`：图片走 `copyClipboardImage`（剪贴板位图）；流程图提供「复制图片」与「复制源码」——源码须带 ` ```mermaid ` 围栏，**Ctrl+C 默认复制图片**。
 4h. **【GUI 复制预览】仅微信公众号、不扰动界面**：「复制预览（微信公众号）」克隆预览 DOM 后离线处理（Mermaid→PNG、**KaTeX→PNG（SVG foreignObject 离屏栅格化，禁止往视口插临时节点 / capturePage 导致闪烁）**、本地图→base64、内联样式），经 `copyArticleHtml` 写 `clipboard.write({ html, text })`。**禁止**复制时滚动预览、临时 overlay 重渲染、或 `clipboard.writeBuffer` 覆盖 HTML。不提供知乎复制路径。
 4i. **【GUI 文件树拖动】目标目录须在 dragover 记录、drop 复用**：`drop` 时 `e.target` 常为源文件行，不可单靠 `closest('.dir')`；须在 `dragover` 写入 `dropTargetDir`（文件夹行路径，或文件行之父目录），`drop` 优先使用该值；`lastDropIsCopy` 亦在 `dragover` 记录（`drop` 的 `ctrlKey` 不可靠）。同目录移动或拖到自身须静默忽略；`moveFileToDir` 源=目标返回 `noop` 不得 toast 成功。写操作路径须经 `file-ops.resolveInWorkspace`（工作区根 `rel===''` 合法）。
-4j. **【GUI 大纲】预览左侧栏 + 行归属高亮**：大纲在 `#preview-pane` 内、正文在 `#preview-scroll`；分隔线默认隐藏、hover 大纲显示；收起用左侧窄栏按钮（勿绝对定位盖住正文）；收放时正文 `max-width` 勿变（否则换行跳动）。高亮按「≤ 当前行的最近标题」更新（编辑 `onPreviewLocate` / 预览点击 / 滚动侦测）；滚动锚点约视口 20%，与 sync-scroll 对齐。
+4j. **【GUI 大纲】预览左侧栏 + 行归属高亮**：大纲在 `#preview-pane` 内、正文在 `#preview-scroll`；分隔线默认隐藏、hover 大纲显示；收起用左侧窄栏按钮（勿绝对定位盖住正文）；收放时正文 `max-width` 勿变（否则换行跳动）。高亮按「≤ 当前行的最近标题」更新（编辑 `onPreviewLocate` / 预览点击 / 滚动侦测）；滚动锚点约视口 20%，与 sync-scroll 对齐。**滚动同步高亮**须 `setActiveLine(..., { expandAncestors: false })`，不得展开用户手动折叠的节点；**点击正文标题**同步大纲时仍默认展开祖先（`syncOutlineFromHeadingClick`）。
 4k. **【GUI 启动 / 最近打开 / 工作区】**：启动仅当「记住上次会话」开启且最近列表非空才自动打开 `recents[0]`，否则欢迎页。**恢复工作区不得**在无当前文件时自动 `requestOpen` 树内首个 Markdown（会覆盖空历史欢迎页）。关闭「记住上次会话」后不落盘工作区/最近文件。清空最近打开：只清列表、保持当前文档；本会话禁止静默 `addRecent` 直至用户主动打开。清空文件列表（侧栏 ✕）：关工作区侧栏 + `setWorkspaceRoot(null)`，**不删**磁盘文件、不关当前文档。
 4l. **【GUI CM6 所见即所得】光标/选取与入口保护**：见 §8.13–14。修块 widget、装饰层、手柄、边框等**局部**问题时，改动须**隔离**——不得顺带改 `click-collapse`、hide-mark 层、`EditorView.atomicRanges`、装饰层 `selectionSet` 指纹等坐标/选取基础设施，**除非用户明确要求**。验收闸门：点击诊断 HUD（`mda-editor-debug-click`）Δ ≤ 2px；正文/引用/标题可鼠标拖选；标题拖选不闪烁。删/藏工具栏、块手柄、菜单项、快捷键等入口前须用户同意。
 4m. **【GUI CM6 选区着色】**：正文/引用/标题/内联装饰仅依赖 CM6 `.cm-selectionBackground`（`--cm-sel-bg`）覆盖**实际选中字符**；禁止给整段内联 span 打选中 class。行内 code 背景须半透明（或明确灰底）以便与选区蓝区分；引用块仅左侧 `--blockquote-bar` 竖条、勿整行底色。表格单元格与块 widget 内编辑（流程图源码等）用 `contenteditable` + `--table-text-sel` 的 `::selection`（**勿**用 `<textarea>`——Electron 内常回落系统深蓝）；widget 源码聚焦时收起 CM6 文档选区并隐藏 `.cm-cursor`，避免叠色。
    - **单击进格**：`kind === 'cell'` **不**打整格 `mda-cm-table-cell-selected` 蓝底；仅文字拖选用 `::selection`。
    - **验收现状（2026-08-03）**：**正文拖选不过关**（M8 `SEL-1` ❌）。含行内 code/粗体的列表与段落仍可能整行铺底、漏画或双高度；自绘紧致选区方案已回退。表格/代码块/Mermaid 源码选区（SEL-2–4）另论。细节与复现见 [`docs/M8-acceptance-checklist.md`](docs/M8-acceptance-checklist.md)「正文选取（SEL-1）」。再改选区须小步可回退；`layer({class})` / `classList.add` **禁止 class 名含空格**（否则插件崩溃）。
 4n. **【GUI CM6 块选中 / 删除撤销 / 悬停菜单】**：
+   - **空白行插入**：正文空白行 hover 左侧「+」→ 扁平插入菜单（图片…/表格/代码块/引用/流程图/分隔线）；光标落空白行显示占位提示。菜单 `empty-line-insert-menu.js`；插入 `insertSnippetAtBlankLine`（替换空行）。**块手柄菜单插入**前须 `pinSelectionForHistory`（`addToHistory: false`），避免 undo 光标回到文档头。
    - **删除→撤销**：图片 / Mermaid / 代码 / 表 / 引用 / 高亮 / 分割线（及公式）删前须钉 CM6 选区到块首（钉选区 `Transaction.addToHistory.of(false)`）；删除**不清**内存选中态；`docChanged` 后 sync plugin 按 `source` reconcile 并重贴 `.mda-cm-block-selected` / 媒体蓝框。实现：`image-selection` / `mermaid-selection` / `block-selection`。
    - **悬停移出关闭**：语言子菜单、块手柄主/子菜单、块手柄显隐等共用 `HOVER_LEAVE_MS = 200`（`widget-common.js`），勿各自散落不同延迟。
 5. **【GUI·Electron】data-line 映射**：preload 仅对 `level===0` 的块级 token 注入 `data-line = map[0]+1`，其值等于段落 `startLine`，GUI 据此做「段落↔批注」双向定位与色条。
@@ -323,7 +324,7 @@ npm test               # jest（含覆盖率）
 | GUI i18n | `main/i18n.js`、`renderer/i18n.js` |
 | GUI 工作区文件 IPC | `main/file-ops.js`（复制/移动/重名）、`main/workspace-prefs.js` |
 | GUI 选区/高亮/滚动/查找 | `renderer/selection-anchor.js`、`anchor-highlights.js`、`sync-scroll.js`、`find-replace.js` |
-| GUI 公式复制导出 | `renderer/katex-export.js`（纯 SVG payload）+ `renderer/app.js`（离屏栅格化与剪贴板编排） |
+| GUI CM6 空白行插入 / 大纲点击同步 | `renderer/editor/empty-line-insert.js`、`empty-line-insert-menu.js`、`outline-click-sync.js`、`outline-scroll.js` |
 | GUI 文件/欢迎/大纲 | `renderer/welcome.js`、`file-sidebar.js`、`outline-panel.js` |
 | 设计文档 | `docs/P0..P3-*.md`、`docs/README.md` |
 | 里程碑验收 | `docs/M2–M4-acceptance-checklist.md` |

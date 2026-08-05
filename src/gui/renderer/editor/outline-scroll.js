@@ -130,6 +130,29 @@ function headingAtOrBefore(headingLines, line) {
 }
 
 /**
+ * @param {import('@codemirror/state').Text | { line: (n: number) => { text: string }, lines: number }} doc
+ * @param {number} lineNum 1-based
+ */
+function isHeadingDocLine(doc, lineNum) {
+  if (!doc || lineNum < 1 || lineNum > doc.lines) return false;
+  return /^\s{0,3}#{1,6}(?:\s|$)/.test(doc.line(lineNum).text);
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} pos
+ * @returns {number|null} 1-based 标题行号
+ */
+function getHeadingLineAtPos(view, pos) {
+  if (!view || pos == null) return null;
+  const doc = view.state.doc;
+  if (pos < 0 || pos > doc.length) return null;
+  const line = doc.lineAt(pos);
+  if (!isHeadingDocLine(doc, line.number)) return null;
+  return line.number;
+}
+
+/**
  * @param {import('@codemirror/view').EditorView} view
  * @param {number[]} headingLines 1-based 升序
  * @returns {number|null}
@@ -194,5 +217,7 @@ module.exports = {
   isHeadingRenderedInViewport: isHeadingRenderedInViewport,
   headingProbePos: headingProbePos,
   headingAtOrBefore: headingAtOrBefore,
+  isHeadingDocLine: isHeadingDocLine,
+  getHeadingLineAtPos: getHeadingLineAtPos,
   pickOutlineActiveFromEntries: pickOutlineActiveFromEntries,
 };

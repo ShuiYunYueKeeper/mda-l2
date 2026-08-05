@@ -48502,6 +48502,155 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widgets/empty-line-insert-menu.js
+  var require_empty_line_insert_menu = __commonJS({
+    "src/gui/renderer/editor/widgets/empty-line-insert-menu.js"(exports, module) {
+      "use strict";
+      var { uiT, HOVER_LEAVE_MS } = require_widget_common();
+      var { menuIconHtml } = require_block_menu_icons();
+      var activeMenu = null;
+      var menuAnchorEl = null;
+      var menuBlockRoot = null;
+      var dismissFn = null;
+      var escFn = null;
+      var menuGraceUntil = 0;
+      var MENU_GRACE_MS = 380;
+      var INSERT_ITEMS = [
+        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: true },
+        { id: "table", key: "blockMenuInsertTable", icon: "table", soon: false },
+        { id: "code", key: "blockMenuInsertCode", icon: "code", soon: false },
+        { id: "quote", key: "blockMenuInsertQuote", icon: "quote", soon: false },
+        { id: "mermaid", key: "blockMenuInsertMermaid", icon: "mermaid", soon: false },
+        { id: "hr", key: "blockMenuInsertHr", icon: "hr", soon: false }
+      ];
+      function isInMenuCluster(target) {
+        if (!target) return false;
+        const el = (
+          /** @type {Node} */
+          target
+        );
+        if (activeMenu && activeMenu.contains(el)) return true;
+        if (menuAnchorEl && menuAnchorEl.contains(el)) return true;
+        if (menuBlockRoot && menuBlockRoot.contains(el)) return true;
+        return false;
+      }
+      function closeEmptyLineInsertMenu() {
+        const prevRoot = menuBlockRoot;
+        if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
+        activeMenu = null;
+        menuAnchorEl = null;
+        menuBlockRoot = null;
+        menuGraceUntil = 0;
+        if (prevRoot && !prevRoot.matches(":hover")) {
+          prevRoot.classList.remove("mda-cm-block-handle-show");
+        }
+        if (dismissFn) {
+          document.removeEventListener("mousedown", dismissFn, true);
+          document.removeEventListener("contextmenu", dismissFn, true);
+          window.removeEventListener("blur", dismissFn);
+          dismissFn = null;
+        }
+        if (escFn) {
+          document.removeEventListener("keydown", escFn, true);
+          escFn = null;
+        }
+      }
+      function isEmptyLineInsertMenuOpenFor(blockRoot) {
+        return !!(activeMenu && menuBlockRoot && blockRoot && menuBlockRoot === blockRoot);
+      }
+      function menuItemInner(label, iconName) {
+        return menuIconHtml(iconName || "") + '<span class="mda-menu-label">' + label + "</span>";
+      }
+      function placeMenu(menu, x, y) {
+        menu.style.left = "0px";
+        menu.style.top = "0px";
+        document.body.appendChild(menu);
+        const pad = 6;
+        const w = menu.offsetWidth;
+        const h = menu.offsetHeight;
+        let left = x;
+        let top = y;
+        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
+        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
+        if (left < pad) left = pad;
+        if (top < pad) top = pad;
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+      }
+      function showEmptyLineInsertMenu(ctx) {
+        closeEmptyLineInsertMenu();
+        const { closeBlockHandleMenu } = require_block_handle_menu();
+        closeBlockHandleMenu();
+        const t = ctx.t;
+        const handlers = ctx.handlers || {};
+        const anchor = ctx.anchorEl;
+        const rect = anchor.getBoundingClientRect();
+        menuAnchorEl = anchor;
+        menuBlockRoot = ctx.blockRoot || null;
+        menuGraceUntil = Date.now() + MENU_GRACE_MS;
+        if (menuBlockRoot) menuBlockRoot.classList.add("mda-cm-block-handle-show");
+        const menu = document.createElement("div");
+        menu.className = "mda-context-menu mda-empty-line-insert-menu mda-block-handle-submenu";
+        menu.id = "mda-empty-line-insert-menu";
+        menu.setAttribute("role", "menu");
+        for (let i = 0; i < INSERT_ITEMS.length; i++) {
+          const it = INSERT_ITEMS[i];
+          const row = document.createElement("div");
+          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "");
+          row.setAttribute("role", "menuitem");
+          row.dataset.act = it.id;
+          row.dataset.soon = it.soon ? "1" : "0";
+          row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
+          menu.appendChild(row);
+        }
+        menu.addEventListener("click", function(e) {
+          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+          if (!item) return;
+          e.stopPropagation();
+          const id = item.dataset.act || "";
+          const soon = item.dataset.soon === "1";
+          if (soon) {
+            if (typeof handlers.onSoon === "function") handlers.onSoon("insert-blank", id);
+            closeEmptyLineInsertMenu();
+            return;
+          }
+          if (typeof handlers.onBlankInsert === "function") {
+            handlers.onBlankInsert(id, ctx.block);
+          }
+          closeEmptyLineInsertMenu();
+        });
+        placeMenu(menu, rect.left, rect.bottom + 2);
+        activeMenu = menu;
+        dismissFn = function(ev) {
+          if (Date.now() < menuGraceUntil) return;
+          if (ev && (ev.type === "mousedown" || ev.type === "contextmenu")) {
+            const target = (
+              /** @type {Node | null} */
+              ev.target
+            );
+            if (isInMenuCluster(target)) return;
+          }
+          closeEmptyLineInsertMenu();
+        };
+        escFn = function(ev) {
+          if (ev.key === "Escape") closeEmptyLineInsertMenu();
+        };
+        document.addEventListener("keydown", escFn, true);
+        window.setTimeout(function() {
+          if (!activeMenu) return;
+          document.addEventListener("mousedown", dismissFn, true);
+          document.addEventListener("contextmenu", dismissFn, true);
+          window.addEventListener("blur", dismissFn);
+        }, MENU_GRACE_MS);
+      }
+      module.exports = {
+        showEmptyLineInsertMenu,
+        closeEmptyLineInsertMenu,
+        isEmptyLineInsertMenuOpenFor
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/block-handle-menu.js
   var require_block_handle_menu = __commonJS({
     "src/gui/renderer/editor/widgets/block-handle-menu.js"(exports, module) {
@@ -48711,6 +48860,8 @@ var MDAEditorBundle = (() => {
         menu.appendChild(row);
       }
       function showBlockHandleMenu(ctx) {
+        const { closeEmptyLineInsertMenu } = require_empty_line_insert_menu();
+        closeEmptyLineInsertMenu();
         closeBlockHandleMenu();
         const t = ctx.t;
         const handlers = ctx.handlers || {};
@@ -53578,6 +53729,7 @@ var MDAEditorBundle = (() => {
   var require_block_handle_ops = __commonJS({
     "src/gui/renderer/editor/widgets/block-handle-ops.js"(exports, module) {
       "use strict";
+      var { Transaction } = require_dist2();
       var {
         resolveBlockRange,
         deleteBlockRange,
@@ -53596,6 +53748,44 @@ var MDAEditorBundle = (() => {
         const text = getBlockSource(view, block);
         if (!text) return false;
         copyText(text, copyFn);
+        return true;
+      }
+      function pinSelectionForHistory(view, pos) {
+        if (!view || pos == null || isNaN(pos)) return;
+        const caret = Math.max(0, Math.min(pos, view.state.doc.length));
+        const sel = view.state.selection.main;
+        if (sel.from !== caret || sel.to !== caret) {
+          view.dispatch({
+            selection: { anchor: caret, head: caret },
+            annotations: Transaction.addToHistory.of(false)
+          });
+        }
+      }
+      function insertSnippetAtBlankLine(view, block, type) {
+        if (!view) return false;
+        const snippet = getInsertSnippet(type);
+        if (!snippet) return false;
+        const line = view.state.doc.lineAt(block && block.from != null ? block.from : 0);
+        if (String(line.text || "").trim() !== "") return false;
+        const caret = line.from + caretOffsetInSnippet(type, snippet);
+        pinSelectionForHistory(view, line.from);
+        view.dispatch({
+          changes: { from: line.from, to: line.to, insert: snippet },
+          selection: { anchor: caret, head: caret },
+          userEvent: "input"
+        });
+        if (type === "quote") {
+          requestAnimationFrame(function() {
+            const anchor = view.dom.querySelector(
+              '.mda-cm-quote-handle-anchor[data-mda-block-from="' + line.from + '"]'
+            );
+            if (anchor) anchor.classList.add("mda-cm-block-handle-show");
+          });
+        }
+        try {
+          view.focus();
+        } catch (_) {
+        }
         return true;
       }
       function insertSnippetNearBlock(view, block, where, type) {
@@ -53617,6 +53807,7 @@ var MDAEditorBundle = (() => {
         const lead = insert.indexOf(snippet);
         const snippetStart = pos + (lead >= 0 ? lead : 0);
         const caret = snippetStart + caretOffsetInSnippet(type, snippet);
+        pinSelectionForHistory(view, pos);
         view.dispatch({
           changes: { from: pos, to: pos, insert },
           selection: { anchor: caret, head: caret },
@@ -53645,6 +53836,7 @@ var MDAEditorBundle = (() => {
       module.exports = {
         getBlockSource,
         copyBlockSource,
+        insertSnippetAtBlankLine,
         insertSnippetNearBlock,
         deleteBlock,
         expandBlockRange
@@ -53658,6 +53850,7 @@ var MDAEditorBundle = (() => {
       "use strict";
       var {
         copyBlockSource,
+        insertSnippetAtBlankLine,
         insertSnippetNearBlock,
         deleteBlock
       } = require_block_handle_ops();
@@ -53716,6 +53909,12 @@ var MDAEditorBundle = (() => {
           if (insertSnippetNearBlock(view, block, where, type)) return;
           if (typeof opts.onSoon === "function") opts.onSoon("insert-" + where, type);
         }
+        function onBlankInsert(type, block) {
+          const view = getView();
+          if (!view) return;
+          if (insertSnippetAtBlankLine(view, block, type)) return;
+          if (typeof opts.onSoon === "function") opts.onSoon("insert-blank", type);
+        }
         function onAi(id, block, kind) {
           if (typeof opts.onAiAction === "function") {
             opts.onAiAction(id, block, kind);
@@ -53731,12 +53930,625 @@ var MDAEditorBundle = (() => {
           onCut,
           onDelete,
           onInsert,
+          onBlankInsert,
           onAi,
           onSoon
         };
       }
       module.exports = {
         createBlockMenuHandlers
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/empty-line-insert.js
+  var require_empty_line_insert = __commonJS({
+    "src/gui/renderer/editor/empty-line-insert.js"(exports, module) {
+      "use strict";
+      var { Transaction } = require_dist2();
+      var { EditorView, ViewPlugin, WidgetType, Decoration } = require_dist4();
+      var { showEmptyLineInsertMenu, isEmptyLineInsertMenuOpenFor } = require_empty_line_insert_menu();
+      var { HOVER_LEAVE_MS, uiT } = require_widget_common();
+      var HIDE_MS = HOVER_LEAVE_MS;
+      var BLOCK_CHILD_SEL = ".mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-image-block, .mda-cm-math-block, .mda-cm-hr-block";
+      function lineElementAt(view, pos) {
+        try {
+          const at = view.domAtPos(pos, 1);
+          let node = at && at.node;
+          if (!node) return null;
+          if (node.nodeType === 3) node = node.parentElement;
+          return node && node.closest ? (
+            /** @type {HTMLElement} */
+            node.closest(".cm-line")
+          ) : null;
+        } catch (_) {
+        }
+        try {
+          const block = view.lineBlockAt(pos);
+          const scroller = view.scrollDOM;
+          const rect = scroller.getBoundingClientRect();
+          const x = rect.left + block.left - scroller.scrollLeft + 4;
+          const y = rect.top + block.top - scroller.scrollTop + Math.max(block.height, 1) / 2;
+          const el = document.elementFromPoint(x, y);
+          if (!el || !view.dom.contains(el)) return null;
+          return el.closest ? (
+            /** @type {HTMLElement} */
+            el.closest(".cm-line")
+          ) : null;
+        } catch (_) {
+          return null;
+        }
+      }
+      function isBlankProseLine(view, line) {
+        if (!view || !line || String(line.text || "").trim() !== "") return false;
+        const lineEl = lineElementAt(view, line.from);
+        if (!lineEl) return false;
+        if (lineEl.querySelector(BLOCK_CHILD_SEL)) return false;
+        if (lineEl.querySelector(".mda-cm-hidden-line")) return false;
+        return true;
+      }
+      function hitBlankLineAt(view, clientX, clientY) {
+        if (!view || !view.dom) return null;
+        const target = document.elementFromPoint(clientX, clientY);
+        if (!target || !view.dom.contains(target)) return null;
+        if (target.closest && target.closest(".mda-cm-empty-line-insert-btn")) {
+          return { kind: "button" };
+        }
+        let lineEl = target.closest ? (
+          /** @type {HTMLElement} */
+          target.closest(".cm-line")
+        ) : null;
+        if (!lineEl) {
+          const pos2 = view.posAtCoords({ x: clientX, y: clientY, exact: false });
+          if (pos2 == null) return null;
+          lineEl = lineElementAt(view, pos2);
+        }
+        if (!lineEl) return null;
+        let pos;
+        try {
+          pos = view.posAtDOM(lineEl, 0);
+        } catch (_) {
+          const at = view.posAtCoords({ x: clientX, y: clientY, exact: false });
+          if (at == null) return null;
+          pos = at;
+        }
+        const line = view.state.doc.lineAt(pos);
+        if (!isBlankProseLine(view, line)) return null;
+        const resolved = lineElementAt(view, line.from);
+        if (!resolved) return null;
+        return { kind: "line", line, lineEl: resolved };
+      }
+      var EmptyLinePlaceholderWidget = class _EmptyLinePlaceholderWidget extends WidgetType {
+        /**
+         * @param {string} label
+         */
+        constructor(label) {
+          super();
+          this.label = label;
+        }
+        eq(other) {
+          return other instanceof _EmptyLinePlaceholderWidget && other.label === this.label;
+        }
+        toDOM() {
+          const el = document.createElement("span");
+          el.className = "mda-cm-empty-line-placeholder";
+          el.textContent = this.label;
+          el.setAttribute("aria-hidden", "true");
+          return el;
+        }
+        ignoreEvent() {
+          return true;
+        }
+      };
+      function buildPlaceholderDecorations(view, t) {
+        if (!view.hasFocus) return Decoration.none;
+        const sel = view.state.selection.main;
+        if (sel.from !== sel.to) return Decoration.none;
+        const line = view.state.doc.lineAt(sel.head);
+        if (!isBlankProseLine(view, line)) return Decoration.none;
+        const label = uiT("emptyLinePlaceholder", t);
+        return Decoration.set([
+          Decoration.widget({
+            widget: new EmptyLinePlaceholderWidget(label),
+            side: 1
+          }).range(line.from)
+        ]);
+      }
+      var emptyLineViewRef = null;
+      function createEmptyLineInsertExtension(opts) {
+        opts = opts || {};
+        emptyLineTFn = opts.t;
+        const tFn = function() {
+          return emptyLineTFn;
+        };
+        const placeholderPlugin = ViewPlugin.fromClass(
+          class {
+            /**
+             * @param {import('@codemirror/view').EditorView} view
+             */
+            constructor(view) {
+              emptyLineViewRef = view;
+              this.decorations = buildPlaceholderDecorations(view, tFn());
+            }
+            update(update) {
+              this.decorations = buildPlaceholderDecorations(update.view, tFn());
+            }
+          },
+          {
+            decorations: function(v) {
+              return v.decorations;
+            }
+          }
+        );
+        const hoverPlugin = ViewPlugin.fromClass(
+          class {
+            /**
+             * @param {import('@codemirror/view').EditorView} view
+             */
+            constructor(view) {
+              emptyLineViewRef = view;
+              this.view = view;
+              this.lineNo = 0;
+              this.lineEl = null;
+              this.btnHover = false;
+              this.hideTimer = 0;
+              this.raf = 0;
+              this.pendingX = 0;
+              this.pendingY = 0;
+              this.layer = document.createElement("div");
+              this.layer.className = "mda-cm-empty-line-insert-layer";
+              this.layer.setAttribute("aria-hidden", "true");
+              this.btn = document.createElement("button");
+              this.btn.type = "button";
+              this.btn.className = "mda-cm-empty-line-insert-btn";
+              this.btn.setAttribute("aria-haspopup", "menu");
+              this.btn.innerHTML = '<span class="mda-cm-empty-line-insert-icon" aria-hidden="true">+</span><span class="mda-cm-empty-line-insert-tip"></span>';
+              this.layer.appendChild(this.btn);
+              view.scrollDOM.appendChild(this.layer);
+              const self2 = this;
+              this.btn.addEventListener("mouseenter", function() {
+                self2.btnHover = true;
+                self2.btn.classList.add("mda-cm-empty-line-insert-hover");
+                self2.applyLineHighlight(true);
+                window.clearTimeout(self2.hideTimer);
+              });
+              this.btn.addEventListener("mouseleave", function() {
+                self2.btnHover = false;
+                self2.btn.classList.remove("mda-cm-empty-line-insert-hover");
+                self2.applyLineHighlight(false);
+                self2.scheduleHide();
+              });
+              this.btn.addEventListener("mousedown", function(e) {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                e.stopPropagation();
+              });
+              this.btn.addEventListener("click", function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                self2.openMenu();
+              });
+              this.syncI18n();
+              this.onMove = this.onMove.bind(this);
+              this.onLeave = this.onLeave.bind(this);
+              view.scrollDOM.addEventListener("mousemove", this.onMove);
+              view.scrollDOM.addEventListener("mouseleave", this.onLeave);
+            }
+            syncI18n() {
+              const tip = uiT("emptyLineInsertTooltip", tFn());
+              this.btn.removeAttribute("title");
+              this.btn.setAttribute("aria-label", tip);
+              const tipEl = this.btn.querySelector(".mda-cm-empty-line-insert-tip");
+              if (tipEl) tipEl.textContent = tip;
+            }
+            /**
+             * @param {import('@codemirror/view').EditorView} view
+             */
+            update(update) {
+              if (update.docChanged) {
+                if (this.lineEl && !this.lineEl.isConnected) {
+                  this.lineNo = 0;
+                  this.lineEl = null;
+                  this.btn.classList.remove("mda-cm-empty-line-insert-show", "mda-cm-empty-line-insert-hover");
+                } else if (this.lineNo > 0 && this.btn.classList.contains("mda-cm-empty-line-insert-show")) {
+                  try {
+                    const line = update.view.state.doc.line(this.lineNo);
+                    if (!isBlankProseLine(update.view, line)) {
+                      if (!this.btnHover && !isEmptyLineInsertMenuOpenFor(this.lineEl)) {
+                        this.hide();
+                      }
+                    } else {
+                      const fresh = lineElementAt(update.view, line.from);
+                      if (fresh && fresh !== this.lineEl) {
+                        if (this.lineEl) this.lineEl.classList.remove("mda-cm-empty-line-hover");
+                        this.lineEl = fresh;
+                        this.lineEl.classList.add("mda-cm-empty-line-hover");
+                      }
+                    }
+                  } catch (_) {
+                    if (!this.btnHover) this.hide();
+                  }
+                }
+              }
+              if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+                this.reposition();
+              }
+            }
+            onMove(e) {
+              this.pendingX = e.clientX;
+              this.pendingY = e.clientY;
+              if (this.raf) return;
+              const self2 = this;
+              this.raf = requestAnimationFrame(function() {
+                self2.raf = 0;
+                self2.handleMove(self2.pendingX, self2.pendingY);
+              });
+            }
+            onLeave(e) {
+              const rt = e.relatedTarget;
+              if (rt && (this.btn.contains(
+                /** @type {Node} */
+                rt
+              ) || this.layer.contains(
+                /** @type {Node} */
+                rt
+              ))) {
+                return;
+              }
+              this.scheduleHide();
+            }
+            /**
+             * @param {number} clientX
+             * @param {number} clientY
+             */
+            handleMove(clientX, clientY) {
+              const view = this.view;
+              const hit = hitBlankLineAt(view, clientX, clientY);
+              if (hit && hit.kind === "line") {
+                this.showForLine(hit.line.number, hit.lineEl);
+                return;
+              }
+              if (hit && hit.kind === "button") return;
+              if (this.btnHover) return;
+              this.scheduleHide();
+            }
+            /**
+             * @param {number} lineNo
+             * @param {HTMLElement} lineEl
+             */
+            showForLine(lineNo, lineEl) {
+              window.clearTimeout(this.hideTimer);
+              this.hideTimer = 0;
+              if (this.lineEl && this.lineEl !== lineEl) {
+                this.lineEl.classList.remove("mda-cm-empty-line-hover", "mda-cm-empty-line-highlight");
+              }
+              this.lineNo = lineNo;
+              this.lineEl = lineEl;
+              lineEl.classList.add("mda-cm-empty-line-hover");
+              this.btn.classList.add("mda-cm-empty-line-insert-show");
+              this.reposition();
+            }
+            scheduleHide() {
+              const self2 = this;
+              window.clearTimeout(this.hideTimer);
+              this.hideTimer = window.setTimeout(function() {
+                self2.hideTimer = 0;
+                if (self2.btnHover) return;
+                if (self2.lineEl && isEmptyLineInsertMenuOpenFor(self2.lineEl)) return;
+                self2.hide();
+              }, HIDE_MS);
+            }
+            hide() {
+              window.clearTimeout(this.hideTimer);
+              this.hideTimer = 0;
+              this.btn.classList.remove("mda-cm-empty-line-insert-show", "mda-cm-empty-line-insert-hover");
+              this.applyLineHighlight(false);
+              if (this.lineEl) {
+                this.lineEl.classList.remove("mda-cm-empty-line-hover");
+                if (!isEmptyLineInsertMenuOpenFor(this.lineEl)) {
+                  this.lineEl.classList.remove("mda-cm-block-handle-show");
+                }
+              }
+              this.lineNo = 0;
+              this.lineEl = null;
+            }
+            /**
+             * @param {boolean} on
+             */
+            applyLineHighlight(on) {
+              if (!this.lineEl) return;
+              this.lineEl.classList.toggle("mda-cm-empty-line-highlight", on);
+            }
+            reposition() {
+              if (!this.lineNo || !this.btn.classList.contains("mda-cm-empty-line-insert-show")) {
+                return;
+              }
+              const view = this.view;
+              let lineEl = this.lineEl;
+              if (!lineEl || !lineEl.isConnected) {
+                try {
+                  const line = view.state.doc.line(this.lineNo);
+                  lineEl = lineElementAt(view, line.from);
+                  if (lineEl) this.lineEl = lineEl;
+                } catch (_) {
+                  return;
+                }
+              }
+              if (!lineEl) return;
+              const scrollDOM = view.scrollDOM;
+              const lineRect = lineEl.getBoundingClientRect();
+              const scrollRect = scrollDOM.getBoundingClientRect();
+              const h = this.btn.offsetHeight || 24;
+              const w = this.btn.offsetWidth || 24;
+              const top = lineRect.top - scrollRect.top + scrollDOM.scrollTop + (lineRect.height - h) / 2;
+              const left = lineRect.left - scrollRect.left + scrollDOM.scrollLeft - w - 3;
+              this.btn.style.top = Math.round(top) + "px";
+              this.btn.style.left = Math.round(left) + "px";
+            }
+            openMenu() {
+              const view = this.view;
+              if (!this.lineNo || !this.lineEl) return;
+              const line = view.state.doc.line(this.lineNo);
+              const block = { from: line.from, to: line.to, source: line.text };
+              try {
+                view.dispatch({
+                  selection: { anchor: line.from, head: line.from },
+                  annotations: Transaction.addToHistory.of(false)
+                });
+                view.focus();
+              } catch (_) {
+              }
+              this.lineEl.classList.add("mda-cm-block-handle-show");
+              showEmptyLineInsertMenu({
+                anchorEl: this.btn,
+                blockRoot: this.lineEl,
+                view,
+                block,
+                t: tFn(),
+                handlers: opts.blockMenuHandlers
+              });
+            }
+            destroy() {
+              if (emptyLineViewRef === this.view) emptyLineViewRef = null;
+              window.clearTimeout(this.hideTimer);
+              if (this.raf) cancelAnimationFrame(this.raf);
+              this.view.scrollDOM.removeEventListener("mousemove", this.onMove);
+              this.view.scrollDOM.removeEventListener("mouseleave", this.onLeave);
+              if (this.layer.parentNode) this.layer.parentNode.removeChild(this.layer);
+              if (this.lineEl) {
+                this.lineEl.classList.remove(
+                  "mda-cm-empty-line-hover",
+                  "mda-cm-empty-line-highlight",
+                  "mda-cm-block-handle-show"
+                );
+              }
+            }
+          },
+          {
+            eventHandlers: {
+              scroll: function() {
+                this.reposition();
+              }
+            }
+          }
+        );
+        return {
+          extensions: [placeholderPlugin, hoverPlugin]
+        };
+      }
+      var emptyLineTFn;
+      function refreshEmptyLineInsertI18n(view, t) {
+        if (typeof t === "function") {
+          emptyLineTFn = t;
+        }
+        const buttons = document.querySelectorAll(".mda-cm-empty-line-insert-btn");
+        for (let i = 0; i < buttons.length; i++) {
+          const btn = buttons[i];
+          const tip = uiT("emptyLineInsertTooltip", emptyLineTFn);
+          btn.removeAttribute("title");
+          btn.setAttribute("aria-label", tip);
+          const tipEl = btn.querySelector(".mda-cm-empty-line-insert-tip");
+          if (tipEl) tipEl.textContent = tip;
+        }
+        const v = view || emptyLineViewRef;
+        if (v) {
+          v.dispatch({ annotations: Transaction.addToHistory.of(false) });
+        }
+      }
+      module.exports = {
+        createEmptyLineInsertExtension,
+        refreshEmptyLineInsertI18n,
+        isBlankProseLine
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/outline-scroll.js
+  var require_outline_scroll = __commonJS({
+    "src/gui/renderer/editor/outline-scroll.js"(exports, module) {
+      "use strict";
+      function headingProbePos(doc, lineNum) {
+        const line = doc.line(lineNum);
+        const m = line.text.match(/^#{1,6}\s+/);
+        if (m) {
+          const probe = line.from + m[0].length;
+          if (probe < line.to) return probe;
+        }
+        return line.from;
+      }
+      function isHeadingRenderedInViewport(view, lineNum) {
+        const doc = view.state.doc;
+        if (lineNum < 1 || lineNum > doc.lines) return false;
+        try {
+          const probe = headingProbePos(doc, lineNum);
+          const dom = view.domAtPos(probe, 1);
+          let node = dom.node;
+          if (node.nodeType === 3) node = node.parentElement;
+          const cmLine = node && node.closest ? node.closest(".cm-line") : null;
+          const scroller = view.scrollDOM;
+          if (!cmLine || !scroller.contains(cmLine)) return false;
+          const rect = cmLine.getBoundingClientRect();
+          const sr = scroller.getBoundingClientRect();
+          return rect.bottom > sr.top + 1 && rect.top < sr.bottom - 1;
+        } catch (_) {
+          return false;
+        }
+      }
+      function getHeadingDocTop(view, lineNum) {
+        const doc = view.state.doc;
+        if (lineNum < 1 || lineNum > doc.lines) return null;
+        const probe = headingProbePos(doc, lineNum);
+        const scroller = view.scrollDOM;
+        let blockTop;
+        try {
+          blockTop = view.lineBlockAt(probe).top;
+        } catch (_) {
+          return null;
+        }
+        try {
+          const dom = view.domAtPos(probe, 1);
+          let node = dom.node;
+          if (node.nodeType === 3) node = node.parentElement;
+          const cmLine = node && node.closest ? node.closest(".cm-line") : null;
+          if (cmLine && scroller.contains(cmLine)) {
+            const rect = cmLine.getBoundingClientRect();
+            const sr = scroller.getBoundingClientRect();
+            if (rect.bottom > sr.top + 1 && rect.top < sr.bottom - 1) {
+              return scroller.scrollTop + (rect.top - sr.top);
+            }
+          }
+        } catch (_) {
+        }
+        return blockTop;
+      }
+      function pickOutlineActiveFromEntries(entries, scrollTop, clientH) {
+        if (!entries.length) return null;
+        const visibleBand = Math.max(80, clientH * 0.6);
+        let topmostVisible = null;
+        let topmostDocTop = Infinity;
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i];
+          if (!e.inViewport) continue;
+          if (e.docTop < topmostDocTop) {
+            topmostDocTop = e.docTop;
+            topmostVisible = e.line;
+          }
+        }
+        if (topmostVisible != null && topmostDocTop - scrollTop <= visibleBand) {
+          return topmostVisible;
+        }
+        const passTop = scrollTop + Math.min(64, Math.max(16, clientH * 0.08));
+        let active = entries[0].line;
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i];
+          if (e.docTop <= passTop + 0.5) active = e.line;
+          else if (e.inViewport) break;
+        }
+        return active;
+      }
+      function headingAtOrBefore(headingLines, line) {
+        let active = headingLines[0];
+        for (let i = 0; i < headingLines.length; i++) {
+          if (headingLines[i] <= line) active = headingLines[i];
+          else break;
+        }
+        return active;
+      }
+      function isHeadingDocLine(doc, lineNum) {
+        if (!doc || lineNum < 1 || lineNum > doc.lines) return false;
+        return /^\s{0,3}#{1,6}(?:\s|$)/.test(doc.line(lineNum).text);
+      }
+      function getHeadingLineAtPos(view, pos) {
+        if (!view || pos == null) return null;
+        const doc = view.state.doc;
+        if (pos < 0 || pos > doc.length) return null;
+        const line = doc.lineAt(pos);
+        if (!isHeadingDocLine(doc, line.number)) return null;
+        return line.number;
+      }
+      function getOutlineActiveLine(view, headingLines) {
+        if (!headingLines || !headingLines.length) return null;
+        const scroller = view.scrollDOM;
+        const scrollTop = scroller.scrollTop;
+        const clientH = scroller.clientHeight;
+        const scrollH = scroller.scrollHeight;
+        if (scrollTop <= 4) return headingLines[0];
+        if (scrollTop + clientH >= scrollH - 8) {
+          return headingLines[headingLines.length - 1];
+        }
+        const scrollerRect = scroller.getBoundingClientRect();
+        const headingSet = new Set(headingLines);
+        const entries = [];
+        const domTopByLine = /* @__PURE__ */ new Map();
+        const nodes = scroller.querySelectorAll(
+          ".cm-line.mda-cm-h1-line, .cm-line.mda-cm-h2-line, .cm-line.mda-cm-h3-line, .cm-line.mda-cm-h4-line, .cm-line.mda-cm-h5-line, .cm-line.mda-cm-h6-line"
+        );
+        for (let i = 0; i < nodes.length; i++) {
+          const el = nodes[i];
+          const rect = el.getBoundingClientRect();
+          if (rect.bottom <= scrollerRect.top + 1) continue;
+          if (rect.top >= scrollerRect.bottom - 1) continue;
+          const y = rect.top + Math.min(8, Math.max(2, rect.height * 0.3));
+          const pos = view.posAtCoords({ x: rect.left + 8, y }, false);
+          if (pos == null) continue;
+          const lineNum = view.state.doc.lineAt(pos).number;
+          if (!headingSet.has(lineNum)) continue;
+          const docTop = scrollTop + (rect.top - scrollerRect.top);
+          const prev = domTopByLine.get(lineNum);
+          if (prev == null || docTop < prev) domTopByLine.set(lineNum, docTop);
+        }
+        for (let i = 0; i < headingLines.length; i++) {
+          const lineNum = headingLines[i];
+          const domTop = domTopByLine.get(lineNum);
+          const docTop = domTop != null ? domTop : getHeadingDocTop(view, lineNum);
+          if (docTop == null) continue;
+          entries.push({
+            line: lineNum,
+            docTop,
+            inViewport: domTop != null || isHeadingRenderedInViewport(view, lineNum)
+          });
+        }
+        if (!entries.length) return headingLines[0];
+        return pickOutlineActiveFromEntries(entries, scrollTop, clientH);
+      }
+      module.exports = {
+        getOutlineActiveLine,
+        getHeadingDocTop,
+        isHeadingRenderedInViewport,
+        headingProbePos,
+        headingAtOrBefore,
+        isHeadingDocLine,
+        getHeadingLineAtPos,
+        pickOutlineActiveFromEntries
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/outline-click-sync.js
+  var require_outline_click_sync = __commonJS({
+    "src/gui/renderer/editor/outline-click-sync.js"(exports, module) {
+      "use strict";
+      var { EditorView } = require_dist4();
+      var { getHeadingLineAtPos } = require_outline_scroll();
+      function createOutlineClickSyncExtension(onHeadingClick) {
+        if (typeof onHeadingClick !== "function") return [];
+        return EditorView.domEventHandlers({
+          mouseup: function(event, view) {
+            if (event.button !== 0) return false;
+            requestAnimationFrame(function() {
+              if (!view || view.destroyed) return;
+              const sel = view.state.selection.main;
+              if (sel.from !== sel.to) return;
+              const lineNum = getHeadingLineAtPos(view, sel.head);
+              if (lineNum == null) return;
+              onHeadingClick(lineNum);
+            });
+            return false;
+          }
+        });
+      }
+      module.exports = {
+        createOutlineClickSyncExtension
       };
     }
   });
@@ -53901,6 +54713,7 @@ var MDAEditorBundle = (() => {
         clearInlineMathSelectedClass
       } = require_inline_math_selection();
       var { closeBlockHandleMenu } = require_block_handle_menu();
+      var { closeEmptyLineInsertMenu } = require_empty_line_insert_menu();
       function blockContainsTarget(view, sel, className, target) {
         if (!sel || !target || !view.dom) return false;
         const block = view.dom.querySelector(
@@ -53931,6 +54744,7 @@ var MDAEditorBundle = (() => {
                 }
                 const target = e.target;
                 if (target && target.closest && target.closest("#mda-block-handle-menu")) return;
+                if (target && target.closest && target.closest("#mda-empty-line-insert-menu")) return;
                 if (target && target.closest && target.closest(".mda-block-handle-submenu")) return;
                 if (target && target.closest && target.closest(".mda-cm-code-lang-panel")) return;
                 if (target && target.closest && target.closest(".mda-cm-code-lang-submenu")) return;
@@ -53955,6 +54769,7 @@ var MDAEditorBundle = (() => {
                 clearMediaSelection(self2.view.dom);
                 clearBlockWidgetSelection(self2.view.dom);
                 closeBlockHandleMenu();
+                closeEmptyLineInsertMenu();
               };
               document.addEventListener("mousedown", this.onPointer, true);
             }
@@ -54155,6 +54970,8 @@ var MDAEditorBundle = (() => {
         createInlineMathShortcutKeymap
       } = require_inline_math_selection();
       var { createBlockMenuHandlers } = require_block_menu_handlers();
+      var { createEmptyLineInsertExtension } = require_empty_line_insert();
+      var { createOutlineClickSyncExtension } = require_outline_click_sync();
       var {
         createMermaidShortcutKeymap,
         createMermaidKeydownHandler
@@ -54961,6 +55778,7 @@ var MDAEditorBundle = (() => {
             if (viewHost.view) setBlockFocus(viewHost.view, block);
           }
         });
+        const emptyLineInsert = createEmptyLineInsertExtension(liveOpts);
         const viewAnchor = ViewPlugin.fromClass(
           class {
             constructor(view) {
@@ -55049,6 +55867,7 @@ var MDAEditorBundle = (() => {
         ].concat(makeLayerPlugin("hide", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("style", liveOpts, {}, blockFocusField)).concat(makeLayerPlugin("widget", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("line", liveOpts, {}, blockFocusField)).concat([
           linkClick,
           createClickCollapseExtension(),
+          createOutlineClickSyncExtension(liveOpts.onHeadingClick),
           theme,
           EditorView.domEventHandlers({
             paste: function(event, view) {
@@ -55056,7 +55875,7 @@ var MDAEditorBundle = (() => {
               return createImagePasteHandler(liveOpts)(event, view);
             }
           })
-        ]);
+        ]).concat(emptyLineInsert.extensions);
         if (editorConfig.blockWidgetEnabled("image")) {
           ext.push(createImageShortcutKeymap(liveOpts));
           ext.push(createImageKeydownHandler(liveOpts));
@@ -55598,153 +56417,6 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/outline-scroll.js
-  var require_outline_scroll = __commonJS({
-    "src/gui/renderer/editor/outline-scroll.js"(exports, module) {
-      "use strict";
-      function headingProbePos(doc, lineNum) {
-        const line = doc.line(lineNum);
-        const m = line.text.match(/^#{1,6}\s+/);
-        if (m) {
-          const probe = line.from + m[0].length;
-          if (probe < line.to) return probe;
-        }
-        return line.from;
-      }
-      function isHeadingRenderedInViewport(view, lineNum) {
-        const doc = view.state.doc;
-        if (lineNum < 1 || lineNum > doc.lines) return false;
-        try {
-          const probe = headingProbePos(doc, lineNum);
-          const dom = view.domAtPos(probe, 1);
-          let node = dom.node;
-          if (node.nodeType === 3) node = node.parentElement;
-          const cmLine = node && node.closest ? node.closest(".cm-line") : null;
-          const scroller = view.scrollDOM;
-          if (!cmLine || !scroller.contains(cmLine)) return false;
-          const rect = cmLine.getBoundingClientRect();
-          const sr = scroller.getBoundingClientRect();
-          return rect.bottom > sr.top + 1 && rect.top < sr.bottom - 1;
-        } catch (_) {
-          return false;
-        }
-      }
-      function getHeadingDocTop(view, lineNum) {
-        const doc = view.state.doc;
-        if (lineNum < 1 || lineNum > doc.lines) return null;
-        const probe = headingProbePos(doc, lineNum);
-        const scroller = view.scrollDOM;
-        let blockTop;
-        try {
-          blockTop = view.lineBlockAt(probe).top;
-        } catch (_) {
-          return null;
-        }
-        try {
-          const dom = view.domAtPos(probe, 1);
-          let node = dom.node;
-          if (node.nodeType === 3) node = node.parentElement;
-          const cmLine = node && node.closest ? node.closest(".cm-line") : null;
-          if (cmLine && scroller.contains(cmLine)) {
-            const rect = cmLine.getBoundingClientRect();
-            const sr = scroller.getBoundingClientRect();
-            if (rect.bottom > sr.top + 1 && rect.top < sr.bottom - 1) {
-              return scroller.scrollTop + (rect.top - sr.top);
-            }
-          }
-        } catch (_) {
-        }
-        return blockTop;
-      }
-      function pickOutlineActiveFromEntries(entries, scrollTop, clientH) {
-        if (!entries.length) return null;
-        const visibleBand = Math.max(80, clientH * 0.6);
-        let topmostVisible = null;
-        let topmostDocTop = Infinity;
-        for (let i = 0; i < entries.length; i++) {
-          const e = entries[i];
-          if (!e.inViewport) continue;
-          if (e.docTop < topmostDocTop) {
-            topmostDocTop = e.docTop;
-            topmostVisible = e.line;
-          }
-        }
-        if (topmostVisible != null && topmostDocTop - scrollTop <= visibleBand) {
-          return topmostVisible;
-        }
-        const passTop = scrollTop + Math.min(64, Math.max(16, clientH * 0.08));
-        let active = entries[0].line;
-        for (let i = 0; i < entries.length; i++) {
-          const e = entries[i];
-          if (e.docTop <= passTop + 0.5) active = e.line;
-          else if (e.inViewport) break;
-        }
-        return active;
-      }
-      function headingAtOrBefore(headingLines, line) {
-        let active = headingLines[0];
-        for (let i = 0; i < headingLines.length; i++) {
-          if (headingLines[i] <= line) active = headingLines[i];
-          else break;
-        }
-        return active;
-      }
-      function getOutlineActiveLine(view, headingLines) {
-        if (!headingLines || !headingLines.length) return null;
-        const scroller = view.scrollDOM;
-        const scrollTop = scroller.scrollTop;
-        const clientH = scroller.clientHeight;
-        const scrollH = scroller.scrollHeight;
-        if (scrollTop <= 4) return headingLines[0];
-        if (scrollTop + clientH >= scrollH - 8) {
-          return headingLines[headingLines.length - 1];
-        }
-        const scrollerRect = scroller.getBoundingClientRect();
-        const headingSet = new Set(headingLines);
-        const entries = [];
-        const domTopByLine = /* @__PURE__ */ new Map();
-        const nodes = scroller.querySelectorAll(
-          ".cm-line.mda-cm-h1-line, .cm-line.mda-cm-h2-line, .cm-line.mda-cm-h3-line, .cm-line.mda-cm-h4-line, .cm-line.mda-cm-h5-line, .cm-line.mda-cm-h6-line"
-        );
-        for (let i = 0; i < nodes.length; i++) {
-          const el = nodes[i];
-          const rect = el.getBoundingClientRect();
-          if (rect.bottom <= scrollerRect.top + 1) continue;
-          if (rect.top >= scrollerRect.bottom - 1) continue;
-          const y = rect.top + Math.min(8, Math.max(2, rect.height * 0.3));
-          const pos = view.posAtCoords({ x: rect.left + 8, y }, false);
-          if (pos == null) continue;
-          const lineNum = view.state.doc.lineAt(pos).number;
-          if (!headingSet.has(lineNum)) continue;
-          const docTop = scrollTop + (rect.top - scrollerRect.top);
-          const prev = domTopByLine.get(lineNum);
-          if (prev == null || docTop < prev) domTopByLine.set(lineNum, docTop);
-        }
-        for (let i = 0; i < headingLines.length; i++) {
-          const lineNum = headingLines[i];
-          const domTop = domTopByLine.get(lineNum);
-          const docTop = domTop != null ? domTop : getHeadingDocTop(view, lineNum);
-          if (docTop == null) continue;
-          entries.push({
-            line: lineNum,
-            docTop,
-            inViewport: domTop != null || isHeadingRenderedInViewport(view, lineNum)
-          });
-        }
-        if (!entries.length) return headingLines[0];
-        return pickOutlineActiveFromEntries(entries, scrollTop, clientH);
-      }
-      module.exports = {
-        getOutlineActiveLine,
-        getHeadingDocTop,
-        isHeadingRenderedInViewport,
-        headingProbePos,
-        headingAtOrBefore,
-        pickOutlineActiveFromEntries
-      };
-    }
-  });
-
   // src/gui/renderer/editor/mount.js
   var require_mount = __commonJS({
     "src/gui/renderer/editor/mount.js"(exports, module) {
@@ -55762,6 +56434,7 @@ var MDAEditorBundle = (() => {
       var { syntaxTree, ensureSyntaxTree } = require_dist7();
       var {
         MODE_PREVIEW,
+        MODE_SOURCE,
         createModeCompartments,
         extensionsForMode,
         reconfigureMode
@@ -55773,6 +56446,7 @@ var MDAEditorBundle = (() => {
       var { refreshBlockToolbars } = require_widget_common();
       var { outlineFlashExtension, flashOutlineLine } = require_outline_flash();
       var { getOutlineActiveLine } = require_outline_scroll();
+      var { refreshEmptyLineInsertI18n } = require_empty_line_insert();
       function stripBom(text) {
         if (typeof text !== "string") return { text: "", bom: "" };
         if (text.charCodeAt(0) === 65279) {
@@ -55810,7 +56484,9 @@ var MDAEditorBundle = (() => {
             createClickDebugExtension(),
             outlineFlashExtension()
           ]).concat(extensionsForMode(currentMode, comps, opts));
-          if (opts.placeholder) list.push(placeholder(opts.placeholder));
+          if (opts.placeholder && currentMode === MODE_SOURCE) {
+            list.push(placeholder(opts.placeholder));
+          }
           return list;
         }
         const view = new EditorView({
@@ -56011,6 +56687,7 @@ var MDAEditorBundle = (() => {
         refreshWidgetI18n: function(view, t) {
           if (!view || !view.dom || typeof t !== "function") return;
           refreshBlockToolbars(view.dom, t);
+          refreshEmptyLineInsertI18n(view, t);
         }
       };
     }

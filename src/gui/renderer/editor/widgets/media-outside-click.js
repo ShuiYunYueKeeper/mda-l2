@@ -15,6 +15,7 @@ const {
   clearInlineMathSelectedClass,
 } = require('./inline-math-selection');
 const { closeBlockHandleMenu } = require('./block-handle-menu');
+const { closeEmptyLineInsertMenu } = require('./empty-line-insert-menu');
 
 /**
  * @param {import('@codemirror/view').EditorView} view
@@ -57,6 +58,7 @@ function createMediaOutsideClickPlugin() {
           }
           const target = e.target;
           if (target && target.closest && target.closest('#mda-block-handle-menu')) return;
+          if (target && target.closest && target.closest('#mda-empty-line-insert-menu')) return;
           if (target && target.closest && target.closest('.mda-block-handle-submenu')) return;
           if (target && target.closest && target.closest('.mda-cm-code-lang-panel')) return;
           if (target && target.closest && target.closest('.mda-cm-code-lang-submenu')) return;
@@ -81,6 +83,7 @@ function createMediaOutsideClickPlugin() {
           clearMediaSelection(self.view.dom);
           clearBlockWidgetSelection(self.view.dom);
           closeBlockHandleMenu();
+          closeEmptyLineInsertMenu();
         };
         document.addEventListener('mousedown', this.onPointer, true);
       }

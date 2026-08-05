@@ -52,6 +52,8 @@ const {
   createInlineMathShortcutKeymap,
 } = require('./widgets/inline-math-selection');
 const { createBlockMenuHandlers } = require('./widgets/block-menu-handlers');
+const { createEmptyLineInsertExtension } = require('./empty-line-insert');
+const { createOutlineClickSyncExtension } = require('./outline-click-sync');
 const {
   createMermaidShortcutKeymap,
   createMermaidKeydownHandler,
@@ -1023,6 +1025,7 @@ function livePreview(opts) {
       if (viewHost.view) setBlockFocus(viewHost.view, block);
     },
   });
+  const emptyLineInsert = createEmptyLineInsertExtension(liveOpts);
 
   const viewAnchor = ViewPlugin.fromClass(
     class {
@@ -1126,6 +1129,7 @@ function livePreview(opts) {
     .concat([
       linkClick,
       createClickCollapseExtension(),
+      createOutlineClickSyncExtension(liveOpts.onHeadingClick),
       theme,
       EditorView.domEventHandlers({
         paste: function (event, view) {
@@ -1133,7 +1137,8 @@ function livePreview(opts) {
           return createImagePasteHandler(liveOpts)(event, view);
         },
       }),
-    ]);
+    ])
+    .concat(emptyLineInsert.extensions);
   if (editorConfig.blockWidgetEnabled('image')) {
     ext.push(createImageShortcutKeymap(liveOpts));
     ext.push(createImageKeydownHandler(liveOpts));

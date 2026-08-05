@@ -263,6 +263,9 @@
         onViewportChange: function () {
           scheduleOutlineActiveFromScroll();
         },
+        onHeadingClick: function (line) {
+          syncOutlineFromHeadingClick(line);
+        },
         onOpenLink: function (href) {
           handleLinkClick(href);
         },
@@ -2058,6 +2061,23 @@
     outlinePanelUi.setActiveLine(active, opts || {});
   }
 
+  function syncOutlineFromHeadingClick(line) {
+    if (!outlinePanelUi || !outlinePanelUi.setActiveLine || line == null || isNaN(line)) return;
+    if (outlinePanelUi.isCollapsed && outlinePanelUi.isCollapsed()) return;
+    var headings = outlinePanelUi.getFlatHeadings ? outlinePanelUi.getFlatHeadings() : [];
+    var found = false;
+    for (var i = 0; i < headings.length; i++) {
+      if (headings[i].line === line) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) return;
+    outlineJumpLock = true;
+    outlinePanelUi.setActiveLine(line, { force: true });
+    setTimeout(function () { outlineJumpLock = false; }, 280);
+  }
+
   function scheduleOutlineActiveFromScroll() {
     if (outlineJumpLock) return;
     if (outlineScrollRaf) cancelAnimationFrame(outlineScrollRaf);
@@ -2072,11 +2092,12 @@
     if (outlinePanelUi.isCollapsed && outlinePanelUi.isCollapsed()) return;
     var headings = outlinePanelUi.getFlatHeadings ? outlinePanelUi.getFlatHeadings() : [];
     if (!headings.length) return;
+    var scrollOpts = { expandAncestors: false };
     if (isCm6Ready() && cm6Editor && typeof cm6Editor.getOutlineActiveLine === 'function') {
       var lines = [];
       for (var hi = 0; hi < headings.length; hi++) lines.push(headings[hi].line);
       var cm6Active = cm6Editor.getOutlineActiveLine(lines);
-      if (cm6Active != null) outlinePanelUi.setActiveLine(cm6Active);
+      if (cm6Active != null) outlinePanelUi.setActiveLine(cm6Active, scrollOpts);
       return;
     }
     if (!previewScrollEl || !previewEl) return;
@@ -2085,11 +2106,11 @@
     var pScrollH = previewScrollEl.scrollHeight;
     var pScrollerRect = previewScrollEl.getBoundingClientRect();
     if (pScrollTop <= 4) {
-      outlinePanelUi.setActiveLine(headings[0].line);
+      outlinePanelUi.setActiveLine(headings[0].line, scrollOpts);
       return;
     }
     if (pScrollTop + pClientH >= pScrollH - 8) {
-      outlinePanelUi.setActiveLine(headings[headings.length - 1].line);
+      outlinePanelUi.setActiveLine(headings[headings.length - 1].line, scrollOpts);
       return;
     }
     var pEntries = [];
@@ -2125,7 +2146,7 @@
         }
       }
     }
-    outlinePanelUi.setActiveLine(pActive);
+    outlinePanelUi.setActiveLine(pActive, scrollOpts);
   }
 
   function bindCm6OutlineScroll() {

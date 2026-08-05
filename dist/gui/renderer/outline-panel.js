@@ -132,16 +132,13 @@
       return changed;
     }
 
-    function setActiveLine(line, opts2) {
+    function refreshActiveHighlight(opts2) {
       opts2 = opts2 || {};
-      if (line == null || isNaN(line)) return;
-      if (!opts2.force && activeLine === line) return;
-      activeLine = line;
-      if (ensureAncestorsExpanded(line)) paint();
+      if (activeLine == null) return;
       var links = body.querySelectorAll('.mda-outline-link');
       for (var i = 0; i < links.length; i++) {
         var ln = parseInt(links[i].getAttribute('data-line'), 10);
-        var on = ln === line;
+        var on = ln === activeLine;
         links[i].classList.toggle('active', on);
         if (on && !opts2.skipScroll) {
           var lr = links[i].getBoundingClientRect();
@@ -151,6 +148,15 @@
           }
         }
       }
+    }
+
+    function setActiveLine(line, opts2) {
+      opts2 = opts2 || {};
+      if (line == null || isNaN(line)) return;
+      if (!opts2.force && activeLine === line) return;
+      activeLine = line;
+      if (opts2.expandAncestors !== false && ensureAncestorsExpanded(line)) paint();
+      refreshActiveHighlight(opts2);
     }
 
     applyLang();
@@ -171,7 +177,7 @@
         if (folded[fl]) delete folded[fl];
         else folded[fl] = true;
         paint();
-        if (activeLine != null) setActiveLine(activeLine, { force: true, skipScroll: true });
+        refreshActiveHighlight({ skipScroll: true });
         return;
       }
       var btn = e.target.closest('.mda-outline-link[data-line]');

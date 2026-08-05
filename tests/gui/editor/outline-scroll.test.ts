@@ -6,6 +6,7 @@ import * as path from 'path';
 const {
   headingAtOrBefore,
   headingProbePos,
+  isHeadingDocLine,
   pickOutlineActiveFromEntries,
 } = require(path.join(
   __dirname,
@@ -21,6 +22,18 @@ describe('outline-scroll', () => {
     expect(headingAtOrBefore(lines, 50)).toBe(50);
     expect(headingAtOrBefore(lines, 199)).toBe(120);
     expect(headingAtOrBefore(lines, 999)).toBe(200);
+  });
+
+  test('isHeadingDocLine 识别 ATX 标题行', () => {
+    const doc = {
+      lines: 3,
+      line: (n: number) => ({
+        text: n === 1 ? '# 标题' : n === 2 ? '正文' : '###',
+      }),
+    };
+    expect(isHeadingDocLine(doc as never, 1)).toBe(true);
+    expect(isHeadingDocLine(doc as never, 2)).toBe(false);
+    expect(isHeadingDocLine(doc as never, 3)).toBe(true);
   });
 
   test('headingProbePos 跳过 ATX # 标记', () => {

@@ -3,6 +3,7 @@
  */
 'use strict';
 
+const { Transaction } = require('@codemirror/state');
 const {
   resolveBlockRange,
   deleteBlockRange,
@@ -36,6 +37,61 @@ function copyBlockSource(view, block, copyFn) {
 }
 
 /**
+ * 写回前钉选区：块 widget 选中时 CM6 选区常仍在文档头，不钉则 undo 后光标会还原到 0。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} pos
+ */
+function pinSelectionForHistory(view, pos) {
+  if (!view || pos == null || isNaN(pos)) return;
+  const caret = Math.max(0, Math.min(pos, view.state.doc.length));
+  const sel = view.state.selection.main;
+  if (sel.from !== caret || sel.to !== caret) {
+    view.dispatch({
+      selection: { anchor: caret, head: caret },
+      annotations: Transaction.addToHistory.of(false),
+    });
+  }
+}
+
+/**
+ * 在空白行处直接插入块（替换空行，不额外留下空行）。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ from?: number, to?: number, source?: string }} block
+ * @param {string} type
+ */
+function insertSnippetAtBlankLine(view, block, type) {
+  if (!view) return false;
+  const snippet = getInsertSnippet(type);
+  if (!snippet) return false;
+  const line = view.state.doc.lineAt(block && block.from != null ? block.from : 0);
+  if (String(line.text || '').trim() !== '') return false;
+
+  const caret = line.from + caretOffsetInSnippet(type, snippet);
+  pinSelectionForHistory(view, line.from);
+  view.dispatch({
+    changes: { from: line.from, to: line.to, insert: snippet },
+    selection: { anchor: caret, head: caret },
+    userEvent: 'input',
+  });
+
+  if (type === 'quote') {
+    requestAnimationFrame(function () {
+      const anchor = view.dom.querySelector(
+        '.mda-cm-quote-handle-anchor[data-mda-block-from="' + line.from + '"]'
+      );
+      if (anchor) anchor.classList.add('mda-cm-block-handle-show');
+    });
+  }
+
+  try {
+    view.focus();
+  } catch (_) {
+    /* ignore */
+  }
+  return true;
+}
+
+/**
  * @param {import('@codemirror/view').EditorView} view
  * @param {{ from?: number, to?: number, source?: string }} block
  * @param {'above' | 'below'} where
@@ -63,6 +119,7 @@ function insertSnippetNearBlock(view, block, where, type) {
   const snippetStart = pos + (lead >= 0 ? lead : 0);
   const caret = snippetStart + caretOffsetInSnippet(type, snippet);
 
+  pinSelectionForHistory(view, pos);
   view.dispatch({
     changes: { from: pos, to: pos, insert: insert },
     selection: { anchor: caret, head: caret },
@@ -101,6 +158,7 @@ function deleteBlock(view, block) {
 module.exports = {
   getBlockSource: getBlockSource,
   copyBlockSource: copyBlockSource,
+  insertSnippetAtBlankLine: insertSnippetAtBlankLine,
   insertSnippetNearBlock: insertSnippetNearBlock,
   deleteBlock: deleteBlock,
   expandBlockRange: expandBlockRange,

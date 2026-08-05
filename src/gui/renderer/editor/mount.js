@@ -16,6 +16,7 @@ const { GFM } = require('@lezer/markdown');
 const { syntaxTree, ensureSyntaxTree } = require('@codemirror/language');
 const {
   MODE_PREVIEW,
+  MODE_SOURCE,
   createModeCompartments,
   extensionsForMode,
   reconfigureMode,
@@ -27,6 +28,7 @@ const { syncSelectedMermaidFrameClass } = require('./widgets/mermaid-selection')
 const { refreshBlockToolbars } = require('./widgets/widget-common');
 const { outlineFlashExtension, flashOutlineLine } = require('./outline-flash');
 const { getOutlineActiveLine } = require('./outline-scroll');
+const { refreshEmptyLineInsertI18n } = require('./empty-line-insert');
 
 function stripBom(text) {
   if (typeof text !== 'string') return { text: '', bom: '' };
@@ -81,7 +83,9 @@ function createEditor(opts) {
         outlineFlashExtension(),
       ])
       .concat(extensionsForMode(currentMode, comps, opts));
-    if (opts.placeholder) list.push(placeholder(opts.placeholder));
+    if (opts.placeholder && currentMode === MODE_SOURCE) {
+      list.push(placeholder(opts.placeholder));
+    }
     return list;
   }
 
@@ -290,5 +294,6 @@ module.exports = {
   refreshWidgetI18n: function (view, t) {
     if (!view || !view.dom || typeof t !== 'function') return;
     refreshBlockToolbars(view.dom, t);
+    refreshEmptyLineInsertI18n(view, t);
   },
 };

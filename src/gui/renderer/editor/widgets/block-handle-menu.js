@@ -294,6 +294,8 @@ function addSubRow(menu, t, key, icon, submenuFactory) {
  * }} ctx
  */
 function showBlockHandleMenu(ctx) {
+  const { closeEmptyLineInsertMenu } = require('./empty-line-insert-menu');
+  closeEmptyLineInsertMenu();
   closeBlockHandleMenu();
   const t = ctx.t;
   const handlers = ctx.handlers || {};

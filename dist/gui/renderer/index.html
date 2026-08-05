@@ -683,15 +683,20 @@
       pointer-events: none;
     }
     .mda-block-handle-menu,
-    .mda-block-handle-submenu {
+    .mda-block-handle-submenu,
+    .mda-empty-line-insert-menu {
       min-width: 196px;
       padding: 6px 0;
       z-index: 3100;
       border-radius: 8px;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
     }
+    .mda-empty-line-insert-menu {
+      min-width: 168px;
+    }
     .mda-block-handle-menu .mda-menu-item,
-    .mda-block-handle-submenu .mda-menu-item {
+    .mda-block-handle-submenu .mda-menu-item,
+    .mda-empty-line-insert-menu .mda-menu-item {
       padding: 8px 12px;
       font-size: 13px;
       line-height: 1.35;
@@ -702,12 +707,14 @@
       margin-left: auto;
     }
     .mda-block-handle-menu .mda-menu-item .mda-menu-label,
-    .mda-block-handle-submenu .mda-menu-item .mda-menu-label {
+    .mda-block-handle-submenu .mda-menu-item .mda-menu-label,
+    .mda-empty-line-insert-menu .mda-menu-item .mda-menu-label {
       flex: 1;
       min-width: 0;
     }
     .mda-block-handle-menu .mda-menu-icon,
-    .mda-block-handle-submenu .mda-menu-icon {
+    .mda-block-handle-submenu .mda-menu-icon,
+    .mda-empty-line-insert-menu .mda-menu-icon {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -717,17 +724,20 @@
       opacity: 0.88;
     }
     .mda-block-handle-menu .mda-menu-icon svg,
-    .mda-block-handle-submenu .mda-menu-icon svg {
+    .mda-block-handle-submenu .mda-menu-icon svg,
+    .mda-empty-line-insert-menu .mda-menu-icon svg {
       width: 16px;
       height: 16px;
       display: block;
     }
     .mda-block-handle-menu .mda-menu-item:hover .mda-menu-icon,
-    .mda-block-handle-submenu .mda-menu-item:hover .mda-menu-icon {
+    .mda-block-handle-submenu .mda-menu-item:hover .mda-menu-icon,
+    .mda-empty-line-insert-menu .mda-menu-item:hover .mda-menu-icon {
       opacity: 1;
     }
     .mda-block-handle-menu .mda-menu-item.mda-menu-has-sub,
-    .mda-block-handle-submenu .mda-menu-item {
+    .mda-block-handle-submenu .mda-menu-item,
+    .mda-empty-line-insert-menu .mda-menu-item {
       gap: 8px;
     }
 
@@ -1259,12 +1269,14 @@
       flex: 1; min-height: 0; overflow: auto;
       overflow-x: hidden;
       margin-right: 2px;
+      position: relative;
     }
     .mda-cm6-host .cm-content {
       padding: 16px 16px 60px; max-width: 800px; margin-left: auto; margin-right: auto;
       min-width: 0; box-sizing: border-box; color: var(--text);
     }
     .mda-cm6-host .cm-line {
+      position: relative;
       margin: 0 !important; padding: 0;
       white-space: pre-wrap;
       word-break: break-word;
@@ -1603,6 +1615,87 @@
     .mda-cm-block-drag-handle-active,
     body.mda-cm-block-drag-active .mda-cm-block-drag-handle {
       cursor: grabbing;
+    }
+    /* 正文空白行：hover「+」与占位提示 */
+    .mda-cm6-host .mda-cm-empty-line-insert-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 5;
+      overflow: visible;
+    }
+    .mda-cm6-host .cm-line.mda-cm-empty-line-highlight {
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+      border-radius: 2px;
+    }
+    .mda-cm6-host .mda-cm-empty-line-insert-btn {
+      position: absolute;
+      z-index: 6;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      margin: 0;
+      padding: 0;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-secondary);
+      color: var(--text-muted);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+      cursor: pointer;
+      pointer-events: auto;
+      box-sizing: border-box;
+    }
+    .mda-cm6-host .mda-cm-empty-line-insert-btn.mda-cm-empty-line-insert-show {
+      display: inline-flex;
+    }
+    .mda-cm6-host .mda-cm-empty-line-insert-icon {
+      font-size: 16px;
+      line-height: 1;
+      font-weight: 500;
+      user-select: none;
+    }
+    .mda-cm6-host .mda-cm-empty-line-insert-tip {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 4px 8px;
+      font-size: 12px;
+      line-height: 1.4;
+      white-space: nowrap;
+      color: var(--text);
+      background: var(--menu-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .mda-cm6-host .mda-cm-empty-line-insert-tip::before {
+      content: '';
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-bottom-color: var(--border);
+    }
+    .mda-cm6-host .mda-cm-empty-line-insert-btn:hover .mda-cm-empty-line-insert-tip,
+    .mda-cm6-host .mda-cm-empty-line-insert-btn.mda-cm-empty-line-insert-hover .mda-cm-empty-line-insert-tip {
+      display: block;
+    }
+    .mda-cm6-host .mda-cm-empty-line-placeholder {
+      position: absolute;
+      left: 0;
+      top: 0;
+      color: var(--text-muted);
+      opacity: 0.55;
+      pointer-events: none;
+      user-select: none;
+      white-space: nowrap;
     }
     .mda-cm-block-drag-grip {
       display: grid;
@@ -2151,7 +2244,7 @@
       max-width: 100%;
       min-width: 0;
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 0;
       background: var(--bg);
       box-sizing: border-box;
     }
@@ -2333,7 +2426,8 @@
       background: rgba(37, 99, 235, 0.08);
     }
     .mda-cm6-host .mda-cm-table .mda-cm-table-img {
-      display: inline-block;
+      display: block;
+      width: 100%;
       max-width: 100%;
       vertical-align: middle;
       cursor: default;
@@ -2344,9 +2438,8 @@
     }
     .mda-cm6-host .mda-cm-table .mda-cm-table-img img {
       display: block;
-      max-width: min(100%, 280px);
-      max-height: 200px;
-      width: auto;
+      width: 100%;
+      max-width: 100%;
       height: auto;
       object-fit: contain;
       border-radius: 2px;
