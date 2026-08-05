@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const { parseImageMarkdown } = require('../model/parse-image');
 const { createMdSurface } = require('./md-surface');
@@ -80,7 +80,7 @@ function bindImageReady(img, view, opts, widget, blockRoot) {
 class ImageWidget extends BlockReplaceWidget {
   /**
    * @param {string} source
-   * @param {{ renderMarkdown?: Function, resolveImageUrl?: Function, onOpenZoom?: Function, onScaleImage?: Function, onDeleteImageBlock?: Function, onReplaceImageBlock?: Function, onMoveImageBlock?: Function, t?: Function, from?: number, to?: number, lineHeight?: number }} [opts]
+   * @param {{ renderMarkdown?: Function, resolveImageUrl?: Function, onOpenZoom?: Function, onScaleImage?: Function, onDeleteImageBlock?: Function, onReplaceImageBlock?: Function, onCopyImageBlock?: Function, onMoveImageBlock?: Function, t?: Function, from?: number, to?: number, lineHeight?: number }} [opts]
    */
   constructor(source, opts) {
     super(source, Object.assign({ heightKind: 'image' }, opts || {}));
@@ -122,6 +122,7 @@ class ImageWidget extends BlockReplaceWidget {
     const toolbar = createBlockToolbar(root, {
       t: t,
       buttons: [
+        { id: 'copy', i18nKey: 'copyBtn' },
         { id: 'replace', i18nKey: 'widgetImageReplace' },
         { id: 'delete', i18nKey: 'widgetImageDelete' },
       ],
@@ -186,7 +187,14 @@ class ImageWidget extends BlockReplaceWidget {
       e.preventDefault();
       e.stopPropagation();
       const action = btn.getAttribute('data-action');
-      if (action === 'delete' && typeof opts.onDeleteImageBlock === 'function') {
+      if (action === 'copy' && typeof opts.onCopyImageBlock === 'function') {
+        opts.onCopyImageBlock({
+          from: self.from,
+          to: self.to,
+          source: self.source,
+          meta: self.meta,
+        });
+      } else if (action === 'delete' && typeof opts.onDeleteImageBlock === 'function') {
         frame.classList.remove('mda-cm-media-selected');
         opts.onDeleteImageBlock({ from: self.from, to: self.to, source: self.source });
       } else if (action === 'replace' && typeof opts.onReplaceImageBlock === 'function') {
@@ -224,7 +232,11 @@ class ImageWidget extends BlockReplaceWidget {
       if (!targetImg || typeof opts.onOpenZoom !== 'function') return;
       opts.onOpenZoom({
         node: targetImg.cloneNode(true),
-        opts: { kind: 'image', imageSrc: targetImg.getAttribute('src') || '' },
+        opts: {
+          kind: 'image',
+          imageSrc: targetImg.getAttribute('src') || '',
+          mdSrc: self.meta && self.meta.src ? self.meta.src : '',
+        },
       });
     });
 

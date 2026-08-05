@@ -52728,6 +52728,16 @@ var MDAEditorBundle = (() => {
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
       var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
       var { Transaction } = require_dist2();
+      var codeEditResume = null;
+      function stashCodeEditResume(from, caret) {
+        codeEditResume = { from, caret };
+      }
+      function takeCodeEditResume(from) {
+        if (!codeEditResume || codeEditResume.from !== from) return null;
+        const s = codeEditResume;
+        codeEditResume = null;
+        return s;
+      }
       function highlightFenceBody(code, lang, highlightCode) {
         if (typeof highlightCode === "function") {
           try {
@@ -52878,6 +52888,7 @@ var MDAEditorBundle = (() => {
           frame.appendChild(previewPanel);
           let composing = false;
           let plainEditing = false;
+          let flushTimer = null;
           function readCodeText() {
             return (codeInput.innerText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\u00a0/g, " ");
           }
@@ -52929,10 +52940,16 @@ var MDAEditorBundle = (() => {
             onChange: commitLangChange
           });
           toolbar.insertBefore(langPicker, toolbar.firstChild);
-          function commitCodeEdit() {
+          function commitCodeEdit(keepCaret) {
             const next = readCodeText();
             syncLineNumbers();
+            self2._minHeight = estimateCodeFenceHeight(next);
+            requestHeightMeasure();
+            syncWidgetHeightFromDom(self2, view, root);
             if (next === self2.code) return;
+            const caret = keepCaret ? caretOffsetIn(codeInput) : 0;
+            if (keepCaret) stashCodeEditResume(self2.from, caret);
+            self2.code = next;
             if (typeof opts.onEditCodeBlock === "function") {
               opts.onEditCodeBlock({
                 from: self2.from,
@@ -52943,6 +52960,13 @@ var MDAEditorBundle = (() => {
                 marker: self2.marker
               });
             }
+          }
+          function scheduleCommitCodeEdit(keepCaret, delayMs) {
+            if (flushTimer) clearTimeout(flushTimer);
+            flushTimer = setTimeout(function() {
+              flushTimer = null;
+              commitCodeEdit(!!keepCaret);
+            }, delayMs == null ? 0 : delayMs);
           }
           function requestHeightMeasure() {
             try {
@@ -53019,13 +53043,20 @@ var MDAEditorBundle = (() => {
           codeInput.addEventListener("input", function() {
             if (composing) return;
             syncLineNumbers();
+            self2._minHeight = estimateCodeFenceHeight(readCodeText());
             requestHeightMeasure();
+            syncWidgetHeightFromDom(self2, view, root);
+            scheduleCommitCodeEdit(true, 200);
           });
           codeInput.addEventListener("keydown", function(e) {
             e.stopPropagation();
             if (e.key !== "Enter" || e.isComposing) return;
             e.preventDefault();
             document.execCommand("insertText", false, "\n");
+            requestAnimationFrame(function() {
+              scheduleCommitCodeEdit(true, 0);
+              syncWidgetHeightFromDom(self2, view, root);
+            });
           });
           codeInput.addEventListener("paste", function(e) {
             e.preventDefault();
@@ -53041,7 +53072,11 @@ var MDAEditorBundle = (() => {
             });
           });
           codeInput.addEventListener("blur", function() {
-            commitCodeEdit();
+            if (flushTimer) {
+              clearTimeout(flushTimer);
+              flushTimer = null;
+            }
+            commitCodeEdit(false);
             plainEditing = false;
             paintHighlight(false);
             syncLineNumbers();
@@ -53074,6 +53109,15 @@ var MDAEditorBundle = (() => {
           root.appendChild(frame);
           attachCodeBlockLayout(root, frame, opts, view, requestHeightMeasure);
           this.bindMeasure(view, root);
+          const resumed = takeCodeEditResume(self2.from);
+          if (resumed) {
+            requestAnimationFrame(function() {
+              enterEditMode();
+              flattenToPlain();
+              codeInput.focus();
+              setCaretOffsetIn(codeInput, resumed.caret);
+            });
+          }
           return root;
         }
         destroy(dom) {
@@ -55405,16 +55449,60 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/heading-enter.js
+  var require_heading_enter = __commonJS({
+    "src/gui/renderer/editor/heading-enter.js"(exports, module) {
+      "use strict";
+      var ATX_HEADING_RE = /^( {0,3})(#{1,6})(\s+)(.*)$/;
+      function planHeadingEnter(lineText, offsetInLine) {
+        var m = ATX_HEADING_RE.exec(lineText);
+        if (!m) return null;
+        var indent = m[1];
+        var hashes = m[2];
+        var space = m[3];
+        var prefix = indent + hashes + space;
+        var off = Math.max(0, Math.min(offsetInLine, lineText.length));
+        if (off < indent.length) {
+          return { insert: "\n", cursor: 1 };
+        }
+        if (off < prefix.length) {
+          return null;
+        }
+        return { insert: "\n" + prefix, cursor: prefix.length + 1 };
+      }
+      function handlePreviewHeadingEnter(view) {
+        var state = view.state;
+        var sel = state.selection.main;
+        if (!sel.empty || sel.from !== sel.to) return false;
+        var pos = sel.from;
+        var line = state.doc.lineAt(pos);
+        var plan = planHeadingEnter(line.text, pos - line.from);
+        if (!plan) return false;
+        view.dispatch({
+          changes: { from: pos, to: pos, insert: plan.insert },
+          selection: { anchor: pos + plan.cursor, head: pos + plan.cursor }
+        });
+        return true;
+      }
+      module.exports = {
+        ATX_HEADING_RE,
+        planHeadingEnter,
+        handlePreviewHeadingEnter
+      };
+    }
+  });
+
   // src/gui/renderer/editor/live-preview.js
   var require_live_preview = __commonJS({
     "src/gui/renderer/editor/live-preview.js"(exports, module) {
       "use strict";
       var cmView = require_dist4();
       var EditorView = cmView.EditorView;
+      var keymap = cmView.keymap;
       var Decoration = cmView.Decoration;
       var ViewPlugin = cmView.ViewPlugin;
       var WidgetType = cmView.WidgetType;
-      var { RangeSetBuilder, StateField, Transaction } = require_dist2();
+      var { RangeSetBuilder, StateField, Transaction, Prec } = require_dist2();
       var { syntaxTree, ensureSyntaxTree } = require_dist7();
       var { buildDecorationSpecs, collectSyntaxNodes } = require_build_specs();
       var {
@@ -55478,6 +55566,7 @@ var MDAEditorBundle = (() => {
         handleMarkdownSyntaxCopy,
         handleMarkdownSyntaxCut
       } = require_syntax_clipboard();
+      var { handlePreviewHeadingEnter } = require_heading_enter();
       var { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require_block_widget_base();
       var { attachBlockDragHandle } = require_block_drag_handle();
       var {
@@ -56365,6 +56454,9 @@ var MDAEditorBundle = (() => {
           createClickCollapseExtension(),
           createOutlineClickSyncExtension(liveOpts.onHeadingClick),
           theme,
+          Prec.high(
+            keymap.of([{ key: "Enter", run: handlePreviewHeadingEnter }])
+          ),
           EditorView.domEventHandlers({
             paste: function(event, view) {
               if (createTableMarkdownPasteHandler()(event, view)) return true;

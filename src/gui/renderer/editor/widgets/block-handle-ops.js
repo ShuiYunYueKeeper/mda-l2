@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 块手柄菜单：复制 / 剪切 / 删除 / 插入片段。
  */
 'use strict';
@@ -147,6 +147,69 @@ function insertSnippetNearBlock(view, block, where, type) {
 /**
  * @param {import('@codemirror/view').EditorView} view
  * @param {{ from?: number, to?: number, source?: string }} block
+ * @param {string} markdownLine
+ */
+function insertMarkdownAtBlankLine(view, block, markdownLine) {
+  if (!view || !markdownLine) return false;
+  const line = view.state.doc.lineAt(block && block.from != null ? block.from : 0);
+  if (String(line.text || '').trim() !== '') return false;
+  const snippet = String(markdownLine);
+  const caret = line.from + snippet.length;
+  pinSelectionForHistory(view, line.from);
+  view.dispatch({
+    changes: { from: line.from, to: line.to, insert: snippet },
+    selection: { anchor: caret, head: caret },
+    userEvent: 'input',
+  });
+  try {
+    view.focus();
+  } catch (_) {
+    /* ignore */
+  }
+  return true;
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ from?: number, to?: number, source?: string }} block
+ * @param {'above' | 'below'} where
+ * @param {string} markdownLine
+ */
+function insertMarkdownNearBlock(view, block, where, markdownLine) {
+  if (!view || !markdownLine) return false;
+  const range = resolveBlockRange(view, block || {});
+  if (!range) return false;
+  const snippet = String(markdownLine);
+  const doc = view.state.doc.toString();
+  const pos = where === 'above' ? range.from : range.to;
+  let insert = snippet;
+  if (where === 'above') {
+    if (pos > 0 && doc.charAt(pos - 1) !== '\n') insert = '\n' + insert;
+    insert += '\n';
+  } else {
+    if (pos < doc.length && doc.charAt(pos) !== '\n') insert = '\n' + insert;
+    if (pos >= doc.length || doc.charAt(pos) !== '\n') insert += '\n';
+  }
+  const lead = insert.indexOf(snippet);
+  const snippetStart = pos + (lead >= 0 ? lead : 0);
+  const caret = snippetStart + snippet.length;
+  pinSelectionForHistory(view, pos);
+  view.dispatch({
+    changes: { from: pos, to: pos, insert: insert },
+    selection: { anchor: caret, head: caret },
+    userEvent: 'input',
+  });
+  try {
+    view.focus();
+  } catch (_) {
+    /* ignore */
+  }
+  return true;
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ from?: number, to?: number, source?: string }} block
  */
 function deleteBlock(view, block) {
   const range = resolveBlockRange(view, block || {});
@@ -159,6 +222,8 @@ module.exports = {
   getBlockSource: getBlockSource,
   copyBlockSource: copyBlockSource,
   insertSnippetAtBlankLine: insertSnippetAtBlankLine,
+  insertMarkdownAtBlankLine: insertMarkdownAtBlankLine,
+  insertMarkdownNearBlock: insertMarkdownNearBlock,
   insertSnippetNearBlock: insertSnippetNearBlock,
   deleteBlock: deleteBlock,
   expandBlockRange: expandBlockRange,

@@ -1,5 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
+const { decodePathHref } = require('./main/image-path');
 // 复用编译后的 @mda/core（dist/core），消除 GUI 与核心库的重复实现。
 // 需 sandbox: false 才能在 preload 中 require 第三方/本地模块。
 const core = require('../core');
@@ -126,7 +127,8 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   // 将链接 href 相对当前文件所在目录解析为绝对路径（供相对 .md 链接跳转用）
   resolvePath: (baseFile, href) => {
     try {
-      return path.resolve(path.dirname(baseFile), href);
+      if (!baseFile || !href) return null;
+      return path.resolve(path.dirname(baseFile), decodePathHref(href));
     } catch (e) {
       return null;
     }

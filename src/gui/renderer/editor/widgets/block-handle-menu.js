@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 块左上角手柄菜单（AI / 插入 / 复制 / 剪切 / 删除）。
  * 部分 AI 与插入项为占位入口，后续补齐能力。
  */
@@ -34,6 +34,11 @@ const MOD_KEY =
     ? '\u2318'
     : 'Ctrl+';
 
+const COPY_AS_ITEMS = [
+  { id: 'markdown', key: 'blockMenuCopyAsMarkdown', icon: 'markdown' },
+  { id: 'image', key: 'blockMenuCopyAsImage', icon: 'copyAsImage' },
+];
+
 const AI_ITEMS = [
   { id: 'continue', key: 'blockMenuAiContinue', icon: 'continue', soon: true },
   { id: 'companion', key: 'blockMenuAiCompanion', icon: 'companion', soon: true },
@@ -48,7 +53,7 @@ const AI_ITEMS = [
 ];
 
 const INSERT_ITEMS = [
-  { id: 'image', key: 'blockMenuInsertImage', icon: 'image', soon: true },
+  { id: 'image', key: 'blockMenuInsertImage', icon: 'image', soon: false },
   { id: 'table', key: 'blockMenuInsertTable', icon: 'table', soon: false },
   { id: 'code', key: 'blockMenuInsertCode', icon: 'code', soon: false },
   { id: 'quote', key: 'blockMenuInsertQuote', icon: 'quote', soon: false },
@@ -286,6 +291,7 @@ function addSubRow(menu, t, key, icon, submenuFactory) {
  *   handlers?: {
  *     onCopy?: Function,
  *     onCut?: Function,
+ *     onCopyAs?: Function,
  *     onDelete?: Function,
  *     onInsert?: Function,
  *     onAi?: Function,
@@ -352,24 +358,38 @@ function showBlockHandleMenu(ctx) {
   addMenuSeparator(menu);
 
   const mod = ctx.modKey || MOD_KEY;
-  const rows = [
-    { act: 'copy', key: 'copyBtn', icon: 'copy', shortcut: mod + 'C' },
-    { act: 'cut', key: 'blockMenuCut', icon: 'cut', shortcut: mod + 'X' },
-    { act: 'delete', key: 'blockMenuDelete', icon: 'delete', shortcut: 'Backspace', danger: true },
-  ];
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
+
+  function addActionRow(spec) {
     const row = document.createElement('div');
-    row.className = 'mda-menu-item' + (r.danger ? ' mda-menu-danger' : '');
-    row.dataset.act = r.act;
+    row.className = 'mda-menu-item' + (spec.danger ? ' mda-menu-danger' : '');
+    row.dataset.act = spec.act;
     row.setAttribute('role', 'menuitem');
     row.innerHTML = menuItemInner(
-      uiT(r.key, t),
-      r.icon,
-      '<span class="mda-menu-key">' + r.shortcut + '</span>'
+      uiT(spec.key, t),
+      spec.icon,
+      spec.shortcut ? '<span class="mda-menu-key">' + spec.shortcut + '</span>' : ''
     );
     menu.appendChild(row);
   }
+
+  addActionRow({ act: 'copy', key: 'copyBtn', icon: 'copy', shortcut: mod + 'C' });
+  addActionRow({ act: 'cut', key: 'blockMenuCut', icon: 'cut', shortcut: mod + 'X' });
+
+  addSubRow(menu, t, 'blockMenuCopyAs', 'copyAs', function () {
+    return buildSubmenu(t, COPY_AS_ITEMS, function (id) {
+      if (typeof handlers.onCopyAs === 'function') {
+        handlers.onCopyAs(ctx.block, ctx.blockKind, id);
+      }
+    });
+  });
+
+  addActionRow({
+    act: 'delete',
+    key: 'blockMenuDelete',
+    icon: 'delete',
+    shortcut: 'Backspace',
+    danger: true,
+  });
 
   menu.addEventListener('click', function (e) {
     const item = e.target && e.target.closest ? e.target.closest('[data-act]') : null;

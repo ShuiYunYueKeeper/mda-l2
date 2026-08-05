@@ -6,6 +6,7 @@
 
 const { createEditor, refreshDecorations, refreshWidgetI18n } = require('./mount');
 const imageBlockOps = require('./widgets/image-block-ops');
+const { insertMarkdownAtBlankLine, insertMarkdownNearBlock } = require('./widgets/block-handle-ops');
 const { serializeImageMarkdown } = require('./model/parse-image');
 const { clearSelectedImageBlock } = require('./widgets/image-selection');
 const { clearSelectedMermaidBlock } = require('./widgets/mermaid-selection');
@@ -46,6 +47,8 @@ module.exports = {
   moveBlockRange: imageBlockOps.moveBlockRange,
   dropReplaceImageBlock: imageBlockOps.dropReplaceImageBlock,
   insertImageAt: imageBlockOps.insertImageAt,
+  insertMarkdownAtBlankLine: insertMarkdownAtBlankLine,
+  insertMarkdownNearBlock: insertMarkdownNearBlock,
   serializeImageMarkdown: serializeImageMarkdown,
   clearSelectedImageBlock: clearSelectedImageBlock,
   clearSelectedMermaidBlock: clearSelectedMermaidBlock,

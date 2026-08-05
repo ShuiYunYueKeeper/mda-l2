@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 块手柄菜单 / 块类型图标（内联 SVG，16×16）。
  */
 'use strict';
@@ -10,7 +10,14 @@ const ICONS = {
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 10h10M8 3v7"/><path d="M5.5 6.5L8 4l2.5 2.5"/></svg>',
   insertBelow:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6h10M8 13V6"/><path d="M5.5 9.5L8 12l2.5-2.5"/></svg>',
-  copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
+  copy:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
+  copyAs:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
+  markdown:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3.5" y="2.5" width="9" height="11" rx="1"/><path d="M5.5 11V5.2l1.6 3.4h.8L9.5 5.2V11"/><path d="M11.2 5.5h1.3v5.5h-1.3z" fill="currentColor" stroke="none"/></svg>',
+  copyAsImage:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="5.8" cy="6.6" r="1.15"/><path d="M3.5 11.2l2.8-2.3 2 1.4 2.4-2.1 2.3 3"/></svg>',
   cut: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="4.5" r="1.8"/><circle cx="4.5" cy="11.5" r="1.8"/><path d="M6.2 6l3.6 4M6.2 10l3.6-4l3.2 1.8"/></svg>',
   delete:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 5h9l-.8 8.2a1 1 0 01-1 .8H5.3a1 1 0 01-1-.8L3.5 5z"/><path d="M2.5 5h11M6.5 5V3.8a1 1 0 011-1h1a1 1 0 011 1V5"/></svg>',

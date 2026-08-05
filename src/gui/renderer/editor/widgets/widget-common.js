@@ -1,7 +1,9 @@
-﻿/**
+/**
  * M8-C1：块 widget 共用工具（顶栏、复制、i18n）。
  */
 'use strict';
+
+const { mermaidDiagramTypeLabel } = require('./mermaid-diagram-type');
 
 /**
  * @param {string} key
@@ -85,6 +87,12 @@ function refreshBlockToolbars(root, t) {
   host.querySelectorAll('.mda-cm-block-toolbar-label[data-i18n-key]').forEach(function (el) {
     const key = el.getAttribute('data-i18n-key');
     if (key) el.textContent = t(key);
+  });
+
+  host.querySelectorAll('.mda-cm-block-toolbar-label[data-mda-mermaid-kw]').forEach(function (el) {
+    const kw = el.getAttribute('data-mda-mermaid-kw') || '';
+    const code = kw ? kw + '\n' : '';
+    el.textContent = mermaidDiagramTypeLabel(code, t);
   });
 
   host.querySelectorAll('.mda-cm-block-toolbar-btn[data-i18n-key]').forEach(function (btn) {

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-B：buildDecorationSpecs / reveal 纯函数（E49–E52 雏形）
  */
 import * as path from 'path';

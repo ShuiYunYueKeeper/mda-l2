@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 空白行「+」：扁平插入菜单（图片 / 表格 / 代码块 / 引用 / 流程图 / 分隔线）。
  */
 'use strict';
@@ -22,7 +22,7 @@ const MENU_GRACE_MS = 380;
 const MENU_CLOSE_MS = HOVER_LEAVE_MS;
 
 const INSERT_ITEMS = [
-  { id: 'image', key: 'blockMenuInsertImage', icon: 'image', soon: true },
+  { id: 'image', key: 'blockMenuInsertImage', icon: 'image', soon: false },
   { id: 'table', key: 'blockMenuInsertTable', icon: 'table', soon: false },
   { id: 'code', key: 'blockMenuInsertCode', icon: 'code', soon: false },
   { id: 'quote', key: 'blockMenuInsertQuote', icon: 'quote', soon: false },

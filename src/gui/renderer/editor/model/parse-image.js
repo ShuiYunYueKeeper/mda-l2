@@ -54,7 +54,10 @@ function findImageRanges(text) {
 function serializeImageMarkdown(meta) {
   if (!meta || !meta.src) return '';
   const alt = String(meta.alt || '');
-  const src = String(meta.src || '');
+  let src = String(meta.src || '');
+  if (/[\s()]/.test(src) && !/^<.+>$/.test(src)) {
+    src = '<' + src + '>';
+  }
   const title = meta.title ? String(meta.title) : '';
   if (title) {
     return '![' + alt + '](' + src + ' "' + title.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '")';

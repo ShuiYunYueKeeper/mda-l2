@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const { parseFencedCode } = require('../model/parse-fence');
 const { createBlockToolbar, copyText, uiT, clearMediaSelection, clearBlockWidgetSelection } = require('./widget-common');
@@ -15,6 +15,10 @@ const { clearSelectedImageBlock } = require('./image-selection');
 const { clearSelectedInlineMath, clearInlineMathSelectedClass } = require('./inline-math-selection');
 const { clearSelectedBlock } = require('./block-selection');
 const { syncMermaidFrameToStage } = require('./mermaid-layout');
+const {
+  getMermaidFirstKeyword,
+  mermaidDiagramTypeLabel,
+} = require('./mermaid-diagram-type');
 const { Transaction } = require('@codemirror/state');
 
 /**
@@ -76,15 +80,20 @@ class MermaidWidget extends BlockReplaceWidget {
     frame.setAttribute('data-i18n-title', 'widgetMermaidDragHint');
     frame.title = uiT('widgetMermaidDragHint', t);
 
+    const mermaidKeyword = getMermaidFirstKeyword(self.code);
     const toolbar = createBlockToolbar(frame, {
       t: t,
-      labelKey: 'diagram',
+      label: mermaidDiagramTypeLabel(self.code, t),
       buttons: [
         { id: 'copy-image', i18nKey: 'zoomCopyImage' },
         { id: 'copy', i18nKey: 'zoomCopySource' },
         { id: 'source', i18nKey: 'widgetCodeSource', i18nToggle: 'mermaid-source' },
       ],
     });
+    const typeLabel = toolbar.querySelector('.mda-cm-block-toolbar-label');
+    if (typeLabel && mermaidKeyword) {
+      typeLabel.setAttribute('data-mda-mermaid-kw', mermaidKeyword);
+    }
 
     const stage = document.createElement('div');
     stage.className = 'mda-cm-mermaid-stage mda-mermaid';

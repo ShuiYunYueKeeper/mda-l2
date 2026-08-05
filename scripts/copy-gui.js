@@ -19,6 +19,7 @@ const files = [
   ['src/gui/main/updater.js', 'dist/gui/main/updater.js'],
   ['src/gui/main/i18n.js', 'dist/gui/main/i18n.js'],
   ['src/gui/main/clipboard-image.js', 'dist/gui/main/clipboard-image.js'],
+  ['src/gui/main/image-path.js', 'dist/gui/main/image-path.js'],
   ['src/gui/renderer/i18n.js', 'dist/gui/renderer/i18n.js'],
   ['src/gui/renderer/index.html', 'dist/gui/renderer/index.html'],
   ['src/gui/renderer/app.js', 'dist/gui/renderer/app.js'],

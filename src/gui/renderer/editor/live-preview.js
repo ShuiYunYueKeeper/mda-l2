@@ -5,10 +5,11 @@
 
 const cmView = require('@codemirror/view');
 const EditorView = cmView.EditorView;
+const keymap = cmView.keymap;
 const Decoration = cmView.Decoration;
 const ViewPlugin = cmView.ViewPlugin;
 const WidgetType = cmView.WidgetType;
-const { RangeSetBuilder, StateField, Transaction } = require('@codemirror/state');
+const { RangeSetBuilder, StateField, Transaction, Prec } = require('@codemirror/state');
 const { syntaxTree, ensureSyntaxTree } = require('@codemirror/language');
 const { buildDecorationSpecs, collectSyntaxNodes } = require('./model/build-specs');
 const {
@@ -72,6 +73,7 @@ const {
   handleMarkdownSyntaxCopy,
   handleMarkdownSyntaxCut,
 } = require('./syntax-clipboard');
+const { handlePreviewHeadingEnter } = require('./heading-enter');
 const { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require('./widgets/block-widget-base');
 const { attachBlockDragHandle } = require('./widgets/block-drag-handle');
 const {
@@ -1139,6 +1141,9 @@ function livePreview(opts) {
       createClickCollapseExtension(),
       createOutlineClickSyncExtension(liveOpts.onHeadingClick),
       theme,
+      Prec.high(
+        keymap.of([{ key: 'Enter', run: handlePreviewHeadingEnter }])
+      ),
       EditorView.domEventHandlers({
         paste: function (event, view) {
           if (createTableMarkdownPasteHandler()(event, view)) return true;

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * clipboard-image 原格式判定
  */
 import * as path from 'path';

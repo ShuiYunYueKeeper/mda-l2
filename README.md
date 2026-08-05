@@ -1,4 +1,4 @@
-﻿# MDA — Markdown 工作台
+# MDA — Markdown 工作台
 
 > **当前发版**：Phase A Free · tag [`v2.0.0-alpha`](docs/RELEASE-2.0.0-alpha.md)（2026-07-15）  
 > Pro AI（M7）未包含在本 tag。
@@ -6,7 +6,6 @@
 生成式 AI 普及后，Markdown 已成为人机协作的「通用中介语言」。办公套件往往把 `.md` 转成私有格式，专业编辑器又偏重；用户真正需要的是：**能打开、能看懂、能改几句、能批注、能导出，并能交给 Agent**。
 
 **MDA** 是本地优先的 Markdown **工作台**（预览 · 编辑 · 批注 · 文件管理），用标准注释在 `.md` 中嵌入结构化批注（渲染不可见、可进 git），并提供 **CLI**（`mda-cli`）、**GUI**（`mda`）、**MCP**（`mda-mcp`）三种一致入口，共享 `@mda/core`。
-
 
 ## 目录结构
 
@@ -123,6 +122,7 @@ npm run cli -- remove samples/demo.md <批注ID>
 ```bash
 # 打开空窗口
 npm run gui
+
 
 # 直接打开指定文件
 npm run gui -- samples/demo.md

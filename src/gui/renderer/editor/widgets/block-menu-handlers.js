@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 块手柄菜单动作：复制 / 剪切 / 删除 / 插入；AI 占位。
  */
 'use strict';
@@ -17,6 +17,8 @@ const {
  *   toast?: Function,
  *   onDeleteMermaidBlock?: Function,
  *   onCopyImageBlock?: Function,
+ *   onCopyBlockAsImage?: Function,
+ *   onCopyBlockAsMarkdown?: Function,
  *   onSoon?: Function,
  *   onAiAction?: Function,
  * }} liveOpts
@@ -80,6 +82,10 @@ function createBlockMenuHandlers(liveOpts) {
   function onInsert(where, type, block) {
     const view = getView();
     if (!view) return;
+    if (type === 'image' && typeof opts.onPickImageInsert === 'function') {
+      opts.onPickImageInsert(where, block);
+      return;
+    }
     if (insertSnippetNearBlock(view, block, where, type)) return;
     if (typeof opts.onSoon === 'function') opts.onSoon('insert-' + where, type);
   }
@@ -87,8 +93,47 @@ function createBlockMenuHandlers(liveOpts) {
   function onBlankInsert(type, block) {
     const view = getView();
     if (!view) return;
+    if (type === 'image' && typeof opts.onPickImageInsert === 'function') {
+      opts.onPickImageInsert('blank', block);
+      return;
+    }
     if (insertSnippetAtBlankLine(view, block, type)) return;
     if (typeof opts.onSoon === 'function') opts.onSoon('insert-blank', type);
+  }
+
+  function onCopyAs(block, kind, format) {
+    if (format === 'markdown') {
+      if (typeof opts.onCopyBlockAsMarkdown === 'function') {
+        opts.onCopyBlockAsMarkdown(block, kind);
+        return;
+      }
+      const view = getView();
+      if (!view) return;
+      if (copyBlockSource(view, block, opts.copyText)) {
+        if (typeof opts.t === 'function') toast(opts.t('toastCopied'));
+      }
+      return;
+    }
+    if (format === 'image') {
+      const run = function () {
+        if (typeof opts.onCopyBlockAsImage === 'function') {
+          opts.onCopyBlockAsImage(block, kind);
+          return;
+        }
+        if (kind === 'image' && typeof opts.onCopyImageBlock === 'function') {
+          opts.onCopyImageBlock(block);
+          return;
+        }
+        if (typeof opts.t === 'function') toast(opts.t('toastNoCopy'));
+      };
+      if (typeof window !== 'undefined' && window.requestAnimationFrame) {
+        window.requestAnimationFrame(function () {
+          window.requestAnimationFrame(run);
+        });
+      } else {
+        run();
+      }
+    }
   }
 
   function onAi(id, block, kind) {
@@ -106,6 +151,7 @@ function createBlockMenuHandlers(liveOpts) {
   return {
     onCopy: onCopy,
     onCut: onCut,
+    onCopyAs: onCopyAs,
     onDelete: onDelete,
     onInsert: onInsert,
     onBlankInsert: onBlankInsert,
