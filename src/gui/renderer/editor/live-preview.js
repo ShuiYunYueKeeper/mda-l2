@@ -68,6 +68,10 @@ const {
   createImagePasteHandler,
   createImageKeydownHandler,
 } = require('./image-shortcuts');
+const {
+  handleMarkdownSyntaxCopy,
+  handleMarkdownSyntaxCut,
+} = require('./syntax-clipboard');
 const { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require('./widgets/block-widget-base');
 const { attachBlockDragHandle } = require('./widgets/block-drag-handle');
 const {
@@ -385,6 +389,7 @@ function buildLayerDecos(specs, text, liveOpts) {
     getSavedDisplayWidth: liveOpts.getSavedDisplayWidth,
     onDeleteImageBlock: liveOpts.onDeleteImageBlock,
     onReplaceImageBlock: liveOpts.onReplaceImageBlock,
+    onCopyImageBlock: liveOpts.onCopyImageBlock,
     onMoveImageBlock: liveOpts.onMoveImageBlock,
     onDropReplaceImageBlock: liveOpts.onDropReplaceImageBlock,
     onPasteImageBlock: liveOpts.onPasteImageBlock,
@@ -1016,6 +1021,9 @@ function livePreview(opts) {
     onDeleteCodeBlock: opts.onDeleteCodeBlock,
     onDeleteImageBlock: opts.onDeleteImageBlock,
     onCopyImageBlock: opts.onCopyImageBlock,
+    onCopyBlockAsImage: opts.onCopyBlockAsImage,
+    onCopyBlockAsMarkdown: opts.onCopyBlockAsMarkdown,
+    onPickImageInsert: opts.onPickImageInsert,
     onSoon: opts.onBlockMenuSoon,
     onAiAction: opts.onBlockMenuAi,
   });
@@ -1136,6 +1144,8 @@ function livePreview(opts) {
           if (createTableMarkdownPasteHandler()(event, view)) return true;
           return createImagePasteHandler(liveOpts)(event, view);
         },
+        copy: handleMarkdownSyntaxCopy,
+        cut: handleMarkdownSyntaxCut,
       }),
     ])
     .concat(emptyLineInsert.extensions);

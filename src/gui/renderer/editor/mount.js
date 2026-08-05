@@ -29,6 +29,7 @@ const { refreshBlockToolbars } = require('./widgets/widget-common');
 const { outlineFlashExtension, flashOutlineLine } = require('./outline-flash');
 const { getOutlineActiveLine } = require('./outline-scroll');
 const { refreshEmptyLineInsertI18n } = require('./empty-line-insert');
+const { sliceDocForClipboard } = require('./syntax-clipboard');
 
 function stripBom(text) {
   if (typeof text !== 'string') return { text: '', bom: '' };
@@ -202,7 +203,7 @@ function createEditor(opts) {
     getSelectionText: function () {
       const sel = view.state.selection.main;
       if (sel.from === sel.to) return '';
-      return view.state.sliceDoc(sel.from, sel.to);
+      return sliceDocForClipboard(view.state, sel.from, sel.to).text;
     },
     replaceSelection: function (text) {
       view.dispatch(view.state.replaceSelection(text == null ? '' : String(text)));
@@ -211,10 +212,12 @@ function createEditor(opts) {
     cutSelection: function () {
       const sel = view.state.selection.main;
       if (sel.from === sel.to) return '';
-      const text = view.state.sliceDoc(sel.from, sel.to);
-      view.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' } });
+      const slice = sliceDocForClipboard(view.state, sel.from, sel.to);
+      view.dispatch({
+        changes: { from: slice.from, to: slice.to, insert: '' },
+      });
       view.focus();
-      return text;
+      return slice.text;
     },
     selectAll: function () {
       view.dispatch({

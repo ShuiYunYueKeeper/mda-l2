@@ -132,6 +132,8 @@ MDA_EDITOR_RELEASE=1 npm run build:editor
 | CM6 空白行「+」插入菜单 | 2026-08-05 | ✅ | hover 提示；6 项扁平菜单；空行占位 i18n |
 | 大纲滚动不展开折叠节 | 2026-08-05 | ✅ | `expandAncestors: false`；点击标题仍展开 |
 | 块手柄插入撤销光标 | 2026-08-05 | ✅ | `pinSelectionForHistory` 插入前钉选区 |
+| hide-mark 点击落点 | 2026-08-05 | ✅ | 标题/粗体/行内 code：左缘含开定界符、右缘含闭定界符 |
+| hide-mark 拖选剪贴板 | 2026-08-05 | ✅ | 成对定界符保留 Markdown；仅一侧则粘贴去掉定界符 |
 | M8 总验收 | | ⬜ | 含 SEL-1 未过不得总签 |
 
 ## 自动化

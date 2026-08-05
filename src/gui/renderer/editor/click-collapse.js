@@ -1,13 +1,14 @@
-﻿/**
+/**
  * 预览模式：单击定位光标（hide-mark atomic / 标题行高 / 块 widget 邻接偶发冲突）。
  * 不阻断 mousedown 默认行为，以保留鼠标拖选；仅在「未拖选的单击」于 mouseup 校准落点。
- * 拖选（含 mousemove 未送达时的位移判断、亚阈值非空选区）绝不坍缩。
+ * 拖选结束后对 anchor/head 做 hide-mark 边缘校准（含定界符）。
  *
  * 优先用 caretRangeFromPoint + posAtDOM，并与 posAtCoords 交叉校验，避免落到行首。
  */
 'use strict';
 
 const { EditorView } = require('@codemirror/view');
+const { adjustCaretForHiddenMarks, adjustSelectionForHiddenMarks } = require('./caret-syntax-adjust');
 
 const DRAG_PX = 4;
 /** 点击与映射 caret 超过此距离则在邻行重校准（仅 fallback 路径） */
@@ -247,13 +248,30 @@ function placeCaret(view, clientX, clientY) {
     const el = document.elementFromPoint(clientX, clientY);
     if (isBlockWidgetTarget(el)) return;
   }
-  const pos = posAtClick(view, clientX, clientY);
-  if (pos == null) return;
+  const raw = posAtClick(view, clientX, clientY);
+  if (raw == null) return;
+  const pos = adjustCaretForHiddenMarks(view.state, raw);
   const sel = view.state.selection.main;
   // 单击须强制坍缩为 caret；即使当前是 atomic 整段选中也要改掉
   if (sel.from === sel.to && sel.head === pos) return;
   view.dispatch({
     selection: { anchor: pos, head: pos },
+    scrollIntoView: false,
+  });
+}
+
+/**
+ * 拖选 mouseup 后校准区间端点（含隐藏定界符）。
+ * @param {import('@codemirror/view').EditorView} view
+ */
+function adjustDragSelection(view) {
+  if (!view || view.destroyed) return;
+  const sel = view.state.selection.main;
+  if (sel.empty) return;
+  const next = adjustSelectionForHiddenMarks(view.state, sel.anchor, sel.head);
+  if (next.anchor === sel.anchor && next.head === sel.head) return;
+  view.dispatch({
+    selection: { anchor: next.anchor, head: next.head },
     scrollIntoView: false,
   });
 }
@@ -292,7 +310,12 @@ function createClickCollapseExtension() {
       const dy = event.clientY - start.y;
       const moved =
         start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
-      if (moved) return false;
+      if (moved) {
+        requestAnimationFrame(function () {
+          adjustDragSelection(view);
+        });
+        return false;
+      }
       const x = event.clientX;
       const y = event.clientY;
       // 单击：即使 CM6 因 atomic（行内 code 的 ` 等）整段选中，也要坍缩为 caret。
@@ -311,6 +334,7 @@ module.exports = {
   posAtClick: posAtClick,
   posAtClickFromDom: posAtClickFromDom,
   placeCaret: placeCaret,
+  adjustDragSelection: adjustDragSelection,
   refinePosAtClick: refinePosAtClick,
   isBlockWidgetTarget: isBlockWidgetTarget,
 };

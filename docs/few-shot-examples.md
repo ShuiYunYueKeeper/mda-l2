@@ -306,6 +306,27 @@ clipboard.write({ text, html });
 
 ---
 
+## 12. 预览 hide-mark 点击与剪贴板（CM6）
+
+**规则**：
+- hide-mark + `atomicRanges` 会使点击落点落在可见内容边缘内侧；须经 `caret-syntax-adjust` 校准到定界符外侧（左缘→开标记左侧，右缘→闭标记右侧）。
+- 拖选结束后对 `anchor`/`head` 分别校准；复制/剪切经 `syntax-clipboard`：**开闭定界符均完整包含**时保留 Markdown，**仅一侧**时去掉定界符字符。
+- `markRanges`/`contentRange` 的 `text` 参数必须是**全文**；Lezer 节点须适配 `{ from, to, type: node.name }`。
+
+### ✅ 正确
+
+```javascript
+const content = rule.contentRange(adapted, doc); // 全文 doc
+// 选区 [0,5) 仅 **MD → 剪贴板 "MD"；[0,7) 完整 **MDA** → 保留
+```
+
+### ❌ 错误
+
+- ❌ `rule.contentRange(node, doc.slice(node.from, node.to))` → 行内 code 的 `markRanges` 返回空，剪贴板校准失效。
+- ❌ 拖选仅含开 `**` 仍粘贴 `**MDA` → 应去掉未成对的定界符。
+
+---
+
 ## 12. 文件树拖动移动目标解析（GUI）
 
 **规则**：

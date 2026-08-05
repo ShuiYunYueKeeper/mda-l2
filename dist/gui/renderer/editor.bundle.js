@@ -32698,10 +32698,128 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widgets/mermaid-diagram-type.js
+  var require_mermaid_diagram_type = __commonJS({
+    "src/gui/renderer/editor/widgets/mermaid-diagram-type.js"(exports, module) {
+      "use strict";
+      function getMermaidFirstKeyword(code) {
+        if (!code) return "";
+        const lines = String(code).replace(/\r\n/g, "\n").split("\n");
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].replace(/^\uFEFF/, "").trim();
+          if (!line || line.startsWith("%%")) continue;
+          const token = (line.split(/\s+/)[0] || "").trim();
+          if (token) return token;
+        }
+        return "";
+      }
+      function detectMermaidDiagramType(code) {
+        const kw = getMermaidFirstKeyword(code);
+        if (!kw) return "unknown";
+        const lower = kw.toLowerCase();
+        if (lower === "graph" || lower === "flowchart") return lower;
+        if (lower === "sequencediagram") return "sequence";
+        if (lower.startsWith("classdiagram")) return "class";
+        if (lower.startsWith("statediagram")) return "state";
+        if (lower === "erdiagram") return "er";
+        if (lower === "journey") return "journey";
+        if (lower === "gantt") return "gantt";
+        if (lower === "pie") return "pie";
+        if (lower === "quadrantchart") return "quadrant";
+        if (lower.startsWith("requirementdiagram")) return "requirement";
+        if (lower === "gitgraph") return "gitgraph";
+        if (lower === "mindmap") return "mindmap";
+        if (lower === "timeline") return "timeline";
+        if (lower === "zenuml") return "zenuml";
+        if (lower.startsWith("sankey")) return "sankey";
+        if (lower.startsWith("block")) return "block";
+        if (lower.startsWith("packet")) return "packet";
+        if (lower.startsWith("architecture")) return "architecture";
+        if (lower.startsWith("c4")) return "c4";
+        if (lower === "xychart-beta" || lower === "xychart") return "xychart";
+        if (lower === "kanban") return "kanban";
+        return lower.replace(/-beta$/i, "").replace(/-v\d+$/i, "");
+      }
+      var MERMAID_KEYWORD_I18N_KEYS = {
+        gitgraph: "mermaidKwGitgraph",
+        c4context: "mermaidKwC4",
+        c4container: "mermaidKwC4",
+        c4component: "mermaidKwC4",
+        c4dynamic: "mermaidKwC4",
+        c4deployment: "mermaidKwC4"
+      };
+      function mermaidKeywordI18nKey(keyword) {
+        if (!keyword) return "diagram";
+        const withoutSuffix = keyword.replace(/-beta$/i, "").replace(/-v\d+$/i, "");
+        const lower = withoutSuffix.toLowerCase();
+        if (MERMAID_KEYWORD_I18N_KEYS[lower]) return MERMAID_KEYWORD_I18N_KEYS[lower];
+        const parts = withoutSuffix.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[^a-zA-Z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean).map(function(part) {
+          return part.toLowerCase();
+        });
+        if (!parts.length) return "diagram";
+        const norm = parts.map(function(part, i) {
+          if (i === 0) return part;
+          return part.charAt(0).toUpperCase() + part.slice(1);
+        }).join("");
+        return "mermaidKw" + norm.charAt(0).toUpperCase() + norm.slice(1);
+      }
+      function formatMermaidKeywordFallback(keyword) {
+        if (!keyword) return "";
+        const lower = keyword.toLowerCase();
+        if (lower === "sequencediagram") return "Sequence diagram";
+        if (lower.startsWith("sankey")) {
+          return keyword.replace(/-beta$/i, "").replace(/^sankey/i, "Sankey");
+        }
+        if (lower.startsWith("classdiagram")) return "Class diagram";
+        if (lower.startsWith("statediagram")) return "State diagram";
+        if (lower === "erdiagram") return "ER diagram";
+        if (lower === "gitgraph") return "GitGraph";
+        if (lower.startsWith("c4")) return "C4";
+        if (lower === "quadrantchart") return "Quadrant chart";
+        if (lower.startsWith("requirementdiagram")) return "Requirement diagram";
+        if (lower.startsWith("architecture")) return "Architecture";
+        if (lower === "xychart-beta" || lower === "xychart") return "XY chart";
+        if (lower.startsWith("radar")) return "Radar chart";
+        if (lower.startsWith("treemap")) return "Treemap";
+        if (lower.startsWith("venn")) return "Venn diagram";
+        if (/^[a-z][a-z0-9-]*$/i.test(keyword) && keyword === keyword.toLowerCase()) {
+          return keyword.replace(/-beta$/i, "");
+        }
+        return keyword;
+      }
+      function mermaidDiagramTypeLabel(code, t) {
+        const keyword = getMermaidFirstKeyword(code);
+        if (!keyword) {
+          const fallback = typeof t === "function" ? t("diagram") : "diagram";
+          return fallback !== "diagram" ? fallback : "Diagram";
+        }
+        const key = mermaidKeywordI18nKey(keyword);
+        const label = typeof t === "function" ? t(key) : key;
+        if (label && label !== key) return label;
+        const formatted = formatMermaidKeywordFallback(keyword);
+        return formatted || keyword;
+      }
+      function mermaidDiagramTypeI18nKey(typeId) {
+        if (!typeId || typeId === "unknown") return "diagram";
+        return "mermaidType" + typeId.charAt(0).toUpperCase() + typeId.slice(1).replace(/-([a-z])/g, function(_m, c) {
+          return c.toUpperCase();
+        });
+      }
+      module.exports = {
+        getMermaidFirstKeyword,
+        detectMermaidDiagramType,
+        mermaidKeywordI18nKey,
+        mermaidDiagramTypeLabel,
+        mermaidDiagramTypeI18nKey
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/widget-common.js
   var require_widget_common = __commonJS({
     "src/gui/renderer/editor/widgets/widget-common.js"(exports, module) {
       "use strict";
+      var { mermaidDiagramTypeLabel } = require_mermaid_diagram_type();
       function uiT(key, t, vars) {
         if (typeof t === "function") return t(key, vars);
         return key;
@@ -32764,6 +32882,11 @@ var MDAEditorBundle = (() => {
         host.querySelectorAll(".mda-cm-block-toolbar-label[data-i18n-key]").forEach(function(el) {
           const key = el.getAttribute("data-i18n-key");
           if (key) el.textContent = t(key);
+        });
+        host.querySelectorAll(".mda-cm-block-toolbar-label[data-mda-mermaid-kw]").forEach(function(el) {
+          const kw = el.getAttribute("data-mda-mermaid-kw") || "";
+          const code = kw ? kw + "\n" : "";
+          el.textContent = mermaidDiagramTypeLabel(code, t);
         });
         host.querySelectorAll(".mda-cm-block-toolbar-btn[data-i18n-key]").forEach(function(btn) {
           let key = btn.getAttribute("data-i18n-key");
@@ -33288,7 +33411,10 @@ var MDAEditorBundle = (() => {
       function serializeImageMarkdown(meta) {
         if (!meta || !meta.src) return "";
         const alt = String(meta.alt || "");
-        const src = String(meta.src || "");
+        let src = String(meta.src || "");
+        if (/[\s()]/.test(src) && !/^<.+>$/.test(src)) {
+          src = "<" + src + ">";
+        }
         const title = meta.title ? String(meta.title) : "";
         if (title) {
           return "![" + alt + "](" + src + ' "' + title.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '")';
@@ -48452,6 +48578,9 @@ var MDAEditorBundle = (() => {
         insertAbove: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 10h10M8 3v7"/><path d="M5.5 6.5L8 4l2.5 2.5"/></svg>',
         insertBelow: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6h10M8 13V6"/><path d="M5.5 9.5L8 12l2.5-2.5"/></svg>',
         copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
+        copyAs: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
+        markdown: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3.5" y="2.5" width="9" height="11" rx="1"/><path d="M5.5 11V5.2l1.6 3.4h.8L9.5 5.2V11"/><path d="M11.2 5.5h1.3v5.5h-1.3z" fill="currentColor" stroke="none"/></svg>',
+        copyAsImage: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="5.8" cy="6.6" r="1.15"/><path d="M3.5 11.2l2.8-2.3 2 1.4 2.4-2.1 2.3 3"/></svg>',
         cut: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="4.5" r="1.8"/><circle cx="4.5" cy="11.5" r="1.8"/><path d="M6.2 6l3.6 4M6.2 10l3.6-4l3.2 1.8"/></svg>',
         delete: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 5h9l-.8 8.2a1 1 0 01-1 .8H5.3a1 1 0 01-1-.8L3.5 5z"/><path d="M2.5 5h11M6.5 5V3.8a1 1 0 011-1h1a1 1 0 011 1V5"/></svg>',
         continue: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 12l3-8 3 5 2-3"/></svg>',
@@ -48516,7 +48645,7 @@ var MDAEditorBundle = (() => {
       var menuGraceUntil = 0;
       var MENU_GRACE_MS = 380;
       var INSERT_ITEMS = [
-        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: true },
+        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: false },
         { id: "table", key: "blockMenuInsertTable", icon: "table", soon: false },
         { id: "code", key: "blockMenuInsertCode", icon: "code", soon: false },
         { id: "quote", key: "blockMenuInsertQuote", icon: "quote", soon: false },
@@ -48671,6 +48800,10 @@ var MDAEditorBundle = (() => {
       var SUB_CLOSE_MS = HOVER_LEAVE_MS;
       var MENU_CLOSE_MS = HOVER_LEAVE_MS;
       var MOD_KEY = typeof navigator !== "undefined" && (navigator.platform || "").toLowerCase().indexOf("mac") >= 0 ? "\u2318" : "Ctrl+";
+      var COPY_AS_ITEMS = [
+        { id: "markdown", key: "blockMenuCopyAsMarkdown", icon: "markdown" },
+        { id: "image", key: "blockMenuCopyAsImage", icon: "copyAsImage" }
+      ];
       var AI_ITEMS = [
         { id: "continue", key: "blockMenuAiContinue", icon: "continue", soon: true },
         { id: "companion", key: "blockMenuAiCompanion", icon: "companion", soon: true },
@@ -48684,7 +48817,7 @@ var MDAEditorBundle = (() => {
         { id: "more", key: "blockMenuAiMore", icon: "more", soon: true }
       ];
       var INSERT_ITEMS = [
-        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: true },
+        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: false },
         { id: "table", key: "blockMenuInsertTable", icon: "table", soon: false },
         { id: "code", key: "blockMenuInsertCode", icon: "code", soon: false },
         { id: "quote", key: "blockMenuInsertQuote", icon: "quote", soon: false },
@@ -48911,24 +49044,34 @@ var MDAEditorBundle = (() => {
         });
         addMenuSeparator(menu);
         const mod = ctx.modKey || MOD_KEY;
-        const rows = [
-          { act: "copy", key: "copyBtn", icon: "copy", shortcut: mod + "C" },
-          { act: "cut", key: "blockMenuCut", icon: "cut", shortcut: mod + "X" },
-          { act: "delete", key: "blockMenuDelete", icon: "delete", shortcut: "Backspace", danger: true }
-        ];
-        for (let i = 0; i < rows.length; i++) {
-          const r = rows[i];
+        function addActionRow(spec) {
           const row = document.createElement("div");
-          row.className = "mda-menu-item" + (r.danger ? " mda-menu-danger" : "");
-          row.dataset.act = r.act;
+          row.className = "mda-menu-item" + (spec.danger ? " mda-menu-danger" : "");
+          row.dataset.act = spec.act;
           row.setAttribute("role", "menuitem");
           row.innerHTML = menuItemInner(
-            uiT(r.key, t),
-            r.icon,
-            '<span class="mda-menu-key">' + r.shortcut + "</span>"
+            uiT(spec.key, t),
+            spec.icon,
+            spec.shortcut ? '<span class="mda-menu-key">' + spec.shortcut + "</span>" : ""
           );
           menu.appendChild(row);
         }
+        addActionRow({ act: "copy", key: "copyBtn", icon: "copy", shortcut: mod + "C" });
+        addActionRow({ act: "cut", key: "blockMenuCut", icon: "cut", shortcut: mod + "X" });
+        addSubRow(menu, t, "blockMenuCopyAs", "copyAs", function() {
+          return buildSubmenu(t, COPY_AS_ITEMS, function(id) {
+            if (typeof handlers.onCopyAs === "function") {
+              handlers.onCopyAs(ctx.block, ctx.blockKind, id);
+            }
+          });
+        });
+        addActionRow({
+          act: "delete",
+          key: "blockMenuDelete",
+          icon: "delete",
+          shortcut: "Backspace",
+          danger: true
+        });
         menu.addEventListener("click", function(e) {
           const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
           if (!item || item.classList.contains("mda-menu-has-sub")) return;
@@ -51973,7 +52116,7 @@ var MDAEditorBundle = (() => {
       var ImageWidget = class _ImageWidget extends BlockReplaceWidget {
         /**
          * @param {string} source
-         * @param {{ renderMarkdown?: Function, resolveImageUrl?: Function, onOpenZoom?: Function, onScaleImage?: Function, onDeleteImageBlock?: Function, onReplaceImageBlock?: Function, onMoveImageBlock?: Function, t?: Function, from?: number, to?: number, lineHeight?: number }} [opts]
+         * @param {{ renderMarkdown?: Function, resolveImageUrl?: Function, onOpenZoom?: Function, onScaleImage?: Function, onDeleteImageBlock?: Function, onReplaceImageBlock?: Function, onCopyImageBlock?: Function, onMoveImageBlock?: Function, t?: Function, from?: number, to?: number, lineHeight?: number }} [opts]
          */
         constructor(source, opts) {
           super(source, Object.assign({ heightKind: "image" }, opts || {}));
@@ -52008,6 +52151,7 @@ var MDAEditorBundle = (() => {
           const toolbar = createBlockToolbar(root, {
             t,
             buttons: [
+              { id: "copy", i18nKey: "copyBtn" },
               { id: "replace", i18nKey: "widgetImageReplace" },
               { id: "delete", i18nKey: "widgetImageDelete" }
             ]
@@ -52061,7 +52205,14 @@ var MDAEditorBundle = (() => {
             e.preventDefault();
             e.stopPropagation();
             const action = btn.getAttribute("data-action");
-            if (action === "delete" && typeof opts.onDeleteImageBlock === "function") {
+            if (action === "copy" && typeof opts.onCopyImageBlock === "function") {
+              opts.onCopyImageBlock({
+                from: self2.from,
+                to: self2.to,
+                source: self2.source,
+                meta: self2.meta
+              });
+            } else if (action === "delete" && typeof opts.onDeleteImageBlock === "function") {
               frame.classList.remove("mda-cm-media-selected");
               opts.onDeleteImageBlock({ from: self2.from, to: self2.to, source: self2.source });
             } else if (action === "replace" && typeof opts.onReplaceImageBlock === "function") {
@@ -52096,7 +52247,11 @@ var MDAEditorBundle = (() => {
             if (!targetImg || typeof opts.onOpenZoom !== "function") return;
             opts.onOpenZoom({
               node: targetImg.cloneNode(true),
-              opts: { kind: "image", imageSrc: targetImg.getAttribute("src") || "" }
+              opts: {
+                kind: "image",
+                imageSrc: targetImg.getAttribute("src") || "",
+                mdSrc: self2.meta && self2.meta.src ? self2.meta.src : ""
+              }
             });
           });
           attachBlockDragHandle(
@@ -53109,6 +53264,10 @@ var MDAEditorBundle = (() => {
       var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
       var { clearSelectedBlock } = require_block_selection();
       var { syncMermaidFrameToStage } = require_mermaid_layout();
+      var {
+        getMermaidFirstKeyword,
+        mermaidDiagramTypeLabel
+      } = require_mermaid_diagram_type();
       var { Transaction } = require_dist2();
       function applyMermaidDisplayConstraints(stage, opts) {
         if (!stage) return;
@@ -53157,15 +53316,20 @@ var MDAEditorBundle = (() => {
           frame.className = "mda-cm-mermaid-frame mda-cm-media-block";
           frame.setAttribute("data-i18n-title", "widgetMermaidDragHint");
           frame.title = uiT("widgetMermaidDragHint", t);
+          const mermaidKeyword = getMermaidFirstKeyword(self2.code);
           const toolbar = createBlockToolbar(frame, {
             t,
-            labelKey: "diagram",
+            label: mermaidDiagramTypeLabel(self2.code, t),
             buttons: [
               { id: "copy-image", i18nKey: "zoomCopyImage" },
               { id: "copy", i18nKey: "zoomCopySource" },
               { id: "source", i18nKey: "widgetCodeSource", i18nToggle: "mermaid-source" }
             ]
           });
+          const typeLabel = toolbar.querySelector(".mda-cm-block-toolbar-label");
+          if (typeLabel && mermaidKeyword) {
+            typeLabel.setAttribute("data-mda-mermaid-kw", mermaidKeyword);
+          }
           const stage = document.createElement("div");
           stage.className = "mda-cm-mermaid-stage mda-mermaid";
           stage.textContent = uiT("widgetMermaidLoading", t);
@@ -53463,11 +53627,99 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/caret-syntax-adjust.js
+  var require_caret_syntax_adjust = __commonJS({
+    "src/gui/renderer/editor/caret-syntax-adjust.js"(exports, module) {
+      "use strict";
+      var { syntaxTree } = require_dist7();
+      var { SYNTAX_RULES } = require_syntax_rules();
+      function adaptSyntaxNode(node) {
+        return { from: node.from, to: node.to, type: node.name };
+      }
+      function findLeadingMark(marks, content) {
+        var leading = null;
+        for (var i = 0; i < marks.length; i++) {
+          if (marks[i].to <= content.from) {
+            if (!leading || marks[i].from < leading.from) leading = marks[i];
+          }
+        }
+        return leading || (marks.length ? marks[0] : null);
+      }
+      function findTrailingMark(marks, content) {
+        var trailing = null;
+        for (var i = 0; i < marks.length; i++) {
+          if (marks[i].from >= content.to) {
+            if (!trailing || marks[i].to > trailing.to) trailing = marks[i];
+          }
+        }
+        return trailing;
+      }
+      function adjustCaretForHiddenMarks(state, pos) {
+        if (pos == null || pos < 0) return pos;
+        const tree = syntaxTree(state);
+        if (!tree) return pos;
+        const doc = state.doc.toString();
+        const len = doc.length;
+        if (pos > len) return len;
+        var snapLeft = null;
+        var snapRight = null;
+        var bestLeftSpan = Infinity;
+        var bestRightSpan = Infinity;
+        tree.iterate({
+          enter: function(node) {
+            const rule = SYNTAX_RULES[node.name];
+            if (!rule || rule.class !== "R" || typeof rule.contentRange !== "function") return;
+            if (pos < node.from || pos > node.to) return;
+            const adapted = adaptSyntaxNode(node);
+            const content = rule.contentRange(adapted, doc);
+            if (!content || content.from > content.to) return;
+            const marks = typeof rule.markRanges === "function" ? rule.markRanges(adapted, doc) || [] : [];
+            if (!marks.length) return;
+            const leading = findLeadingMark(marks, content);
+            const trailing = findTrailingMark(marks, content);
+            const span = Math.max(0, content.to - content.from);
+            if (leading && pos > leading.from && pos <= content.from) {
+              if (span < bestLeftSpan) {
+                bestLeftSpan = span;
+                snapLeft = leading.from;
+              }
+            }
+            if (trailing && pos >= content.to && pos < trailing.to) {
+              if (span < bestRightSpan) {
+                bestRightSpan = span;
+                snapRight = trailing.to;
+              }
+            }
+          }
+        });
+        if (snapLeft != null && snapRight != null) {
+          return bestLeftSpan <= bestRightSpan ? snapLeft : snapRight;
+        }
+        if (snapLeft != null) return snapLeft;
+        if (snapRight != null) return snapRight;
+        return pos;
+      }
+      function adjustSelectionForHiddenMarks(state, anchor, head) {
+        return {
+          anchor: adjustCaretForHiddenMarks(state, anchor),
+          head: adjustCaretForHiddenMarks(state, head)
+        };
+      }
+      module.exports = {
+        findLeadingMark,
+        findTrailingMark,
+        adjustCaretForHiddenMarks,
+        adjustSelectionForHiddenMarks
+      };
+    }
+  });
+
   // src/gui/renderer/editor/click-collapse.js
   var require_click_collapse = __commonJS({
     "src/gui/renderer/editor/click-collapse.js"(exports, module) {
       "use strict";
       var { EditorView } = require_dist4();
+      var { adjustCaretForHiddenMarks, adjustSelectionForHiddenMarks } = require_caret_syntax_adjust();
       var DRAG_PX = 4;
       var REFINE_DIST_PX = 10;
       var mouseDown = null;
@@ -53626,12 +53878,24 @@ var MDAEditorBundle = (() => {
           const el = document.elementFromPoint(clientX, clientY);
           if (isBlockWidgetTarget(el)) return;
         }
-        const pos = posAtClick(view, clientX, clientY);
-        if (pos == null) return;
+        const raw = posAtClick(view, clientX, clientY);
+        if (raw == null) return;
+        const pos = adjustCaretForHiddenMarks(view.state, raw);
         const sel = view.state.selection.main;
         if (sel.from === sel.to && sel.head === pos) return;
         view.dispatch({
           selection: { anchor: pos, head: pos },
+          scrollIntoView: false
+        });
+      }
+      function adjustDragSelection(view) {
+        if (!view || view.destroyed) return;
+        const sel = view.state.selection.main;
+        if (sel.empty) return;
+        const next = adjustSelectionForHiddenMarks(view.state, sel.anchor, sel.head);
+        if (next.anchor === sel.anchor && next.head === sel.head) return;
+        view.dispatch({
+          selection: { anchor: next.anchor, head: next.head },
           scrollIntoView: false
         });
       }
@@ -53667,7 +53931,12 @@ var MDAEditorBundle = (() => {
             const dx = event.clientX - start.x;
             const dy = event.clientY - start.y;
             const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
-            if (moved) return false;
+            if (moved) {
+              requestAnimationFrame(function() {
+                adjustDragSelection(view);
+              });
+              return false;
+            }
             const x = event.clientX;
             const y = event.clientY;
             requestAnimationFrame(function() {
@@ -53683,6 +53952,7 @@ var MDAEditorBundle = (() => {
         posAtClick,
         posAtClickFromDom,
         placeCaret,
+        adjustDragSelection,
         refinePosAtClick,
         isBlockWidgetTarget
       };
@@ -53827,6 +54097,54 @@ var MDAEditorBundle = (() => {
         }
         return true;
       }
+      function insertMarkdownAtBlankLine(view, block, markdownLine) {
+        if (!view || !markdownLine) return false;
+        const line = view.state.doc.lineAt(block && block.from != null ? block.from : 0);
+        if (String(line.text || "").trim() !== "") return false;
+        const snippet = String(markdownLine);
+        const caret = line.from + snippet.length;
+        pinSelectionForHistory(view, line.from);
+        view.dispatch({
+          changes: { from: line.from, to: line.to, insert: snippet },
+          selection: { anchor: caret, head: caret },
+          userEvent: "input"
+        });
+        try {
+          view.focus();
+        } catch (_) {
+        }
+        return true;
+      }
+      function insertMarkdownNearBlock(view, block, where, markdownLine) {
+        if (!view || !markdownLine) return false;
+        const range = resolveBlockRange(view, block || {});
+        if (!range) return false;
+        const snippet = String(markdownLine);
+        const doc = view.state.doc.toString();
+        const pos = where === "above" ? range.from : range.to;
+        let insert = snippet;
+        if (where === "above") {
+          if (pos > 0 && doc.charAt(pos - 1) !== "\n") insert = "\n" + insert;
+          insert += "\n";
+        } else {
+          if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
+          if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
+        }
+        const lead = insert.indexOf(snippet);
+        const snippetStart = pos + (lead >= 0 ? lead : 0);
+        const caret = snippetStart + snippet.length;
+        pinSelectionForHistory(view, pos);
+        view.dispatch({
+          changes: { from: pos, to: pos, insert },
+          selection: { anchor: caret, head: caret },
+          userEvent: "input"
+        });
+        try {
+          view.focus();
+        } catch (_) {
+        }
+        return true;
+      }
       function deleteBlock(view, block) {
         const range = resolveBlockRange(view, block || {});
         if (!range) return false;
@@ -53837,6 +54155,8 @@ var MDAEditorBundle = (() => {
         getBlockSource,
         copyBlockSource,
         insertSnippetAtBlankLine,
+        insertMarkdownAtBlankLine,
+        insertMarkdownNearBlock,
         insertSnippetNearBlock,
         deleteBlock,
         expandBlockRange
@@ -53906,14 +54226,56 @@ var MDAEditorBundle = (() => {
         function onInsert(where, type, block) {
           const view = getView();
           if (!view) return;
+          if (type === "image" && typeof opts.onPickImageInsert === "function") {
+            opts.onPickImageInsert(where, block);
+            return;
+          }
           if (insertSnippetNearBlock(view, block, where, type)) return;
           if (typeof opts.onSoon === "function") opts.onSoon("insert-" + where, type);
         }
         function onBlankInsert(type, block) {
           const view = getView();
           if (!view) return;
+          if (type === "image" && typeof opts.onPickImageInsert === "function") {
+            opts.onPickImageInsert("blank", block);
+            return;
+          }
           if (insertSnippetAtBlankLine(view, block, type)) return;
           if (typeof opts.onSoon === "function") opts.onSoon("insert-blank", type);
+        }
+        function onCopyAs(block, kind, format) {
+          if (format === "markdown") {
+            if (typeof opts.onCopyBlockAsMarkdown === "function") {
+              opts.onCopyBlockAsMarkdown(block, kind);
+              return;
+            }
+            const view = getView();
+            if (!view) return;
+            if (copyBlockSource(view, block, opts.copyText)) {
+              if (typeof opts.t === "function") toast(opts.t("toastCopied"));
+            }
+            return;
+          }
+          if (format === "image") {
+            const run = function() {
+              if (typeof opts.onCopyBlockAsImage === "function") {
+                opts.onCopyBlockAsImage(block, kind);
+                return;
+              }
+              if (kind === "image" && typeof opts.onCopyImageBlock === "function") {
+                opts.onCopyImageBlock(block);
+                return;
+              }
+              if (typeof opts.t === "function") toast(opts.t("toastNoCopy"));
+            };
+            if (typeof window !== "undefined" && window.requestAnimationFrame) {
+              window.requestAnimationFrame(function() {
+                window.requestAnimationFrame(run);
+              });
+            } else {
+              run();
+            }
+          }
         }
         function onAi(id, block, kind) {
           if (typeof opts.onAiAction === "function") {
@@ -53928,6 +54290,7 @@ var MDAEditorBundle = (() => {
         return {
           onCopy,
           onCut,
+          onCopyAs,
           onDelete,
           onInsert,
           onBlankInsert,
@@ -54917,6 +55280,131 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/syntax-clipboard.js
+  var require_syntax_clipboard = __commonJS({
+    "src/gui/renderer/editor/syntax-clipboard.js"(exports, module) {
+      "use strict";
+      var { syntaxTree } = require_dist7();
+      var { SYNTAX_RULES } = require_syntax_rules();
+      var { findLeadingMark, findTrailingMark } = require_caret_syntax_adjust();
+      function adaptSyntaxNode(node) {
+        return { from: node.from, to: node.to, type: node.name };
+      }
+      function mergeRanges(ranges) {
+        if (!ranges.length) return [];
+        const sorted = ranges.slice().sort(function(a, b) {
+          return a.from - b.from || a.to - b.to;
+        });
+        const out = [sorted[0]];
+        for (let i = 1; i < sorted.length; i++) {
+          const prev = out[out.length - 1];
+          const cur = sorted[i];
+          if (cur.from <= prev.to) {
+            prev.to = Math.max(prev.to, cur.to);
+          } else {
+            out.push(cur);
+          }
+        }
+        return out;
+      }
+      function collectDelimiterExclusions(state, from, to) {
+        const tree = syntaxTree(state);
+        if (!tree) return [];
+        const doc = state.doc.toString();
+        const f = Math.min(from, to);
+        const t = Math.max(from, to);
+        const exclude = [];
+        tree.iterate({
+          enter: function(node) {
+            const rule = SYNTAX_RULES[node.name];
+            if (!rule || rule.class !== "R") return;
+            if (t <= node.from || f >= node.to) return;
+            const adapted = adaptSyntaxNode(node);
+            const marks = typeof rule.markRanges === "function" ? rule.markRanges(adapted, doc) || [] : [];
+            if (!marks.length) return;
+            const content = typeof rule.contentRange === "function" ? rule.contentRange(adapted, doc) : null;
+            if (!content) return;
+            const leading = findLeadingMark(marks, content);
+            const trailing = findTrailingMark(marks, content);
+            if (!leading) return;
+            const hasFullOpen = f <= leading.from && t >= leading.to;
+            const hasFullClose = trailing && f <= trailing.from && t >= trailing.to;
+            if (trailing) {
+              if (hasFullOpen && hasFullClose) return;
+              if (f < leading.to && t > leading.from) {
+                exclude.push({ from: Math.max(f, leading.from), to: Math.min(t, leading.to) });
+              }
+              if (f < trailing.to && t > trailing.from) {
+                exclude.push({ from: Math.max(f, trailing.from), to: Math.min(t, trailing.to) });
+              }
+              return;
+            }
+            if (f <= leading.from && t >= node.to) return;
+            if (f < leading.to && t > leading.from) {
+              exclude.push({ from: Math.max(f, leading.from), to: Math.min(t, leading.to) });
+            }
+          }
+        });
+        return mergeRanges(exclude);
+      }
+      function sliceDocSkippingRanges(doc, from, to, exclusions) {
+        if (!exclusions.length) return doc.slice(from, to);
+        let out = "";
+        let pos = from;
+        for (let i = 0; i < exclusions.length; i++) {
+          const ex = exclusions[i];
+          if (ex.to <= from || ex.from >= to) continue;
+          const clipFrom = Math.max(from, ex.from);
+          const clipTo = Math.min(to, ex.to);
+          if (clipFrom > pos) out += doc.slice(pos, clipFrom);
+          pos = Math.max(pos, clipTo);
+        }
+        if (pos < to) out += doc.slice(pos, to);
+        return out;
+      }
+      function sliceDocForClipboard(state, from, to) {
+        const f = Math.min(from, to);
+        const t = Math.max(from, to);
+        const doc = state.doc.toString();
+        const exclusions = collectDelimiterExclusions(state, f, t);
+        return {
+          from: f,
+          to: t,
+          text: sliceDocSkippingRanges(doc, f, t, exclusions)
+        };
+      }
+      function handleMarkdownSyntaxCopy(event, view) {
+        if (!event || !event.clipboardData) return false;
+        const sel = view.state.selection.main;
+        if (sel.empty) return false;
+        const slice = sliceDocForClipboard(view.state, sel.from, sel.to);
+        event.clipboardData.setData("text/plain", slice.text);
+        event.preventDefault();
+        return true;
+      }
+      function handleMarkdownSyntaxCut(event, view) {
+        if (!event || !event.clipboardData) return false;
+        const sel = view.state.selection.main;
+        if (sel.empty) return false;
+        const slice = sliceDocForClipboard(view.state, sel.from, sel.to);
+        event.clipboardData.setData("text/plain", slice.text);
+        event.preventDefault();
+        view.dispatch({
+          changes: { from: slice.from, to: slice.to, insert: "" },
+          selection: { anchor: slice.from, head: slice.from }
+        });
+        return true;
+      }
+      module.exports = {
+        collectDelimiterExclusions,
+        sliceDocSkippingRanges,
+        sliceDocForClipboard,
+        handleMarkdownSyntaxCopy,
+        handleMarkdownSyntaxCut
+      };
+    }
+  });
+
   // src/gui/renderer/editor/live-preview.js
   var require_live_preview = __commonJS({
     "src/gui/renderer/editor/live-preview.js"(exports, module) {
@@ -54986,6 +55474,10 @@ var MDAEditorBundle = (() => {
         createImagePasteHandler,
         createImageKeydownHandler
       } = require_image_shortcuts();
+      var {
+        handleMarkdownSyntaxCopy,
+        handleMarkdownSyntaxCut
+      } = require_syntax_clipboard();
       var { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require_block_widget_base();
       var { attachBlockDragHandle } = require_block_drag_handle();
       var {
@@ -55254,6 +55746,7 @@ var MDAEditorBundle = (() => {
           getSavedDisplayWidth: liveOpts.getSavedDisplayWidth,
           onDeleteImageBlock: liveOpts.onDeleteImageBlock,
           onReplaceImageBlock: liveOpts.onReplaceImageBlock,
+          onCopyImageBlock: liveOpts.onCopyImageBlock,
           onMoveImageBlock: liveOpts.onMoveImageBlock,
           onDropReplaceImageBlock: liveOpts.onDropReplaceImageBlock,
           onPasteImageBlock: liveOpts.onPasteImageBlock,
@@ -55769,6 +56262,9 @@ var MDAEditorBundle = (() => {
           onDeleteCodeBlock: opts.onDeleteCodeBlock,
           onDeleteImageBlock: opts.onDeleteImageBlock,
           onCopyImageBlock: opts.onCopyImageBlock,
+          onCopyBlockAsImage: opts.onCopyBlockAsImage,
+          onCopyBlockAsMarkdown: opts.onCopyBlockAsMarkdown,
+          onPickImageInsert: opts.onPickImageInsert,
           onSoon: opts.onBlockMenuSoon,
           onAiAction: opts.onBlockMenuAi
         });
@@ -55873,7 +56369,9 @@ var MDAEditorBundle = (() => {
             paste: function(event, view) {
               if (createTableMarkdownPasteHandler()(event, view)) return true;
               return createImagePasteHandler(liveOpts)(event, view);
-            }
+            },
+            copy: handleMarkdownSyntaxCopy,
+            cut: handleMarkdownSyntaxCut
           })
         ]).concat(emptyLineInsert.extensions);
         if (editorConfig.blockWidgetEnabled("image")) {
@@ -56447,6 +56945,7 @@ var MDAEditorBundle = (() => {
       var { outlineFlashExtension, flashOutlineLine } = require_outline_flash();
       var { getOutlineActiveLine } = require_outline_scroll();
       var { refreshEmptyLineInsertI18n } = require_empty_line_insert();
+      var { sliceDocForClipboard } = require_syntax_clipboard();
       function stripBom(text) {
         if (typeof text !== "string") return { text: "", bom: "" };
         if (text.charCodeAt(0) === 65279) {
@@ -56596,7 +57095,7 @@ var MDAEditorBundle = (() => {
           getSelectionText: function() {
             const sel = view.state.selection.main;
             if (sel.from === sel.to) return "";
-            return view.state.sliceDoc(sel.from, sel.to);
+            return sliceDocForClipboard(view.state, sel.from, sel.to).text;
           },
           replaceSelection: function(text) {
             view.dispatch(view.state.replaceSelection(text == null ? "" : String(text)));
@@ -56605,10 +57104,12 @@ var MDAEditorBundle = (() => {
           cutSelection: function() {
             const sel = view.state.selection.main;
             if (sel.from === sel.to) return "";
-            const text = view.state.sliceDoc(sel.from, sel.to);
-            view.dispatch({ changes: { from: sel.from, to: sel.to, insert: "" } });
+            const slice = sliceDocForClipboard(view.state, sel.from, sel.to);
+            view.dispatch({
+              changes: { from: slice.from, to: slice.to, insert: "" }
+            });
             view.focus();
-            return text;
+            return slice.text;
           },
           selectAll: function() {
             view.dispatch({
@@ -56769,6 +57270,7 @@ var MDAEditorBundle = (() => {
     "src/gui/renderer/editor/index.js"(exports, module) {
       var { createEditor, refreshDecorations, refreshWidgetI18n } = require_mount();
       var imageBlockOps = require_image_block_ops();
+      var { insertMarkdownAtBlankLine, insertMarkdownNearBlock } = require_block_handle_ops();
       var { serializeImageMarkdown } = require_parse_image();
       var { clearSelectedImageBlock } = require_image_selection();
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
@@ -56805,6 +57307,8 @@ var MDAEditorBundle = (() => {
         moveBlockRange: imageBlockOps.moveBlockRange,
         dropReplaceImageBlock: imageBlockOps.dropReplaceImageBlock,
         insertImageAt: imageBlockOps.insertImageAt,
+        insertMarkdownAtBlankLine,
+        insertMarkdownNearBlock,
         serializeImageMarkdown,
         clearSelectedImageBlock,
         clearSelectedMermaidBlock,

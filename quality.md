@@ -25,7 +25,7 @@
 npm test          # jest，含覆盖率
 ```
 
-**当前状态：138 用例全部通过（13 套件）。**
+**当前状态：312 用例全部通过（51 套件）。**
 
 ---
 
@@ -87,6 +87,7 @@ npm test          # jest，含覆盖率
 | **最近打开 / 启动** | 改动 `recent-files` / 启动 `did-finish-load` / `refreshWorkspaceTree` | 清空最近列表不关当前文档；列表为空时重启应为起始页；恢复工作区不得自动打开首个 md |
 | **GUI i18n** | 改动 `i18n.js` 或新增用户可见文案 | 视图→界面语言切换 zh/en；弹窗/toast/菜单无硬编码；`uiT(key, vars)` 插值生效（勿原样显示 `{name}`） |
 | **CM6 块选中 / 撤销** | 改动块 widget 删除、选中态、`*-selection.js` / `block-selection.js` | 选中→Delete→Ctrl+Z：蓝框与光标回到块；单击表格单元格无整格蓝底（未拖选文字时） |
+| **CM6 hide-mark 点击/剪贴板** | 改动 `caret-syntax-adjust` / `syntax-clipboard` / `click-collapse` | 点击标题/粗体/code 左缘→开定界符左侧、右缘→闭定界符右侧；拖选单侧定界符粘贴无 `**`/`` ` ``；完整选中保留 Markdown |
 | **悬停菜单 200ms** | 改动语言子菜单 / 块手柄菜单 / `HOVER_LEAVE_MS` | 鼠标移出菜单或触发器后约 200ms 关闭；移回取消关闭 |
 | **Free 门禁（M6-5）** | Phase A 集成完成 | 对照 `.project-setup/verification-report.md`；用户明确确认前不得开工 M7 |
 | 阶段确认门禁 | P0–P3 每阶段产出后 | 设计取舍需人工确认后才进入下一阶段 |

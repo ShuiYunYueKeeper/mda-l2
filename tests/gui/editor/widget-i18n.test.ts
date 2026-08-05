@@ -10,7 +10,10 @@ const { refreshBlockToolbars } = require(path.join(
 
 describe('refreshBlockToolbars', () => {
   test('更新标签、按钮与 title', () => {
-    const label = { textContent: '', getAttribute: () => 'diagram' };
+    const label = {
+      textContent: '',
+      getAttribute: (n: string) => (n === 'data-mda-mermaid-kw' ? 'flowchart' : null),
+    };
     const btn = { textContent: '', title: '', getAttribute: (n: string) => (n === 'data-i18n-key' ? 'zoomCopySource' : null) };
     const frame = { title: '', getAttribute: () => 'widgetImageDragHint' };
     const root = {
@@ -24,7 +27,7 @@ describe('refreshBlockToolbars', () => {
     };
 
     refreshBlockToolbars(root, function (k: string) {
-      if (k === 'diagram') return '流程图';
+      if (k === 'mermaidKwFlowchart') return '流程图';
       if (k === 'zoomCopySource') return '复制源码';
       if (k === 'widgetImageDragHint') return '拖动手柄';
       return k;
