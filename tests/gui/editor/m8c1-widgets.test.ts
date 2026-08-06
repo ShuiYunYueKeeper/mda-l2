@@ -131,6 +131,19 @@ describe('S13 parseFencedCode', () => {
     expect(parseFencedCode(out)).toEqual(parsed);
   });
 
+  test('serializeFencedCode 保留代码末尾空行', () => {
+    const { serializeFencedCode } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/model/parse-fence.js'
+    ));
+    const src = '```\nline1\n\n```';
+    const parsed = parseFencedCode(src);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.code).toBe('line1\n');
+    const out = serializeFencedCode(parsed!.lang, parsed!.code, parsed!.marker);
+    expect(parseFencedCode(out)).toEqual(parsed);
+  });
+
   test('expandFenceBlockRange 闭合围栏内 bash 注释 # 不截断', () => {
     const { expandFenceBlockRange } = require(path.join(
       __dirname,

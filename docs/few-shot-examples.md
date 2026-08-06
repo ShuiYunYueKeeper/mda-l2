@@ -695,3 +695,35 @@ return expandFenceFromOpen(text, open.openFrom, open.marker);
 - ❌ 信任语法树偏大的 `to` 做整块 replace → 表格/Mermaid/后续标题被 widget 吞掉。
 - ❌ `CodeFenceWidget` 用 `_lineCount * lineHeight` 估高 → CM6 `widgetBuffer` 预留巨大空白。
 - ❌ 围栏内含 `[comment]: <> (@anno …)` 样例行时未向下找到真实 ` ```markdown ` 开围栏 → 2.1 节演示稿空白。
+
+---
+
+## 25. CM6 围栏代码块内 Enter 编辑（`code.js`）
+
+**规则**：
+- 编辑期以 **`localCode` 为真相**，勿在每次 Enter 时 `replaceBlockRange`（会销毁 widget、丢焦点）。
+- contenteditable **`textContent` 吞尾部 `\n`** → 须 `setPlainCodeDom`（每行 `<br>`，空行 ZWSP）；高亮态 `highlightHtmlWithTrailingLines` 补尾部 `<br>`。
+- **失焦** `commitCodeEdit` 写回 CM6；保存前 `flushActiveWidgetEditsBeforeSave` blur 活跃 `.mda-cm-code-input`。
+- 块内 **Ctrl+Z/Y** 走 widget 本地栈；菜单撤销优先 `tryCodeBlockUndo`。
+- `onCodeBlockDirty({ dirty: localCode !== self.code })`：`dirty === false` 时须 `syncDirtyFromEditor`（撤销回到已提交内容应取消 `*`）。
+- `serializeFencedCode` **勿** `replace(/\n+$/g)` 剥尾部换行（末尾空行会丢失）。
+
+### ✅ 正确
+
+```javascript
+// Enter：splice localCode，renderFromLocalCode，markCodeDirty
+spliceLocalCode(getCaretOffset(), '\n', 0);
+
+// app.js
+onCodeBlockDirty: function (info) {
+  if (info && info.dirty === false) syncDirtyFromEditor();
+  else setDirtyState(true);
+},
+```
+
+### ❌ 错误
+
+- ❌ Enter 即 `onEditCodeBlock` → widget 重建、光标跳到块外、高度错位。
+- ❌ `codeInput.textContent = localCode` 且 `localCode` 以 `\n` 结尾 → 只见行号、不见最后一行。
+- ❌ `onCodeBlockDirty` 只 `setDirtyState(true)` → 块内撤销后仍显示未保存。
+- ❌ `serializeFencedCode` 去掉尾部 `\n` → 末尾回车失焦后源码无空行。

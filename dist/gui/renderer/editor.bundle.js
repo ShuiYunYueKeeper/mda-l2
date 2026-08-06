@@ -31721,7 +31721,7 @@ var MDAEditorBundle = (() => {
       function serializeFencedCode(lang, code, marker) {
         const tick = marker && marker.length ? marker : "```";
         const langPart = lang ? String(lang).trim() : "";
-        const body = String(code || "").replace(/\r\n/g, "\n").replace(/^\n+|\n+$/g, "");
+        const body = String(code || "").replace(/\r\n/g, "\n").replace(/^\n+/, "");
         return tick + langPart + "\n" + body + "\n" + tick;
       }
       function extractFenceCodeBody(source) {
@@ -52729,6 +52729,13 @@ var MDAEditorBundle = (() => {
       var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
       var { Transaction } = require_dist2();
       var codeEditResume = null;
+      var activeCodeEditSession = null;
+      function tryCodeBlockUndo() {
+        return !!(activeCodeEditSession && activeCodeEditSession.undo());
+      }
+      function tryCodeBlockRedo() {
+        return !!(activeCodeEditSession && activeCodeEditSession.redo());
+      }
       function stashCodeEditResume(from, caret) {
         codeEditResume = { from, caret };
       }
@@ -52771,7 +52778,145 @@ var MDAEditorBundle = (() => {
         for (let i = 1; i <= n; i++) lines.push(String(i));
         return lines.join("\n");
       }
+      var CODE_PLAIN_ZWSP = "\u200B";
+      function logicalTextLength(text) {
+        return String(text || "").replace(/\u200b/g, "").replace(/\u00a0/g, " ").length;
+      }
+      function plainDomLogicalLength(root) {
+        let len = 0;
+        function walk(node) {
+          for (let child = node.firstChild; child; child = child.nextSibling) {
+            if (child.nodeType === Node.TEXT_NODE) {
+              len += logicalTextLength(child.nodeValue);
+            } else if (child.nodeName === "BR") {
+              len += 1;
+            } else if (child.nodeType === Node.ELEMENT_NODE) {
+              walk(child);
+            }
+          }
+        }
+        walk(root);
+        return len;
+      }
+      function setPlainCodeDom(el, code) {
+        while (el.firstChild) el.removeChild(el.firstChild);
+        const normalized = String(code || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        if (normalized === "") {
+          el.appendChild(document.createTextNode(CODE_PLAIN_ZWSP));
+          return;
+        }
+        const lines = normalized.split("\n");
+        for (let i = 0; i < lines.length; i++) {
+          if (i > 0) el.appendChild(document.createElement("br"));
+          const line = lines[i];
+          if (line.length > 0) {
+            el.appendChild(document.createTextNode(line));
+          } else {
+            el.appendChild(document.createTextNode(CODE_PLAIN_ZWSP));
+          }
+        }
+      }
+      function readPlainCodeDom(el) {
+        let out = "";
+        function walk(node) {
+          for (let child = node.firstChild; child; child = child.nextSibling) {
+            if (child.nodeType === Node.TEXT_NODE) {
+              out += (child.nodeValue || "").replace(/\u200b/g, "").replace(/\u00a0/g, " ");
+            } else if (child.nodeName === "BR") {
+              out += "\n";
+            } else if (child.nodeType === Node.ELEMENT_NODE) {
+              walk(child);
+            }
+          }
+        }
+        walk(el);
+        return out;
+      }
+      function caretOffsetInPlain(el) {
+        const sel = window.getSelection && window.getSelection();
+        if (!sel || sel.rangeCount === 0) return 0;
+        const range = sel.getRangeAt(0);
+        if (!el.contains(range.startContainer)) return 0;
+        const pre = range.cloneRange();
+        pre.selectNodeContents(el);
+        pre.setEnd(range.startContainer, range.startOffset);
+        return plainDomLogicalLength(pre.cloneContents());
+      }
+      function setCaretOffsetInPlain(el, offset) {
+        let remaining = Math.max(0, offset | 0);
+        const sel = window.getSelection && window.getSelection();
+        if (!sel) return;
+        function place(node, domOff) {
+          const range = document.createRange();
+          range.setStart(node, domOff);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+        function walk(node) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const raw = node.nodeValue || "";
+            const logical = logicalTextLength(raw);
+            if (remaining <= logical) {
+              let logicalSeen = 0;
+              let domOff = 0;
+              for (let i = 0; i < raw.length; i++) {
+                if (raw.charAt(i) === CODE_PLAIN_ZWSP) continue;
+                if (logicalSeen === remaining) {
+                  place(node, domOff);
+                  return true;
+                }
+                logicalSeen += 1;
+                domOff = i + 1;
+              }
+              place(node, raw.length);
+              return true;
+            }
+            remaining -= logical;
+            return false;
+          }
+          if (node.nodeName === "BR") {
+            if (remaining === 0) {
+              const parent = node.parentNode;
+              if (parent) place(parent, Array.prototype.indexOf.call(parent.childNodes, node));
+              return true;
+            }
+            if (remaining === 1) {
+              const next = node.nextSibling;
+              if (next && next.nodeType === Node.TEXT_NODE) place(next, 0);
+              else {
+                const parent = node.parentNode;
+                if (parent) {
+                  place(parent, Array.prototype.indexOf.call(parent.childNodes, node) + 1);
+                }
+              }
+              return true;
+            }
+            remaining -= 1;
+            return false;
+          }
+          for (let child = node.firstChild; child; child = child.nextSibling) {
+            if (walk(child)) return true;
+          }
+          return false;
+        }
+        if (!walk(el)) {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }
+      function highlightHtmlWithTrailingLines(html, code) {
+        const m = /\n+$/.exec(String(code || ""));
+        if (!m) return html || "";
+        let out = html || "";
+        for (let i = 0; i < m[0].length; i++) out += "<br>";
+        return out;
+      }
       function caretOffsetIn(el) {
+        if (el.querySelector && el.querySelector("br")) return caretOffsetInPlain(el);
         const sel = window.getSelection && window.getSelection();
         if (!sel || sel.rangeCount === 0) return 0;
         const range = sel.getRangeAt(0);
@@ -52781,7 +52926,24 @@ var MDAEditorBundle = (() => {
         pre.setEnd(range.startContainer, range.startOffset);
         return pre.toString().length;
       }
+      function insertTextAtCaret(el, text) {
+        const sel = window.getSelection && window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+        const range = sel.getRangeAt(0);
+        if (!el.contains(range.startContainer)) return;
+        range.deleteContents();
+        const node = document.createTextNode(text);
+        range.insertNode(node);
+        range.setStartAfter(node);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
       function setCaretOffsetIn(el, offset) {
+        if (el.querySelector && el.querySelector("br")) {
+          setCaretOffsetInPlain(el, offset);
+          return;
+        }
         let remaining = Math.max(0, offset | 0);
         const sel = window.getSelection && window.getSelection();
         if (!sel) return;
@@ -52888,24 +53050,102 @@ var MDAEditorBundle = (() => {
           frame.appendChild(previewPanel);
           let composing = false;
           let plainEditing = false;
-          let flushTimer = null;
+          let applyingProgrammatic = false;
+          let localCode = self2.code || "";
+          const undoStack = [];
+          const redoStack = [];
           function readCodeText() {
-            return (codeInput.innerText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\u00a0/g, " ");
+            return localCode;
+          }
+          function readDomCodeText() {
+            if (plainEditing || codeInput.querySelector && codeInput.querySelector("br")) {
+              return readPlainCodeDom(codeInput);
+            }
+            return (codeInput.textContent || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\u00a0/g, " ");
+          }
+          function getCaretOffset() {
+            return plainEditing ? caretOffsetInPlain(codeInput) : caretOffsetIn(codeInput);
+          }
+          function setCaretOffset(off) {
+            if (plainEditing) setCaretOffsetInPlain(codeInput, off);
+            else setCaretOffsetIn(codeInput, off);
           }
           function paintHighlight(restoreCaret) {
-            const text = readCodeText();
-            const pos = restoreCaret ? caretOffsetIn(codeInput) : 0;
-            const html = highlightFenceBody(text, self2.lang, opts.highlightCode);
-            codeInput.innerHTML = html || "\n";
-            if (restoreCaret) setCaretOffsetIn(codeInput, Math.min(pos, text.length));
+            const text = localCode;
+            const pos = restoreCaret ? getCaretOffset() : 0;
+            applyingProgrammatic = true;
+            try {
+              const html = highlightHtmlWithTrailingLines(
+                highlightFenceBody(text, self2.lang, opts.highlightCode),
+                text
+              );
+              codeInput.innerHTML = html || "\n";
+              if (restoreCaret) setCaretOffset(Math.min(pos, text.length));
+            } finally {
+              applyingProgrammatic = false;
+            }
+          }
+          function renderFromLocalCode(caretOffset) {
+            applyingProgrammatic = true;
+            try {
+              if (plainEditing) {
+                setPlainCodeDom(codeInput, localCode);
+              } else {
+                const html = highlightHtmlWithTrailingLines(
+                  highlightFenceBody(localCode, self2.lang, opts.highlightCode),
+                  localCode
+                );
+                codeInput.innerHTML = html || "\n";
+              }
+              if (caretOffset != null) {
+                setCaretOffset(Math.min(caretOffset, localCode.length));
+              }
+            } finally {
+              applyingProgrammatic = false;
+            }
+            syncLineNumbers();
+          }
+          function pushUndoSnapshot() {
+            undoStack.push(localCode);
+            if (undoStack.length > 200) undoStack.shift();
+            redoStack.length = 0;
+          }
+          function applyLocalCode(next, caret) {
+            localCode = next;
+            renderFromLocalCode(caret);
+            self2._minHeight = estimateCodeFenceHeight(localCode);
+            requestHeightMeasure();
+            syncWidgetHeightFromDom(self2, view, root);
+            markCodeDirty();
+          }
+          function spliceLocalCode(offset, insert, removeLen) {
+            const off = Math.max(0, Math.min(offset | 0, localCode.length));
+            const rm = removeLen == null ? 0 : Math.max(0, removeLen | 0);
+            pushUndoSnapshot();
+            const next = localCode.slice(0, off) + String(insert || "") + localCode.slice(off + rm);
+            applyLocalCode(next, off + String(insert || "").length);
+          }
+          function undoLocal() {
+            if (!undoStack.length) return false;
+            redoStack.push(localCode);
+            const prev = undoStack.pop();
+            const caret = Math.min(getCaretOffset(), prev.length);
+            applyLocalCode(prev, caret);
+            return true;
+          }
+          function redoLocal() {
+            if (!redoStack.length) return false;
+            undoStack.push(localCode);
+            const next = redoStack.pop();
+            const caret = Math.min(getCaretOffset(), next.length);
+            applyLocalCode(next, caret);
+            return true;
           }
           function flattenToPlain() {
             if (plainEditing) return;
-            const text = readCodeText();
-            const pos = caretOffsetIn(codeInput);
-            codeInput.textContent = text;
-            setCaretOffsetIn(codeInput, Math.min(pos, text.length));
+            const pos = getCaretOffset();
             plainEditing = true;
+            renderFromLocalCode(pos);
           }
           function syncLineNumbers() {
             gutter.textContent = buildLineNumbers(readCodeText());
@@ -52913,7 +53153,6 @@ var MDAEditorBundle = (() => {
           function enterEditMode() {
             frame.classList.add("mda-cm-code-editing");
           }
-          codeInput.textContent = self2.code || "";
           paintHighlight(false);
           syncLineNumbers();
           function commitLangChange(nextLang) {
@@ -52940,14 +53179,22 @@ var MDAEditorBundle = (() => {
             onChange: commitLangChange
           });
           toolbar.insertBefore(langPicker, toolbar.firstChild);
-          function commitCodeEdit(keepCaret) {
-            const next = readCodeText();
+          function markCodeDirty() {
+            if (typeof opts.onCodeBlockDirty === "function") {
+              opts.onCodeBlockDirty({ dirty: localCode !== self2.code });
+            }
+          }
+          function syncCodeLayout() {
             syncLineNumbers();
-            self2._minHeight = estimateCodeFenceHeight(next);
+            self2._minHeight = estimateCodeFenceHeight(readCodeText());
             requestHeightMeasure();
             syncWidgetHeightFromDom(self2, view, root);
+          }
+          function commitCodeEdit(keepCaret) {
+            const next = readCodeText();
+            syncCodeLayout();
             if (next === self2.code) return;
-            const caret = keepCaret ? caretOffsetIn(codeInput) : 0;
+            const caret = keepCaret ? getCaretOffset() : 0;
             if (keepCaret) stashCodeEditResume(self2.from, caret);
             self2.code = next;
             if (typeof opts.onEditCodeBlock === "function") {
@@ -52960,13 +53207,6 @@ var MDAEditorBundle = (() => {
                 marker: self2.marker
               });
             }
-          }
-          function scheduleCommitCodeEdit(keepCaret, delayMs) {
-            if (flushTimer) clearTimeout(flushTimer);
-            flushTimer = setTimeout(function() {
-              flushTimer = null;
-              commitCodeEdit(!!keepCaret);
-            }, delayMs == null ? 0 : delayMs);
           }
           function requestHeightMeasure() {
             try {
@@ -53032,50 +53272,76 @@ var MDAEditorBundle = (() => {
             e.stopPropagation();
             enterEditMode();
           });
+          codeInput.addEventListener("beforeinput", function(e) {
+            if (composing || applyingProgrammatic) return;
+            if (e.inputType === "historyUndo") {
+              e.preventDefault();
+              undoLocal();
+              return;
+            }
+            if (e.inputType === "historyRedo") {
+              e.preventDefault();
+              redoLocal();
+              return;
+            }
+            if (e.inputType === "insertFromPaste" || e.inputType === "insertLineBreak") return;
+            pushUndoSnapshot();
+          });
           codeInput.addEventListener("compositionstart", function() {
             composing = true;
           });
           codeInput.addEventListener("compositionend", function() {
             composing = false;
-            syncLineNumbers();
-            requestHeightMeasure();
+            localCode = readDomCodeText();
+            syncCodeLayout();
+            markCodeDirty();
           });
           codeInput.addEventListener("input", function() {
-            if (composing) return;
-            syncLineNumbers();
-            self2._minHeight = estimateCodeFenceHeight(readCodeText());
-            requestHeightMeasure();
-            syncWidgetHeightFromDom(self2, view, root);
-            scheduleCommitCodeEdit(true, 200);
+            if (composing || applyingProgrammatic) return;
+            localCode = readDomCodeText();
+            syncCodeLayout();
+            markCodeDirty();
           });
           codeInput.addEventListener("keydown", function(e) {
             e.stopPropagation();
+            const mod = e.ctrlKey || e.metaKey;
+            if (mod && !e.altKey && (e.key === "z" || e.key === "Z")) {
+              e.preventDefault();
+              if (e.shiftKey) redoLocal();
+              else undoLocal();
+              return;
+            }
+            if (mod && !e.altKey && (e.key === "y" || e.key === "Y")) {
+              e.preventDefault();
+              redoLocal();
+              return;
+            }
             if (e.key !== "Enter" || e.isComposing) return;
             e.preventDefault();
-            document.execCommand("insertText", false, "\n");
-            requestAnimationFrame(function() {
-              scheduleCommitCodeEdit(true, 0);
-              syncWidgetHeightFromDom(self2, view, root);
-            });
+            spliceLocalCode(getCaretOffset(), "\n", 0);
           });
           codeInput.addEventListener("paste", function(e) {
             e.preventDefault();
             e.stopPropagation();
             const text = e.clipboardData && e.clipboardData.getData("text/plain");
             if (text == null) return;
-            document.execCommand("insertText", false, text);
+            spliceLocalCode(getCaretOffset(), text, 0);
           });
           codeInput.addEventListener("focus", function() {
             enterEditMode();
+            const session = { undo: undoLocal, redo: redoLocal };
+            activeCodeEditSession = session;
+            root._mdaCodeEditSession = session;
             requestAnimationFrame(function() {
               flattenToPlain();
             });
           });
           codeInput.addEventListener("blur", function() {
-            if (flushTimer) {
-              clearTimeout(flushTimer);
-              flushTimer = null;
+            if (activeCodeEditSession === root._mdaCodeEditSession) {
+              activeCodeEditSession = null;
+              root._mdaCodeEditSession = null;
             }
+            if (root._mdaCodeTearingDown || !codeInput.isConnected) return;
             commitCodeEdit(false);
             plainEditing = false;
             paintHighlight(false);
@@ -53115,12 +53381,16 @@ var MDAEditorBundle = (() => {
               enterEditMode();
               flattenToPlain();
               codeInput.focus();
-              setCaretOffsetIn(codeInput, resumed.caret);
+              setCaretOffset(resumed.caret);
             });
           }
           return root;
         }
         destroy(dom) {
+          if (dom && dom._mdaCodeEditSession && activeCodeEditSession === dom._mdaCodeEditSession) {
+            activeCodeEditSession = null;
+          }
+          if (dom) dom._mdaCodeTearingDown = true;
           if (dom && dom._mdaCodeWidthRo) {
             dom._mdaCodeWidthRo.disconnect();
             dom._mdaCodeWidthRo = null;
@@ -53134,8 +53404,14 @@ var MDAEditorBundle = (() => {
         buildLineNumbers,
         estimateCodeFenceHeight,
         MAX_CODE_WIDGET_HEIGHT,
+        insertTextAtCaret,
         caretOffsetIn,
-        setCaretOffsetIn
+        setCaretOffsetIn,
+        readPlainCodeDom,
+        setPlainCodeDom,
+        highlightHtmlWithTrailingLines,
+        tryCodeBlockUndo,
+        tryCodeBlockRedo
       };
     }
   });
@@ -57369,6 +57645,7 @@ var MDAEditorBundle = (() => {
       var { clearSelectedCodeBlock } = require_code_selection();
       var { clearSelectedMathBlock } = require_math_selection();
       var { serializeFencedCode } = require_parse_fence();
+      var { tryCodeBlockUndo, tryCodeBlockRedo } = require_code();
       var { serializeMathBlock, serializeMathInline } = require_parse_math();
       var { MODE_PREVIEW, MODE_SOURCE } = require_mode();
       var { SearchSession } = require_search_session();
@@ -57407,6 +57684,8 @@ var MDAEditorBundle = (() => {
         clearSelectedCodeBlock,
         clearSelectedMathBlock,
         serializeFencedCode,
+        tryCodeBlockUndo,
+        tryCodeBlockRedo,
         serializeMathBlock,
         serializeMathInline,
         MODE_PREVIEW,

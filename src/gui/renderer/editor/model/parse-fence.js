@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 围栏代码块切片解析
  */
 'use strict';
@@ -152,7 +152,8 @@ function parseFencedCode(slice) {
 function serializeFencedCode(lang, code, marker) {
   const tick = marker && marker.length ? marker : '```';
   const langPart = lang ? String(lang).trim() : '';
-  const body = String(code || '').replace(/\r\n/g, '\n').replace(/^\n+|\n+$/g, '');
+  // 仅去首部空行；保留尾部换行（代码块末尾回车新增的空行）
+  const body = String(code || '').replace(/\r\n/g, '\n').replace(/^\n+/, '');
   return tick + langPart + '\n' + body + '\n' + tick;
 }
 

@@ -1,4 +1,4 @@
-// MDA Renderer — Markdown 工作台 GUI
+﻿// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -455,6 +455,13 @@
           window.MDAEditor.replaceBlockRange(cm6Editor.view, range.from, range.to, line);
           syncDirtyFromEditor();
         },
+        onCodeBlockDirty: function (info) {
+          if (info && info.dirty === false) {
+            syncDirtyFromEditor();
+            return;
+          }
+          setDirtyState(true);
+        },
         onEditMathBlock: function (block) {
           if (!isCm6Ready() || !window.MDAEditor || !block) return;
           var line = window.MDAEditor.serializeMathBlock
@@ -693,6 +700,14 @@
   }
 
   function performEditorUndo() {
+    if (
+      isCm6Ready() &&
+      window.MDAEditor &&
+      typeof window.MDAEditor.tryCodeBlockUndo === 'function' &&
+      window.MDAEditor.tryCodeBlockUndo()
+    ) {
+      return;
+    }
     if (isCm6Ready() && cm6Editor && typeof cm6Editor.undo === 'function') {
       if (cm6Editor.undo()) {
         syncDirtyFromEditor();
@@ -709,6 +724,14 @@
   }
 
   function performEditorRedo() {
+    if (
+      isCm6Ready() &&
+      window.MDAEditor &&
+      typeof window.MDAEditor.tryCodeBlockRedo === 'function' &&
+      window.MDAEditor.tryCodeBlockRedo()
+    ) {
+      return;
+    }
     if (isCm6Ready() && cm6Editor && typeof cm6Editor.redo === 'function') {
       if (cm6Editor.redo()) {
         syncDirtyFromEditor();
@@ -2701,12 +2724,20 @@
     });
   }
 
+  function flushActiveWidgetEditsBeforeSave() {
+    var ae = document.activeElement;
+    if (!ae || !ae.closest) return;
+    if (ae.closest('.mda-cm-code-input')) ae.blur();
+    else if (ae.closest('.mda-cm-mermaid-source-input')) ae.blur();
+  }
+
   function writeToPath(filePath, onSuccess, opts) {
     opts = opts || {};
     var quiet = !!opts.quiet;
     function done() {
       if (typeof onSuccess === 'function') onSuccess();
     }
+    flushActiveWidgetEditsBeforeSave();
     var content = getEditorSaveText();
     var bad = (api.findMalformedAnnotations && api.findMalformedAnnotations(content)) || [];
     if (quiet && bad.length) {

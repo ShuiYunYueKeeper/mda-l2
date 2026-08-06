@@ -24,6 +24,23 @@ const { Transaction } = require('@codemirror/state');
 /** @type {{ from: number, caret: number } | null} */
 let codeEditResume = null;
 
+/** @type {{ undo: () => boolean, redo: () => boolean } | null} */
+let activeCodeEditSession = null;
+
+/**
+ * @returns {boolean}
+ */
+function tryCodeBlockUndo() {
+  return !!(activeCodeEditSession && activeCodeEditSession.undo());
+}
+
+/**
+ * @returns {boolean}
+ */
+function tryCodeBlockRedo() {
+  return !!(activeCodeEditSession && activeCodeEditSession.redo());
+}
+
 /**
  * @param {number} from
  * @param {number} caret
@@ -98,11 +115,198 @@ function buildLineNumbers(code) {
   return lines.join('\n');
 }
 
+/** 空行占位：contenteditable 吞尾部换行，须用 <br>+ZWSP 保留可视行 */
+const CODE_PLAIN_ZWSP = '\u200b';
+
+/**
+ * @param {string | null | undefined} text
+ */
+function logicalTextLength(text) {
+  return String(text || '')
+    .replace(/\u200b/g, '')
+    .replace(/\u00a0/g, ' ')
+    .length;
+}
+
+/**
+ * @param {Node} root
+ */
+function plainDomLogicalLength(root) {
+  let len = 0;
+  /** @param {Node} node */
+  function walk(node) {
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        len += logicalTextLength(child.nodeValue);
+      } else if (child.nodeName === 'BR') {
+        len += 1;
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        walk(child);
+      }
+    }
+  }
+  walk(root);
+  return len;
+}
+
+/**
+ * 将代码写入 contenteditable（每行 <br> 分隔，空行用 ZWSP 撑高）。
+ * @param {HTMLElement} el
+ * @param {string} code
+ */
+function setPlainCodeDom(el, code) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+  const normalized = String(code || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (normalized === '') {
+    el.appendChild(document.createTextNode(CODE_PLAIN_ZWSP));
+    return;
+  }
+  const lines = normalized.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (i > 0) el.appendChild(document.createElement('br'));
+    const line = lines[i];
+    if (line.length > 0) {
+      el.appendChild(document.createTextNode(line));
+    } else {
+      el.appendChild(document.createTextNode(CODE_PLAIN_ZWSP));
+    }
+  }
+}
+
+/**
+ * 从 <br> 结构的 contenteditable 读回代码（与 setPlainCodeDom 对偶）。
+ * @param {HTMLElement} el
+ */
+function readPlainCodeDom(el) {
+  let out = '';
+  /** @param {Node} node */
+  function walk(node) {
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        out += (child.nodeValue || '').replace(/\u200b/g, '').replace(/\u00a0/g, ' ');
+      } else if (child.nodeName === 'BR') {
+        out += '\n';
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        walk(child);
+      }
+    }
+  }
+  walk(el);
+  return out;
+}
+
+/**
+ * @param {HTMLElement} el
+ */
+function caretOffsetInPlain(el) {
+  const sel = window.getSelection && window.getSelection();
+  if (!sel || sel.rangeCount === 0) return 0;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.startContainer)) return 0;
+  const pre = range.cloneRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(range.startContainer, range.startOffset);
+  return plainDomLogicalLength(pre.cloneContents());
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {number} offset
+ */
+function setCaretOffsetInPlain(el, offset) {
+  let remaining = Math.max(0, offset | 0);
+  const sel = window.getSelection && window.getSelection();
+  if (!sel) return;
+
+  /** @param {Node} node @param {number} domOff */
+  function place(node, domOff) {
+    const range = document.createRange();
+    range.setStart(node, domOff);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  /**
+   * @param {Node} node
+   * @returns {boolean}
+   */
+  function walk(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const raw = node.nodeValue || '';
+      const logical = logicalTextLength(raw);
+      if (remaining <= logical) {
+        let logicalSeen = 0;
+        let domOff = 0;
+        for (let i = 0; i < raw.length; i++) {
+          if (raw.charAt(i) === CODE_PLAIN_ZWSP) continue;
+          if (logicalSeen === remaining) {
+            place(node, domOff);
+            return true;
+          }
+          logicalSeen += 1;
+          domOff = i + 1;
+        }
+        place(node, raw.length);
+        return true;
+      }
+      remaining -= logical;
+      return false;
+    }
+    if (node.nodeName === 'BR') {
+      if (remaining === 0) {
+        const parent = node.parentNode;
+        if (parent) place(parent, Array.prototype.indexOf.call(parent.childNodes, node));
+        return true;
+      }
+      if (remaining === 1) {
+        const next = node.nextSibling;
+        if (next && next.nodeType === Node.TEXT_NODE) place(next, 0);
+        else {
+          const parent = node.parentNode;
+          if (parent) {
+            place(parent, Array.prototype.indexOf.call(parent.childNodes, node) + 1);
+          }
+        }
+        return true;
+      }
+      remaining -= 1;
+      return false;
+    }
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (walk(child)) return true;
+    }
+    return false;
+  }
+
+  if (!walk(el)) {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+}
+
+/**
+ * hljs HTML 不保留尾部换行的可视行，补 <br>。
+ * @param {string} html
+ * @param {string} code
+ */
+function highlightHtmlWithTrailingLines(html, code) {
+  const m = /\n+$/.exec(String(code || ''));
+  if (!m) return html || '';
+  let out = html || '';
+  for (let i = 0; i < m[0].length; i++) out += '<br>';
+  return out;
+}
+
 /**
  * 当前选区起点在 el 内的字符偏移（UTF-16 / DOM 文本）。
  * @param {HTMLElement} el
  */
 function caretOffsetIn(el) {
+  if (el.querySelector && el.querySelector('br')) return caretOffsetInPlain(el);
   const sel = window.getSelection && window.getSelection();
   if (!sel || sel.rangeCount === 0) return 0;
   const range = sel.getRangeAt(0);
@@ -114,10 +318,33 @@ function caretOffsetIn(el) {
 }
 
 /**
+ * 在 contenteditable 当前选区插入纯文本（比 execCommand 在 Electron 内更可靠）。
+ * @param {HTMLElement} el
+ * @param {string} text
+ */
+function insertTextAtCaret(el, text) {
+  const sel = window.getSelection && window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.startContainer)) return;
+  range.deleteContents();
+  const node = document.createTextNode(text);
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+/**
  * @param {HTMLElement} el
  * @param {number} offset
  */
 function setCaretOffsetIn(el, offset) {
+  if (el.querySelector && el.querySelector('br')) {
+    setCaretOffsetInPlain(el, offset);
+    return;
+  }
   let remaining = Math.max(0, offset | 0);
   const sel = window.getSelection && window.getSelection();
   if (!sel) return;
@@ -244,34 +471,124 @@ class CodeFenceWidget extends BlockReplaceWidget {
 
     let composing = false;
     let plainEditing = false;
-    let flushTimer = null;
+    let applyingProgrammatic = false;
+    /** @type {string} */
+    let localCode = self.code || '';
+    /** @type {string[]} */
+    const undoStack = [];
+    /** @type {string[]} */
+    const redoStack = [];
 
     function readCodeText() {
-      return (codeInput.innerText || '')
+      return localCode;
+    }
+
+    function readDomCodeText() {
+      if (plainEditing || (codeInput.querySelector && codeInput.querySelector('br'))) {
+        return readPlainCodeDom(codeInput);
+      }
+      return (codeInput.textContent || '')
         .replace(/\r\n/g, '\n')
         .replace(/\r/g, '\n')
         .replace(/\u00a0/g, ' ');
     }
 
+    function getCaretOffset() {
+      return plainEditing ? caretOffsetInPlain(codeInput) : caretOffsetIn(codeInput);
+    }
+
+    function setCaretOffset(off) {
+      if (plainEditing) setCaretOffsetInPlain(codeInput, off);
+      else setCaretOffsetIn(codeInput, off);
+    }
+
     function paintHighlight(restoreCaret) {
-      const text = readCodeText();
-      const pos = restoreCaret ? caretOffsetIn(codeInput) : 0;
-      const html = highlightFenceBody(text, self.lang, opts.highlightCode);
-      codeInput.innerHTML = html || '\n';
-      if (restoreCaret) setCaretOffsetIn(codeInput, Math.min(pos, text.length));
+      const text = localCode;
+      const pos = restoreCaret ? getCaretOffset() : 0;
+      applyingProgrammatic = true;
+      try {
+        const html = highlightHtmlWithTrailingLines(
+          highlightFenceBody(text, self.lang, opts.highlightCode),
+          text
+        );
+        codeInput.innerHTML = html || '\n';
+        if (restoreCaret) setCaretOffset(Math.min(pos, text.length));
+      } finally {
+        applyingProgrammatic = false;
+      }
+    }
+
+    function renderFromLocalCode(caretOffset) {
+      applyingProgrammatic = true;
+      try {
+        if (plainEditing) {
+          setPlainCodeDom(codeInput, localCode);
+        } else {
+          const html = highlightHtmlWithTrailingLines(
+            highlightFenceBody(localCode, self.lang, opts.highlightCode),
+            localCode
+          );
+          codeInput.innerHTML = html || '\n';
+        }
+        if (caretOffset != null) {
+          setCaretOffset(Math.min(caretOffset, localCode.length));
+        }
+      } finally {
+        applyingProgrammatic = false;
+      }
+      syncLineNumbers();
+    }
+
+    function pushUndoSnapshot() {
+      undoStack.push(localCode);
+      if (undoStack.length > 200) undoStack.shift();
+      redoStack.length = 0;
+    }
+
+    function applyLocalCode(next, caret) {
+      localCode = next;
+      renderFromLocalCode(caret);
+      self._minHeight = estimateCodeFenceHeight(localCode);
+      requestHeightMeasure();
+      syncWidgetHeightFromDom(self, view, root);
+      markCodeDirty();
+    }
+
+    function spliceLocalCode(offset, insert, removeLen) {
+      const off = Math.max(0, Math.min(offset | 0, localCode.length));
+      const rm = removeLen == null ? 0 : Math.max(0, removeLen | 0);
+      pushUndoSnapshot();
+      const next =
+        localCode.slice(0, off) + String(insert || '') + localCode.slice(off + rm);
+      applyLocalCode(next, off + String(insert || '').length);
+    }
+
+    function undoLocal() {
+      if (!undoStack.length) return false;
+      redoStack.push(localCode);
+      const prev = undoStack.pop();
+      const caret = Math.min(getCaretOffset(), prev.length);
+      applyLocalCode(prev, caret);
+      return true;
+    }
+
+    function redoLocal() {
+      if (!redoStack.length) return false;
+      undoStack.push(localCode);
+      const next = redoStack.pop();
+      const caret = Math.min(getCaretOffset(), next.length);
+      applyLocalCode(next, caret);
+      return true;
     }
 
     /**
-     * Electron 对 hljs 嵌套 span 的 ::selection 会回落系统深蓝。
-     * 聚焦编辑时压成单一文本节点，选区浅蓝色才能生效；失焦再上色。
+     * 聚焦编辑时用 <br>+ZWSP 结构保留尾部空行；失焦再上色。
      */
     function flattenToPlain() {
       if (plainEditing) return;
-      const text = readCodeText();
-      const pos = caretOffsetIn(codeInput);
-      codeInput.textContent = text;
-      setCaretOffsetIn(codeInput, Math.min(pos, text.length));
+      const pos = getCaretOffset();
       plainEditing = true;
+      renderFromLocalCode(pos);
     }
 
     function syncLineNumbers() {
@@ -282,8 +599,7 @@ class CodeFenceWidget extends BlockReplaceWidget {
       frame.classList.add('mda-cm-code-editing');
     }
 
-    // 初始：用源码直接上色（勿先 textContent 再读，避免多余换行）
-    codeInput.textContent = self.code || '';
+    // 初始：用 localCode 上色（勿先 textContent 再读，避免多余换行）
     paintHighlight(false);
     syncLineNumbers();
 
@@ -313,14 +629,24 @@ class CodeFenceWidget extends BlockReplaceWidget {
     });
     toolbar.insertBefore(langPicker, toolbar.firstChild);
 
-    function commitCodeEdit(keepCaret) {
-      const next = readCodeText();
+    function markCodeDirty() {
+      if (typeof opts.onCodeBlockDirty === 'function') {
+        opts.onCodeBlockDirty({ dirty: localCode !== self.code });
+      }
+    }
+
+    function syncCodeLayout() {
       syncLineNumbers();
-      self._minHeight = estimateCodeFenceHeight(next);
+      self._minHeight = estimateCodeFenceHeight(readCodeText());
       requestHeightMeasure();
       syncWidgetHeightFromDom(self, view, root);
+    }
+
+    function commitCodeEdit(keepCaret) {
+      const next = readCodeText();
+      syncCodeLayout();
       if (next === self.code) return;
-      const caret = keepCaret ? caretOffsetIn(codeInput) : 0;
+      const caret = keepCaret ? getCaretOffset() : 0;
       if (keepCaret) stashCodeEditResume(self.from, caret);
       self.code = next;
       if (typeof opts.onEditCodeBlock === 'function') {
@@ -333,14 +659,6 @@ class CodeFenceWidget extends BlockReplaceWidget {
           marker: self.marker,
         });
       }
-    }
-
-    function scheduleCommitCodeEdit(keepCaret, delayMs) {
-      if (flushTimer) clearTimeout(flushTimer);
-      flushTimer = setTimeout(function () {
-        flushTimer = null;
-        commitCodeEdit(!!keepCaret);
-      }, delayMs == null ? 0 : delayMs);
     }
 
     function requestHeightMeasure() {
@@ -413,51 +731,77 @@ class CodeFenceWidget extends BlockReplaceWidget {
       e.stopPropagation();
       enterEditMode();
     });
+    codeInput.addEventListener('beforeinput', function (e) {
+      if (composing || applyingProgrammatic) return;
+      if (e.inputType === 'historyUndo') {
+        e.preventDefault();
+        undoLocal();
+        return;
+      }
+      if (e.inputType === 'historyRedo') {
+        e.preventDefault();
+        redoLocal();
+        return;
+      }
+      if (e.inputType === 'insertFromPaste' || e.inputType === 'insertLineBreak') return;
+      pushUndoSnapshot();
+    });
     codeInput.addEventListener('compositionstart', function () {
       composing = true;
     });
     codeInput.addEventListener('compositionend', function () {
       composing = false;
-      syncLineNumbers();
-      requestHeightMeasure();
+      localCode = readDomCodeText();
+      syncCodeLayout();
+      markCodeDirty();
     });
     codeInput.addEventListener('input', function () {
-      if (composing) return;
-      syncLineNumbers();
-      self._minHeight = estimateCodeFenceHeight(readCodeText());
-      requestHeightMeasure();
-      syncWidgetHeightFromDom(self, view, root);
-      scheduleCommitCodeEdit(true, 200);
+      if (composing || applyingProgrammatic) return;
+      localCode = readDomCodeText();
+      syncCodeLayout();
+      markCodeDirty();
     });
     codeInput.addEventListener('keydown', function (e) {
       e.stopPropagation();
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && !e.altKey && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) redoLocal();
+        else undoLocal();
+        return;
+      }
+      if (mod && !e.altKey && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        redoLocal();
+        return;
+      }
       if (e.key !== 'Enter' || e.isComposing) return;
       e.preventDefault();
-      document.execCommand('insertText', false, '\n');
-      requestAnimationFrame(function () {
-        scheduleCommitCodeEdit(true, 0);
-        syncWidgetHeightFromDom(self, view, root);
-      });
+      spliceLocalCode(getCaretOffset(), '\n', 0);
     });
     codeInput.addEventListener('paste', function (e) {
       e.preventDefault();
       e.stopPropagation();
       const text = e.clipboardData && e.clipboardData.getData('text/plain');
       if (text == null) return;
-      document.execCommand('insertText', false, text);
+      spliceLocalCode(getCaretOffset(), text, 0);
     });
     codeInput.addEventListener('focus', function () {
       enterEditMode();
+      const session = { undo: undoLocal, redo: redoLocal };
+      activeCodeEditSession = session;
+      root._mdaCodeEditSession = session;
       // 等点击落点落稳后再压平，保留光标位置
       requestAnimationFrame(function () {
         flattenToPlain();
       });
     });
     codeInput.addEventListener('blur', function () {
-      if (flushTimer) {
-        clearTimeout(flushTimer);
-        flushTimer = null;
+      if (activeCodeEditSession === root._mdaCodeEditSession) {
+        activeCodeEditSession = null;
+        root._mdaCodeEditSession = null;
       }
+      if (root._mdaCodeTearingDown || !codeInput.isConnected) return;
       commitCodeEdit(false);
       plainEditing = false;
       paintHighlight(false);
@@ -502,13 +846,17 @@ class CodeFenceWidget extends BlockReplaceWidget {
         enterEditMode();
         flattenToPlain();
         codeInput.focus();
-        setCaretOffsetIn(codeInput, resumed.caret);
+        setCaretOffset(resumed.caret);
       });
     }
 
     return root;
   }
   destroy(dom) {
+    if (dom && dom._mdaCodeEditSession && activeCodeEditSession === dom._mdaCodeEditSession) {
+      activeCodeEditSession = null;
+    }
+    if (dom) dom._mdaCodeTearingDown = true;
     if (dom && dom._mdaCodeWidthRo) {
       dom._mdaCodeWidthRo.disconnect();
       dom._mdaCodeWidthRo = null;
@@ -523,6 +871,12 @@ module.exports = {
   buildLineNumbers: buildLineNumbers,
   estimateCodeFenceHeight: estimateCodeFenceHeight,
   MAX_CODE_WIDGET_HEIGHT: MAX_CODE_WIDGET_HEIGHT,
+  insertTextAtCaret: insertTextAtCaret,
   caretOffsetIn: caretOffsetIn,
   setCaretOffsetIn: setCaretOffsetIn,
+  readPlainCodeDom: readPlainCodeDom,
+  setPlainCodeDom: setPlainCodeDom,
+  highlightHtmlWithTrailingLines: highlightHtmlWithTrailingLines,
+  tryCodeBlockUndo: tryCodeBlockUndo,
+  tryCodeBlockRedo: tryCodeBlockRedo,
 };

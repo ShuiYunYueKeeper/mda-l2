@@ -134,7 +134,7 @@ MDA_EDITOR_RELEASE=1 npm run build:editor
 | 块手柄插入撤销光标 | 2026-08-05 | ✅ | `pinSelectionForHistory` 插入前钉选区 |
 | hide-mark 点击落点 | 2026-08-05 | ✅ | 标题/粗体/行内 code：左缘含开定界符、右缘含闭定界符 |
 | hide-mark 拖选剪贴板 | 2026-08-05 | ✅ | 成对定界符保留 Markdown；仅一侧则粘贴去掉定界符 |
-| 代码块内 Enter 换行 | 2026-08-05 | ⬜ | 高度随内容撑开；即时写回 CM6 并标脏 |
+| 代码块内 Enter 换行 | 2026-08-06 | ✅ | `localCode` 缓冲 + `<br>`/ZWSP 保留尾部空行；失焦写回；块内 Ctrl+Z 本地栈；撤销后 `onCodeBlockDirty` 重算标脏 |
 | M8 总验收 | | ⬜ | 含 SEL-1 未过不得总签 |
 
 ## 自动化

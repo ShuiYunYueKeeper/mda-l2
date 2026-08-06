@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MDA 3.0 编辑面入口（M8）。
  * 启用：`localStorage mda-cm6=1` 后重启 GUI。
  */
@@ -13,6 +13,7 @@ const { clearSelectedMermaidBlock } = require('./widgets/mermaid-selection');
 const { clearSelectedCodeBlock } = require('./widgets/code-selection');
 const { clearSelectedMathBlock } = require('./widgets/math-selection');
 const { serializeFencedCode } = require('./model/parse-fence');
+const { tryCodeBlockUndo, tryCodeBlockRedo } = require('./widgets/code');
 const { serializeMathBlock, serializeMathInline } = require('./model/parse-math');
 const { MODE_PREVIEW, MODE_SOURCE } = require('./mode');
 const { SearchSession } = require('./state/search-session');
@@ -55,6 +56,8 @@ module.exports = {
   clearSelectedCodeBlock: clearSelectedCodeBlock,
   clearSelectedMathBlock: clearSelectedMathBlock,
   serializeFencedCode: serializeFencedCode,
+  tryCodeBlockUndo: tryCodeBlockUndo,
+  tryCodeBlockRedo: tryCodeBlockRedo,
   serializeMathBlock: serializeMathBlock,
   serializeMathInline: serializeMathInline,
   MODE_PREVIEW: MODE_PREVIEW,

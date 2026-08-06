@@ -296,6 +296,7 @@ npm test               # jest（含覆盖率）
    - **空白行插入**：正文空白行 hover 左侧「+」→ 扁平插入菜单（图片…/表格/代码块/引用/流程图/分隔线）；光标落空白行显示占位提示。菜单 `empty-line-insert-menu.js`；插入 `insertSnippetAtBlankLine`（替换空行）。**块手柄菜单插入**前须 `pinSelectionForHistory`（`addToHistory: false`），避免 undo 光标回到文档头。
    - **删除→撤销**：图片 / Mermaid / 代码 / 表 / 引用 / 高亮 / 分割线（及公式）删前须钉 CM6 选区到块首（钉选区 `Transaction.addToHistory.of(false)`）；删除**不清**内存选中态；`docChanged` 后 sync plugin 按 `source` reconcile 并重贴 `.mda-cm-block-selected` / 媒体蓝框。实现：`image-selection` / `mermaid-selection` / `block-selection`。
    - **悬停移出关闭**：语言子菜单、块手柄主/子菜单、块手柄显隐等共用 `HOVER_LEAVE_MS = 200`（`widget-common.js`），勿各自散落不同延迟。
+   - **代码块内 Enter 编辑**：编辑期用 `localCode` 缓冲 + `setPlainCodeDom`（`<br>`+ZWSP 保留尾部空行）；**失焦**才 `onEditCodeBlock` 写回 CM6；块内 Ctrl+Z/Y 走本地 undo 栈（`tryCodeBlockUndo`）；`onCodeBlockDirty({ dirty })` 在 `localCode === self.code` 时须 `syncDirtyFromEditor`；`serializeFencedCode` 仅去首部空行、保留尾部换行；保存前 `flushActiveWidgetEditsBeforeSave` blur 活跃代码块。
 5. **【GUI·Electron】data-line 映射**：preload 仅对 `level===0` 的块级 token 注入 `data-line = map[0]+1`，其值等于段落 `startLine`，GUI 据此做「段落↔批注」双向定位与色条。
 6. **【GUI·Electron】运行前提**：preload `require('../core')` 需 `sandbox:false`；GUI 运行前必须 `npm run build`（否则 `dist/core` 不存在）。
 7. **【数据校验】枚举守卫**：add/edit/scan 入口用 `isAnnotationLevel/isAnnotationStatus` 校验，非法值报错退出而非落盘。
