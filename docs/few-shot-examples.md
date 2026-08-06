@@ -310,7 +310,8 @@ clipboard.write({ text, html });
 
 **规则**：
 - hide-mark + `atomicRanges` 会使点击落点落在可见内容边缘内侧；须经 `caret-syntax-adjust` 校准到定界符外侧（左缘→开标记左侧，右缘→闭标记右侧）。
-- 拖选结束后对 `anchor`/`head` 分别校准；复制/剪切经 `syntax-clipboard`：**开闭定界符均完整包含**时保留 Markdown，**仅一侧**时去掉定界符字符。
+- 拖选结束后对 `anchor`/`head` 分别校准；复制/剪切经 `syntax-clipboard`：**成对**定界符（`**`、`` ` ``）均完整包含时保留 Markdown，**仅一侧**时去掉定界符字符。
+- **标题 ATX（`##`）**：预览态不可见，复制**一律去掉** `#{1,6} `；贴入标题行时 `normalizePasteForHeading` 再去掉剪贴板各行首部 ATX，避免 `## ##` 叠字。
 - `markRanges`/`contentRange` 的 `text` 参数必须是**全文**；Lezer 节点须适配 `{ from, to, type: node.name }`。
 
 ### ✅ 正确
@@ -318,12 +319,14 @@ clipboard.write({ text, html });
 ```javascript
 const content = rule.contentRange(adapted, doc); // 全文 doc
 // 选区 [0,5) 仅 **MD → 剪贴板 "MD"；[0,7) 完整 **MDA** → 保留
+// 标题行全选仍复制 "核心功能"（无 ##）；贴回标题行时再去 ATX
 ```
 
 ### ❌ 错误
 
 - ❌ `rule.contentRange(node, doc.slice(node.from, node.to))` → 行内 code 的 `markRanges` 返回空，剪贴板校准失效。
 - ❌ 拖选仅含开 `**` 仍粘贴 `**MDA` → 应去掉未成对的定界符。
+- ❌ 标题复制带 `##` 再贴回标题行 → 叠成 `## ##`；须在 copy 去 ATX + paste 二次剥离。
 
 ---
 

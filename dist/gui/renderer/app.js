@@ -133,6 +133,7 @@
   function clearCm6DocumentUi() {
     document.body.classList.remove('mda-cm6-active');
     document.body.classList.remove('mda-cm6-doc-open');
+    document.body.classList.remove('mda-cm6-mode-preview', 'mda-cm6-mode-source');
     if (cm6HostEl) cm6HostEl.classList.add('hidden');
   }
 
@@ -248,6 +249,10 @@
       return;
     }
     document.body.classList.add('mda-cm6-active');
+    document.body.classList.remove('mda-cm6-mode-preview', 'mda-cm6-mode-source');
+    document.body.classList.add(
+      editorVisible ? 'mda-cm6-mode-source' : 'mda-cm6-mode-preview'
+    );
     var docOpen = docState === 'open' || docState === 'untitled';
     document.body.classList.toggle('mda-cm6-doc-open', docOpen);
     if (cm6HostEl) cm6HostEl.classList.toggle('hidden', !docOpen);
@@ -304,6 +309,10 @@
         },
         onModeChange: function (next) {
           editorVisible = next === (window.MDAEditor.MODE_SOURCE || 'source');
+          document.body.classList.remove('mda-cm6-mode-preview', 'mda-cm6-mode-source');
+          document.body.classList.add(
+            editorVisible ? 'mda-cm6-mode-source' : 'mda-cm6-mode-preview'
+          );
           updateToolbar();
         },
         t: uiT,

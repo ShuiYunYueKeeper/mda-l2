@@ -7,6 +7,8 @@
 const { syntaxTree } = require('@codemirror/language');
 const { SYNTAX_RULES } = require('./model/syntax-rules');
 
+const ATX_LINE_RE = /^( {0,3})(#{1,6})(\s*)(.*)$/;
+
 /**
  * @param {import('@lezer/common').SyntaxNode} node
  */
@@ -105,21 +107,47 @@ function adjustCaretForHiddenMarks(state, pos) {
 }
 
 /**
+ * 标题行高导致落点偶发落到下一行 ATX 前缀；拖选另一端在上一行正文时钳回上一行末尾。
+ * @param {import('@codemirror/state').EditorState} state
+ * @param {number} pos
+ * @param {number} other
+ */
+function clampSelectionBleed(state, pos, other) {
+  if (pos == null || pos < 0) return pos;
+  const doc = state.doc;
+  if (pos > doc.length) return doc.length;
+  const line = doc.lineAt(pos);
+  const m = ATX_LINE_RE.exec(line.text);
+  if (!m) return pos;
+  const prefixEnd = line.from + m[1].length + m[2].length + m[3].length;
+  if (pos > prefixEnd) return pos;
+  const otherLine = doc.lineAt(other);
+  if (otherLine.number < line.number && line.number > 1) {
+    return doc.line(line.number - 1).to;
+  }
+  return pos;
+}
+
+/**
  * 拖选区间两端分别做 hide-mark 边缘校准。
  * @param {import('@codemirror/state').EditorState} state
  * @param {number} anchor
  * @param {number} head
  */
 function adjustSelectionForHiddenMarks(state, anchor, head) {
+  const a = clampSelectionBleed(state, anchor, head);
+  const h = clampSelectionBleed(state, head, anchor);
   return {
-    anchor: adjustCaretForHiddenMarks(state, anchor),
-    head: adjustCaretForHiddenMarks(state, head),
+    anchor: adjustCaretForHiddenMarks(state, a),
+    head: adjustCaretForHiddenMarks(state, h),
   };
 }
 
 module.exports = {
+  ATX_LINE_RE: ATX_LINE_RE,
   findLeadingMark: findLeadingMark,
   findTrailingMark: findTrailingMark,
+  clampSelectionBleed: clampSelectionBleed,
   adjustCaretForHiddenMarks: adjustCaretForHiddenMarks,
   adjustSelectionForHiddenMarks: adjustSelectionForHiddenMarks,
 };

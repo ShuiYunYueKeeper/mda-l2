@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 紧致选区：只盖实际字符
  */
 import * as path from 'path';
@@ -6,6 +6,8 @@ import * as path from 'path';
 const {
   tightMarkersForRange,
   createProseSelectionExtension,
+  createSourceSelectionExtension,
+  charCoordsAt,
 } = require(path.join(__dirname, '../../../src/gui/renderer/editor/view/tight-selection.js'));
 
 describe('tight-selection', () => {
@@ -13,6 +15,23 @@ describe('tight-selection', () => {
     const ext = createProseSelectionExtension();
     expect(Array.isArray(ext)).toBe(true);
     expect(ext.length).toBe(2);
+  });
+
+  test('createSourceSelectionExtension 返回源码选区 theme', () => {
+    const ext = createSourceSelectionExtension();
+    expect(ext).toBeTruthy();
+  });
+
+  test('charCoordsAt 合并左右落点覆盖整字宽', () => {
+    const view: any = {
+      coordsAtPos: (pos: number, side: number) => {
+        if (side === 1) return { left: 100 + pos * 10, right: 100 + pos * 10 + 4, top: 0, bottom: 20 };
+        return { left: 100 + (pos - 1) * 10, right: 100 + (pos - 1) * 10 + 10, top: 0, bottom: 20 };
+      },
+    };
+    const c = charCoordsAt(view, 3);
+    expect(c).not.toBeNull();
+    expect(c!.right - c!.left).toBe(10);
   });
 
   test('tightMarkersForRange：空选区返回 []', () => {
@@ -37,18 +56,52 @@ describe('tight-selection', () => {
         scrollTop: 0,
         clientWidth: 800,
       },
-      coordsAtPos: (pos: number) => ({
-        left: 100 + pos * 10,
-        right: 100 + pos * 10 + 10,
-        top: 20,
-        bottom: 40,
-      }),
+      coordsAtPos: (pos: number, side: number) => {
+        if (side === 1) {
+          const left = 100 + pos * 10;
+          return { left: left, right: left, top: 20, bottom: 40 };
+        }
+        const right = 100 + pos * 10;
+        return { left: right, right: right, top: 20, bottom: 40 };
+      },
     };
 
     const markers = tightMarkersForRange(view, { from: 2, to: 5 });
     expect(markers.length).toBe(1);
     expect(markers[0].width).toBe(30);
     expect(markers[0].width).toBeLessThan(200);
+  });
+
+  test('tightMarkersForRange：半开区间末字计入宽度', () => {
+    const view: any = {
+      viewport: { from: 0, to: 100 },
+      textDirection: 0,
+      scaleX: 1,
+      scaleY: 1,
+      state: {
+        doc: {
+          lineAt: () => ({ from: 0, to: 20, number: 1 }),
+        },
+      },
+      scrollDOM: {
+        getBoundingClientRect: () => ({ left: 0, right: 800, top: 0, bottom: 600 }),
+        scrollLeft: 0,
+        scrollTop: 0,
+        clientWidth: 800,
+      },
+      coordsAtPos: (pos: number, side: number) => {
+        if (side === 1) {
+          const left = 100 + pos * 10;
+          return { left: left, right: left, top: 20, bottom: 40 };
+        }
+        const right = 100 + pos * 10;
+        return { left: right, right: right, top: 20, bottom: 40 };
+      },
+    };
+
+    const markers = tightMarkersForRange(view, { from: 2, to: 6 });
+    expect(markers.length).toBe(1);
+    expect(markers[0].width).toBe(40);
   });
 
   test('layer / mark class 不得含空格（否则 classList.add 崩溃）', () => {

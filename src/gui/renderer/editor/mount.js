@@ -22,7 +22,6 @@ const {
   reconfigureMode,
 } = require('./mode');
 const { createClickDebugExtension } = require('./click-debug');
-const { createProseSelectionExtension } = require('./view/tight-selection');
 const { syncSelectedImageFrameClass } = require('./widgets/image-selection');
 const { syncSelectedMermaidFrameClass } = require('./widgets/mermaid-selection');
 const { refreshBlockToolbars } = require('./widgets/widget-common');
@@ -72,9 +71,7 @@ function createEditor(opts) {
     const list = [
       history(),
       drawSelection(),
-      // 正文：原生选区透明 + 自绘紧致层（只盖字符）；默认 CM6 选区层会铺行宽
     ]
-      .concat(createProseSelectionExtension())
       .concat([
         // 不用 highlightActiveLine：整行浅底会像「选中了一整行」
         markdown({ extensions: GFM }),

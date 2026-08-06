@@ -1,11 +1,11 @@
-﻿/**
+/**
  * 预览模式剪贴板：定界符成对完整时保留 Markdown；仅一侧时复制/粘贴去掉定界符。
  */
 'use strict';
 
 const { syntaxTree } = require('@codemirror/language');
 const { SYNTAX_RULES } = require('./model/syntax-rules');
-const { findLeadingMark, findTrailingMark } = require('./caret-syntax-adjust');
+const { findLeadingMark, findTrailingMark, adjustSelectionForHiddenMarks } = require('./caret-syntax-adjust');
 
 /**
  * @param {import('@lezer/common').SyntaxNode} node
@@ -81,8 +81,7 @@ function collectDelimiterExclusions(state, from, to) {
         return;
       }
 
-      // 仅前置标记（标题 ##）：整段标题选中才保留
-      if (f <= leading.from && t >= node.to) return;
+      // 标题仅前置 ATX（##）：预览态不可见，复制一律去掉，避免贴回标题行叠成 ## ##
       if (f < leading.to && t > leading.from) {
         exclude.push({ from: Math.max(f, leading.from), to: Math.min(t, leading.to) });
       }
@@ -127,8 +126,35 @@ function sliceDocForClipboard(state, from, to) {
   return {
     from: f,
     to: t,
-    text: sliceDocSkippingRanges(doc, f, t, exclusions),
+    text: normalizeClipboardAtx(sliceDocSkippingRanges(doc, f, t, exclusions)),
   };
+}
+
+/**
+ * 预览剪贴板兜底：去掉各行首部 ATX，以及紧贴正文末尾的孤儿 #（拖选落点偏移时偶发）。
+ * @param {string} text
+ */
+function normalizeClipboardAtx(text) {
+  if (text == null || text === '') return text;
+  return String(text)
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map(function (ln) {
+      return ln.replace(/^#{1,6}\s+/, '').replace(/(\S)#{1,6}$/, '$1');
+    })
+    .join('\n');
+}
+
+/**
+ * @param {import('@codemirror/state').EditorState} state
+ */
+function sliceSelectionForClipboard(state) {
+  const sel = state.selection.main;
+  if (sel.empty) return null;
+  const adjusted = adjustSelectionForHiddenMarks(state, sel.anchor, sel.head);
+  const from = Math.min(adjusted.anchor, adjusted.head);
+  const to = Math.max(adjusted.anchor, adjusted.head);
+  return sliceDocForClipboard(state, from, to);
 }
 
 /**
@@ -137,9 +163,8 @@ function sliceDocForClipboard(state, from, to) {
  */
 function handleMarkdownSyntaxCopy(event, view) {
   if (!event || !event.clipboardData) return false;
-  const sel = view.state.selection.main;
-  if (sel.empty) return false;
-  const slice = sliceDocForClipboard(view.state, sel.from, sel.to);
+  const slice = sliceSelectionForClipboard(view.state);
+  if (!slice) return false;
   event.clipboardData.setData('text/plain', slice.text);
   event.preventDefault();
   return true;
@@ -151,9 +176,8 @@ function handleMarkdownSyntaxCopy(event, view) {
  */
 function handleMarkdownSyntaxCut(event, view) {
   if (!event || !event.clipboardData) return false;
-  const sel = view.state.selection.main;
-  if (sel.empty) return false;
-  const slice = sliceDocForClipboard(view.state, sel.from, sel.to);
+  const slice = sliceSelectionForClipboard(view.state);
+  if (!slice) return false;
   event.clipboardData.setData('text/plain', slice.text);
   event.preventDefault();
   view.dispatch({
@@ -163,10 +187,47 @@ function handleMarkdownSyntaxCut(event, view) {
   return true;
 }
 
+/**
+ * 贴入标题行时去掉剪贴板各行首部 ATX，避免与行内已有 ## 叠成 ## ##。
+ * @param {import('@codemirror/state').EditorState} state
+ * @param {number} pos
+ * @param {string} text
+ */
+function normalizePasteForHeading(state, pos, text) {
+  if (text == null || text === '') return text;
+  const line = state.doc.lineAt(pos);
+  if (!/^(#{1,6})\s/.test(line.text)) return text;
+  return normalizeClipboardAtx(text);
+}
+
+/**
+ * @param {ClipboardEvent} event
+ * @param {import('@codemirror/view').EditorView} view
+ */
+function handleMarkdownSyntaxPaste(event, view) {
+  if (!event || !event.clipboardData) return false;
+  const plain = event.clipboardData.getData('text/plain');
+  if (plain == null || plain === '') return false;
+  const sel = view.state.selection.main;
+  const pos = Math.min(sel.from, sel.to);
+  const next = normalizePasteForHeading(view.state, pos, plain);
+  if (next === plain) return false;
+  event.preventDefault();
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert: next },
+    userEvent: 'input.paste',
+  });
+  return true;
+}
+
 module.exports = {
   collectDelimiterExclusions: collectDelimiterExclusions,
   sliceDocSkippingRanges: sliceDocSkippingRanges,
   sliceDocForClipboard: sliceDocForClipboard,
+  normalizeClipboardAtx: normalizeClipboardAtx,
+  sliceSelectionForClipboard: sliceSelectionForClipboard,
+  normalizePasteForHeading: normalizePasteForHeading,
   handleMarkdownSyntaxCopy: handleMarkdownSyntaxCopy,
   handleMarkdownSyntaxCut: handleMarkdownSyntaxCut,
+  handleMarkdownSyntaxPaste: handleMarkdownSyntaxPaste,
 };

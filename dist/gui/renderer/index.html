@@ -1147,9 +1147,9 @@
     }
     .mda-cm6-host .mda-cm-em { font-style: italic; }
     .mda-cm6-host .mda-cm-strike { text-decoration: line-through; opacity: 0.85; }
-    /* 行内 code：灰底胶囊 + 细边框，勿接近选区蓝，避免被当成「已选中」 */
+    /* 行内 code：半透明灰底，选区蓝可从下层透出（勿用不透明底盖住 tight-sel） */
     .mda-cm6-host .mda-cm-code {
-      background: #eef0f3;
+      background: rgba(238, 240, 243, 0.45);
       border: 1px solid var(--border-light);
       border-radius: 4px;
       padding: 1px 5px;
@@ -1161,31 +1161,41 @@
       box-sizing: border-box;
     }
     [data-theme="dark"] .mda-cm6-host .mda-cm-code {
-      background: rgba(110, 118, 129, 0.28);
+      background: rgba(110, 118, 129, 0.22);
       border-color: var(--border);
     }
     .mda-cm6-host .mda-cm-link { color: var(--link); text-decoration: none; cursor: pointer; }
     .mda-cm6-host .mda-cm-link:hover { text-decoration: underline; }
-    /* 正文选区：藏默认 CM6 层 + 原生透明；只用无空格单 class 的紧致层 */
-    .mda-cm6-host .cm-selectionLayer {
+    /* 预览模式：藏默认 CM6 层 + 原生透明；只用紧致自绘层 */
+    body.mda-cm6-mode-preview .mda-cm6-host .cm-selectionLayer {
       display: none !important;
     }
-    .mda-cm6-host .mda-cm-tight-sel-layer {
+    body.mda-cm6-mode-preview .mda-cm6-host .mda-cm-tight-sel-layer {
       display: block !important;
       visibility: visible !important;
       pointer-events: none;
     }
-    .mda-cm6-host .mda-cm-tight-sel-layer .mda-cm-tight-sel {
+    body.mda-cm6-mode-preview .mda-cm6-host .mda-cm-tight-sel-layer .mda-cm-tight-sel {
       display: block !important;
       opacity: 1 !important;
       background: var(--table-text-sel) !important;
     }
-    .mda-cm6-host .cm-content ::selection,
-    .mda-cm6-host .cm-content *::selection,
-    .mda-cm6-host .cm-line::selection,
-    .mda-cm6-host .cm-line *::selection {
+    body.mda-cm6-mode-preview .mda-cm6-host .cm-content ::selection,
+    body.mda-cm6-mode-preview .mda-cm6-host .cm-content *::selection,
+    body.mda-cm6-mode-preview .mda-cm6-host .cm-line::selection,
+    body.mda-cm6-mode-preview .mda-cm6-host .cm-line *::selection {
       background-color: transparent !important;
       color: inherit !important;
+    }
+    /* 源码模式：CM6 默认选区层，隐藏紧致层 */
+    body.mda-cm6-mode-source .mda-cm6-host .mda-cm-tight-sel-layer {
+      display: none !important;
+    }
+    body.mda-cm6-mode-source .mda-cm6-host .cm-selectionLayer {
+      display: block !important;
+    }
+    body.mda-cm6-mode-source .mda-cm6-host .cm-selectionBackground {
+      background-color: var(--table-text-sel) !important;
     }
     .mda-cm6-host .cm-activeLine,
     .mda-cm6-host .cm-line.cm-activeLine {

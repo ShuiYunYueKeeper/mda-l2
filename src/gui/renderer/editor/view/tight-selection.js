@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 正文选区：原生 ::selection 透明 + 自绘紧致层（只盖实际字符）。
  *
  * 注意：layer({ class }) / classList.add 只能是单个 class token，不能含空格，
@@ -24,6 +24,25 @@ function getBase(view) {
     left: left - view.scrollDOM.scrollLeft * view.scaleX,
     top: rect.top - view.scrollDOM.scrollTop * view.scaleY,
   };
+}
+
+/**
+ * 文档区间 [from, from+1) 对应字符的视口矩形（合并左右落点，避免末字缺右缘）。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} from
+ */
+function charCoordsAt(view, from) {
+  const a = view.coordsAtPos(from, 1);
+  const b = view.coordsAtPos(from + 1, -1);
+  if (a && b) {
+    return {
+      left: Math.min(a.left, b.left),
+      right: Math.max(a.right, b.right),
+      top: Math.min(a.top, b.top),
+      bottom: Math.max(a.bottom, b.bottom),
+    };
+  }
+  return a || b || null;
 }
 
 /**
@@ -75,18 +94,20 @@ function tightMarkersForRange(view, range) {
       resetRow();
       return;
     }
-    const last = Math.max(rowFrom, endPos - 1);
-    const cLast = view.coordsAtPos(last, -1) || view.coordsAtPos(last, 1);
+    const lastChar = endPos - 1;
+    if (lastChar >= rowFrom) {
+      const cLast = charCoordsAt(view, lastChar);
+      if (cLast) {
+        rowRight = Math.max(rowRight, cLast.right);
+        rowTop = Math.min(rowTop, cLast.top);
+        rowBottom = Math.max(rowBottom, cLast.bottom);
+        rowLeft = Math.min(rowLeft, cLast.left);
+      }
+    }
     let right = rowRight;
     let top = rowTop;
     let bottom = rowBottom;
     let left = rowLeft;
-    if (cLast) {
-      right = Math.max(right, cLast.right);
-      top = Math.min(top, cLast.top);
-      bottom = Math.max(bottom, cLast.bottom);
-      left = Math.min(left, cLast.left);
-    }
     if (right > left && bottom > top) {
       markers.push(
         new RectangleMarker(TIGHT_MARK_CLASS, left - base.left, top - base.top, right - left, bottom - top)
@@ -96,7 +117,7 @@ function tightMarkersForRange(view, range) {
   }
 
   for (let pos = from; pos < to; pos++) {
-    const c = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+    const c = charCoordsAt(view, pos);
     if (!c) continue;
     if (rowTop == null) {
       rowFrom = pos;
@@ -193,11 +214,28 @@ function createProseSelectionExtension() {
   return [createTightSelectionLayer(), createProseSelectionTheme()];
 }
 
+/** 源码模式：CM6 默认选区层，不用紧致自绘层 */
+function createSourceSelectionExtension() {
+  return EditorView.theme({
+    ['.' + TIGHT_LAYER_CLASS]: {
+      display: 'none !important',
+    },
+    '.cm-selectionLayer': {
+      display: 'block !important',
+    },
+    '.cm-selectionBackground': {
+      backgroundColor: 'var(--table-text-sel) !important',
+    },
+  });
+}
+
 module.exports = {
   createProseSelectionExtension: createProseSelectionExtension,
+  createSourceSelectionExtension: createSourceSelectionExtension,
   createTightSelectionExtension: createProseSelectionExtension,
   createTightSelectionLayer: createTightSelectionLayer,
   tightMarkersForRange: tightMarkersForRange,
+  charCoordsAt: charCoordsAt,
   TIGHT_LAYER_CLASS: TIGHT_LAYER_CLASS,
   TIGHT_MARK_CLASS: TIGHT_MARK_CLASS,
   visualSegments: function () {

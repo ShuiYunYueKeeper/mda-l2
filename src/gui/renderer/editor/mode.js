@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 双模式 compartment：preview（装饰开）/ source（装饰关，行号开）。
  */
 'use strict';
@@ -9,6 +9,10 @@ const { syntaxHighlighting, defaultHighlightStyle } = require('@codemirror/langu
 const { livePreview } = require('./live-preview');
 const { saveModeSwitchState, restoreModeSwitchState } = require('./state/mode-switch');
 const { flushAllTableWidgets } = require('./widgets/table');
+const {
+  createProseSelectionExtension,
+  createSourceSelectionExtension,
+} = require('./view/tight-selection');
 
 const MODE_PREVIEW = 'preview';
 const MODE_SOURCE = 'source';
@@ -19,7 +23,16 @@ function createModeCompartments() {
     lineNumbersComp: new Compartment(),
     syntaxHighlightComp: new Compartment(),
     lineWrappingComp: new Compartment(),
+    selectionComp: new Compartment(),
   };
+}
+
+/**
+ * @param {'preview'|'source'} mode
+ */
+function selectionExtensionsForMode(mode) {
+  if (mode === MODE_SOURCE) return createSourceSelectionExtension();
+  return createProseSelectionExtension();
 }
 
 /**
@@ -28,8 +41,10 @@ function createModeCompartments() {
  * @param {object} [liveOpts]
  */
 function extensionsForMode(mode, comps, liveOpts) {
+  const selection = comps.selectionComp.of(selectionExtensionsForMode(mode));
   if (mode === MODE_SOURCE) {
     return [
+      selection,
       comps.livePreviewComp.of([]),
       comps.lineNumbersComp.of(lineNumbers()),
       comps.syntaxHighlightComp.of(syntaxHighlighting(defaultHighlightStyle)),
@@ -37,6 +52,7 @@ function extensionsForMode(mode, comps, liveOpts) {
     ];
   }
   return [
+    selection,
     comps.livePreviewComp.of(livePreview(liveOpts || {})),
     comps.lineNumbersComp.of([]),
     comps.syntaxHighlightComp.of([]),
@@ -55,6 +71,7 @@ function reconfigureMode(view, mode, comps, liveOpts) {
   const snap = saveModeSwitchState(view);
   view.dispatch({
     effects: [
+      comps.selectionComp.reconfigure(selectionExtensionsForMode(mode)),
       comps.livePreviewComp.reconfigure(
         mode === MODE_SOURCE ? [] : livePreview(liveOpts || {})
       ),
@@ -72,6 +89,7 @@ module.exports = {
   MODE_PREVIEW: MODE_PREVIEW,
   MODE_SOURCE: MODE_SOURCE,
   createModeCompartments: createModeCompartments,
+  selectionExtensionsForMode: selectionExtensionsForMode,
   extensionsForMode: extensionsForMode,
   reconfigureMode: reconfigureMode,
 };

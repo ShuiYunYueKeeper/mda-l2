@@ -311,6 +311,8 @@ function createClickCollapseExtension() {
       const moved =
         start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
       if (moved) {
+        // 同步校准一次，避免 mouseup 后立即 Ctrl+C 时 rAF 尚未执行（非必现 ## 重复）
+        adjustDragSelection(view);
         requestAnimationFrame(function () {
           adjustDragSelection(view);
         });

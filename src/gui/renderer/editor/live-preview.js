@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-B/C 实时预览视图层：语法隐藏（D15 = hide-mark 零宽 replace widget + atomicRanges）。
  */
 'use strict';
@@ -72,6 +72,7 @@ const {
 const {
   handleMarkdownSyntaxCopy,
   handleMarkdownSyntaxCut,
+  handleMarkdownSyntaxPaste,
 } = require('./syntax-clipboard');
 const { handlePreviewHeadingEnter } = require('./heading-enter');
 const { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require('./widgets/block-widget-base');
@@ -1147,6 +1148,7 @@ function livePreview(opts) {
       EditorView.domEventHandlers({
         paste: function (event, view) {
           if (createTableMarkdownPasteHandler()(event, view)) return true;
+          if (handleMarkdownSyntaxPaste(event, view)) return true;
           return createImagePasteHandler(liveOpts)(event, view);
         },
         copy: handleMarkdownSyntaxCopy,

@@ -53953,6 +53953,7 @@ var MDAEditorBundle = (() => {
       "use strict";
       var { syntaxTree } = require_dist7();
       var { SYNTAX_RULES } = require_syntax_rules();
+      var ATX_LINE_RE = /^( {0,3})(#{1,6})(\s*)(.*)$/;
       function adaptSyntaxNode(node) {
         return { from: node.from, to: node.to, type: node.name };
       }
@@ -54019,15 +54020,34 @@ var MDAEditorBundle = (() => {
         if (snapRight != null) return snapRight;
         return pos;
       }
+      function clampSelectionBleed(state, pos, other) {
+        if (pos == null || pos < 0) return pos;
+        const doc = state.doc;
+        if (pos > doc.length) return doc.length;
+        const line = doc.lineAt(pos);
+        const m = ATX_LINE_RE.exec(line.text);
+        if (!m) return pos;
+        const prefixEnd = line.from + m[1].length + m[2].length + m[3].length;
+        if (pos > prefixEnd) return pos;
+        const otherLine = doc.lineAt(other);
+        if (otherLine.number < line.number && line.number > 1) {
+          return doc.line(line.number - 1).to;
+        }
+        return pos;
+      }
       function adjustSelectionForHiddenMarks(state, anchor, head) {
+        const a = clampSelectionBleed(state, anchor, head);
+        const h = clampSelectionBleed(state, head, anchor);
         return {
-          anchor: adjustCaretForHiddenMarks(state, anchor),
-          head: adjustCaretForHiddenMarks(state, head)
+          anchor: adjustCaretForHiddenMarks(state, a),
+          head: adjustCaretForHiddenMarks(state, h)
         };
       }
       module.exports = {
+        ATX_LINE_RE,
         findLeadingMark,
         findTrailingMark,
+        clampSelectionBleed,
         adjustCaretForHiddenMarks,
         adjustSelectionForHiddenMarks
       };
@@ -54252,6 +54272,7 @@ var MDAEditorBundle = (() => {
             const dy = event.clientY - start.y;
             const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
             if (moved) {
+              adjustDragSelection(view);
               requestAnimationFrame(function() {
                 adjustDragSelection(view);
               });
@@ -55606,7 +55627,7 @@ var MDAEditorBundle = (() => {
       "use strict";
       var { syntaxTree } = require_dist7();
       var { SYNTAX_RULES } = require_syntax_rules();
-      var { findLeadingMark, findTrailingMark } = require_caret_syntax_adjust();
+      var { findLeadingMark, findTrailingMark, adjustSelectionForHiddenMarks } = require_caret_syntax_adjust();
       function adaptSyntaxNode(node) {
         return { from: node.from, to: node.to, type: node.name };
       }
@@ -55659,7 +55680,6 @@ var MDAEditorBundle = (() => {
               }
               return;
             }
-            if (f <= leading.from && t >= node.to) return;
             if (f < leading.to && t > leading.from) {
               exclude.push({ from: Math.max(f, leading.from), to: Math.min(t, leading.to) });
             }
@@ -55690,23 +55710,35 @@ var MDAEditorBundle = (() => {
         return {
           from: f,
           to: t,
-          text: sliceDocSkippingRanges(doc, f, t, exclusions)
+          text: normalizeClipboardAtx(sliceDocSkippingRanges(doc, f, t, exclusions))
         };
+      }
+      function normalizeClipboardAtx(text) {
+        if (text == null || text === "") return text;
+        return String(text).replace(/\r\n/g, "\n").split("\n").map(function(ln) {
+          return ln.replace(/^#{1,6}\s+/, "").replace(/(\S)#{1,6}$/, "$1");
+        }).join("\n");
+      }
+      function sliceSelectionForClipboard(state) {
+        const sel = state.selection.main;
+        if (sel.empty) return null;
+        const adjusted = adjustSelectionForHiddenMarks(state, sel.anchor, sel.head);
+        const from = Math.min(adjusted.anchor, adjusted.head);
+        const to = Math.max(adjusted.anchor, adjusted.head);
+        return sliceDocForClipboard(state, from, to);
       }
       function handleMarkdownSyntaxCopy(event, view) {
         if (!event || !event.clipboardData) return false;
-        const sel = view.state.selection.main;
-        if (sel.empty) return false;
-        const slice = sliceDocForClipboard(view.state, sel.from, sel.to);
+        const slice = sliceSelectionForClipboard(view.state);
+        if (!slice) return false;
         event.clipboardData.setData("text/plain", slice.text);
         event.preventDefault();
         return true;
       }
       function handleMarkdownSyntaxCut(event, view) {
         if (!event || !event.clipboardData) return false;
-        const sel = view.state.selection.main;
-        if (sel.empty) return false;
-        const slice = sliceDocForClipboard(view.state, sel.from, sel.to);
+        const slice = sliceSelectionForClipboard(view.state);
+        if (!slice) return false;
         event.clipboardData.setData("text/plain", slice.text);
         event.preventDefault();
         view.dispatch({
@@ -55715,12 +55747,37 @@ var MDAEditorBundle = (() => {
         });
         return true;
       }
+      function normalizePasteForHeading(state, pos, text) {
+        if (text == null || text === "") return text;
+        const line = state.doc.lineAt(pos);
+        if (!/^(#{1,6})\s/.test(line.text)) return text;
+        return normalizeClipboardAtx(text);
+      }
+      function handleMarkdownSyntaxPaste(event, view) {
+        if (!event || !event.clipboardData) return false;
+        const plain = event.clipboardData.getData("text/plain");
+        if (plain == null || plain === "") return false;
+        const sel = view.state.selection.main;
+        const pos = Math.min(sel.from, sel.to);
+        const next = normalizePasteForHeading(view.state, pos, plain);
+        if (next === plain) return false;
+        event.preventDefault();
+        view.dispatch({
+          changes: { from: sel.from, to: sel.to, insert: next },
+          userEvent: "input.paste"
+        });
+        return true;
+      }
       module.exports = {
         collectDelimiterExclusions,
         sliceDocSkippingRanges,
         sliceDocForClipboard,
+        normalizeClipboardAtx,
+        sliceSelectionForClipboard,
+        normalizePasteForHeading,
         handleMarkdownSyntaxCopy,
-        handleMarkdownSyntaxCut
+        handleMarkdownSyntaxCut,
+        handleMarkdownSyntaxPaste
       };
     }
   });
@@ -55840,7 +55897,8 @@ var MDAEditorBundle = (() => {
       } = require_image_shortcuts();
       var {
         handleMarkdownSyntaxCopy,
-        handleMarkdownSyntaxCut
+        handleMarkdownSyntaxCut,
+        handleMarkdownSyntaxPaste
       } = require_syntax_clipboard();
       var { handlePreviewHeadingEnter } = require_heading_enter();
       var { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require_block_widget_base();
@@ -56736,6 +56794,7 @@ var MDAEditorBundle = (() => {
           EditorView.domEventHandlers({
             paste: function(event, view) {
               if (createTableMarkdownPasteHandler()(event, view)) return true;
+              if (handleMarkdownSyntaxPaste(event, view)) return true;
               return createImagePasteHandler(liveOpts)(event, view);
             },
             copy: handleMarkdownSyntaxCopy,
@@ -56832,6 +56891,219 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/view/tight-selection.js
+  var require_tight_selection = __commonJS({
+    "src/gui/renderer/editor/view/tight-selection.js"(exports, module) {
+      "use strict";
+      var { Prec } = require_dist2();
+      var { EditorView, layer, RectangleMarker, Direction } = require_dist4();
+      var TIGHT_LAYER_CLASS = "mda-cm-tight-sel-layer";
+      var TIGHT_MARK_CLASS = "mda-cm-tight-sel";
+      function getBase(view) {
+        const rect = view.scrollDOM.getBoundingClientRect();
+        const left = view.textDirection === Direction.LTR ? rect.left : rect.right - view.scrollDOM.clientWidth * view.scaleX;
+        return {
+          left: left - view.scrollDOM.scrollLeft * view.scaleX,
+          top: rect.top - view.scrollDOM.scrollTop * view.scaleY
+        };
+      }
+      function charCoordsAt(view, from) {
+        const a = view.coordsAtPos(from, 1);
+        const b = view.coordsAtPos(from + 1, -1);
+        if (a && b) {
+          return {
+            left: Math.min(a.left, b.left),
+            right: Math.max(a.right, b.right),
+            top: Math.min(a.top, b.top),
+            bottom: Math.max(a.bottom, b.bottom)
+          };
+        }
+        return a || b || null;
+      }
+      function tightMarkersForRange(view, range) {
+        if (!range || range.from === range.to) return [];
+        if (range.to <= view.viewport.from || range.from >= view.viewport.to) return [];
+        let from = Math.max(range.from, view.viewport.from);
+        let to = Math.min(range.to, view.viewport.to);
+        if (from >= to) return [];
+        const base = getBase(view);
+        const markers = [];
+        const len = to - from;
+        const fromLine = view.state.doc.lineAt(from);
+        const toLine = view.state.doc.lineAt(Math.max(from, to - 1));
+        if (fromLine.number !== toLine.number && len > 400) {
+          let pos = from;
+          while (pos < to) {
+            const line = view.state.doc.lineAt(pos);
+            const a = Math.max(from, line.from);
+            const b = Math.min(to, line.to);
+            if (a < b) {
+              const part = tightMarkersForRange(view, { from: a, to: b });
+              for (let i = 0; i < part.length; i++) markers.push(part[i]);
+            }
+            if (line.to >= to) break;
+            pos = line.to + 1;
+          }
+          return markers;
+        }
+        let rowFrom = -1;
+        let rowTop = null;
+        let rowBottom = null;
+        let rowLeft = null;
+        let rowRight = null;
+        function resetRow() {
+          rowFrom = -1;
+          rowTop = rowBottom = rowLeft = rowRight = null;
+        }
+        function flush(endPos) {
+          if (rowFrom < 0 || rowLeft == null || rowTop == null) {
+            resetRow();
+            return;
+          }
+          const lastChar = endPos - 1;
+          if (lastChar >= rowFrom) {
+            const cLast = charCoordsAt(view, lastChar);
+            if (cLast) {
+              rowRight = Math.max(rowRight, cLast.right);
+              rowTop = Math.min(rowTop, cLast.top);
+              rowBottom = Math.max(rowBottom, cLast.bottom);
+              rowLeft = Math.min(rowLeft, cLast.left);
+            }
+          }
+          let right = rowRight;
+          let top = rowTop;
+          let bottom = rowBottom;
+          let left = rowLeft;
+          if (right > left && bottom > top) {
+            markers.push(
+              new RectangleMarker(TIGHT_MARK_CLASS, left - base.left, top - base.top, right - left, bottom - top)
+            );
+          }
+          resetRow();
+        }
+        for (let pos = from; pos < to; pos++) {
+          const c = charCoordsAt(view, pos);
+          if (!c) continue;
+          if (rowTop == null) {
+            rowFrom = pos;
+            rowTop = c.top;
+            rowBottom = c.bottom;
+            rowLeft = c.left;
+            rowRight = c.right;
+            continue;
+          }
+          if (Math.abs(c.top - rowTop) > 3) {
+            flush(pos);
+            rowFrom = pos;
+            rowTop = c.top;
+            rowBottom = c.bottom;
+            rowLeft = c.left;
+            rowRight = c.right;
+          } else {
+            rowLeft = Math.min(rowLeft, c.left);
+            rowRight = Math.max(rowRight, c.right);
+            rowBottom = Math.max(rowBottom, c.bottom);
+            rowTop = Math.min(rowTop, c.top);
+          }
+        }
+        flush(to);
+        return markers;
+      }
+      function createTightSelectionLayer() {
+        return layer({
+          above: false,
+          // 单个 token，禁止空格（classList.add）
+          class: TIGHT_LAYER_CLASS,
+          markers: function(view) {
+            const out = [];
+            const ranges = view.state.selection.ranges;
+            for (let i = 0; i < ranges.length; i++) {
+              const r = ranges[i];
+              if (r.empty) continue;
+              const part = tightMarkersForRange(view, r);
+              for (let j = 0; j < part.length; j++) out.push(part[j]);
+            }
+            return out;
+          },
+          update: function(update) {
+            return update.docChanged || update.selectionSet || update.viewportChanged;
+          }
+        });
+      }
+      function createProseSelectionTheme() {
+        return Prec.highest(
+          EditorView.theme({
+            // 隐藏 CM6 默认选区层
+            ".cm-selectionLayer": {
+              display: "none !important"
+            },
+            // 紧致层（cm-layer 由 CM6 自动加）
+            ["." + TIGHT_LAYER_CLASS]: {
+              display: "block !important",
+              visibility: "visible !important",
+              pointerEvents: "none"
+            },
+            ["." + TIGHT_LAYER_CLASS + " ." + TIGHT_MARK_CLASS]: {
+              display: "block !important",
+              opacity: "1 !important",
+              background: "var(--table-text-sel) !important"
+            },
+            // 原生选区透明
+            ".cm-line": {
+              caretColor: "transparent !important",
+              "&::selection": {
+                backgroundColor: "transparent !important",
+                color: "inherit !important"
+              },
+              "& *::selection": {
+                backgroundColor: "transparent !important",
+                color: "inherit !important"
+              }
+            },
+            ".cm-content": {
+              caretColor: "transparent !important",
+              "&::selection": {
+                backgroundColor: "transparent !important"
+              },
+              "& *::selection": {
+                backgroundColor: "transparent !important"
+              }
+            }
+          })
+        );
+      }
+      function createProseSelectionExtension() {
+        return [createTightSelectionLayer(), createProseSelectionTheme()];
+      }
+      function createSourceSelectionExtension() {
+        return EditorView.theme({
+          ["." + TIGHT_LAYER_CLASS]: {
+            display: "none !important"
+          },
+          ".cm-selectionLayer": {
+            display: "block !important"
+          },
+          ".cm-selectionBackground": {
+            backgroundColor: "var(--table-text-sel) !important"
+          }
+        });
+      }
+      module.exports = {
+        createProseSelectionExtension,
+        createSourceSelectionExtension,
+        createTightSelectionExtension: createProseSelectionExtension,
+        createTightSelectionLayer,
+        tightMarkersForRange,
+        charCoordsAt,
+        TIGHT_LAYER_CLASS,
+        TIGHT_MARK_CLASS,
+        visualSegments: function() {
+          return [];
+        }
+      };
+    }
+  });
+
   // src/gui/renderer/editor/mode.js
   var require_mode = __commonJS({
     "src/gui/renderer/editor/mode.js"(exports, module) {
@@ -56842,6 +57114,10 @@ var MDAEditorBundle = (() => {
       var { livePreview } = require_live_preview();
       var { saveModeSwitchState, restoreModeSwitchState } = require_mode_switch();
       var { flushAllTableWidgets } = require_table();
+      var {
+        createProseSelectionExtension,
+        createSourceSelectionExtension
+      } = require_tight_selection();
       var MODE_PREVIEW = "preview";
       var MODE_SOURCE = "source";
       function createModeCompartments() {
@@ -56849,12 +57125,19 @@ var MDAEditorBundle = (() => {
           livePreviewComp: new Compartment(),
           lineNumbersComp: new Compartment(),
           syntaxHighlightComp: new Compartment(),
-          lineWrappingComp: new Compartment()
+          lineWrappingComp: new Compartment(),
+          selectionComp: new Compartment()
         };
       }
+      function selectionExtensionsForMode(mode) {
+        if (mode === MODE_SOURCE) return createSourceSelectionExtension();
+        return createProseSelectionExtension();
+      }
       function extensionsForMode(mode, comps, liveOpts) {
+        const selection = comps.selectionComp.of(selectionExtensionsForMode(mode));
         if (mode === MODE_SOURCE) {
           return [
+            selection,
             comps.livePreviewComp.of([]),
             comps.lineNumbersComp.of(lineNumbers()),
             comps.syntaxHighlightComp.of(syntaxHighlighting(defaultHighlightStyle)),
@@ -56862,6 +57145,7 @@ var MDAEditorBundle = (() => {
           ];
         }
         return [
+          selection,
           comps.livePreviewComp.of(livePreview(liveOpts || {})),
           comps.lineNumbersComp.of([]),
           comps.syntaxHighlightComp.of([]),
@@ -56873,6 +57157,7 @@ var MDAEditorBundle = (() => {
         const snap = saveModeSwitchState(view);
         view.dispatch({
           effects: [
+            comps.selectionComp.reconfigure(selectionExtensionsForMode(mode)),
             comps.livePreviewComp.reconfigure(
               mode === MODE_SOURCE ? [] : livePreview(liveOpts || {})
             ),
@@ -56889,6 +57174,7 @@ var MDAEditorBundle = (() => {
         MODE_PREVIEW,
         MODE_SOURCE,
         createModeCompartments,
+        selectionExtensionsForMode,
         extensionsForMode,
         reconfigureMode
       };
@@ -57040,189 +57326,6 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/view/tight-selection.js
-  var require_tight_selection = __commonJS({
-    "src/gui/renderer/editor/view/tight-selection.js"(exports, module) {
-      "use strict";
-      var { Prec } = require_dist2();
-      var { EditorView, layer, RectangleMarker, Direction } = require_dist4();
-      var TIGHT_LAYER_CLASS = "mda-cm-tight-sel-layer";
-      var TIGHT_MARK_CLASS = "mda-cm-tight-sel";
-      function getBase(view) {
-        const rect = view.scrollDOM.getBoundingClientRect();
-        const left = view.textDirection === Direction.LTR ? rect.left : rect.right - view.scrollDOM.clientWidth * view.scaleX;
-        return {
-          left: left - view.scrollDOM.scrollLeft * view.scaleX,
-          top: rect.top - view.scrollDOM.scrollTop * view.scaleY
-        };
-      }
-      function tightMarkersForRange(view, range) {
-        if (!range || range.from === range.to) return [];
-        if (range.to <= view.viewport.from || range.from >= view.viewport.to) return [];
-        let from = Math.max(range.from, view.viewport.from);
-        let to = Math.min(range.to, view.viewport.to);
-        if (from >= to) return [];
-        const base = getBase(view);
-        const markers = [];
-        const len = to - from;
-        const fromLine = view.state.doc.lineAt(from);
-        const toLine = view.state.doc.lineAt(Math.max(from, to - 1));
-        if (fromLine.number !== toLine.number && len > 400) {
-          let pos = from;
-          while (pos < to) {
-            const line = view.state.doc.lineAt(pos);
-            const a = Math.max(from, line.from);
-            const b = Math.min(to, line.to);
-            if (a < b) {
-              const part = tightMarkersForRange(view, { from: a, to: b });
-              for (let i = 0; i < part.length; i++) markers.push(part[i]);
-            }
-            if (line.to >= to) break;
-            pos = line.to + 1;
-          }
-          return markers;
-        }
-        let rowFrom = -1;
-        let rowTop = null;
-        let rowBottom = null;
-        let rowLeft = null;
-        let rowRight = null;
-        function resetRow() {
-          rowFrom = -1;
-          rowTop = rowBottom = rowLeft = rowRight = null;
-        }
-        function flush(endPos) {
-          if (rowFrom < 0 || rowLeft == null || rowTop == null) {
-            resetRow();
-            return;
-          }
-          const last = Math.max(rowFrom, endPos - 1);
-          const cLast = view.coordsAtPos(last, -1) || view.coordsAtPos(last, 1);
-          let right = rowRight;
-          let top = rowTop;
-          let bottom = rowBottom;
-          let left = rowLeft;
-          if (cLast) {
-            right = Math.max(right, cLast.right);
-            top = Math.min(top, cLast.top);
-            bottom = Math.max(bottom, cLast.bottom);
-            left = Math.min(left, cLast.left);
-          }
-          if (right > left && bottom > top) {
-            markers.push(
-              new RectangleMarker(TIGHT_MARK_CLASS, left - base.left, top - base.top, right - left, bottom - top)
-            );
-          }
-          resetRow();
-        }
-        for (let pos = from; pos < to; pos++) {
-          const c = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
-          if (!c) continue;
-          if (rowTop == null) {
-            rowFrom = pos;
-            rowTop = c.top;
-            rowBottom = c.bottom;
-            rowLeft = c.left;
-            rowRight = c.right;
-            continue;
-          }
-          if (Math.abs(c.top - rowTop) > 3) {
-            flush(pos);
-            rowFrom = pos;
-            rowTop = c.top;
-            rowBottom = c.bottom;
-            rowLeft = c.left;
-            rowRight = c.right;
-          } else {
-            rowLeft = Math.min(rowLeft, c.left);
-            rowRight = Math.max(rowRight, c.right);
-            rowBottom = Math.max(rowBottom, c.bottom);
-            rowTop = Math.min(rowTop, c.top);
-          }
-        }
-        flush(to);
-        return markers;
-      }
-      function createTightSelectionLayer() {
-        return layer({
-          above: false,
-          // 单个 token，禁止空格（classList.add）
-          class: TIGHT_LAYER_CLASS,
-          markers: function(view) {
-            const out = [];
-            const ranges = view.state.selection.ranges;
-            for (let i = 0; i < ranges.length; i++) {
-              const r = ranges[i];
-              if (r.empty) continue;
-              const part = tightMarkersForRange(view, r);
-              for (let j = 0; j < part.length; j++) out.push(part[j]);
-            }
-            return out;
-          },
-          update: function(update) {
-            return update.docChanged || update.selectionSet || update.viewportChanged;
-          }
-        });
-      }
-      function createProseSelectionTheme() {
-        return Prec.highest(
-          EditorView.theme({
-            // 隐藏 CM6 默认选区层
-            ".cm-selectionLayer": {
-              display: "none !important"
-            },
-            // 紧致层（cm-layer 由 CM6 自动加）
-            ["." + TIGHT_LAYER_CLASS]: {
-              display: "block !important",
-              visibility: "visible !important",
-              pointerEvents: "none"
-            },
-            ["." + TIGHT_LAYER_CLASS + " ." + TIGHT_MARK_CLASS]: {
-              display: "block !important",
-              opacity: "1 !important",
-              background: "var(--table-text-sel) !important"
-            },
-            // 原生选区透明
-            ".cm-line": {
-              caretColor: "transparent !important",
-              "&::selection": {
-                backgroundColor: "transparent !important",
-                color: "inherit !important"
-              },
-              "& *::selection": {
-                backgroundColor: "transparent !important",
-                color: "inherit !important"
-              }
-            },
-            ".cm-content": {
-              caretColor: "transparent !important",
-              "&::selection": {
-                backgroundColor: "transparent !important"
-              },
-              "& *::selection": {
-                backgroundColor: "transparent !important"
-              }
-            }
-          })
-        );
-      }
-      function createProseSelectionExtension() {
-        return [createTightSelectionLayer(), createProseSelectionTheme()];
-      }
-      module.exports = {
-        createProseSelectionExtension,
-        createTightSelectionExtension: createProseSelectionExtension,
-        createTightSelectionLayer,
-        tightMarkersForRange,
-        TIGHT_LAYER_CLASS,
-        TIGHT_MARK_CLASS,
-        visualSegments: function() {
-          return [];
-        }
-      };
-    }
-  });
-
   // src/gui/renderer/editor/outline-flash.js
   var require_outline_flash = __commonJS({
     "src/gui/renderer/editor/outline-flash.js"(exports, module) {
@@ -57306,7 +57409,6 @@ var MDAEditorBundle = (() => {
         reconfigureMode
       } = require_mode();
       var { createClickDebugExtension } = require_click_debug();
-      var { createProseSelectionExtension } = require_tight_selection();
       var { syncSelectedImageFrameClass } = require_image_selection();
       var { syncSelectedMermaidFrameClass } = require_mermaid_selection();
       var { refreshBlockToolbars } = require_widget_common();
@@ -57342,8 +57444,7 @@ var MDAEditorBundle = (() => {
           const list = [
             history(),
             drawSelection()
-            // 正文：原生选区透明 + 自绘紧致层（只盖字符）；默认 CM6 选区层会铺行宽
-          ].concat(createProseSelectionExtension()).concat([
+          ].concat([
             // 不用 highlightActiveLine：整行浅底会像「选中了一整行」
             markdown({ extensions: GFM }),
             keymap.of(defaultKeymap.concat(historyKeymap)),
