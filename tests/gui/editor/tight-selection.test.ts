@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 紧致选区：只盖实际字符
  */
 import * as path from 'path';
@@ -69,6 +69,7 @@ describe('tight-selection', () => {
     const markers = tightMarkersForRange(view, { from: 2, to: 5 });
     expect(markers.length).toBe(1);
     expect(markers[0].width).toBe(30);
+    expect(markers[0].height).toBe(20);
     expect(markers[0].width).toBeLessThan(200);
   });
 
@@ -102,6 +103,33 @@ describe('tight-selection', () => {
     const markers = tightMarkersForRange(view, { from: 2, to: 6 });
     expect(markers.length).toBe(1);
     expect(markers[0].width).toBe(40);
+  });
+
+  test('lineBlockAt 不前进时不得死循环（widget 边界）', () => {
+    const view: any = {
+      viewport: { from: 0, to: 100 },
+      textDirection: 0,
+      scaleX: 1,
+      scaleY: 1,
+      state: {
+        doc: {
+          lineAt: () => ({ from: 0, to: 20, number: 1 }),
+        },
+      },
+      scrollDOM: {
+        getBoundingClientRect: () => ({ left: 0, right: 800, top: 0, bottom: 600 }),
+        scrollLeft: 0,
+        scrollTop: 0,
+        clientWidth: 800,
+      },
+      coordsAtPos: (pos: number, side: number) => {
+        const left = 100 + pos * 10;
+        if (side === 1) return { left, right: left + 10, top: 20, bottom: 40 };
+        return { left, right: left + 10, top: 20, bottom: 40 };
+      },
+    };
+    expect(() => tightMarkersForRange(view, { from: 2, to: 8 })).not.toThrow();
+    expect(tightMarkersForRange(view, { from: 2, to: 8 }).length).toBeGreaterThan(0);
   });
 
   test('layer / mark class 不得含空格（否则 classList.add 崩溃）', () => {

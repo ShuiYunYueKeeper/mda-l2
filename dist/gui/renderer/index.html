@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -32,6 +32,7 @@
       --table-sel-accent: #b8d4fe;
       --table-cell-sel-bg: #e8f2ff;
       --table-text-sel: #b8d4fe;
+      --cm-preview-sel-overlay: rgba(56, 139, 253, 0.22);
     }
     [data-theme="dark"] {
       --bg: #0d1117;
@@ -57,6 +58,7 @@
       --table-sel-accent: rgba(88, 166, 255, 0.32);
       --table-cell-sel-bg: rgba(88, 166, 255, 0.10);
       --table-text-sel: rgba(88, 166, 255, 0.32);
+      --cm-preview-sel-overlay: rgba(88, 166, 255, 0.28);
     }
 
     /* ================= 全局滚动条（窄 + 圆角胶囊）================= */
@@ -1147,9 +1149,9 @@
     }
     .mda-cm6-host .mda-cm-em { font-style: italic; }
     .mda-cm6-host .mda-cm-strike { text-decoration: line-through; opacity: 0.85; }
-    /* 行内 code：半透明灰底，选区蓝可从下层透出（勿用不透明底盖住 tight-sel） */
+    /* 行内 code：灰底胶囊；预览选区层叠在上方（见 tight-selection above:true） */
     .mda-cm6-host .mda-cm-code {
-      background: rgba(238, 240, 243, 0.45);
+      background: #eef0f3;
       border: 1px solid var(--border-light);
       border-radius: 4px;
       padding: 1px 5px;
@@ -1161,7 +1163,7 @@
       box-sizing: border-box;
     }
     [data-theme="dark"] .mda-cm6-host .mda-cm-code {
-      background: rgba(110, 118, 129, 0.22);
+      background: rgba(110, 118, 129, 0.32);
       border-color: var(--border);
     }
     .mda-cm6-host .mda-cm-link { color: var(--link); text-decoration: none; cursor: pointer; }
@@ -1173,12 +1175,14 @@
     body.mda-cm6-mode-preview .mda-cm6-host .mda-cm-tight-sel-layer {
       display: block !important;
       visibility: visible !important;
-      pointer-events: none;
+      pointer-events: none !important;
     }
     body.mda-cm6-mode-preview .mda-cm6-host .mda-cm-tight-sel-layer .mda-cm-tight-sel {
       display: block !important;
       opacity: 1 !important;
-      background: var(--table-text-sel) !important;
+      pointer-events: none !important;
+      background: var(--cm-preview-sel-overlay) !important;
+      border-radius: 3px;
     }
     body.mda-cm6-mode-preview .mda-cm6-host .cm-content ::selection,
     body.mda-cm6-mode-preview .mda-cm6-host .cm-content *::selection,

@@ -1,5 +1,5 @@
-﻿/**
- * 正文选区：原生 ::selection 透明 + 自绘紧致层（只盖实际字符）。
+/**
+ * 预览正文选区：原生 ::selection 透明 + 自绘层（只盖实际字符，叠在行内 code 之上）。
  *
  * 注意：layer({ class }) / classList.add 只能是单个 class token，不能含空格，
  * 否则插件直接崩溃（DOMException），选区回落成「整行发蓝 / 看不见」。
@@ -46,7 +46,7 @@ function charCoordsAt(view, from) {
 }
 
 /**
- * 按视觉行切段，用字符 coords 取左右，不铺到行宽。
+ * 按视觉行切段，水平/垂直均来自 coordsAtPos（视口坐标），勿混用 lineBlockAt 文档坐标。
  * @param {import('@codemirror/view').EditorView} view
  * @param {{ from: number, to: number }} range
  */
@@ -104,10 +104,10 @@ function tightMarkersForRange(view, range) {
         rowLeft = Math.min(rowLeft, cLast.left);
       }
     }
-    let right = rowRight;
-    let top = rowTop;
-    let bottom = rowBottom;
-    let left = rowLeft;
+    const right = rowRight;
+    const top = rowTop;
+    const bottom = rowBottom;
+    const left = rowLeft;
     if (right > left && bottom > top) {
       markers.push(
         new RectangleMarker(TIGHT_MARK_CLASS, left - base.left, top - base.top, right - left, bottom - top)
@@ -147,8 +147,8 @@ function tightMarkersForRange(view, range) {
 
 function createTightSelectionLayer() {
   return layer({
-    above: false,
-    // 单个 token，禁止空格（classList.add）
+    // 叠在行内 code 灰底之上；须 pointer-events:none 避免挡点击/关窗
+    above: true,
     class: TIGHT_LAYER_CLASS,
     markers: function (view) {
       const out = [];
@@ -170,11 +170,9 @@ function createTightSelectionLayer() {
 function createProseSelectionTheme() {
   return Prec.highest(
     EditorView.theme({
-      // 隐藏 CM6 默认选区层
       '.cm-selectionLayer': {
         display: 'none !important',
       },
-      // 紧致层（cm-layer 由 CM6 自动加）
       ['.' + TIGHT_LAYER_CLASS]: {
         display: 'block !important',
         visibility: 'visible !important',
@@ -183,11 +181,12 @@ function createProseSelectionTheme() {
       ['.' + TIGHT_LAYER_CLASS + ' .' + TIGHT_MARK_CLASS]: {
         display: 'block !important',
         opacity: '1 !important',
-        background: 'var(--table-text-sel) !important',
+        pointerEvents: 'none',
+        background: 'var(--cm-preview-sel-overlay) !important',
+        borderRadius: '3px',
       },
-      // 原生选区透明
       '.cm-line': {
-        caretColor: 'transparent !important',
+        caretColor: 'var(--text) !important',
         '&::selection': {
           backgroundColor: 'transparent !important',
           color: 'inherit !important',
@@ -198,7 +197,7 @@ function createProseSelectionTheme() {
         },
       },
       '.cm-content': {
-        caretColor: 'transparent !important',
+        caretColor: 'var(--text) !important',
         '&::selection': {
           backgroundColor: 'transparent !important',
         },

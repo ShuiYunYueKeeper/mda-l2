@@ -56970,10 +56970,10 @@ var MDAEditorBundle = (() => {
               rowLeft = Math.min(rowLeft, cLast.left);
             }
           }
-          let right = rowRight;
-          let top = rowTop;
-          let bottom = rowBottom;
-          let left = rowLeft;
+          const right = rowRight;
+          const top = rowTop;
+          const bottom = rowBottom;
+          const left = rowLeft;
           if (right > left && bottom > top) {
             markers.push(
               new RectangleMarker(TIGHT_MARK_CLASS, left - base.left, top - base.top, right - left, bottom - top)
@@ -57011,8 +57011,8 @@ var MDAEditorBundle = (() => {
       }
       function createTightSelectionLayer() {
         return layer({
-          above: false,
-          // 单个 token，禁止空格（classList.add）
+          // 叠在行内 code 灰底之上；须 pointer-events:none 避免挡点击/关窗
+          above: true,
           class: TIGHT_LAYER_CLASS,
           markers: function(view) {
             const out = [];
@@ -57033,11 +57033,9 @@ var MDAEditorBundle = (() => {
       function createProseSelectionTheme() {
         return Prec.highest(
           EditorView.theme({
-            // 隐藏 CM6 默认选区层
             ".cm-selectionLayer": {
               display: "none !important"
             },
-            // 紧致层（cm-layer 由 CM6 自动加）
             ["." + TIGHT_LAYER_CLASS]: {
               display: "block !important",
               visibility: "visible !important",
@@ -57046,11 +57044,12 @@ var MDAEditorBundle = (() => {
             ["." + TIGHT_LAYER_CLASS + " ." + TIGHT_MARK_CLASS]: {
               display: "block !important",
               opacity: "1 !important",
-              background: "var(--table-text-sel) !important"
+              pointerEvents: "none",
+              background: "var(--cm-preview-sel-overlay) !important",
+              borderRadius: "3px"
             },
-            // 原生选区透明
             ".cm-line": {
-              caretColor: "transparent !important",
+              caretColor: "var(--text) !important",
               "&::selection": {
                 backgroundColor: "transparent !important",
                 color: "inherit !important"
@@ -57061,7 +57060,7 @@ var MDAEditorBundle = (() => {
               }
             },
             ".cm-content": {
-              caretColor: "transparent !important",
+              caretColor: "var(--text) !important",
               "&::selection": {
                 backgroundColor: "transparent !important"
               },
