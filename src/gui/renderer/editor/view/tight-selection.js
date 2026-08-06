@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 预览正文选区：原生 ::selection 透明 + 自绘层（只盖实际字符，叠在行内 code 之上）。
  *
  * 注意：layer({ class }) / classList.add 只能是单个 class token，不能含空格，
@@ -13,6 +13,41 @@ const { EditorView, layer, RectangleMarker, Direction } = require('@codemirror/v
 var TIGHT_LAYER_CLASS = 'mda-cm-tight-sel-layer';
 /** 选区矩形唯一 class（RectangleMarker 虽可用 className 多类，统一单 token 更稳） */
 var TIGHT_MARK_CLASS = 'mda-cm-tight-sel';
+
+const { isWidgetInlineEditableTarget } = require('../widget-editable-guard');
+
+function focusInWidgetInlineEditable() {
+  if (typeof document === 'undefined') return false;
+  const ae = document.activeElement;
+  if (!ae || !ae.closest) return false;
+  return isWidgetInlineEditableTarget(ae);
+}
+
+/**
+ * widget 内 coordsAtPos 不可靠：采样全空或纵跳过大则跳过紧致层。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} from
+ * @param {number} to
+ */
+function rangeHasUnreliableCoords(view, from, to) {
+  if (from >= to) return true;
+  const samples = [from, Math.floor((from + to) / 2), to - 1];
+  let nullCount = 0;
+  let lastTop = null;
+  const maxJump = Math.max(120, (view.scrollDOM && view.scrollDOM.clientHeight) || 600);
+  for (let i = 0; i < samples.length; i++) {
+    const p = samples[i];
+    if (p < from || p >= to) continue;
+    const c = charCoordsAt(view, p);
+    if (!c) {
+      nullCount++;
+      continue;
+    }
+    if (lastTop != null && Math.abs(c.top - lastTop) > maxJump) return true;
+    lastTop = c.top;
+  }
+  return nullCount >= 2;
+}
 
 function getBase(view) {
   const rect = view.scrollDOM.getBoundingClientRect();
@@ -56,9 +91,12 @@ function tightMarkersForRange(view, range) {
   let from = Math.max(range.from, view.viewport.from);
   let to = Math.min(range.to, view.viewport.to);
   if (from >= to) return [];
+  if (rangeHasUnreliableCoords(view, from, to)) return [];
 
   const base = getBase(view);
   const markers = [];
+  const maxW = Math.max(400, (view.scrollDOM && view.scrollDOM.clientWidth) || 800) * 2;
+  const maxH = Math.max(300, (view.scrollDOM && view.scrollDOM.clientHeight) || 600) * 2;
   const len = to - from;
   const fromLine = view.state.doc.lineAt(from);
   const toLine = view.state.doc.lineAt(Math.max(from, to - 1));
@@ -109,9 +147,13 @@ function tightMarkersForRange(view, range) {
     const bottom = rowBottom;
     const left = rowLeft;
     if (right > left && bottom > top) {
-      markers.push(
-        new RectangleMarker(TIGHT_MARK_CLASS, left - base.left, top - base.top, right - left, bottom - top)
-      );
+      const w = right - left;
+      const h = bottom - top;
+      if (w <= maxW && h <= maxH) {
+        markers.push(
+          new RectangleMarker(TIGHT_MARK_CLASS, left - base.left, top - base.top, w, h)
+        );
+      }
     }
     resetRow();
   }
@@ -151,6 +193,7 @@ function createTightSelectionLayer() {
     above: true,
     class: TIGHT_LAYER_CLASS,
     markers: function (view) {
+      if (focusInWidgetInlineEditable()) return [];
       const out = [];
       const ranges = view.state.selection.ranges;
       for (let i = 0; i < ranges.length; i++) {
@@ -205,6 +248,9 @@ function createProseSelectionTheme() {
           backgroundColor: 'transparent !important',
         },
       },
+      '.mda-cm-code-input[contenteditable="true"]::selection, .mda-cm-code-input[contenteditable="true"] *::selection, .mda-cm-mermaid-source-input[contenteditable="true"]::selection, .mda-cm-mermaid-source-input[contenteditable="true"] *::selection, .mda-cm-math-source-input[contenteditable="true"]::selection, .mda-cm-math-source-input[contenteditable="true"] *::selection, .mda-cm-table [contenteditable="true"]::selection, .mda-cm-table [contenteditable="true"] *::selection': {
+        backgroundColor: 'var(--table-text-sel) !important',
+      },
     })
   );
 }
@@ -235,6 +281,8 @@ module.exports = {
   createTightSelectionLayer: createTightSelectionLayer,
   tightMarkersForRange: tightMarkersForRange,
   charCoordsAt: charCoordsAt,
+  rangeHasUnreliableCoords: rangeHasUnreliableCoords,
+  focusInWidgetInlineEditable: focusInWidgetInlineEditable,
   TIGHT_LAYER_CLASS: TIGHT_LAYER_CLASS,
   TIGHT_MARK_CLASS: TIGHT_MARK_CLASS,
   visualSegments: function () {

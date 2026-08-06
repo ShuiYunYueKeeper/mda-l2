@@ -32946,6 +32946,113 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widget-editable-guard.js
+  var require_widget_editable_guard = __commonJS({
+    "src/gui/renderer/editor/widget-editable-guard.js"(exports, module) {
+      "use strict";
+      var { EditorState, EditorSelection, Transaction } = require_dist2();
+      var { EditorView } = require_dist4();
+      var widgetEditablePointerActive = false;
+      var docMouseUpBound = false;
+      function isWidgetInlineEditableTarget(target) {
+        if (!target || !target.closest) return false;
+        return !!target.closest(
+          '.mda-cm-table th[contenteditable="true"], .mda-cm-table td[contenteditable="true"],.mda-cm-code-input[contenteditable="true"],.mda-cm-mermaid-source-input[contenteditable="true"],.mda-cm-math-source-input[contenteditable="true"]'
+        );
+      }
+      function focusInWidgetInlineEditable() {
+        if (typeof document === "undefined") return false;
+        const ae = document.activeElement;
+        if (!ae || !ae.closest) return false;
+        return isWidgetInlineEditableTarget(ae);
+      }
+      function shouldSuppressCm6Selection() {
+        return widgetEditablePointerActive || focusInWidgetInlineEditable();
+      }
+      function collapseCm6Selection(view) {
+        if (!view || view.destroyed) return;
+        const sel = view.state.selection.main;
+        if (sel.empty) return;
+        view.dispatch({
+          selection: { anchor: sel.head, head: sel.head },
+          annotations: Transaction.addToHistory.of(false)
+        });
+      }
+      function ensureDocMouseUpBound() {
+        if (docMouseUpBound || typeof document === "undefined") return;
+        docMouseUpBound = true;
+        document.addEventListener(
+          "mouseup",
+          function() {
+            widgetEditablePointerActive = false;
+          },
+          true
+        );
+      }
+      function attachWidgetEditablePointerIsolation(el) {
+        if (!el || el.dataset.mdaWidgetEditableIso === "1") return;
+        el.dataset.mdaWidgetEditableIso = "1";
+        ensureDocMouseUpBound();
+        el.addEventListener(
+          "mousedown",
+          function(e) {
+            if (e.button === 0) widgetEditablePointerActive = true;
+          },
+          true
+        );
+        el.addEventListener(
+          "mousemove",
+          function(e) {
+            if (e.buttons & 1) e.stopPropagation();
+          },
+          true
+        );
+        el.addEventListener(
+          "mouseup",
+          function(e) {
+            e.stopPropagation();
+            widgetEditablePointerActive = false;
+          },
+          true
+        );
+      }
+      function createWidgetEditableGuardExtension() {
+        ensureDocMouseUpBound();
+        return [
+          EditorState.transactionFilter.of(function(tr) {
+            if (!tr.selection || !shouldSuppressCm6Selection()) return tr;
+            const main = tr.selection.main;
+            if (main.empty) return tr;
+            const head = main.head;
+            if (main.anchor === head && main.from === head && main.to === head) return tr;
+            return {
+              ...tr,
+              selection: EditorSelection.single(head)
+            };
+          }),
+          EditorView.domEventHandlers({
+            mousedown: function(event, view) {
+              if (event.button !== 0) return false;
+              if (!isWidgetInlineEditableTarget(event.target)) {
+                return false;
+              }
+              widgetEditablePointerActive = true;
+              collapseCm6Selection(view);
+              return false;
+            }
+          })
+        ];
+      }
+      module.exports = {
+        isWidgetInlineEditableTarget,
+        focusInWidgetInlineEditable,
+        attachWidgetEditablePointerIsolation,
+        createWidgetEditableGuardExtension,
+        collapseCm6Selection
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/table-resize.js
   var require_table_resize = __commonJS({
     "src/gui/renderer/editor/widgets/table-resize.js"(exports, module) {
@@ -49651,6 +49758,7 @@ var MDAEditorBundle = (() => {
       var { clearSelectedImageBlock } = require_image_selection();
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
       var { attachBlockDragHandle } = require_block_drag_handle();
+      var { attachWidgetEditablePointerIsolation } = require_widget_editable_guard();
       var { Transaction } = require_dist2();
       var {
         selectInlineMath,
@@ -49800,6 +49908,7 @@ var MDAEditorBundle = (() => {
           sourceEditor.setAttribute("data-i18n-aria", "widgetMathEdit");
           sourceEditor.setAttribute("aria-label", uiT("widgetMathEdit", t));
           sourceEditor.textContent = self2.tex;
+          attachWidgetEditablePointerIsolation(sourceEditor);
           sourcePanel.appendChild(sourceEditor);
           frame.appendChild(sourcePanel);
           let showingSource = false;
@@ -50241,6 +50350,7 @@ var MDAEditorBundle = (() => {
         isEntireTableSelection
       } = require_table_model();
       var { copyText, uiT, clearBlockWidgetSelection, clearMediaSelection } = require_widget_common();
+      var { attachWidgetEditablePointerIsolation } = require_widget_editable_guard();
       var { attachTableGridResize, applyTableLayout, ensureLayoutArrays } = require_table_resize();
       var { hasTableLayoutMeta } = require_parse_table();
       var {
@@ -50870,6 +50980,7 @@ var MDAEditorBundle = (() => {
             };
             const cell = cells[i];
             let cellContentDirty = false;
+            attachWidgetEditablePointerIsolation(cell);
             cell.addEventListener("mousedown", function(e) {
               if (e.button !== 0) return;
               if (!e.target.closest(".mda-cm-table-menu")) closeTableMenu();
@@ -52721,6 +52832,7 @@ var MDAEditorBundle = (() => {
       } = require_widget_common();
       var { BlockReplaceWidget, countSourceLines, syncWidgetHeightFromDom } = require_block_widget_base();
       var { createCodeLangPicker } = require_code_lang_picker();
+      var { attachWidgetEditablePointerIsolation } = require_widget_editable_guard();
       var { normalizeCodeBlockLang } = require_code_languages();
       var { attachBlockDragHandle } = require_block_drag_handle();
       var { setSelectedCodeBlock } = require_code_selection();
@@ -53041,6 +53153,7 @@ var MDAEditorBundle = (() => {
           codeInput.setAttribute("spellcheck", "false");
           codeInput.setAttribute("data-i18n-aria", "widgetCodeEdit");
           codeInput.setAttribute("aria-label", uiT("widgetCodeEdit", t));
+          attachWidgetEditablePointerIsolation(codeInput);
           highlightPre.appendChild(codeInput);
           stack.appendChild(highlightPre);
           scroll.appendChild(stack);
@@ -53582,6 +53695,7 @@ var MDAEditorBundle = (() => {
       } = require_mermaid_selection();
       var { clearSelectedImageBlock } = require_image_selection();
       var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
+      var { attachWidgetEditablePointerIsolation } = require_widget_editable_guard();
       var { clearSelectedBlock } = require_block_selection();
       var { syncMermaidFrameToStage } = require_mermaid_layout();
       var {
@@ -53665,6 +53779,7 @@ var MDAEditorBundle = (() => {
           sourceEditor.setAttribute("data-i18n-aria", "widgetCodeSource");
           sourceEditor.setAttribute("aria-label", uiT("widgetCodeSource", t));
           sourceEditor.textContent = self2.code;
+          attachWidgetEditablePointerIsolation(sourceEditor);
           sourcePanel.appendChild(sourceEditor);
           frame.appendChild(sourcePanel);
           const handles = document.createElement("span");
@@ -55865,6 +55980,7 @@ var MDAEditorBundle = (() => {
       var { InlineMathWidget, BlockMathWidget } = require_math();
       var { createAnnoGutterField } = require_anno_gutter();
       var { createClickCollapseExtension } = require_click_collapse();
+      var { createWidgetEditableGuardExtension } = require_widget_editable_guard();
       var {
         createImageSelectionSyncPlugin
       } = require_image_selection();
@@ -56800,7 +56916,7 @@ var MDAEditorBundle = (() => {
             copy: handleMarkdownSyntaxCopy,
             cut: handleMarkdownSyntaxCut
           })
-        ]).concat(emptyLineInsert.extensions);
+        ]).concat(createWidgetEditableGuardExtension()).concat(emptyLineInsert.extensions);
         if (editorConfig.blockWidgetEnabled("image")) {
           ext.push(createImageShortcutKeymap(liveOpts));
           ext.push(createImageKeydownHandler(liveOpts));
@@ -56899,6 +57015,32 @@ var MDAEditorBundle = (() => {
       var { EditorView, layer, RectangleMarker, Direction } = require_dist4();
       var TIGHT_LAYER_CLASS = "mda-cm-tight-sel-layer";
       var TIGHT_MARK_CLASS = "mda-cm-tight-sel";
+      var { isWidgetInlineEditableTarget } = require_widget_editable_guard();
+      function focusInWidgetInlineEditable() {
+        if (typeof document === "undefined") return false;
+        const ae = document.activeElement;
+        if (!ae || !ae.closest) return false;
+        return isWidgetInlineEditableTarget(ae);
+      }
+      function rangeHasUnreliableCoords(view, from, to) {
+        if (from >= to) return true;
+        const samples = [from, Math.floor((from + to) / 2), to - 1];
+        let nullCount = 0;
+        let lastTop = null;
+        const maxJump = Math.max(120, view.scrollDOM && view.scrollDOM.clientHeight || 600);
+        for (let i = 0; i < samples.length; i++) {
+          const p = samples[i];
+          if (p < from || p >= to) continue;
+          const c = charCoordsAt(view, p);
+          if (!c) {
+            nullCount++;
+            continue;
+          }
+          if (lastTop != null && Math.abs(c.top - lastTop) > maxJump) return true;
+          lastTop = c.top;
+        }
+        return nullCount >= 2;
+      }
       function getBase(view) {
         const rect = view.scrollDOM.getBoundingClientRect();
         const left = view.textDirection === Direction.LTR ? rect.left : rect.right - view.scrollDOM.clientWidth * view.scaleX;
@@ -56926,8 +57068,11 @@ var MDAEditorBundle = (() => {
         let from = Math.max(range.from, view.viewport.from);
         let to = Math.min(range.to, view.viewport.to);
         if (from >= to) return [];
+        if (rangeHasUnreliableCoords(view, from, to)) return [];
         const base = getBase(view);
         const markers = [];
+        const maxW = Math.max(400, view.scrollDOM && view.scrollDOM.clientWidth || 800) * 2;
+        const maxH = Math.max(300, view.scrollDOM && view.scrollDOM.clientHeight || 600) * 2;
         const len = to - from;
         const fromLine = view.state.doc.lineAt(from);
         const toLine = view.state.doc.lineAt(Math.max(from, to - 1));
@@ -56975,9 +57120,13 @@ var MDAEditorBundle = (() => {
           const bottom = rowBottom;
           const left = rowLeft;
           if (right > left && bottom > top) {
-            markers.push(
-              new RectangleMarker(TIGHT_MARK_CLASS, left - base.left, top - base.top, right - left, bottom - top)
-            );
+            const w = right - left;
+            const h = bottom - top;
+            if (w <= maxW && h <= maxH) {
+              markers.push(
+                new RectangleMarker(TIGHT_MARK_CLASS, left - base.left, top - base.top, w, h)
+              );
+            }
           }
           resetRow();
         }
@@ -57015,6 +57164,7 @@ var MDAEditorBundle = (() => {
           above: true,
           class: TIGHT_LAYER_CLASS,
           markers: function(view) {
+            if (focusInWidgetInlineEditable()) return [];
             const out = [];
             const ranges = view.state.selection.ranges;
             for (let i = 0; i < ranges.length; i++) {
@@ -57067,6 +57217,9 @@ var MDAEditorBundle = (() => {
               "& *::selection": {
                 backgroundColor: "transparent !important"
               }
+            },
+            '.mda-cm-code-input[contenteditable="true"]::selection, .mda-cm-code-input[contenteditable="true"] *::selection, .mda-cm-mermaid-source-input[contenteditable="true"]::selection, .mda-cm-mermaid-source-input[contenteditable="true"] *::selection, .mda-cm-math-source-input[contenteditable="true"]::selection, .mda-cm-math-source-input[contenteditable="true"] *::selection, .mda-cm-table [contenteditable="true"]::selection, .mda-cm-table [contenteditable="true"] *::selection': {
+              backgroundColor: "var(--table-text-sel) !important"
             }
           })
         );
@@ -57094,6 +57247,8 @@ var MDAEditorBundle = (() => {
         createTightSelectionLayer,
         tightMarkersForRange,
         charCoordsAt,
+        rangeHasUnreliableCoords,
+        focusInWidgetInlineEditable,
         TIGHT_LAYER_CLASS,
         TIGHT_MARK_CLASS,
         visualSegments: function() {

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-B/C 实时预览视图层：语法隐藏（D15 = hide-mark 零宽 replace widget + atomicRanges）。
  */
 'use strict';
@@ -39,6 +39,7 @@ const { MermaidWidget } = require('./widgets/mermaid');
 const { InlineMathWidget, BlockMathWidget } = require('./widgets/math');
 const { createAnnoGutterField } = require('./anno-gutter');
 const { createClickCollapseExtension } = require('./click-collapse');
+const { createWidgetEditableGuardExtension } = require('./widget-editable-guard');
 const {
   createImageSelectionSyncPlugin,
 } = require('./widgets/image-selection');
@@ -1155,6 +1156,7 @@ function livePreview(opts) {
         cut: handleMarkdownSyntaxCut,
       }),
     ])
+    .concat(createWidgetEditableGuardExtension())
     .concat(emptyLineInsert.extensions);
   if (editorConfig.blockWidgetEnabled('image')) {
     ext.push(createImageShortcutKeymap(liveOpts));

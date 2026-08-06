@@ -730,3 +730,41 @@ onCodeBlockDirty: function (info) {
 - ❌ `codeInput.textContent = localCode` 且 `localCode` 以 `\n` 结尾 → 只见行号、不见最后一行。
 - ❌ `onCodeBlockDirty` 只 `setDirtyState(true)` → 块内撤销后仍显示未保存。
 - ❌ `serializeFencedCode` 去掉尾部 `\n` → 末尾回车失焦后源码无空行。
+
+---
+
+## 26. CM6 widget 内文字拖选（`widget-editable-guard`）
+
+**规则**：
+- 表格格 / 代码块 / Mermaid·公式源码等 **widget 内 `contenteditable`**：文字拖选走浏览器原生 `::selection`（`--table-text-sel`），**勿**同步 CM6 文档选区到格内（会触发紧致层错位或渲染进程卡死）。
+- CM6 `EditorView.domEventHandlers` 返回 `true` 时会 **`preventDefault()`** → 拖选 `mousemove` 被拦则格内**完全无法选取**。
+- 正确隔离：`attachWidgetEditablePointerIsolation`（捕获阶段 `stopPropagation`）+ `EditorState.transactionFilter` 坍缩 CM6 非空选区；`tight-selection.js` 在 widget 聚焦或 `coordsAtPos` 不可靠时跳过。
+- 预览 CSS：`body.mda-cm6-mode-preview .cm-content *::selection { transparent }` 须被 widget 更高特异性规则覆盖，否则「能选但看不见」。
+
+### ✅ 正确
+
+```javascript
+// widget-editable-guard.js — 用 transactionFilter 坍缩 CM6 选区，勿 domEventHandlers return true
+EditorState.transactionFilter.of(function (tr) {
+  if (!tr.selection || !shouldSuppressCm6Selection()) return tr;
+  if (tr.selection.main.empty) return tr;
+  return { ...tr, selection: EditorSelection.single(tr.selection.main.head) };
+});
+
+// live-preview.js — 扩展数组须 .concat() 展开
+.concat(createWidgetEditableGuardExtension())
+```
+
+```css
+/* index.html — 特异性高于 .cm-content *::selection */
+body.mda-cm6-mode-preview .mda-cm6-host .mda-cm-table [contenteditable="true"]::selection {
+  background-color: var(--table-text-sel) !important;
+}
+```
+
+### ❌ 错误
+
+- ❌ widget `mousedown`/`mousemove` 在 `domEventHandlers` 中 `return true` → `preventDefault`，格内无法拖选。
+- ❌ 仅靠 `stopPropagation` 却不坍缩 CM6 选区 → 紧致层在表格 widget 上错位、高亮飞到正文，严重时 UI 无响应。
+- ❌ `createWidgetEditableGuardExtension()` 放进 `[...]` 未展开 → 守卫扩展未注册，回归无保护。
+- ❌ 混用 `lineBlockAt` 文档坐标与 `coordsAtPos` 视口坐标画紧致层 → 高亮错位；`while (pos < to)` 在块边界不前进 → 死循环（已修，勿再引入）。

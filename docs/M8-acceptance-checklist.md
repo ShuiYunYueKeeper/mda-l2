@@ -55,15 +55,15 @@
 | COORD-4 | 长行折行 | `lineWrapping` 开启下点击第二视觉行 | 映射到正确源码偏移 | ✅ |
 | COORD-5 | 块 widget 阶段开启后 | 点块 widget 上下方正文 | 纵向偏差 ≤2px | ✅ 2026-07-31 |
 | SEL-1 | 正文/内联装饰拖选 | 选区跨越 `` `code` ``、链接、粗斜体、列表、普通段落 | 仅选中字符有选区色；无整行铺底、无漏画、无双高度叠色；单击不误出选区 | ❌ **2026-08-03 用户判定不过关**（见下） |
-| SEL-2 | 表格单元格拖选 | 单元格内拖选文字 | 文字 `--table-text-sel`，单元格 `--table-cell-sel-bg` 不混色 | ✅ 2026-07-31 |
-| SEL-3 | 流程图源码拖选 | 源码模式 contenteditable 内拖选 | 与 SEL-2 同色，非系统深蓝 | ✅ 2026-07-31 |
-| SEL-4 | 围栏代码块源码拖选 | 代码块 contenteditable 内拖选 + 失焦 hljs | 与 SEL-3 同色；聚焦纯文本、失焦高亮 | ✅ 2026-07-31 |
+| SEL-2 | 表格单元格拖选 | 单元格内拖选文字 | 文字 `--table-text-sel`，单元格 `--table-cell-sel-bg` 不混色；拖选后 UI 不卡死 | ✅ 2026-08-06 复验 |
+| SEL-3 | 流程图源码拖选 | 源码模式 contenteditable 内拖选 | 与 SEL-2 同色，非系统深蓝 | ✅ 2026-08-06 复验 |
+| SEL-4 | 围栏代码块源码拖选 | 代码块 contenteditable 内拖选 + 失焦 hljs | 与 SEL-3 同色；聚焦纯文本、失焦高亮 | ✅ 2026-08-06 复验 |
 
 ### 正文选取（SEL-1）— 不过关说明（2026-08-03）
 
 | 项 | 说明 |
 |----|------|
-| **结论** | **正文拖选不过关**；闸门 SEL-1 从 ✅ **回退为 ❌**。表格/围栏代码/Mermaid 源码（SEL-2–4，走 widget 内 `contenteditable` + 原生 `::selection`）仍可用。 |
+| **结论** | **正文拖选不过关**；闸门 SEL-1 从 ✅ **回退为 ❌**。表格/围栏代码/Mermaid 源码（SEL-2–4，走 widget 内 `contenteditable` + 原生 `::selection`）**2026-08-06** 经 `widget-editable-guard` 修复后已复验 ✅。 |
 | **复现要点** | 含 `` `code` `` / 粗体的列表行（如 README「环境要求」：`Windows \`.exe\`：… \`npm run dist:win\``）；亦见于普通段落拖选。 |
 | **用户可见问题** | ① 仅选部分字却像整行发蓝；② 选区蓝双高度/双色；③ 行内 code 段漏画（如 `npm run dist:win` 无选区色）；④ 单击即像选中；⑤ 拖选闪烁 / 光标与落点不一致。 |
 | **已尝试与回退** | 自绘紧致选区层、强制原生 `::selection`、隐藏默认 `cm-selectionLayer` 等均引入回归（含 `classList.add` 多 class 空格导致插件崩溃）。**2026-08-03 已撤自绘层**，恢复 CM6 默认 `drawSelection` + 关闭 `highlightActiveLine`；**整行铺底等问题仍可能存在，未宣称修复。** |
@@ -135,6 +135,7 @@ MDA_EDITOR_RELEASE=1 npm run build:editor
 | hide-mark 点击落点 | 2026-08-05 | ✅ | 标题/粗体/行内 code：左缘含开定界符、右缘含闭定界符 |
 | hide-mark 拖选剪贴板 | 2026-08-05 | ✅ | 成对定界符保留 Markdown；仅一侧则粘贴去掉定界符 |
 | 代码块内 Enter 换行 | 2026-08-06 | ✅ | `localCode` 缓冲 + `<br>`/ZWSP 保留尾部空行；失焦写回；块内 Ctrl+Z 本地栈；撤销后 `onCodeBlockDirty` 重算标脏 |
+| widget 内文字拖选 / 表格拖选卡死 | 2026-08-06 | ✅ | `widget-editable-guard` + `transactionFilter`；勿 `domEventHandlers` `return true`；预览 CSS 恢复 widget `::selection`；SEL-2–4 复验 |
 | M8 总验收 | | ⬜ | 含 SEL-1 未过不得总签 |
 
 ## 自动化

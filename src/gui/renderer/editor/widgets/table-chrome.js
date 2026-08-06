@@ -21,6 +21,7 @@ const {
   isEntireTableSelection,
 } = require('../model/table-model');
 const { copyText, uiT, clearBlockWidgetSelection, clearMediaSelection } = require('./widget-common');
+const { attachWidgetEditablePointerIsolation } = require('../widget-editable-guard');
 const { attachTableGridResize, applyTableLayout, ensureLayoutArrays } = require('./table-resize');
 const { hasTableLayoutMeta } = require('../model/parse-table');
 const {
@@ -733,6 +734,7 @@ function mountTableChrome(ctx) {
     for (let i = 0; i < cells.length; i++) {
       const cell = cells[i];
       let cellContentDirty = false;
+      attachWidgetEditablePointerIsolation(cell);
 
       function findSelectedTableImage() {
         const sel = window.getSelection && window.getSelection();

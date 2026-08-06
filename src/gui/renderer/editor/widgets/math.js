@@ -16,6 +16,7 @@ const { setSelectedMathBlock } = require('./math-selection');
 const { clearSelectedImageBlock } = require('./image-selection');
 const { clearSelectedMermaidBlock } = require('./mermaid-selection');
 const { attachBlockDragHandle } = require('./block-drag-handle');
+const { attachWidgetEditablePointerIsolation } = require('../widget-editable-guard');
 const { Transaction } = require('@codemirror/state');
 const {
   selectInlineMath,
@@ -203,6 +204,7 @@ class BlockMathWidget extends BlockReplaceWidget {
     sourceEditor.setAttribute('data-i18n-aria', 'widgetMathEdit');
     sourceEditor.setAttribute('aria-label', uiT('widgetMathEdit', t));
     sourceEditor.textContent = self.tex;
+    attachWidgetEditablePointerIsolation(sourceEditor);
     sourcePanel.appendChild(sourceEditor);
     frame.appendChild(sourcePanel);
 

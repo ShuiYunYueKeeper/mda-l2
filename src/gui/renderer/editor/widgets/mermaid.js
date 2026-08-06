@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const { parseFencedCode } = require('../model/parse-fence');
 const { createBlockToolbar, copyText, uiT, clearMediaSelection, clearBlockWidgetSelection } = require('./widget-common');
@@ -13,6 +13,7 @@ const {
 } = require('./mermaid-selection');
 const { clearSelectedImageBlock } = require('./image-selection');
 const { clearSelectedInlineMath, clearInlineMathSelectedClass } = require('./inline-math-selection');
+const { attachWidgetEditablePointerIsolation } = require('../widget-editable-guard');
 const { clearSelectedBlock } = require('./block-selection');
 const { syncMermaidFrameToStage } = require('./mermaid-layout');
 const {
@@ -111,6 +112,7 @@ class MermaidWidget extends BlockReplaceWidget {
     sourceEditor.setAttribute('data-i18n-aria', 'widgetCodeSource');
     sourceEditor.setAttribute('aria-label', uiT('widgetCodeSource', t));
     sourceEditor.textContent = self.code;
+    attachWidgetEditablePointerIsolation(sourceEditor);
     sourcePanel.appendChild(sourceEditor);
     frame.appendChild(sourcePanel);
 

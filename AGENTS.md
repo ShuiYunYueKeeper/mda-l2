@@ -289,9 +289,10 @@ npm test               # jest（含覆盖率）
 4k. **【GUI 启动 / 最近打开 / 工作区】**：启动仅当「记住上次会话」开启且最近列表非空才自动打开 `recents[0]`，否则欢迎页。**恢复工作区不得**在无当前文件时自动 `requestOpen` 树内首个 Markdown（会覆盖空历史欢迎页）。关闭「记住上次会话」后不落盘工作区/最近文件。清空最近打开：只清列表、保持当前文档；本会话禁止静默 `addRecent` 直至用户主动打开。清空文件列表（侧栏 ✕）：关工作区侧栏 + `setWorkspaceRoot(null)`，**不删**磁盘文件、不关当前文档。
 4l. **【GUI CM6 所见即所得】光标/选取与入口保护**：见 §8.13–14。修块 widget、装饰层、手柄、边框等**局部**问题时，改动须**隔离**——不得顺带改 `click-collapse`、hide-mark 层、`EditorView.atomicRanges`、装饰层 `selectionSet` 指纹等坐标/选取基础设施，**除非用户明确要求**。验收闸门：点击诊断 HUD（`mda-editor-debug-click`）Δ ≤ 2px；正文/引用/标题可鼠标拖选；标题拖选不闪烁。删/藏工具栏、块手柄、菜单项、快捷键等入口前须用户同意。
 4l2. **【GUI CM6 hide-mark 点击/剪贴板】**：`caret-syntax-adjust.js` 校准单击与拖选端点（可见内容左缘→开定界符左侧，右缘→闭定界符右侧）；拖选结束在 `click-collapse.js` 调用 `adjustSelectionForHiddenMarks`。`syntax-clipboard.js` 拦截预览 `copy`/`cut`：选区**同时含**开闭定界符则保留 Markdown，**仅一侧**则去掉定界符字符。调用 `SYNTAX_RULES.markRanges`/`contentRange` 时 `text` 须为**全文**，节点用 `{ from, to, type: node.name }` 适配。
-4m. **【GUI CM6 选区着色】**：正文/引用/标题/内联装饰仅依赖 CM6 `.cm-selectionBackground`（`--cm-sel-bg`）覆盖**实际选中字符**；禁止给整段内联 span 打选中 class。行内 code 背景须半透明（或明确灰底）以便与选区蓝区分；引用块仅左侧 `--blockquote-bar` 竖条、勿整行底色。表格单元格与块 widget 内编辑（流程图源码等）用 `contenteditable` + `--table-text-sel` 的 `::selection`（**勿**用 `<textarea>`——Electron 内常回落系统深蓝）；widget 源码聚焦时收起 CM6 文档选区并隐藏 `.cm-cursor`，避免叠色。
+4m. **【GUI CM6 选区着色】**：正文/引用/标题/内联装饰在预览模式用紧致自绘层（`tight-selection.js`，`above: true` + `--cm-preview-sel-overlay`）；源码模式用 CM6 默认 `.cm-selectionLayer`。禁止给整段内联 span 打选中 class。行内 code 背景须半透明以便与选区蓝区分；引用块仅左侧 `--blockquote-bar` 竖条、勿整行底色。**表格单元格与块 widget 内编辑**（代码/Mermaid/公式源码）走 `contenteditable` + `--table-text-sel` 的 `::selection`（**勿**用 `<textarea>`）；**勿**让 CM6 文档选区与格内原生选区并存（见 4m2）。
    - **单击进格**：`kind === 'cell'` **不**打整格 `mda-cm-table-cell-selected` 蓝底；仅文字拖选用 `::selection`。
-   - **验收现状（2026-08-03）**：**正文拖选不过关**（M8 `SEL-1` ❌）。含行内 code/粗体的列表与段落仍可能整行铺底、漏画或双高度；自绘紧致选区方案已回退。表格/代码块/Mermaid 源码选区（SEL-2–4）另论。细节与复现见 [`docs/M8-acceptance-checklist.md`](docs/M8-acceptance-checklist.md)「正文选取（SEL-1）」。再改选区须小步可回退；`layer({class})` / `classList.add` **禁止 class 名含空格**（否则插件崩溃）。
+   - **验收现状（2026-08-03）**：**正文拖选不过关**（M8 `SEL-1` ❌）。含行内 code/粗体的列表与段落仍可能整行铺底、漏画或双高度。表格/代码块/Mermaid 源码（SEL-2–4）经 **2026-08-06** `widget-editable-guard` 修复后已复验 ✅。细节见 [`docs/M8-acceptance-checklist.md`](docs/M8-acceptance-checklist.md)。再改选区须小步可回退；`layer({class})` / `classList.add` **禁止 class 名含空格**。
+4m2. **【GUI CM6 widget 内文字拖选】**：`widget-editable-guard.js` — `attachWidgetEditablePointerIsolation`（捕获阶段 `stopPropagation` 拖选 `mousemove`）；`EditorState.transactionFilter` 在 widget 编辑期坍缩 CM6 非空选区；`tight-selection.js` 在 widget 聚焦或 `coordsAtPos` 不可靠时跳过、且丢弃超视口 2 倍的矩形。**禁止**对 widget `contenteditable` 在 `EditorView.domEventHandlers` 中 `return true`（CM6 会 `preventDefault()`，原生拖选失效）。预览 CSS：`body.mda-cm6-mode-preview` 下 `.cm-content *::selection` 透明时，widget 须有更高特异性规则恢复 `--table-text-sel`（`index.html`）。
 4n. **【GUI CM6 块选中 / 删除撤销 / 悬停菜单】**：
    - **空白行插入**：正文空白行 hover 左侧「+」→ 扁平插入菜单（图片…/表格/代码块/引用/流程图/分隔线）；光标落空白行显示占位提示。菜单 `empty-line-insert-menu.js`；插入 `insertSnippetAtBlankLine`（替换空行）。**块手柄菜单插入**前须 `pinSelectionForHistory`（`addToHistory: false`），避免 undo 光标回到文档头。
    - **删除→撤销**：图片 / Mermaid / 代码 / 表 / 引用 / 高亮 / 分割线（及公式）删前须钉 CM6 选区到块首（钉选区 `Transaction.addToHistory.of(false)`）；删除**不清**内存选中态；`docChanged` 后 sync plugin 按 `source` reconcile 并重贴 `.mda-cm-block-selected` / 媒体蓝框。实现：`image-selection` / `mermaid-selection` / `block-selection`。
@@ -328,6 +329,7 @@ npm test               # jest（含覆盖率）
 | GUI 选区/高亮/滚动/查找 | `renderer/selection-anchor.js`、`anchor-highlights.js`、`sync-scroll.js`、`find-replace.js` |
 | GUI CM6 空白行插入 / 大纲点击同步 | `renderer/editor/empty-line-insert.js`、`empty-line-insert-menu.js`、`outline-click-sync.js`、`outline-scroll.js` |
 | GUI CM6 hide-mark 点击/剪贴板 | `renderer/editor/caret-syntax-adjust.js`、`syntax-clipboard.js`、`click-collapse.js` |
+| GUI CM6 预览紧致选区 / widget 内拖选 | `renderer/editor/view/tight-selection.js`、`widget-editable-guard.js` |
 | GUI 文件/欢迎/大纲 | `renderer/welcome.js`、`file-sidebar.js`、`outline-panel.js` |
 | 设计文档 | `docs/P0..P3-*.md`、`docs/README.md` |
 | 里程碑验收 | `docs/M2–M4-acceptance-checklist.md` |

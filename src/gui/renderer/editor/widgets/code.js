@@ -13,6 +13,7 @@ const {
 } = require('./widget-common');
 const { BlockReplaceWidget, countSourceLines, syncWidgetHeightFromDom } = require('./block-widget-base');
 const { createCodeLangPicker } = require('./code-lang-picker');
+const { attachWidgetEditablePointerIsolation } = require('../widget-editable-guard');
 const { normalizeCodeBlockLang } = require('./code-languages');
 const { attachBlockDragHandle } = require('./block-drag-handle');
 const { setSelectedCodeBlock } = require('./code-selection');
@@ -460,6 +461,8 @@ class CodeFenceWidget extends BlockReplaceWidget {
     codeInput.setAttribute('spellcheck', 'false');
     codeInput.setAttribute('data-i18n-aria', 'widgetCodeEdit');
     codeInput.setAttribute('aria-label', uiT('widgetCodeEdit', t));
+
+    attachWidgetEditablePointerIsolation(codeInput);
 
     highlightPre.appendChild(codeInput);
     stack.appendChild(highlightPre);
