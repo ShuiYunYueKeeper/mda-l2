@@ -136,6 +136,7 @@ MDA_EDITOR_RELEASE=1 npm run build:editor
 | hide-mark 拖选剪贴板 | 2026-08-05 | ✅ | 成对定界符保留 Markdown；仅一侧则粘贴去掉定界符 |
 | 代码块内 Enter 换行 | 2026-08-06 | ✅ | `localCode` 缓冲 + `<br>`/ZWSP 保留尾部空行；失焦写回；块内 Ctrl+Z 本地栈；撤销后 `onCodeBlockDirty` 重算标脏 |
 | widget 内文字拖选 / 表格拖选卡死 | 2026-08-06 | ✅ | `widget-editable-guard` + `transactionFilter`；勿 `domEventHandlers` `return true`；预览 CSS 恢复 widget `::selection`；SEL-2–4 复验 |
+| 块 widget 邻接行指针（单击/拖选/双三击） | 2026-08-07 | ✅ | `click-collapse`：`posAtClick`/`.cm-line`/`mousedown` 抢先/document `mouseup`；`mermaid-diagrams.md` §6 后复验 |
 | M8 总验收 | | ⬜ | 含 SEL-1 未过不得总签 |
 
 ## 自动化

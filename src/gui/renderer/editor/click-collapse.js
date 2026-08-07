@@ -1,21 +1,86 @@
-/**
- * 预览模式：单击定位光标（hide-mark atomic / 标题行高 / 块 widget 邻接偶发冲突）。
- * 不阻断 mousedown 默认行为，以保留鼠标拖选；仅在「未拖选的单击」于 mouseup 校准落点。
- * 拖选结束后对 anchor/head 做 hide-mark 边缘校准（含定界符）。
- *
- * 优先用 caretRangeFromPoint + posAtDOM，并与 posAtCoords 交叉校验，避免落到行首。
+﻿/**
+ * 预览模式：单击/拖选/双击/三击定位与选区（hide-mark / 块 widget 高度图失真校准）。
  */
 'use strict';
 
 const { EditorView } = require('@codemirror/view');
+const { EditorSelection } = require('@codemirror/state');
 const { adjustCaretForHiddenMarks, adjustSelectionForHiddenMarks } = require('./caret-syntax-adjust');
 
 const DRAG_PX = 4;
 /** 点击与映射 caret 超过此距离则在邻行重校准（仅 fallback 路径） */
 const REFINE_DIST_PX = 10;
 
-/** @type {{ x: number, y: number, shiftKey: boolean, dragging: boolean } | null} */
+/** @type {{ x: number, y: number, shiftKey: boolean, dragging: boolean, handledMultiClick?: boolean, view: import('@codemirror/view').EditorView } | null} */
 let mouseDown = null;
+let docPointerEndBound = false;
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ */
+function takeMouseDownForView(view) {
+  if (!mouseDown || mouseDown.view !== view) return null;
+  const start = mouseDown;
+  mouseDown = null;
+  return start;
+}
+
+function takeAnyMouseDown() {
+  if (!mouseDown) return null;
+  const start = mouseDown;
+  mouseDown = null;
+  return start;
+}
+
+function ensureDocPointerEndListeners() {
+  if (docPointerEndBound || typeof document === 'undefined') return;
+  docPointerEndBound = true;
+  document.addEventListener(
+    'mouseup',
+    function (event) {
+      if (event.button !== 0) return;
+      const start = takeAnyMouseDown();
+      if (!start || start.view.destroyed) return;
+      finalizePointerUp(start.view, start, event.clientX, event.clientY, event.detail);
+    },
+    true
+  );
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ x: number, y: number, shiftKey: boolean, dragging: boolean, handledMultiClick?: boolean, view: import('@codemirror/view').EditorView }} start
+ * @param {number} clientX
+ * @param {number} clientY
+ * @param {number} detail
+ * @param {{ skipClickCaret?: boolean }} [options]
+ */
+function finalizePointerUp(view, start, clientX, clientY, detail, options) {
+  if (!view || view.destroyed || start.shiftKey) return;
+  if (start.handledMultiClick || detail >= 2) return;
+  const dx = clientX - start.x;
+  const dy = clientY - start.y;
+  const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
+  if (moved) {
+    const pointer = {
+      startX: start.x,
+      startY: start.y,
+      endX: clientX,
+      endY: clientY,
+    };
+    adjustDragSelection(view, pointer);
+    requestAnimationFrame(function () {
+      adjustDragSelection(view, pointer);
+    });
+    return;
+  }
+  if (options && options.skipClickCaret) return;
+  placeCaret(view, clientX, clientY);
+  requestAnimationFrame(function () {
+    if (!view || view.destroyed) return;
+    placeCaret(view, clientX, clientY);
+  });
+}
 
 /**
  * @param {EventTarget | null} target
@@ -89,10 +154,148 @@ function posAtClickFromDom(view, clientX, clientY) {
 
 /**
  * @param {import('@codemirror/view').EditorView} view
+ * @param {number} pos
+ * @returns {HTMLElement | null}
+ */
+function lineElementAt(view, pos) {
+  try {
+    const at = view.domAtPos(pos, 1);
+    let node = at && at.node;
+    if (!node) return null;
+    if (node.nodeType === 3) node = node.parentElement;
+    return node && node.closest ? /** @type {HTMLElement} */ (node.closest('.cm-line')) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} clientX
+ * @param {number} clientY
+ * @returns {HTMLElement | null}
+ */
+function cmLineElementAtPoint(view, clientX, clientY) {
+  if (typeof document === 'undefined' || !view || !view.dom) return null;
+  const caret = caretNodeFromPoint(clientX, clientY);
+  if (caret) {
+    const el = caret.node.nodeType === 3 ? caret.node.parentElement : caret.node;
+    if (el && el.closest) {
+      const hit = el.closest('.cm-line');
+      if (hit && view.dom.contains(hit)) return /** @type {HTMLElement} */ (hit);
+    }
+  }
+  const target = document.elementFromPoint(clientX, clientY);
+  if (!target || !view.dom.contains(target)) return null;
+  if (target.closest) {
+    const hit = target.closest('.cm-line');
+    if (hit) return /** @type {HTMLElement} */ (hit);
+  }
+  let best = null;
+  let bestDy = Infinity;
+  const lines = view.contentDOM.querySelectorAll('.cm-line');
+  for (let i = 0; i < lines.length; i++) {
+    const el = /** @type {HTMLElement} */ (lines[i]);
+    const rect = el.getBoundingClientRect();
+    if (
+      clientY < rect.top - 2 ||
+      clientY > rect.bottom + 2 ||
+      clientX < rect.left - 12 ||
+      clientX > rect.right + 12
+    ) {
+      continue;
+    }
+    const midY = (rect.top + rect.bottom) / 2;
+    const dy = Math.abs(midY - clientY);
+    if (dy < bestDy) {
+      bestDy = dy;
+      best = el;
+    }
+  }
+  return best;
+}
+
+/**
+ * 点击处对应的文档行（优先 .cm-line DOM，避免 widget 下方 posAtCoords 偏行）。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} clientX
+ * @param {number} clientY
+ * @returns {import('@codemirror/state').Line | null}
+ */
+function docLineAtClick(view, clientX, clientY) {
+  if (!view || view.destroyed) return null;
+  const lineEl = cmLineElementAtPoint(view, clientX, clientY);
+  if (lineEl) {
+    try {
+      const base = view.posAtDOM(lineEl, 0);
+      return view.state.doc.lineAt(base);
+    } catch (_) {
+      /* fall through */
+    }
+  }
+  const raw = posAtClick(view, clientX, clientY);
+  if (raw == null) return null;
+  return view.state.doc.lineAt(caretPosForClick(view, raw));
+}
+
+/**
+ * 三击行选区间：仅当前行 [from, line.to]，不把 head 放到下一行行首。
+ * @param {import('@codemirror/state').EditorState} state
+ * @param {import('@codemirror/state').Line} line
+ */
+function lineSelectionRange(state, line) {
+  let from = adjustCaretForHiddenMarks(state, line.from);
+  const to = line.to;
+  if (state.doc.lineAt(from).number < line.number) from = line.from;
+  return { from: Math.min(from, to), to: Math.max(from, to) };
+}
+
+/**
+ * 用 .cm-line 视觉行带定位（块 widget 下方 coordsAtPos 高度图失真时比 posAtCoords 邻行重选更准）。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} clientX
+ * @param {number} clientY
+ * @returns {number | null}
+ */
+function posFromCmLineAtPoint(view, clientX, clientY) {
+  const lineEl = cmLineElementAtPoint(view, clientX, clientY);
+  if (!lineEl) return null;
+  const caret = caretNodeFromPoint(clientX, clientY);
+  if (caret) {
+    try {
+      const node = caret.node;
+      const el = node.nodeType === 3 ? node.parentElement : node;
+      if (el && lineEl.contains(el)) {
+        const pos = view.posAtDOM(caret.node, caret.offset);
+        if (pos != null && pos >= 0 && pos <= view.state.doc.length) return pos;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  try {
+    const base = view.posAtDOM(lineEl, 0);
+    const line = view.state.doc.lineAt(base);
+    if (clientX <= lineEl.getBoundingClientRect().left + 4) return line.from;
+    return line.to;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
  * @param {import('@codemirror/state').Line} line
  * @returns {{ top: number, bottom: number } | null}
  */
 function lineVerticalBand(view, line) {
+  const lineEl = lineElementAt(view, line.from);
+  if (lineEl) {
+    const rect = lineEl.getBoundingClientRect();
+    if (rect.bottom >= rect.top) {
+      return { top: rect.top, bottom: rect.bottom };
+    }
+  }
   let top = Infinity;
   let bottom = -Infinity;
   const positions = [line.from];
@@ -142,6 +345,9 @@ function posOnLineAtX(view, line, clientX) {
  * @param {number} hintPos
  */
 function refinePosAtClick(view, clientX, clientY, hintPos) {
+  const cmPos = posFromCmLineAtPoint(view, clientX, clientY);
+  if (cmPos != null) return cmPos;
+
   const doc = view.state.doc;
   const hintLine = doc.lineAt(hintPos);
   let bestPos = hintPos;
@@ -196,18 +402,33 @@ function posAtClick(view, clientX, clientY) {
     if (isBlockWidgetTarget(el)) return null;
   }
 
+  const cmPos = posFromCmLineAtPoint(view, clientX, clientY);
   const fromDom = posAtClickFromDom(view, clientX, clientY);
 
   let fromCoords = view.posAtCoords({ x: clientX, y: clientY }, 1);
   if (fromCoords == null) fromCoords = view.posAtCoords({ x: clientX, y: clientY }, -1);
 
+  const doc = view.state.doc;
+
+  // .cm-line 视觉行优先：块 widget 下方 posAtCoords 常落到下一行
+  if (cmPos != null) {
+    if (fromCoords != null) {
+      const cmLn = doc.lineAt(cmPos);
+      const coLn = doc.lineAt(fromCoords);
+      if (cmLn.number < coLn.number) return cmPos;
+    }
+    return cmPos;
+  }
+
   if (fromDom != null && fromCoords != null && fromDom !== fromCoords) {
-    // caretRangeFromPoint 偶发落到行首/隐藏标记旁；与 posAtCoords 比视觉距离
+    const domLine = doc.lineAt(fromDom);
+    const coLine = doc.lineAt(fromCoords);
+    if (coLine.number > domLine.number) return fromDom;
+    if (domLine.number > coLine.number) return fromCoords;
     const sDom = clickScoreAtPos(view, fromDom, clientX, clientY);
     const sCo = clickScoreAtPos(view, fromCoords, clientX, clientY);
     if (sCo + 9 < sDom) {
-      fromCoords = refineIfFar(view, clientX, clientY, fromCoords);
-      return fromCoords;
+      return refineIfFar(view, clientX, clientY, fromCoords);
     }
     return fromDom;
   }
@@ -229,7 +450,8 @@ function refineIfFar(view, clientX, clientY, pos) {
   if (caret) {
     const dx = caret.left - clientX;
     const dy = (caret.top + caret.bottom) / 2 - clientY;
-    if (dx * dx + dy * dy > REFINE_DIST_PX * REFINE_DIST_PX) {
+    // 仅纵向偏差触发邻行重选；横向大偏差常见于行末空白，且 widget 下方行带用 coordsAtPos 会失真
+    if (Math.abs(dy) > REFINE_DIST_PX) {
       return refinePosAtClick(view, clientX, clientY, pos);
     }
     return pos;
@@ -238,37 +460,121 @@ function refineIfFar(view, clientX, clientY, pos) {
 }
 
 /**
+ * hide-mark 校准；避免从上一行末 snap 进下一空行行首（widget 下方常见）。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} raw
+ */
+function caretPosForClick(view, raw) {
+  const pos = adjustCaretForHiddenMarks(view.state, raw);
+  if (pos === raw) return pos;
+  const doc = view.state.doc;
+  const rawLine = doc.lineAt(raw);
+  const posLine = doc.lineAt(pos);
+  if (posLine.number > rawLine.number && posLine.text.trim() === '') {
+    return raw;
+  }
+  return pos;
+}
+
+/**
  * @param {import('@codemirror/view').EditorView} view
  * @param {number} clientX
  * @param {number} clientY
+ * @returns {boolean}
  */
-function placeCaret(view, clientX, clientY) {
-  if (!view || view.destroyed) return;
+function setSelectionAtClick(view, clientX, clientY) {
+  if (!view || view.destroyed) return false;
   if (typeof document !== 'undefined' && document.elementFromPoint) {
     const el = document.elementFromPoint(clientX, clientY);
-    if (isBlockWidgetTarget(el)) return;
+    if (isBlockWidgetTarget(el)) return false;
   }
   const raw = posAtClick(view, clientX, clientY);
-  if (raw == null) return;
-  const pos = adjustCaretForHiddenMarks(view.state, raw);
+  if (raw == null) return false;
+  const pos = caretPosForClick(view, raw);
   const sel = view.state.selection.main;
-  // 单击须强制坍缩为 caret；即使当前是 atomic 整段选中也要改掉
-  if (sel.from === sel.to && sel.head === pos) return;
+  if (sel.from === sel.to && sel.anchor === pos && sel.head === pos) return true;
   view.dispatch({
     selection: { anchor: pos, head: pos },
     scrollIntoView: false,
   });
+  return true;
+}
+function placeCaret(view, clientX, clientY) {
+  setSelectionAtClick(view, clientX, clientY);
 }
 
 /**
- * 拖选 mouseup 后校准区间端点（含隐藏定界符）。
+ * 双击选词：用校准落点 + state.wordAt，避免 CM6 posAtCoords 在 widget 下方错位。
  * @param {import('@codemirror/view').EditorView} view
+ * @param {number} clientX
+ * @param {number} clientY
  */
-function adjustDragSelection(view) {
+function selectWordAtClick(view, clientX, clientY) {
+  if (!view || view.destroyed) return false;
+  if (typeof document !== 'undefined' && document.elementFromPoint) {
+    const el = document.elementFromPoint(clientX, clientY);
+    if (isBlockWidgetTarget(el)) return false;
+  }
+  const raw = posAtClick(view, clientX, clientY);
+  if (raw == null) return false;
+  const pos = caretPosForClick(view, raw);
+  const word = view.state.wordAt(pos);
+  const from = word ? word.from : pos;
+  const to = word ? word.to : pos;
+  const next = adjustSelectionForHiddenMarks(view.state, from, to);
+  view.dispatch({
+    selection: EditorSelection.range(next.anchor, next.head),
+    scrollIntoView: false,
+  });
+  return true;
+}
+
+/**
+ * 三击选行。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+function selectLineAtClick(view, clientX, clientY) {
+  if (!view || view.destroyed) return false;
+  if (typeof document !== 'undefined' && document.elementFromPoint) {
+    const el = document.elementFromPoint(clientX, clientY);
+    if (isBlockWidgetTarget(el)) return false;
+  }
+  const line = docLineAtClick(view, clientX, clientY);
+  if (!line) return false;
+  const range = lineSelectionRange(view.state, line);
+  view.dispatch({
+    selection: EditorSelection.range(range.from, range.to),
+    scrollIntoView: false,
+  });
+  return true;
+}
+
+/**
+ * 拖选区间两端：先用 posAtClick 校准落点（块 widget 上方行 posAtCoords 易落到下一行），再 hide-mark 边缘校准。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ startX?: number, startY?: number, endX?: number, endY?: number }} [pointer]
+ */
+function adjustDragSelection(view, pointer) {
   if (!view || view.destroyed) return;
   const sel = view.state.selection.main;
   if (sel.empty) return;
-  const next = adjustSelectionForHiddenMarks(view.state, sel.anchor, sel.head);
+
+  let anchor = sel.anchor;
+  let head = sel.head;
+  const ptr = pointer || {};
+
+  if (ptr.startX != null && ptr.startY != null) {
+    const mapped = posAtClick(view, ptr.startX, ptr.startY);
+    if (mapped != null) anchor = mapped;
+  }
+  if (ptr.endX != null && ptr.endY != null) {
+    const mapped = posAtClick(view, ptr.endX, ptr.endY);
+    if (mapped != null) head = mapped;
+  }
+
+  const next = adjustSelectionForHiddenMarks(view.state, anchor, head);
   if (next.anchor === sel.anchor && next.head === sel.head) return;
   view.dispatch({
     selection: { anchor: next.anchor, head: next.head },
@@ -276,9 +582,33 @@ function adjustDragSelection(view) {
   });
 }
 
+/**
+ * 拖选过程中用校准落点更新选区；返回是否已 dispatch。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} anchorX
+ * @param {number} anchorY
+ * @param {number} headX
+ * @param {number} headY
+ */
+function applyDragSelectionAt(view, anchorX, anchorY, headX, headY) {
+  if (!view || view.destroyed) return false;
+  const anchorPos = posAtClick(view, anchorX, anchorY);
+  const headPos = posAtClick(view, headX, headY);
+  if (anchorPos == null || headPos == null) return false;
+  const next = adjustSelectionForHiddenMarks(view.state, anchorPos, headPos);
+  const main = view.state.selection.main;
+  if (main.anchor === next.anchor && main.head === next.head) return false;
+  view.dispatch({
+    selection: { anchor: next.anchor, head: next.head },
+    scrollIntoView: false,
+  });
+  return true;
+}
+
 function createClickCollapseExtension() {
+  ensureDocPointerEndListeners();
   return EditorView.domEventHandlers({
-    mousedown: function (event) {
+    mousedown: function (event, view) {
       if (event.button !== 0) return false;
       if (isBlockWidgetTarget(event.target)) return false;
       mouseDown = {
@@ -286,45 +616,74 @@ function createClickCollapseExtension() {
         y: event.clientY,
         shiftKey: !!event.shiftKey,
         dragging: false,
+        handledMultiClick: false,
+        view: view,
       };
-      return false;
-    },
-    mousemove: function (event) {
-      if (!mouseDown || mouseDown.dragging || mouseDown.shiftKey) return false;
-      const dx = event.clientX - mouseDown.x;
-      const dy = event.clientY - mouseDown.y;
-      if (dx * dx + dy * dy > DRAG_PX * DRAG_PX) {
-        mouseDown.dragging = true;
+      if (event.shiftKey) return false;
+      if (event.detail >= 3) {
+        mouseDown.handledMultiClick = selectLineAtClick(view, event.clientX, event.clientY);
+        try {
+          view.focus();
+        } catch (_) {
+          /* ignore */
+        }
+        return mouseDown.handledMultiClick;
       }
-      return false;
+      if (event.detail === 2) {
+        mouseDown.handledMultiClick = selectWordAtClick(view, event.clientX, event.clientY);
+        try {
+          view.focus();
+        } catch (_) {
+          /* ignore */
+        }
+        return mouseDown.handledMultiClick;
+      }
+      // 块 widget 下方 posAtCoords 在 mousedown 即错位到下一行；抢先写入校准落点并阻断 CM6
+      setSelectionAtClick(view, event.clientX, event.clientY);
+      try {
+        view.focus();
+      } catch (_) {
+        /* ignore */
+      }
+      return true;
     },
-    mouseup: function (event, view) {
-      if (event.button !== 0 || !mouseDown) return false;
-      const start = mouseDown;
-      mouseDown = null;
-      if (isBlockWidgetTarget(event.target)) return false;
-      if (start.shiftKey || event.shiftKey) return false;
-      if (event.detail >= 2) return false;
-      // 以 mouseup 相对 mousedown 的位移为准（不依赖 mousemove 一定送达）
-      const dx = event.clientX - start.x;
-      const dy = event.clientY - start.y;
-      const moved =
-        start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
-      if (moved) {
-        // 同步校准一次，避免 mouseup 后立即 Ctrl+C 时 rAF 尚未执行（非必现 ## 重复）
-        adjustDragSelection(view);
-        requestAnimationFrame(function () {
-          adjustDragSelection(view);
-        });
+    mousemove: function (event, view) {
+      if (!mouseDown || mouseDown.shiftKey || mouseDown.view !== view) return false;
+      // 释放在编辑区外时 mouseup 可能未送达；buttons 已松则结束拖选
+      if ((event.buttons & 1) === 0) {
+        const start = takeMouseDownForView(view);
+        if (start) {
+          finalizePointerUp(view, start, event.clientX, event.clientY, 1);
+        }
         return false;
       }
-      const x = event.clientX;
-      const y = event.clientY;
-      // 单击：即使 CM6 因 atomic（行内 code 的 ` 等）整段选中，也要坍缩为 caret。
-      // 只有真正拖选（moved）才保留非空选区，避免「点一下就像选中了」。
-      requestAnimationFrame(function () {
-        if (!view || view.destroyed) return;
-        placeCaret(view, x, y);
+      const dx = event.clientX - mouseDown.x;
+      const dy = event.clientY - mouseDown.y;
+      if (!mouseDown.dragging) {
+        if (dx * dx + dy * dy > DRAG_PX * DRAG_PX) {
+          mouseDown.dragging = true;
+        } else {
+          return false;
+        }
+      }
+      if (isBlockWidgetTarget(event.target)) return false;
+      applyDragSelectionAt(view, mouseDown.x, mouseDown.y, event.clientX, event.clientY);
+      // 阻止 CM6 用失真的 posAtCoords 继续扩展选区（块 widget 上方行易落到下一行）
+      return true;
+    },
+    mouseup: function (event, view) {
+      if (event.button !== 0) return false;
+      const start = takeMouseDownForView(view);
+      if (!start) return false;
+      if (start.shiftKey || event.shiftKey) return false;
+      if (start.handledMultiClick || event.detail >= 2) return true;
+      const blockAtUp = isBlockWidgetTarget(event.target);
+      const dx = event.clientX - start.x;
+      const dy = event.clientY - start.y;
+      const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
+      if (blockAtUp && !moved) return false;
+      finalizePointerUp(view, start, event.clientX, event.clientY, event.detail, {
+        skipClickCaret: blockAtUp,
       });
       return false;
     },
@@ -336,7 +695,16 @@ module.exports = {
   posAtClick: posAtClick,
   posAtClickFromDom: posAtClickFromDom,
   placeCaret: placeCaret,
+  setSelectionAtClick: setSelectionAtClick,
+  selectWordAtClick: selectWordAtClick,
+  selectLineAtClick: selectLineAtClick,
+  docLineAtClick: docLineAtClick,
+  lineSelectionRange: lineSelectionRange,
+  caretPosForClick: caretPosForClick,
   adjustDragSelection: adjustDragSelection,
+  applyDragSelectionAt: applyDragSelectionAt,
   refinePosAtClick: refinePosAtClick,
+  posFromCmLineAtPoint: posFromCmLineAtPoint,
+  refineIfFar: refineIfFar,
   isBlockWidgetTarget: isBlockWidgetTarget,
 };

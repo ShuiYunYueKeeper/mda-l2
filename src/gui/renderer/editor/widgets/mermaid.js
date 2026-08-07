@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const { parseFencedCode } = require('../model/parse-fence');
 const { createBlockToolbar, copyText, uiT, clearMediaSelection, clearBlockWidgetSelection } = require('./widget-common');
@@ -158,6 +158,8 @@ class MermaidWidget extends BlockReplaceWidget {
         requestAnimationFrame(function () {
           sourceEditor.focus();
         });
+      } else {
+        root.classList.add('mda-cm-block-handle-show');
       }
       try {
         if (view) view.requestMeasure();

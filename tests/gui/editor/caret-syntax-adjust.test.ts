@@ -71,4 +71,25 @@ describe('caret-syntax-adjust', () => {
     expect(onlyBold.anchor).toBe(0);
     expect(onlyBold.head).toBe(contentEnd + 2);
   });
+
+  test('拖选行末勿吃进下一空行行首', () => {
+    const doc = '经典 graph 写法\n\n下一节';
+    const state = mdState(doc);
+    const line1 = state.doc.line(1);
+    const line2 = state.doc.line(2);
+    expect(line2.text).toBe('');
+    const next = adjustSelectionForHiddenMarks(state, line1.from, line2.from);
+    expect(next.anchor).toBe(line1.from);
+    expect(next.head).toBe(line1.to);
+  });
+
+  test('反向拖选到空行行首亦收回上一行末', () => {
+    const doc = '第一行\n\n第三行';
+    const state = mdState(doc);
+    const line2 = state.doc.line(2);
+    const line1 = state.doc.line(1);
+    const next = adjustSelectionForHiddenMarks(state, line2.from, line1.from + 2);
+    expect(next.anchor).toBe(line1.to);
+    expect(next.head).toBe(line1.from + 2);
+  });
 });

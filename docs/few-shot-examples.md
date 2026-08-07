@@ -768,3 +768,42 @@ body.mda-cm6-mode-preview .mda-cm6-host .mda-cm-table [contenteditable="true"]::
 - ❌ 仅靠 `stopPropagation` 却不坍缩 CM6 选区 → 紧致层在表格 widget 上错位、高亮飞到正文，严重时 UI 无响应。
 - ❌ `createWidgetEditableGuardExtension()` 放进 `[...]` 未展开 → 守卫扩展未注册，回归无保护。
 - ❌ 混用 `lineBlockAt` 文档坐标与 `coordsAtPos` 视口坐标画紧致层 → 高亮错位；`while (pos < to)` 在块边界不前进 → 死循环（已修，勿再引入）。
+
+---
+
+## 27. CM6 块 widget 邻接行指针（`click-collapse`）
+
+**规则**：
+- 大块 widget 撑高后，**其下方/上方邻接正文行** CM6 `posAtCoords` 常落到**下一行行首**；`coordsAtPos` 横向可偏几十像素、纵向却接近 → 勿用「总距离 > 阈值」触发邻行重选。
+- **单击/拖选**：`mousedown` 非 Shift、非多击须抢先 `setSelectionAtClick` 并 `return true`；拖选 `mousemove` 自管 `applyDragSelectionAt`；`event.buttons&1===0` 或 **document 捕获 `mouseup`** 必须结束 `mouseDown` 会话。
+- **双击/三击**：自行 `wordAt` / `docLineAtClick`+`lineSelectionRange`；三击勿 `line.to+1`（head 落下一行行首会被 hide-mark 吃进下一行列表项）。
+- 行归属优先 **`.cm-line` DOM**（`caretRangeFromPoint`、Y 最近行），不信失真 `coordsAtPos` 行带。
+
+### ✅ 正确
+
+```javascript
+// mousedown：阻断 CM6 默认错位落点
+if (!event.shiftKey && event.detail === 1) {
+  setSelectionAtClick(view, event.clientX, event.clientY);
+  view.focus();
+  return true;
+}
+if (event.detail === 2) {
+  selectWordAtClick(view, event.clientX, event.clientY);
+  return true;
+}
+
+// refineIfFar：仅纵向偏差才邻行重选
+if (Math.abs(dy) > REFINE_DIST_PX) return refinePosAtClick(...);
+return pos;
+
+// 三击：不吃到下一行
+const range = lineSelectionRange(state, docLineAtClick(view, x, y));
+```
+
+### ❌ 错误
+
+- ❌ 只在 `mouseup` `placeCaret`、不拦 `mousedown` → 闪行且拖选卡在下一行。
+- ❌ `refineIfFar` 用 `dx²+dy²` 触发邻行重选 → widget 下方横向大偏差时吃到上一空行。
+- ❌ 三击 `line.to+1` + `adjustSelectionForHiddenMarks` → 选区含下一行 `2.`。
+- ❌ 拖选仅编辑区 `mouseup` 清状态 → 区外松手后移入仍扩展选区。

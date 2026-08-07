@@ -129,14 +129,33 @@ function clampSelectionBleed(state, pos, other) {
 }
 
 /**
+ * 拖选行末时 CM6 常把 head 落到下一空行行首；收回上一行末尾，避免「多选一行空白」。
+ * @param {import('@codemirror/state').EditorState} state
+ * @param {number} pos
+ * @param {number} other
+ */
+function clampEmptyLineSelectionBleed(state, pos, other) {
+  if (pos == null || pos < 0) return pos;
+  const doc = state.doc;
+  const line = doc.lineAt(pos);
+  if (line.text.trim() !== '') return pos;
+  if (pos !== line.from) return pos;
+  const otherLine = doc.lineAt(other);
+  if (otherLine.number !== line.number - 1) return pos;
+  return otherLine.to;
+}
+
+/**
  * 拖选区间两端分别做 hide-mark 边缘校准。
  * @param {import('@codemirror/state').EditorState} state
  * @param {number} anchor
  * @param {number} head
  */
 function adjustSelectionForHiddenMarks(state, anchor, head) {
-  const a = clampSelectionBleed(state, anchor, head);
-  const h = clampSelectionBleed(state, head, anchor);
+  let a = clampSelectionBleed(state, anchor, head);
+  let h = clampSelectionBleed(state, head, anchor);
+  a = clampEmptyLineSelectionBleed(state, a, h);
+  h = clampEmptyLineSelectionBleed(state, h, a);
   return {
     anchor: adjustCaretForHiddenMarks(state, a),
     head: adjustCaretForHiddenMarks(state, h),
@@ -148,6 +167,7 @@ module.exports = {
   findLeadingMark: findLeadingMark,
   findTrailingMark: findTrailingMark,
   clampSelectionBleed: clampSelectionBleed,
+  clampEmptyLineSelectionBleed: clampEmptyLineSelectionBleed,
   adjustCaretForHiddenMarks: adjustCaretForHiddenMarks,
   adjustSelectionForHiddenMarks: adjustSelectionForHiddenMarks,
 };
