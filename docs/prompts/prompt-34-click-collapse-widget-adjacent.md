@@ -45,5 +45,5 @@ npm run gui -- samples/mermaid-diagrams.md
 
 ## 遗留
 
-- **SEL-1** 正文选区着色（紧致层）仍 ❌，用户要求先搁置
+- ~~**SEL-1** 正文选区着色~~ → **2026-08-07 用户复验 ✅**
 - Shift+点击延伸选区仍走 CM6 默认（widget 下方可能偏行，低优先级）
