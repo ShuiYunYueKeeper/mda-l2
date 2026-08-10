@@ -1,4 +1,4 @@
-// Copy non-TS assets to dist/（GUI 资源 + 外置配置 JSON）。
+﻿// Copy non-TS assets to dist/（GUI 资源 + 外置配置 JSON）。
 // tsc 不会把被 import 的 .json 输出到 outDir，故需在此显式复制配置文件，
 // 否则 dist/core/*.js 运行时 require('../config/annotation-schema.json') 会找不到。
 const fs = require('fs');
@@ -19,6 +19,8 @@ const files = [
   ['src/gui/main/updater.js', 'dist/gui/main/updater.js'],
   ['src/gui/main/i18n.js', 'dist/gui/main/i18n.js'],
   ['src/gui/main/clipboard-image.js', 'dist/gui/main/clipboard-image.js'],
+  ['src/gui/main/paste-assets.js', 'dist/gui/main/paste-assets.js'],
+  ['src/gui/main/paste-prefs.js', 'dist/gui/main/paste-prefs.js'],
   ['src/gui/main/image-path.js', 'dist/gui/main/image-path.js'],
   ['src/gui/renderer/i18n.js', 'dist/gui/renderer/i18n.js'],
   ['src/gui/renderer/index.html', 'dist/gui/renderer/index.html'],

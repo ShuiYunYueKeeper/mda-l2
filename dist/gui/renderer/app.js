@@ -1,4 +1,4 @@
-// MDA Renderer — Markdown 工作台 GUI
+﻿// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -165,6 +165,24 @@
     return rel;
   }
 
+  /** 粘贴落盘结果 → Markdown src（统一用主进程 formatPasteAssetHref，勿混用 normalizeImageRefForMarkdown） */
+  function pastedImageAssetHref(saveResult) {
+    if (!saveResult || !saveResult.success) return '';
+    var href = saveResult.markdownHref || saveResult.relativePath;
+    if (href) return String(href).replace(/\\/g, '/');
+    return normalizeImageRefForMarkdown(saveResult.filePath);
+  }
+
+  function buildPastedImageMarkdown(saveResult, meta) {
+    if (!window.MDAEditor) return '';
+    meta = meta || {};
+    return window.MDAEditor.serializeImageMarkdown({
+      alt: meta.alt || '',
+      src: pastedImageAssetHref(saveResult),
+      title: meta.title || '',
+    });
+  }
+
   function pickAndInsertImage(where, block) {
     if (!isCm6Ready() || !window.MDAEditor || !currentFilePath) {
       uiAlert(uiT('alertOpenDocFirst'));
@@ -199,18 +217,13 @@
       uiAlert(uiT('alertOpenDocFirst'));
       return;
     }
-    api.saveClipboardImageAsset(currentFilePath).then(function (r) {
+    api.saveClipboardImageAsset(currentFilePath, workspaceRoot).then(function (r) {
       if (!r || !r.success) {
         if (r && r.error) uiAlert(uiT('alertPasteImageEmpty'));
         return;
       }
-      var href = r.relativePath || normalizeImageRefForMarkdown(r.filePath);
       var meta = block && block.meta ? block.meta : {};
-      var line = window.MDAEditor.serializeImageMarkdown({
-        alt: meta.alt || '',
-        src: href,
-        title: meta.title || '',
-      });
+      var line = buildPastedImageMarkdown(r, meta);
       if (!line) return;
       if (block && block.from != null && block.to != null) {
         window.MDAEditor.replaceBlockRange(cm6Editor.view, block.from, block.to, line);
@@ -653,19 +666,15 @@
             uiAlert(uiT('alertOpenDocFirst'));
             return Promise.resolve(null);
           }
-          return api.saveClipboardImageAsset(currentFilePath).then(function (r) {
+          return api.saveClipboardImageAsset(currentFilePath, workspaceRoot).then(function (r) {
             if (!r || !r.success) {
               if (r && r.error) uiAlert(uiT('alertPasteImageEmpty'));
               return null;
             }
-            var href = r.relativePath || normalizeImageRefForMarkdown(r.filePath);
             var alt = wrap.getAttribute('data-mda-image-alt') || '';
             var title = wrap.getAttribute('data-mda-image-title') || '';
-            var line = window.MDAEditor.serializeImageMarkdown({
-              alt: alt,
-              src: href,
-              title: title,
-            });
+            var href = pastedImageAssetHref(r);
+            var line = buildPastedImageMarkdown(r, { alt: alt, title: title });
             if (!line) return null;
             syncDirtyFromEditor();
             return { line: line, href: href, alt: alt, title: title };
@@ -7001,35 +7010,69 @@
   }
   mediaDefaultWidthPref = readMediaDefaultWidthPref();
 
-  var liveRevealPref = 'never';
+  var pasteAssetsModePref = 'workspace';
+  var pasteAssetsCustomDirPref = '';
 
-  function readLiveRevealPref() {
-    try {
-      var v = localStorage.getItem('mda-live-reveal');
-      if (v === 'nearby' || v === 'never' || v === 'block') return v;
-    } catch (e) { /* ignore */ }
-    return 'never';
+  function normalizePasteAssetsMode(raw) {
+    var v = String(raw || 'workspace');
+    if (v === 'doc' || v === 'workspace' || v === 'custom') return v;
+    return 'workspace';
   }
 
-  function liveRevealLabel(mode) {
-    if (mode === 'nearby') return uiT('settingsLiveRevealNearby');
-    if (mode === 'never') return uiT('settingsLiveRevealNever');
-    return uiT('settingsLiveRevealBlock');
-  }
-
-  function applyLiveRevealPref(mode, opts) {
+  function applyPasteAssetsPref(mode, customDir, opts) {
     opts = opts || {};
-    var next = String(mode || 'block');
-    if (['block', 'nearby', 'never'].indexOf(next) < 0) next = 'block';
-    liveRevealPref = next;
-    try { localStorage.setItem('mda-live-reveal', next); } catch (e) { /* ignore */ }
-    if (isCm6Enabled() && cm6Editor && cm6Editor.view) {
-      try { cm6Editor.view.dispatch({}); } catch (e) { /* ignore */ }
-    }
-    if (opts.toast) showToast(uiT('toastLiveRevealOn', { mode: liveRevealLabel(next) }));
+    var nextMode = normalizePasteAssetsMode(mode);
+    var nextCustom = String(customDir || '').trim();
+    pasteAssetsModePref = nextMode;
+    pasteAssetsCustomDirPref = nextCustom;
+    if (!opts.persist || !api.setPasteAssetsPref) return Promise.resolve({ success: true });
+    return api.setPasteAssetsPref({ mode: nextMode, customDir: nextCustom }).then(function (r) {
+      if (opts.toast && r && r.success) showToast(uiT('toastPasteAssetsPrefOn'));
+      return r;
+    });
   }
 
-  liveRevealPref = readLiveRevealPref();
+  function resolvePasteAssetsDirHint(mode, customDir) {
+    var nextMode = normalizePasteAssetsMode(mode);
+    var nextCustom = String(customDir || '').trim();
+    if (nextMode === 'custom') {
+      if (!nextCustom) return { kind: 'empty-custom' };
+      return { kind: 'path', path: nextCustom };
+    }
+    if (nextMode === 'workspace') {
+      if (workspaceRoot) {
+        return { kind: 'path', path: joinFilePath(workspaceRoot, 'assets') };
+      }
+      if (currentFilePath && docState === 'open') {
+        return {
+          kind: 'path-fallback',
+          path: joinFilePath(dirnamePath(currentFilePath), 'assets'),
+        };
+      }
+      return { kind: 'no-context' };
+    }
+    if (currentFilePath && docState === 'open') {
+      return { kind: 'path', path: joinFilePath(dirnamePath(currentFilePath), 'assets') };
+    }
+    return { kind: 'no-file' };
+  }
+
+  function formatPasteAssetsTargetHint(mode, customDir) {
+    var r = resolvePasteAssetsDirHint(mode, customDir);
+    if (r.kind === 'path') return uiT('settingsPasteAssetsTarget', { path: r.path });
+    if (r.kind === 'path-fallback') return uiT('settingsPasteAssetsTargetFallback', { path: r.path });
+    if (r.kind === 'empty-custom') return uiT('settingsPasteAssetsTargetCustomEmpty');
+    if (r.kind === 'no-context') return uiT('settingsPasteAssetsTargetNoContext');
+    return uiT('settingsPasteAssetsTargetNoFile');
+  }
+
+  if (api.getPasteAssetsPref) {
+    api.getPasteAssetsPref().then(function (r) {
+      if (!r || !r.success || !r.value) return;
+      pasteAssetsModePref = normalizePasteAssetsMode(r.value.mode);
+      pasteAssetsCustomDirPref = String(r.value.customDir || '');
+    });
+  }
 
   function applyMediaDefaultWidthPref(mode, opts) {
     opts = opts || {};
@@ -8052,9 +8095,16 @@
     var overlay = null;
     var licenseP = api.getLicenseStatus ? api.getLicenseStatus() : Promise.resolve({ success: true, value: {} });
     var aiP = api.getAiSettings ? api.getAiSettings() : Promise.resolve({ success: true, value: {} });
-    Promise.all([licenseP, aiP]).then(function (pair) {
+    var pasteP = api.getPasteAssetsPref
+      ? api.getPasteAssetsPref()
+      : Promise.resolve({ success: true, value: { mode: pasteAssetsModePref, customDir: pasteAssetsCustomDirPref } });
+    Promise.all([licenseP, aiP, pasteP]).then(function (pair) {
       var lic = (pair[0] && pair[0].success && pair[0].value) ? pair[0].value : {};
       var ai = (pair[1] && pair[1].success && pair[1].value) ? pair[1].value : {};
+      if (pair[2] && pair[2].success && pair[2].value) {
+        pasteAssetsModePref = normalizePasteAssetsMode(pair[2].value.mode);
+        pasteAssetsCustomDirPref = String(pair[2].value.customDir || '');
+      }
       buildSettingsDialog(lic, ai);
     }).catch(function (err) {
       if (api.setSettingsModal) api.setSettingsModal(false);
@@ -8089,16 +8139,19 @@
         return '<option value="' + m.id + '"' + (mermaidW === m.id ? ' selected' : '') + '>' +
           escHtml(m.label) + '</option>';
       }).join('');
-      var revealW = liveRevealPref || 'block';
-      var revealModes = [
-        { id: 'block', label: uiT('settingsLiveRevealBlock') },
-        { id: 'nearby', label: uiT('settingsLiveRevealNearby') },
-        { id: 'never', label: uiT('settingsLiveRevealNever') },
+      var pasteMode = pasteAssetsModePref || 'workspace';
+      var pasteCustom = pasteAssetsCustomDirPref || '';
+      var pasteModes = [
+        { id: 'workspace', label: uiT('settingsPasteAssetsWorkspace') },
+        { id: 'doc', label: uiT('settingsPasteAssetsDoc') },
+        { id: 'custom', label: uiT('settingsPasteAssetsCustom') },
       ];
-      var liveRevealOptions = revealModes.map(function (m) {
-        return '<option value="' + m.id + '"' + (revealW === m.id ? ' selected' : '') + '>' +
+      var pasteModeOptions = pasteModes.map(function (m) {
+        return '<option value="' + m.id + '"' + (pasteMode === m.id ? ' selected' : '') + '>' +
           escHtml(m.label) + '</option>';
       }).join('');
+      var pasteCustomRowStyle = pasteMode === 'custom' ? '' : 'display:none;';
+      var pasteTargetHint = formatPasteAssetsTargetHint(pasteMode, pasteCustom);
 
       var proHtml = (window.MDASettingsAi && window.MDASettingsAi.buildProPaneHtml)
         ? window.MDASettingsAi.buildProPaneHtml({ license: lic, ai: ai })
@@ -8135,20 +8188,37 @@
                 '</div>' +
                 '<div class="mda-settings-row">' +
                   '<div class="mda-settings-row-text">' +
+                    '<div class="mda-settings-row-title">' + escHtml(uiT('settingsPasteAssets')) + '</div>' +
+                    '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsPasteAssetsDesc')) + '</div>' +
+                    '<div class="mda-settings-row-desc" id="settings-paste-assets-target" style="margin-top:4px;">' +
+                      escHtml(pasteTargetHint) +
+                    '</div>' +
+                  '</div>' +
+                  '<div class="mda-settings-row-ctrl">' +
+                    '<select id="settings-paste-assets-mode" class="mda-settings-select">' + pasteModeOptions + '</select>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="mda-settings-row" id="settings-paste-assets-custom-row" style="' + pasteCustomRowStyle + '">' +
+                  '<div class="mda-settings-row-text">' +
+                    '<div class="mda-settings-row-title">' + escHtml(uiT('settingsPasteAssetsCustomPath')) + '</div>' +
+                    '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsPasteAssetsCustomHint')) + '</div>' +
+                  '</div>' +
+                  '<div class="mda-settings-row-ctrl" style="flex:1;max-width:320px;display:flex;gap:8px;align-items:center;">' +
+                    '<input type="text" id="settings-paste-assets-custom" class="mda-settings-select" ' +
+                      'style="flex:1;min-width:0;" readonly value="' + escHtml(pasteCustom) + '" ' +
+                      'placeholder="' + escHtml(uiT('settingsPasteAssetsCustomPlaceholder')) + '" />' +
+                    '<button type="button" id="settings-paste-assets-browse" class="mda-settings-btn">' +
+                      escHtml(uiT('settingsPasteAssetsBrowse')) +
+                    '</button>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="mda-settings-row">' +
+                  '<div class="mda-settings-row-text">' +
                     '<div class="mda-settings-row-title">' + escHtml(uiT('settingsMermaidWidth')) + '</div>' +
                     '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsMermaidWidthDesc')) + '</div>' +
                   '</div>' +
                   '<div class="mda-settings-row-ctrl">' +
                     '<select id="settings-mermaid-width" class="mda-settings-select">' + mermaidWidthOptions + '</select>' +
-                  '</div>' +
-                '</div>' +
-                '<div class="mda-settings-row">' +
-                  '<div class="mda-settings-row-text">' +
-                    '<div class="mda-settings-row-title">' + escHtml(uiT('settingsLiveReveal')) + '</div>' +
-                    '<div class="mda-settings-row-desc">' + escHtml(uiT('settingsLiveRevealDesc')) + '</div>' +
-                  '</div>' +
-                  '<div class="mda-settings-row-ctrl">' +
-                    '<select id="settings-live-reveal" class="mda-settings-select">' + liveRevealOptions + '</select>' +
                   '</div>' +
                 '</div>' +
                 '<div class="mda-settings-row">' +
@@ -8210,6 +8280,39 @@
         });
       }
       switchSettingsPane(overlay, settingsOpenPane);
+      function syncPasteCustomRow() {
+        var sel = overlay.querySelector('#settings-paste-assets-mode');
+        var row = overlay.querySelector('#settings-paste-assets-custom-row');
+        if (!sel || !row) return;
+        row.style.display = sel.value === 'custom' ? '' : 'none';
+        syncPasteAssetsTargetHint();
+      }
+      function syncPasteAssetsTargetHint() {
+        var hintEl = overlay.querySelector('#settings-paste-assets-target');
+        if (!hintEl) return;
+        var sel = overlay.querySelector('#settings-paste-assets-mode');
+        var customInp = overlay.querySelector('#settings-paste-assets-custom');
+        var mode = sel ? sel.value : pasteAssetsModePref;
+        var customDir = customInp ? String(customInp.value || '').trim() : pasteAssetsCustomDirPref;
+        hintEl.textContent = formatPasteAssetsTargetHint(mode, customDir);
+      }
+      var pasteModeSel = overlay.querySelector('#settings-paste-assets-mode');
+      if (pasteModeSel) {
+        pasteModeSel.addEventListener('change', syncPasteCustomRow);
+        syncPasteCustomRow();
+      }
+      var pasteBrowse = overlay.querySelector('#settings-paste-assets-browse');
+      if (pasteBrowse) {
+        pasteBrowse.addEventListener('click', function () {
+          if (!api.showOpenFolderDialog) return;
+          api.showOpenFolderDialog().then(function (r) {
+            if (!r || !r.success || r.canceled || !r.folderPath) return;
+            var inp = overlay.querySelector('#settings-paste-assets-custom');
+            if (inp) inp.value = r.folderPath;
+            syncPasteAssetsTargetHint();
+          });
+        });
+      }
       overlay.querySelector('#settings-save').addEventListener('click', function () {
         var sel = overlay.querySelector('#settings-autosave');
         var mode = sel ? sel.value : 'off';
@@ -8219,33 +8322,45 @@
         var nextSession = !!(remSess && remSess.checked);
         var mwSel = overlay.querySelector('#settings-mermaid-width');
         var nextMermaidW = mwSel ? mwSel.value : 'auto';
-        var lrSel = overlay.querySelector('#settings-live-reveal');
-        var nextReveal = lrSel ? lrSel.value : 'block';
+        var pasteSel = overlay.querySelector('#settings-paste-assets-mode');
+        var nextPasteMode = pasteSel ? pasteSel.value : pasteAssetsModePref;
+        var pasteCustomInp = overlay.querySelector('#settings-paste-assets-custom');
+        var nextPasteCustom = pasteCustomInp ? String(pasteCustomInp.value || '').trim() : '';
+        if (nextPasteMode === 'custom' && !nextPasteCustom) {
+          uiAlert(uiT('alertPasteAssetsCustomRequired'));
+          return;
+        }
         var rememberChanged = nextRemember !== isRememberLayout();
         var sessionChanged = nextSession !== isRememberSession();
         var mermaidChanged = nextMermaidW !== mediaDefaultWidthPref;
-        var revealChanged = nextReveal !== liveRevealPref;
-        var toastOther = !rememberChanged && !sessionChanged && !mermaidChanged && !revealChanged;
+        var pasteChanged = nextPasteMode !== pasteAssetsModePref ||
+          nextPasteCustom !== pasteAssetsCustomDirPref;
+        var toastOther = !rememberChanged && !sessionChanged && !mermaidChanged && !pasteChanged;
         applyAutosavePref(mode, { toast: toastOther, persist: true });
         applyMediaDefaultWidthPref(nextMermaidW, { reapply: true });
-        applyLiveRevealPref(nextReveal, { toast: revealChanged });
         applyRememberLayoutPref(nextRemember, { toast: rememberChanged && !sessionChanged });
         applyRememberSessionPref(nextSession, { toast: sessionChanged });
+        var pasteSaveP = applyPasteAssetsPref(nextPasteMode, nextPasteCustom, {
+          persist: true,
+          toast: pasteChanged && !rememberChanged && !sessionChanged && !mermaidChanged,
+        });
         var aiPatch = window.MDASettingsAi && window.MDASettingsAi.collectAiSettingsPatch
           ? window.MDASettingsAi.collectAiSettingsPatch(overlay)
           : null;
         var finish = function () { close(); };
-        if (aiPatch && api.saveAiSettings) {
-          api.saveAiSettings(aiPatch).then(function (r) {
-            if (!r || !r.success) {
-              uiAlert(uiT('aiErrorGeneric', { error: (r && r.error) || '' }));
-              return;
-            }
+        pasteSaveP.then(function () {
+          if (aiPatch && api.saveAiSettings) {
+            api.saveAiSettings(aiPatch).then(function (r) {
+              if (!r || !r.success) {
+                uiAlert(uiT('aiErrorGeneric', { error: (r && r.error) || '' }));
+                return;
+              }
+              finish();
+            });
+          } else {
             finish();
-          });
-        } else {
-          finish();
-        }
+          }
+        });
       });
       requestAnimationFrame(function () {
         var sel = overlay.querySelector('#settings-autosave');

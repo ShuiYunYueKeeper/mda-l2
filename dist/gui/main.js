@@ -27,6 +27,7 @@ const { copyFileToDir, moveFileToDir, fileExists, renameFileConflict } = require
 const { listMarkdownTree } = require('./main/markdown-tree');
 const { setupAutoUpdater } = require('./main/updater');
 const { initI18n, t, getLang, getLangPref, setLangPref } = require('./main/i18n');
+const { initPastePrefs, getPasteAssetsPref, setPasteAssetsPref } = require('./main/paste-prefs');
 
 // Electron 31.x / Chromium 在 Windows 上偶发 PartitionAlloc dangling raw_ptr 致命崩溃（框架层问题）。
 // 须在 app.ready 之前关闭该检查，否则进程会直接 FATAL 退出。
@@ -504,7 +505,28 @@ function registerIpcHandlers() {
     try {
       const { nativeImage } = require('electron');
       const { saveClipboardImageAsset } = require('./main/clipboard-image');
-      return await saveClipboardImageAsset(payload && payload.baseFile, t, nativeImage);
+      const pref = getPasteAssetsPref();
+      let workspaceRoot = payload && payload.workspaceRoot;
+      if (!workspaceRoot) {
+        workspaceRoot = getWorkspaceRoot(userData()) || null;
+      }
+      return await saveClipboardImageAsset(payload && payload.baseFile, t, nativeImage, {
+        workspaceRoot: workspaceRoot,
+        pasteAssetsMode: pref.mode,
+        pasteAssetsCustomDir: pref.customDir,
+      });
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('get-paste-assets-pref', async () => {
+    return { success: true, value: getPasteAssetsPref() };
+  });
+
+  ipcMain.handle('set-paste-assets-pref', async (_event, pref) => {
+    try {
+      return { success: true, value: setPasteAssetsPref(pref || {}) };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -1176,6 +1198,7 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(() => {
     initI18n(app);
+    initPastePrefs(app);
     registerIpcHandlers();
     autoUpdaterApi = setupAutoUpdater(app, () => mainWindow);
     const argFile = process.argv.find((a) => !a.startsWith('-') && isMarkdownPath(a));

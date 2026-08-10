@@ -8,6 +8,7 @@
 const path = require('path');
 const fs = require('fs');
 const { clipboard } = require('electron');
+const { writeDedupedPasteAsset } = require('./paste-assets');
 
 const MDA_CLIP_BLOB = 'mda/clipboard-image-blob';
 
@@ -283,42 +284,46 @@ async function copyClipboardImage(payload, t, nativeImage) {
  * @param {string} baseFile
  * @param {(key: string) => string} t
  * @param {typeof import('electron').nativeImage} nativeImage
+ * @param {{ workspaceRoot?: string | null, pasteAssetsMode?: string, pasteAssetsCustomDir?: string }} [opts]
  */
-async function saveClipboardImageAsset(baseFile, t, nativeImage) {
+async function saveClipboardImageAsset(baseFile, t, nativeImage, opts) {
   if (!baseFile) return { success: false, error: 'baseFile required' };
-  const docDir = path.dirname(path.resolve(String(baseFile)));
-  const assetsDir = path.join(docDir, 'assets');
-  await fs.promises.mkdir(assetsDir, { recursive: true });
-  const stamp = Date.now();
+  opts = opts || {};
 
-  async function writeBytes(fileBytes, fileExt) {
-    const fileName = 'paste-' + stamp + fileExt;
-    const absPath = path.join(assetsDir, fileName);
-    await fs.promises.writeFile(absPath, fileBytes);
-    let rel = path.relative(docDir, absPath).split(path.sep).join('/');
-    if (!rel.startsWith('.')) rel = './' + rel;
-    return { success: true, filePath: absPath, relativePath: rel };
+  async function finish(bytes, fileExt) {
+    const written = await writeDedupedPasteAsset(baseFile, bytes, fileExt || '.bin', {
+      workspaceRoot: opts.workspaceRoot,
+      mode: opts.pasteAssetsMode,
+      customDir: opts.pasteAssetsCustomDir,
+    });
+    return {
+      success: true,
+      filePath: written.filePath,
+      relativePath: written.relativePath,
+      markdownHref: written.markdownHref || written.relativePath,
+      deduped: written.deduped,
+    };
   }
 
   const preserved = readPreservedClipboardImage();
   if (preserved) {
-    return writeBytes(preserved.bytes, preserved.ext || '.bin');
+    return finish(preserved.bytes, preserved.ext || '.bin');
   }
 
   const winPath = readWindowsFileNameW();
   if (winPath) {
     const fileExt = extOf(winPath) || '.png';
-    const fileName = 'paste-' + stamp + fileExt;
-    const absPath = path.join(assetsDir, fileName);
-    await fs.promises.copyFile(winPath, absPath);
-    let rel = path.relative(docDir, absPath).split(path.sep).join('/');
-    if (!rel.startsWith('.')) rel = './' + rel;
-    return { success: true, filePath: absPath, relativePath: rel };
+    try {
+      const bytes = await fs.promises.readFile(winPath);
+      return finish(bytes, fileExt);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   }
 
   const img = clipboard.readImage();
   if (!img || img.isEmpty()) return { success: false, error: t('errImageEmpty') };
-  return writeBytes(img.toPNG(), '.png');
+  return finish(img.toPNG(), '.png');
 }
 
 module.exports = {

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-B/C 实时预览视图层：语法隐藏（D15 = hide-mark 零宽 replace widget + atomicRanges）。
  */
 'use strict';
@@ -12,10 +12,6 @@ const WidgetType = cmView.WidgetType;
 const { RangeSetBuilder, StateField, Transaction, Prec } = require('@codemirror/state');
 const { syntaxTree, ensureSyntaxTree } = require('@codemirror/language');
 const { buildDecorationSpecs, collectSyntaxNodes } = require('./model/build-specs');
-const {
-  computeRevealRanges,
-  enclosingBlockFromTree,
-} = require('./model/reveal');
 const { HiddenLineWidget, HIDE_MARK_WIDGET } = require('./widgets/hidden-line');
 const editorConfig = require('./config');
 const { atomicRangesFromPlugin, atomicRangesFromBlockField, atomicRangesFromHideLines } = require('./view/atomic-ranges');
@@ -698,12 +694,11 @@ function parseTreeForState(state, upto) {
 
 /**
  * @param {import('@codemirror/state').EditorState} state
- * @param {{ from: number, to: number }[]} lastReveal
  * @param {{ resolveImageUrl?: Function }} [liveOpts]
  * @param {{ composing?: boolean, viewportTo?: number }} [viewHints]
  * @param {import('@codemirror/state').StateField<unknown>} [blockFocusField]
  */
-function buildDecosFromState(state, lastReveal, liveOpts, viewHints, blockFocusField) {
+function buildDecosFromState(state, liveOpts, viewHints, blockFocusField) {
   viewHints = viewHints || {};
   try {
     const text = state.doc.toString();
@@ -713,52 +708,25 @@ function buildDecosFromState(state, lastReveal, liveOpts, viewHints, blockFocusF
         : state.doc.length;
     const tree = parseTreeForState(state, upto);
     const nodes = collectSyntaxNodes(tree);
-    const granularity = 'never';
-    const selRanges = [];
-    for (let i = 0; i < state.selection.ranges.length; i++) {
-      const r = state.selection.ranges[i];
-      selRanges.push({ from: r.from, to: r.to, head: r.head, empty: r.empty });
-    }
-    const reveal = computeRevealRanges({
-      docLength: text.length,
-      selectionRanges: selRanges,
-      granularity: granularity,
-      composing: !!viewHints.composing,
-      lastRevealRanges: lastReveal,
-      enclosingBlock: function (pos) {
-        return enclosingBlockFromTree(tree, pos, text.length);
-      },
-      lineRangeAround: function (pos, pad) {
-        const line = state.doc.lineAt(pos);
-        const fromLine = state.doc.line(Math.max(1, line.number - pad));
-        const toLine = state.doc.line(Math.min(state.doc.lines, line.number + pad));
-        return { from: fromLine.from, to: toLine.to };
-      },
-    });
-    const focusedBlock = blockFocusField ? readBlockFocus(state, blockFocusField) : null;
-    const specs = buildDecorationSpecs(text, nodes, reveal, {
-      focusedBlock: focusedBlock,
-      fullHide: true,
+    const specs = buildDecorationSpecs(text, nodes, {
       widgetEnabled: function (kind) {
         return widgetEnabled(kind);
       },
     });
     return {
       layers: buildLayerDecos(specs, text, liveOpts),
-      reveal: reveal,
       treeLen: tree.length,
     };
   } catch (_) {
     return {
       layers: emptyLayers(),
-      reveal: lastReveal || [],
       treeLen: 0,
     };
   }
 }
 
-function buildDecos(view, lastReveal, liveOpts, blockFocusField) {
-  return buildDecosFromState(view.state, lastReveal, liveOpts, {
+function buildDecos(view, liveOpts, blockFocusField) {
+  return buildDecosFromState(view.state, liveOpts, {
     composing: view.composing,
     viewportTo: view.viewport.to,
   }, blockFocusField);
@@ -772,11 +740,10 @@ function buildDecos(view, lastReveal, liveOpts, blockFocusField) {
 function createBlockDecoField(liveOpts, blockFocusField) {
   return StateField.define({
     create: function (state) {
-      const built = buildDecosFromState(state, [], liveOpts, {}, blockFocusField);
+      const built = buildDecosFromState(state, liveOpts, {}, blockFocusField);
       return {
         deco: built.layers.block || cmView.Decoration.none,
         hideLineDeco: built.layers.hideBlock || cmView.Decoration.none,
-        reveal: built.reveal,
         treeLen: built.treeLen || 0,
       };
     },
@@ -796,9 +763,9 @@ function createBlockDecoField(liveOpts, blockFocusField) {
       if (!tr.docChanged && !focusChanged && !treeStillIncomplete) {
         return prev;
       }
-      const built = buildDecosFromState(tr.state, prev.reveal || [], liveOpts, {}, blockFocusField);
+      const built = buildDecosFromState(tr.state, liveOpts, {}, blockFocusField);
       const nextTreeLen = built.treeLen || 0;
-      // 不因 selectionSet 重建：fullHide/never 下选区不改变装饰；
+      // 不因 selectionSet 重建：始终隐藏语法时选区不改变装饰；
       // 重建会换新 widget 实例并短暂丢失测高 → 点击/光标 Δ 飙升。
       if (
         !tr.docChanged &&
@@ -811,7 +778,6 @@ function createBlockDecoField(liveOpts, blockFocusField) {
       return {
         deco: built.layers.block || cmView.Decoration.none,
         hideLineDeco: built.layers.hideBlock || cmView.Decoration.none,
-        reveal: built.reveal,
         treeLen: nextTreeLen,
       };
     },
@@ -852,11 +818,8 @@ function hrefAtEvent(view, event) {
 
 var layerBuildCache = { doc: null, fp: '', result: null, opts: null };
 
-function getBuiltLayers(view, lastReveal, liveOpts, blockFocusField) {
-  const main = view.state.selection.main;
+function getBuiltLayers(view, liveOpts, blockFocusField) {
   const fp =
-    main.head +
-    ':' +
     view.viewport.from +
     ':' +
     view.viewport.to +
@@ -875,7 +838,7 @@ function getBuiltLayers(view, lastReveal, liveOpts, blockFocusField) {
   ) {
     return layerBuildCache.result;
   }
-  const built = buildDecos(view, lastReveal, liveOpts, blockFocusField);
+  const built = buildDecos(view, liveOpts, blockFocusField);
   layerBuildCache.doc = view.state.doc;
   layerBuildCache.fp = fpFull;
   layerBuildCache.opts = liveOpts;
@@ -893,8 +856,7 @@ function makeLayerPlugin(layerKey, liveOpts, pluginOpts, blockFocusField) {
   const plugin = ViewPlugin.fromClass(
     class {
       constructor(view) {
-        const built = getBuiltLayers(view, [], liveOpts, blockFocusField);
-        this._lastReveal = built.reveal;
+        const built = getBuiltLayers(view, liveOpts, blockFocusField);
         this._imePending = false;
         this._treeLen = parseTreeForState(view.state, view.state.doc.length).length;
         this._lastFocusKey = blockFocusField ? focusKey(readBlockFocus(view.state, blockFocusField)) : '';
@@ -927,8 +889,7 @@ function makeLayerPlugin(layerKey, liveOpts, pluginOpts, blockFocusField) {
         }
         this._imePending = false;
         this._lastFocusKey = focusKeyNow;
-        const built = getBuiltLayers(update.view, this._lastReveal, liveOpts, blockFocusField);
-        this._lastReveal = built.reveal;
+        const built = getBuiltLayers(update.view, liveOpts, blockFocusField);
         this._treeLen = treeLen;
         const prevDeco = this.decorations;
         this.decorations = built.layers[layerKey] || cmView.Decoration.none;

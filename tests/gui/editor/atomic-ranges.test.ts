@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-B8b：hide-mark 零宽 replace widget + atomicRanges
  */
 import * as path from 'path';
@@ -93,7 +93,7 @@ describe('M8-B8b atomic hide-mark', () => {
       extensions: [markdown({ extensions: GFM })],
     });
     const nodes = collectSyntaxNodes(syntaxTree(state));
-    const specs = buildDecorationSpecs(text, nodes, []);
+    const specs = buildDecorationSpecs(text, nodes);
     const hides = specs.filter((s: { kind: string }) => s.kind === 'hide-mark');
     expect(hides.length).toBeGreaterThan(0);
     const layers = buildLayerDecos(specs, text, {});

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-C1：大文档须用 ensureSyntaxTree 返回值，否则 Image 节点缺失。
  */
 import * as fs from 'fs';
@@ -37,8 +37,7 @@ describe('parseTreeForState', () => {
     const images = nodes.filter((n: { type: string }) => n.type === 'Image');
     expect(images.length).toBeGreaterThanOrEqual(10);
 
-    const specs = buildDecorationSpecs(text, nodes, [], {
-      fullHide: true,
+    const specs = buildDecorationSpecs(text, nodes, {
       widgetEnabled: function (kind: string) {
         return kind === 'image';
       },

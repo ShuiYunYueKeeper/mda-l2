@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+﻿const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 const { decodePathHref } = require('./main/image-path');
 // 复用编译后的 @mda/core（dist/core），消除 GUI 与核心库的重复实现。
@@ -118,8 +118,13 @@ contextBridge.exposeInMainWorld('mdaAPI', {
     ipcRenderer.invoke('file-exists', { filePath, workspaceRoot }),
   copyToClipboard: (text) => ipcRenderer.invoke('copy-clipboard', text),
   copyClipboardImage: (opts) => ipcRenderer.invoke('copy-clipboard-image', opts || {}),
-  saveClipboardImageAsset: (baseFile) =>
-    ipcRenderer.invoke('save-clipboard-image-asset', { baseFile: baseFile }),
+  saveClipboardImageAsset: (baseFile, workspaceRoot) =>
+    ipcRenderer.invoke('save-clipboard-image-asset', {
+      baseFile: baseFile,
+      workspaceRoot: workspaceRoot || null,
+    }),
+  getPasteAssetsPref: () => ipcRenderer.invoke('get-paste-assets-pref'),
+  setPasteAssetsPref: (pref) => ipcRenderer.invoke('set-paste-assets-pref', pref || {}),
   copyArticleHtml: (html, text) => ipcRenderer.invoke('copy-clipboard-html', { html, text }),
   readFileAsDataUrl: (filePath) => ipcRenderer.invoke('read-file-data-url', filePath),
   capturePageRect: (rect) => ipcRenderer.invoke('capture-page-rect', rect),

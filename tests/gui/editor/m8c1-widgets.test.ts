@@ -235,7 +235,7 @@ describe('buildDecorationSpecs widgets', () => {
       '[comment]: <> (@anno {"id":"1","content":"x","tags":[],"level":"info","status":"open","created_at":"2020-01-01T00:00:00.000Z"})';
     const text = anno + '\n\npara\n';
     expect(
-      buildDecorationSpecs(text, [], []).some((s: { kind: string }) => s.kind === 'hide-line')
+      buildDecorationSpecs(text, []).some((s: { kind: string }) => s.kind === 'hide-line')
     ).toBe(true);
 
     const withWidgets = buildDecorationSpecs(
@@ -245,7 +245,6 @@ describe('buildDecorationSpecs widgets', () => {
         { type: 'Image', from: 3, to: 6 },
         { type: 'FencedCode', from: 6, to: 10 },
       ],
-      [],
       { widgetEnabled: function () { return true; } }
     );
     const widgets = withWidgets

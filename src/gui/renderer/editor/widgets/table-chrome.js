@@ -1205,6 +1205,21 @@ function mountTableChrome(ctx) {
             return;
           }
         }
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V') && !e.shiftKey) {
+          const img = findSelectedTableImage();
+          if (img) {
+            const wrap =
+              img.closest && typeof img.closest === 'function'
+                ? img.closest('.mda-cm-table-img')
+                : null;
+            if (wrap && cell.contains(wrap)) {
+              e.preventDefault();
+              e.stopPropagation();
+              pasteCellImage(cell, wrap);
+              return;
+            }
+          }
+        }
         if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selection.kind !== 'cell') {
           e.preventDefault();
           runMenuAction('copy');

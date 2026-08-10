@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-C1：只读块、表格 v1
  */
 import * as path from 'path';
@@ -30,14 +30,11 @@ describe('M8-C1 readonly + table v1', () => {
     const specs = buildDecorationSpecs(
       table,
       [{ type: 'Table', from: 0, to: table.length }],
-      [],
       {
-        focusedBlock: { from: 0, to: table.length, kind: 'table' },
         widgetEnabled: function (kind: string) { return kind === 'table'; },
       }
     );
     expect(specs.some((s: { kind: string; widget?: string }) => s.kind === 'widget' && s.widget === 'table')).toBe(true);
-    expect(specs.some((s: { kind: string; cls?: string }) => s.kind === 'raw' && s.cls === 'mda-cm-focused-source')).toBe(false);
   });
 
   test('parseGfmTable 供表格 v1 渲染', () => {

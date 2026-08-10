@@ -1,5 +1,5 @@
-﻿/**
- * 预览模式标题行 Enter：新行保留 ATX 前缀。
+/**
+ * 预览模式标题行 Enter：行中拆分保留 ATX；行尾新段落。
  */
 import * as path from 'path';
 
@@ -15,6 +15,14 @@ describe('heading-enter', () => {
     expect(planHeadingEnter(line, off)).toEqual({
       insert: '\n## ',
       cursor: 4,
+    });
+  });
+
+  test('标题行尾回车：普通换行，不续写 ## 前缀', () => {
+    const line = '## 目录结构';
+    expect(planHeadingEnter(line, line.length)).toEqual({
+      insert: '\n',
+      cursor: 1,
     });
   });
 

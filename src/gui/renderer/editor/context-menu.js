@@ -11,7 +11,6 @@ const {
   snapshotDomSelection,
   shouldPreserveDomSelection,
   shouldPreserveCmSelection,
-  domPointInRangeBounds,
   snapshotCmSelection,
   restoreCmSelection,
   restoreDomSelection,
@@ -300,39 +299,16 @@ function prepareContextSelection(view, e) {
  * @param {number} clientX
  * @param {number} clientY
  */
-function menuCoordsMatch(pending, clientX, clientY) {
-  if (!pending || typeof pending._menuX !== 'number' || typeof pending._menuY !== 'number') {
-    return false;
-  }
-  return Math.abs(clientX - pending._menuX) <= 4 && Math.abs(clientY - pending._menuY) <= 4;
-}
-
 function revalidatePendingSelection(pending, view, clientX, clientY) {
   if (!pending) return null;
   if (pending.cm) {
     if (shouldPreserveCmSelection(view, clientX, clientY)) return pending;
-    if (menuCoordsMatch(pending, clientX, clientY)) return pending;
     return null;
   }
   if (pending.dom) {
     const snap = pending.dom;
     if (!snap.root.isConnected) return null;
-    if (menuCoordsMatch(pending, clientX, clientY)) return pending;
-    if (
-      typeof snap.start === 'number' &&
-      typeof snap.end === 'number' &&
-      snap.end > snap.start
-    ) {
-      return pending;
-    }
-    if (
-      snap.range &&
-      snap.root.contains(snap.range.commonAncestorContainer) &&
-      domPointInRangeBounds(snap.range, clientX, clientY)
-    ) {
-      return pending;
-    }
-    if (snap.text && shouldPreserveDomSelection(snap.root, clientX, clientY)) return pending;
+    if (shouldPreserveDomSelection(snap.root, clientX, clientY)) return pending;
     return null;
   }
   return pending;
@@ -422,8 +398,10 @@ function shouldDeferToTableMenu(view, e) {
   if (hasPendingDomMenuFor(cellEl) || isWidgetDomMenuGuard()) {
     return false;
   }
-  if (snapshotDomSelection(cellEl)) return false;
-  return !shouldPreserveDomSelection(cellEl, e.clientX, e.clientY);
+  if (shouldPreserveDomSelection(cellEl, e.clientX, e.clientY)) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -1021,11 +999,14 @@ function createContextMenuExtension(liveOpts) {
         if (tableCell && !target.closest(TABLE_CHROME_SEL)) {
           const cell = /** @type {HTMLElement} */ (tableCell);
           const snap = snapshotDomSelection(cell);
-          if (snap) {
+          if (snap && shouldPreserveDomSelection(cell, e.clientX, e.clientY)) {
             stashDomMenuSelection(snap, e.clientX, e.clientY);
             e.preventDefault();
           } else {
             pendingMenuSelection = null;
+            if (snap) {
+              collapseWidgetDomAt(cell, e.clientX, e.clientY);
+            }
           }
           return;
         }
@@ -1036,11 +1017,14 @@ function createContextMenuExtension(liveOpts) {
         if (widgetEdit) {
           const root = /** @type {HTMLElement} */ (widgetEdit);
           const snap = snapshotDomSelection(root);
-          if (snap) {
+          if (snap && shouldPreserveDomSelection(root, e.clientX, e.clientY)) {
             stashDomMenuSelection(snap, e.clientX, e.clientY);
             e.preventDefault();
           } else {
             pendingMenuSelection = null;
+            if (snap) {
+              collapseWidgetDomAt(root, e.clientX, e.clientY);
+            }
           }
           return;
         }
@@ -1081,9 +1065,12 @@ function createContextMenuExtension(liveOpts) {
           widgetEditCtx ||
           (tableCellCtx && !target.closest(TABLE_CHROME_SEL) ? tableCellCtx : null);
         if (!pendingMenuSelection && menuRoot) {
-          const snap = snapshotDomSelection(/** @type {HTMLElement} */ (menuRoot));
-          if (snap) {
-            stashDomMenuSelection(snap, e.clientX, e.clientY);
+          const rootEl = /** @type {HTMLElement} */ (menuRoot);
+          if (shouldPreserveDomSelection(rootEl, e.clientX, e.clientY)) {
+            const snap = snapshotDomSelection(rootEl);
+            if (snap) {
+              stashDomMenuSelection(snap, e.clientX, e.clientY);
+            }
           }
         }
 

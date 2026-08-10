@@ -1,10 +1,9 @@
-/**
- * P2 §4.1 装饰构建（纯函数）：文本 + 节点 + reveal → Spec[]，不碰 DOM。
+﻿/**
+ * P2 §4.1 装饰构建（纯函数）：文本 + 节点 → Spec[]，不碰 DOM。D15：始终隐藏语法标记。
  */
 'use strict';
 
 const { SYNTAX_RULES } = require('./syntax-rules');
-const { isRevealed } = require('./reveal');
 const { findAnnotationHideRanges } = require('./anno-lines');
 const { detectFrontMatter } = require('./readonly-blocks');
 const { findMathRanges } = require('./parse-math');
@@ -37,18 +36,14 @@ const PRIORITY = {
 /**
  * @param {string} text
  * @param {{ from: number, to: number, type: string, listKind?: string }[]} nodes
- * @param {{ from: number, to: number }[]} revealRanges
- * @param {{ skipTypes?: Record<string, 1> }} [opts]
+ * @param {{ skipTypes?: Record<string, 1>, widgetEnabled?: (kind: string) => boolean }} [opts]
  * @returns {DecoSpec[]}
  */
-function buildDecorationSpecs(text, nodes, revealRanges, opts) {
+function buildDecorationSpecs(text, nodes, opts) {
   opts = opts || {};
   // 缩进代码块仍跳过；围栏 / 表 / 图走 Widget（须过 widgetPhase 闸门）
   const skipTypes = opts.skipTypes || { CodeBlock: 1 };
   const specs = [];
-  const fullHide = opts.fullHide === true;
-  const revealed = fullHide ? [] : revealRanges || [];
-  const focusedBlock = opts.focusedBlock || null;
   const widgetEnabled =
     typeof opts.widgetEnabled === 'function'
       ? opts.widgetEnabled
@@ -110,28 +105,9 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
     const rule = SYNTAX_RULES[node.type];
     if (!rule) continue;
 
-    const nodeRevealed = isRevealed(node, revealed);
-
     // —— Widget 类 ——
     if (rule.class === 'W') {
-      if (
-        !fullHide &&
-        focusedBlock &&
-        focusedBlock.kind !== 'table' &&
-        node.from === focusedBlock.from &&
-        node.to === focusedBlock.to
-      ) {
-        specs.push({
-          kind: 'raw',
-          from: node.from,
-          to: node.to,
-          cls: 'mda-cm-focused-source',
-          priority: PRIORITY.raw,
-        });
-        continue;
-      }
       if (rule.widget === 'task') {
-        if (nodeRevealed) continue;
         const marker = text.slice(node.from, node.to);
         const checked = /^\[[xX]\]$/.test(marker);
         specs.push({
@@ -149,7 +125,6 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
         rule.widget === 'code' ||
         rule.widget === 'table' ||
         rule.widget === 'image';
-      if (nodeRevealed && !alwaysWidget) continue;
       if (alwaysWidget) {
         const widgetKind =
           rule.widget === 'code' &&
@@ -187,7 +162,6 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
     if (node.type === 'ListMark' && node.listKind === 'ordered') continue;
 
     if (node.type === 'ListMark' && node.listKind === 'bullet') {
-      if (nodeRevealed) continue;
       let markTo = node.to;
       if (markTo < text.length && text.charAt(markTo) === ' ') markTo += 1;
       specs.push({
@@ -201,7 +175,6 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
     }
 
     if (node.type === 'QuoteMark') {
-      if (nodeRevealed) continue;
       specs.push({
         kind: 'hide-mark',
         from: node.from,
@@ -236,40 +209,6 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
         cls: 'mda-cm-blockquote-line',
         priority: PRIORITY['line-style'],
       });
-      continue;
-    }
-
-    if (nodeRevealed) {
-      const content =
-        typeof rule.contentRange === 'function' ? rule.contentRange(node, text) : null;
-      const href = typeof rule.hrefOf === 'function' ? rule.hrefOf(node, text) : '';
-      if (content && content.from < content.to && rule.cls) {
-        specs.push({
-          kind: 'style',
-          from: content.from,
-          to: content.to,
-          cls: rule.cls,
-          href: href || undefined,
-          priority: PRIORITY.style,
-        });
-        if (/^mda-cm-h[1-6]$/.test(rule.cls)) {
-          specs.push({
-            kind: 'line-style',
-            from: node.from,
-            cls: rule.cls + '-line',
-            priority: PRIORITY['line-style'],
-          });
-        }
-      } else if (rule.cls) {
-        specs.push({
-          kind: 'raw',
-          from: node.from,
-          to: node.to,
-          cls: rule.cls,
-          href: href || undefined,
-          priority: PRIORITY.raw,
-        });
-      }
       continue;
     }
 
@@ -310,8 +249,6 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
 
   appendMathSpecs(text, specs, {
     widgetEnabled: widgetEnabled,
-    focusedBlock: focusedBlock,
-    fullHide: fullHide,
   });
 
   return dedupeByPriority(specs);
@@ -321,7 +258,7 @@ function buildDecorationSpecs(text, nodes, revealRanges, opts) {
  * S15/S16 公式（Lezer 无节点，独立扫描）
  * @param {string} text
  * @param {DecoSpec[]} specs
- * @param {{ widgetEnabled?: (kind: string) => boolean, focusedBlock?: object, fullHide?: boolean }} opts
+ * @param {{ widgetEnabled?: (kind: string) => boolean }} opts
  */
 function appendMathSpecs(text, specs, opts) {
   opts = opts || {};
@@ -333,28 +270,11 @@ function appendMathSpecs(text, specs, opts) {
         };
   if (!widgetEnabled('math-inline') && !widgetEnabled('math-block')) return;
 
-  const focusedBlock = opts.focusedBlock || null;
   const mathRanges = findMathRanges(text);
   for (let i = 0; i < mathRanges.length; i++) {
     const r = mathRanges[i];
     if (r.kind === 'math-inline' && !widgetEnabled('math-inline')) continue;
     if (r.kind === 'math-block' && !widgetEnabled('math-block')) continue;
-    if (
-      r.kind === 'math-block' &&
-      focusedBlock &&
-      focusedBlock.kind === 'math-block' &&
-      focusedBlock.from === r.from &&
-      focusedBlock.to === r.to
-    ) {
-      specs.push({
-        kind: 'raw',
-        from: r.from,
-        to: r.to,
-        cls: 'mda-cm-focused-source',
-        priority: PRIORITY.raw,
-      });
-      continue;
-    }
     specs.push({
       kind: 'widget',
       widget: r.kind,

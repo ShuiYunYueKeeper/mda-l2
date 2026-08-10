@@ -1,5 +1,5 @@
-﻿/**
- * 预览模式标题行 Enter：换行后保留 ATX 前缀。
+/**
+ * 预览模式标题行 Enter：行中拆分保留 ATX 前缀；行尾换普通段落。
  */
 'use strict';
 
@@ -24,6 +24,10 @@ function planHeadingEnter(lineText, offsetInLine) {
   }
   if (off < prefix.length) {
     return null;
+  }
+  // 行尾：新段落（空 ## 行整行被 hide-mark 盖住，光标会消失）
+  if (off >= lineText.length) {
+    return { insert: '\n', cursor: 1 };
   }
   return { insert: '\n' + prefix, cursor: prefix.length + 1 };
 }

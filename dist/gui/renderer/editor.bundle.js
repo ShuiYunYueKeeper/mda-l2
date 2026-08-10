@@ -30541,130 +30541,6 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/model/reveal.js
-  var require_reveal = __commonJS({
-    "src/gui/renderer/editor/model/reveal.js"(exports, module) {
-      "use strict";
-      var BLOCK_TYPES = {
-        ATXHeading1: 1,
-        ATXHeading2: 1,
-        ATXHeading3: 1,
-        ATXHeading4: 1,
-        ATXHeading5: 1,
-        ATXHeading6: 1,
-        Paragraph: 1,
-        Blockquote: 1,
-        BulletList: 1,
-        OrderedList: 1,
-        ListItem: 1,
-        Task: 1,
-        FencedCode: 1,
-        CodeBlock: 1,
-        HorizontalRule: 1,
-        SetextHeading1: 1,
-        SetextHeading2: 1,
-        Table: 1,
-        TableRow: 1,
-        TableCell: 1,
-        TableHeader: 1
-      };
-      function mergeOverlaps(ranges) {
-        if (!ranges.length) return [];
-        const sorted = ranges.slice().sort(function(a, b) {
-          return a.from - b.from || a.to - b.to;
-        });
-        const out = [sorted[0]];
-        for (let i = 1; i < sorted.length; i++) {
-          const prev = out[out.length - 1];
-          const cur = sorted[i];
-          if (cur.from <= prev.to) {
-            prev.to = Math.max(prev.to, cur.to);
-          } else {
-            out.push({ from: cur.from, to: cur.to });
-          }
-        }
-        return out;
-      }
-      function isPosInRanges(pos, ranges) {
-        for (let i = 0; i < ranges.length; i++) {
-          if (pos >= ranges[i].from && pos <= ranges[i].to) return true;
-        }
-        return false;
-      }
-      function isRevealed(node, revealRanges) {
-        if (!revealRanges || !revealRanges.length) return false;
-        for (let i = 0; i < revealRanges.length; i++) {
-          const r = revealRanges[i];
-          if (node.to > r.from && node.from < r.to) return true;
-        }
-        return false;
-      }
-      function computeRevealRanges(opts) {
-        const granularity = opts.granularity || "never";
-        if (opts.composing && opts.lastRevealRanges) {
-          return opts.lastRevealRanges;
-        }
-        if (granularity === "never") return [];
-        const ranges = [];
-        const sels = opts.selectionRanges || [];
-        for (let i = 0; i < sels.length; i++) {
-          const sel = sels[i];
-          const head = typeof sel.head === "number" ? sel.head : sel.to;
-          if (granularity === "nearby" && typeof opts.lineRangeAround === "function") {
-            ranges.push(opts.lineRangeAround(head, 1));
-          } else if (typeof opts.enclosingBlock === "function") {
-            const blk = opts.enclosingBlock(head);
-            if (blk) ranges.push(blk);
-            else ranges.push({ from: head, to: head });
-          }
-        }
-        return mergeOverlaps(ranges);
-      }
-      function enclosingBlockFromTree(tree, pos, docLength) {
-        let best = null;
-        tree.iterate({
-          enter(node) {
-            if (pos < node.from || pos > node.to) return false;
-            if (BLOCK_TYPES[node.name]) {
-              best = { from: node.from, to: node.to, type: node.name };
-            }
-          }
-        });
-        if (best) return best;
-        return { from: Math.max(0, pos), to: Math.min(docLength, pos) };
-      }
-      function readRevealGranularity() {
-        try {
-          var v = localStorage.getItem("mda-live-reveal");
-          if (v === "nearby" || v === "never" || v === "block") return v;
-        } catch (_) {
-        }
-        return "never";
-      }
-      function writeRevealGranularity(value) {
-        var allowed = ["block", "nearby", "never"];
-        var v = allowed.indexOf(value) >= 0 ? value : "never";
-        try {
-          localStorage.setItem("mda-live-reveal", v);
-        } catch (_) {
-        }
-        return v;
-      }
-      module.exports = {
-        mergeOverlaps,
-        isPosInRanges,
-        isRevealed,
-        computeRevealRanges,
-        enclosingBlockFromTree,
-        BLOCK_TYPES,
-        REVEAL_STORAGE_KEY: "mda-live-reveal",
-        REVEAL_GRANULARITIES: ["block", "nearby", "never"],
-        readRevealGranularity,
-        writeRevealGranularity
-      };
-    }
-  });
-
   // src/gui/renderer/editor/model/anno-lines.js
   var require_anno_lines = __commonJS({
     "src/gui/renderer/editor/model/anno-lines.js"(exports, module) {
@@ -31050,7 +30926,6 @@ var MDAEditorBundle = (() => {
     "src/gui/renderer/editor/model/build-specs.js"(exports, module) {
       "use strict";
       var { SYNTAX_RULES } = require_syntax_rules();
-      var { isRevealed } = require_reveal();
       var { findAnnotationHideRanges } = require_anno_lines();
       var { detectFrontMatter } = require_readonly_blocks();
       var { findMathRanges } = require_parse_math();
@@ -31063,13 +30938,10 @@ var MDAEditorBundle = (() => {
         "line-style": 25,
         raw: 10
       };
-      function buildDecorationSpecs(text, nodes, revealRanges, opts) {
+      function buildDecorationSpecs(text, nodes, opts) {
         opts = opts || {};
         const skipTypes = opts.skipTypes || { CodeBlock: 1 };
         const specs = [];
-        const fullHide = opts.fullHide === true;
-        const revealed = fullHide ? [] : revealRanges || [];
-        const focusedBlock = opts.focusedBlock || null;
         const widgetEnabled = typeof opts.widgetEnabled === "function" ? opts.widgetEnabled : function() {
           return true;
         };
@@ -31119,20 +30991,8 @@ var MDAEditorBundle = (() => {
           }
           const rule = SYNTAX_RULES[node.type];
           if (!rule) continue;
-          const nodeRevealed = isRevealed(node, revealed);
           if (rule.class === "W") {
-            if (!fullHide && focusedBlock && focusedBlock.kind !== "table" && node.from === focusedBlock.from && node.to === focusedBlock.to) {
-              specs.push({
-                kind: "raw",
-                from: node.from,
-                to: node.to,
-                cls: "mda-cm-focused-source",
-                priority: PRIORITY.raw
-              });
-              continue;
-            }
             if (rule.widget === "task") {
-              if (nodeRevealed) continue;
               const marker = text.slice(node.from, node.to);
               const checked = /^\[[xX]\]$/.test(marker);
               specs.push({
@@ -31146,7 +31006,6 @@ var MDAEditorBundle = (() => {
               continue;
             }
             const alwaysWidget = rule.widget === "hr" || rule.widget === "code" || rule.widget === "table" || rule.widget === "image";
-            if (nodeRevealed && !alwaysWidget) continue;
             if (alwaysWidget) {
               const widgetKind = rule.widget === "code" && /^```\s*mermaid\b/i.test(text.slice(node.from, Math.min(node.to, node.from + 32))) ? "mermaid" : rule.widget;
               if (!widgetEnabled(widgetKind)) continue;
@@ -31176,7 +31035,6 @@ var MDAEditorBundle = (() => {
           if (rule.class !== "R") continue;
           if (node.type === "ListMark" && node.listKind === "ordered") continue;
           if (node.type === "ListMark" && node.listKind === "bullet") {
-            if (nodeRevealed) continue;
             let markTo = node.to;
             if (markTo < text.length && text.charAt(markTo) === " ") markTo += 1;
             specs.push({
@@ -31189,7 +31047,6 @@ var MDAEditorBundle = (() => {
             continue;
           }
           if (node.type === "QuoteMark") {
-            if (nodeRevealed) continue;
             specs.push({
               kind: "hide-mark",
               from: node.from,
@@ -31223,38 +31080,6 @@ var MDAEditorBundle = (() => {
               cls: "mda-cm-blockquote-line",
               priority: PRIORITY["line-style"]
             });
-            continue;
-          }
-          if (nodeRevealed) {
-            const content2 = typeof rule.contentRange === "function" ? rule.contentRange(node, text) : null;
-            const href2 = typeof rule.hrefOf === "function" ? rule.hrefOf(node, text) : "";
-            if (content2 && content2.from < content2.to && rule.cls) {
-              specs.push({
-                kind: "style",
-                from: content2.from,
-                to: content2.to,
-                cls: rule.cls,
-                href: href2 || void 0,
-                priority: PRIORITY.style
-              });
-              if (/^mda-cm-h[1-6]$/.test(rule.cls)) {
-                specs.push({
-                  kind: "line-style",
-                  from: node.from,
-                  cls: rule.cls + "-line",
-                  priority: PRIORITY["line-style"]
-                });
-              }
-            } else if (rule.cls) {
-              specs.push({
-                kind: "raw",
-                from: node.from,
-                to: node.to,
-                cls: rule.cls,
-                href: href2 || void 0,
-                priority: PRIORITY.raw
-              });
-            }
             continue;
           }
           const marks = rule.markRanges(node, text) || [];
@@ -31291,9 +31116,7 @@ var MDAEditorBundle = (() => {
           }
         }
         appendMathSpecs(text, specs, {
-          widgetEnabled,
-          focusedBlock,
-          fullHide
+          widgetEnabled
         });
         return dedupeByPriority(specs);
       }
@@ -31303,22 +31126,11 @@ var MDAEditorBundle = (() => {
           return true;
         };
         if (!widgetEnabled("math-inline") && !widgetEnabled("math-block")) return;
-        const focusedBlock = opts.focusedBlock || null;
         const mathRanges = findMathRanges(text);
         for (let i = 0; i < mathRanges.length; i++) {
           const r = mathRanges[i];
           if (r.kind === "math-inline" && !widgetEnabled("math-inline")) continue;
           if (r.kind === "math-block" && !widgetEnabled("math-block")) continue;
-          if (r.kind === "math-block" && focusedBlock && focusedBlock.kind === "math-block" && focusedBlock.from === r.from && focusedBlock.to === r.to) {
-            specs.push({
-              kind: "raw",
-              from: r.from,
-              to: r.to,
-              cls: "mda-cm-focused-source",
-              priority: PRIORITY.raw
-            });
-            continue;
-          }
           specs.push({
             kind: "widget",
             widget: r.kind,
@@ -51724,6 +51536,18 @@ var MDAEditorBundle = (() => {
                   return;
                 }
               }
+              if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "v" || e.key === "V") && !e.shiftKey) {
+                const img = findSelectedTableImage();
+                if (img) {
+                  const wrap = img.closest && typeof img.closest === "function" ? img.closest(".mda-cm-table-img") : null;
+                  if (wrap && cell.contains(wrap)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    pasteCellImage(cell, wrap);
+                    return;
+                  }
+                }
+              }
               if ((e.ctrlKey || e.metaKey) && e.key === "c" && selection.kind !== "cell") {
                 e.preventDefault();
                 runMenuAction("copy");
@@ -56331,7 +56155,6 @@ var MDAEditorBundle = (() => {
         snapshotDomSelection,
         shouldPreserveDomSelection,
         shouldPreserveCmSelection,
-        domPointInRangeBounds,
         snapshotCmSelection,
         restoreCmSelection,
         restoreDomSelection,
@@ -56524,30 +56347,16 @@ var MDAEditorBundle = (() => {
           }
         }
       }
-      function menuCoordsMatch(pending, clientX, clientY) {
-        if (!pending || typeof pending._menuX !== "number" || typeof pending._menuY !== "number") {
-          return false;
-        }
-        return Math.abs(clientX - pending._menuX) <= 4 && Math.abs(clientY - pending._menuY) <= 4;
-      }
       function revalidatePendingSelection(pending, view, clientX, clientY) {
         if (!pending) return null;
         if (pending.cm) {
           if (shouldPreserveCmSelection(view, clientX, clientY)) return pending;
-          if (menuCoordsMatch(pending, clientX, clientY)) return pending;
           return null;
         }
         if (pending.dom) {
           const snap = pending.dom;
           if (!snap.root.isConnected) return null;
-          if (menuCoordsMatch(pending, clientX, clientY)) return pending;
-          if (typeof snap.start === "number" && typeof snap.end === "number" && snap.end > snap.start) {
-            return pending;
-          }
-          if (snap.range && snap.root.contains(snap.range.commonAncestorContainer) && domPointInRangeBounds(snap.range, clientX, clientY)) {
-            return pending;
-          }
-          if (snap.text && shouldPreserveDomSelection(snap.root, clientX, clientY)) return pending;
+          if (shouldPreserveDomSelection(snap.root, clientX, clientY)) return pending;
           return null;
         }
         return pending;
@@ -56615,8 +56424,10 @@ var MDAEditorBundle = (() => {
         if (hasPendingDomMenuFor(cellEl) || isWidgetDomMenuGuard()) {
           return false;
         }
-        if (snapshotDomSelection(cellEl)) return false;
-        return !shouldPreserveDomSelection(cellEl, e.clientX, e.clientY);
+        if (shouldPreserveDomSelection(cellEl, e.clientX, e.clientY)) {
+          return false;
+        }
+        return true;
       }
       function shouldSkipContextMenu(e) {
         const target = (
@@ -57157,11 +56968,14 @@ var MDAEditorBundle = (() => {
                   tableCell
                 );
                 const snap = snapshotDomSelection(cell);
-                if (snap) {
+                if (snap && shouldPreserveDomSelection(cell, e.clientX, e.clientY)) {
                   stashDomMenuSelection(snap, e.clientX, e.clientY);
                   e.preventDefault();
                 } else {
                   pendingMenuSelection = null;
+                  if (snap) {
+                    collapseWidgetDomAt(cell, e.clientX, e.clientY);
+                  }
                 }
                 return;
               }
@@ -57173,11 +56987,14 @@ var MDAEditorBundle = (() => {
                   widgetEdit
                 );
                 const snap = snapshotDomSelection(root);
-                if (snap) {
+                if (snap && shouldPreserveDomSelection(root, e.clientX, e.clientY)) {
                   stashDomMenuSelection(snap, e.clientX, e.clientY);
                   e.preventDefault();
                 } else {
                   pendingMenuSelection = null;
+                  if (snap) {
+                    collapseWidgetDomAt(root, e.clientX, e.clientY);
+                  }
                 }
                 return;
               }
@@ -57215,12 +57032,15 @@ var MDAEditorBundle = (() => {
               const tableCellCtx = target.closest && target.closest("th[contenteditable], td[contenteditable]");
               const menuRoot = widgetEditCtx || (tableCellCtx && !target.closest(TABLE_CHROME_SEL) ? tableCellCtx : null);
               if (!pendingMenuSelection && menuRoot) {
-                const snap = snapshotDomSelection(
+                const rootEl = (
                   /** @type {HTMLElement} */
                   menuRoot
                 );
-                if (snap) {
-                  stashDomMenuSelection(snap, e.clientX, e.clientY);
+                if (shouldPreserveDomSelection(rootEl, e.clientX, e.clientY)) {
+                  const snap = snapshotDomSelection(rootEl);
+                  if (snap) {
+                    stashDomMenuSelection(snap, e.clientX, e.clientY);
+                  }
                 }
               }
               pendingMenuSelection = revalidatePendingSelection(
@@ -58173,6 +57993,9 @@ var MDAEditorBundle = (() => {
         if (off < prefix.length) {
           return null;
         }
+        if (off >= lineText.length) {
+          return { insert: "\n", cursor: 1 };
+        }
         return { insert: "\n" + prefix, cursor: prefix.length + 1 };
       }
       function handlePreviewHeadingEnter(view) {
@@ -58210,10 +58033,6 @@ var MDAEditorBundle = (() => {
       var { RangeSetBuilder, StateField, Transaction, Prec } = require_dist2();
       var { syntaxTree, ensureSyntaxTree } = require_dist7();
       var { buildDecorationSpecs, collectSyntaxNodes } = require_build_specs();
-      var {
-        computeRevealRanges,
-        enclosingBlockFromTree
-      } = require_reveal();
       var { HiddenLineWidget, HIDE_MARK_WIDGET } = require_hidden_line();
       var editorConfig = require_config();
       var { atomicRangesFromPlugin, atomicRangesFromBlockField, atomicRangesFromHideLines } = require_atomic_ranges();
@@ -58804,58 +58623,31 @@ var MDAEditorBundle = (() => {
         }
         return syntaxTree(state);
       }
-      function buildDecosFromState(state, lastReveal, liveOpts, viewHints, blockFocusField) {
+      function buildDecosFromState(state, liveOpts, viewHints, blockFocusField) {
         viewHints = viewHints || {};
         try {
           const text = state.doc.toString();
           const upto = viewHints.viewportTo != null ? Math.min(state.doc.length, viewHints.viewportTo + 4e3) : state.doc.length;
           const tree = parseTreeForState(state, upto);
           const nodes = collectSyntaxNodes(tree);
-          const granularity = "never";
-          const selRanges = [];
-          for (let i = 0; i < state.selection.ranges.length; i++) {
-            const r = state.selection.ranges[i];
-            selRanges.push({ from: r.from, to: r.to, head: r.head, empty: r.empty });
-          }
-          const reveal = computeRevealRanges({
-            docLength: text.length,
-            selectionRanges: selRanges,
-            granularity,
-            composing: !!viewHints.composing,
-            lastRevealRanges: lastReveal,
-            enclosingBlock: function(pos) {
-              return enclosingBlockFromTree(tree, pos, text.length);
-            },
-            lineRangeAround: function(pos, pad) {
-              const line = state.doc.lineAt(pos);
-              const fromLine = state.doc.line(Math.max(1, line.number - pad));
-              const toLine = state.doc.line(Math.min(state.doc.lines, line.number + pad));
-              return { from: fromLine.from, to: toLine.to };
-            }
-          });
-          const focusedBlock = blockFocusField ? readBlockFocus(state, blockFocusField) : null;
-          const specs = buildDecorationSpecs(text, nodes, reveal, {
-            focusedBlock,
-            fullHide: true,
+          const specs = buildDecorationSpecs(text, nodes, {
             widgetEnabled: function(kind) {
               return widgetEnabled(kind);
             }
           });
           return {
             layers: buildLayerDecos(specs, text, liveOpts),
-            reveal,
             treeLen: tree.length
           };
         } catch (_) {
           return {
             layers: emptyLayers(),
-            reveal: lastReveal || [],
             treeLen: 0
           };
         }
       }
-      function buildDecos(view, lastReveal, liveOpts, blockFocusField) {
-        return buildDecosFromState(view.state, lastReveal, liveOpts, {
+      function buildDecos(view, liveOpts, blockFocusField) {
+        return buildDecosFromState(view.state, liveOpts, {
           composing: view.composing,
           viewportTo: view.viewport.to
         }, blockFocusField);
@@ -58863,11 +58655,10 @@ var MDAEditorBundle = (() => {
       function createBlockDecoField(liveOpts, blockFocusField) {
         return StateField.define({
           create: function(state) {
-            const built = buildDecosFromState(state, [], liveOpts, {}, blockFocusField);
+            const built = buildDecosFromState(state, liveOpts, {}, blockFocusField);
             return {
               deco: built.layers.block || cmView.Decoration.none,
               hideLineDeco: built.layers.hideBlock || cmView.Decoration.none,
-              reveal: built.reveal,
               treeLen: built.treeLen || 0
             };
           },
@@ -58886,7 +58677,7 @@ var MDAEditorBundle = (() => {
             if (!tr.docChanged && !focusChanged && !treeStillIncomplete) {
               return prev;
             }
-            const built = buildDecosFromState(tr.state, prev.reveal || [], liveOpts, {}, blockFocusField);
+            const built = buildDecosFromState(tr.state, liveOpts, {}, blockFocusField);
             const nextTreeLen = built.treeLen || 0;
             if (!tr.docChanged && !focusChanged && nextTreeLen === prevTreeLen && nextTreeLen >= docLen) {
               return prev;
@@ -58894,7 +58685,6 @@ var MDAEditorBundle = (() => {
             return {
               deco: built.layers.block || cmView.Decoration.none,
               hideLineDeco: built.layers.hideBlock || cmView.Decoration.none,
-              reveal: built.reveal,
               treeLen: nextTreeLen
             };
           },
@@ -58932,16 +58722,15 @@ var MDAEditorBundle = (() => {
         return "";
       }
       var layerBuildCache = { doc: null, fp: "", result: null, opts: null };
-      function getBuiltLayers(view, lastReveal, liveOpts, blockFocusField) {
-        const main = view.state.selection.main;
-        const fp = main.head + ":" + view.viewport.from + ":" + view.viewport.to + ":" + (view.composing ? "1" : "0") + ":" + parseTreeForState(view.state, view.state.doc.length).length;
+      function getBuiltLayers(view, liveOpts, blockFocusField) {
+        const fp = view.viewport.from + ":" + view.viewport.to + ":" + (view.composing ? "1" : "0") + ":" + parseTreeForState(view.state, view.state.doc.length).length;
         const focus = blockFocusField ? readBlockFocus(view.state, blockFocusField) : null;
         const focusKey2 = focus ? focus.from + "-" + focus.to + "-" + (focus.kind || "") : "";
         const fpFull = fp + ":" + focusKey2;
         if (layerBuildCache.doc === view.state.doc && layerBuildCache.fp === fpFull && layerBuildCache.opts === liveOpts && layerBuildCache.result) {
           return layerBuildCache.result;
         }
-        const built = buildDecos(view, lastReveal, liveOpts, blockFocusField);
+        const built = buildDecos(view, liveOpts, blockFocusField);
         layerBuildCache.doc = view.state.doc;
         layerBuildCache.fp = fpFull;
         layerBuildCache.opts = liveOpts;
@@ -58958,8 +58747,7 @@ var MDAEditorBundle = (() => {
         const plugin = ViewPlugin.fromClass(
           class {
             constructor(view) {
-              const built = getBuiltLayers(view, [], liveOpts, blockFocusField);
-              this._lastReveal = built.reveal;
+              const built = getBuiltLayers(view, liveOpts, blockFocusField);
               this._imePending = false;
               this._treeLen = parseTreeForState(view.state, view.state.doc.length).length;
               this._lastFocusKey = blockFocusField ? focusKey(readBlockFocus(view.state, blockFocusField)) : "";
@@ -58982,8 +58770,7 @@ var MDAEditorBundle = (() => {
               }
               this._imePending = false;
               this._lastFocusKey = focusKeyNow;
-              const built = getBuiltLayers(update.view, this._lastReveal, liveOpts, blockFocusField);
-              this._lastReveal = built.reveal;
+              const built = getBuiltLayers(update.view, liveOpts, blockFocusField);
               this._treeLen = treeLen;
               const prevDeco = this.decorations;
               this.decorations = built.layers[layerKey] || cmView.Decoration.none;
