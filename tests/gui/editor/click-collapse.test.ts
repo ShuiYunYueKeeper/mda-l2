@@ -1,4 +1,4 @@
-﻿/**
+/**
  * click-collapse 导出冒烟
  */
 import * as path from 'path';

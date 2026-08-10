@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-B/C 实时预览视图层：语法隐藏（D15 = hide-mark 零宽 replace widget + atomicRanges）。
  */
 'use strict';
@@ -39,6 +39,7 @@ const { MermaidWidget } = require('./widgets/mermaid');
 const { InlineMathWidget, BlockMathWidget } = require('./widgets/math');
 const { createAnnoGutterField } = require('./anno-gutter');
 const { createClickCollapseExtension } = require('./click-collapse');
+const { createContextMenuExtension } = require('./context-menu');
 const { createWidgetEditableGuardExtension } = require('./widget-editable-guard');
 const {
   createImageSelectionSyncPlugin,
@@ -397,6 +398,7 @@ function buildLayerDecos(specs, text, liveOpts) {
     onMoveImageBlock: liveOpts.onMoveImageBlock,
     onDropReplaceImageBlock: liveOpts.onDropReplaceImageBlock,
     onPasteImageBlock: liveOpts.onPasteImageBlock,
+    onPasteTableCellImage: liveOpts.onPasteTableCellImage,
     onInsertImageAt: liveOpts.onInsertImageAt,
     onStartImageResize: liveOpts.onStartImageResize,
     onImageResize: liveOpts.onImageResize,
@@ -1141,6 +1143,7 @@ function livePreview(opts) {
     .concat([
       linkClick,
       createClickCollapseExtension(),
+      createContextMenuExtension(liveOpts),
       createOutlineClickSyncExtension(liveOpts.onHeadingClick),
       theme,
       Prec.high(

@@ -299,6 +299,7 @@ npm test               # jest（含覆盖率）
    - **删除→撤销**：图片 / Mermaid / 代码 / 表 / 引用 / 高亮 / 分割线（及公式）删前须钉 CM6 选区到块首（钉选区 `Transaction.addToHistory.of(false)`）；删除**不清**内存选中态；`docChanged` 后 sync plugin 按 `source` reconcile 并重贴 `.mda-cm-block-selected` / 媒体蓝框。实现：`image-selection` / `mermaid-selection` / `block-selection`。
    - **悬停移出关闭**：语言子菜单、块手柄主/子菜单、块手柄显隐等共用 `HOVER_LEAVE_MS = 200`（`widget-common.js`），勿各自散落不同延迟。
    - **代码块内 Enter 编辑**：编辑期用 `localCode` 缓冲 + `setPlainCodeDom`（`<br>`+ZWSP 保留尾部空行）；**失焦**才 `onEditCodeBlock` 写回 CM6；块内 Ctrl+Z/Y 走本地 undo 栈（`tryCodeBlockUndo`）；`onCodeBlockDirty({ dirty })` 在 `localCode === self.code` 时须 `syncDirtyFromEditor`；`serializeFencedCode` 仅去首部空行、保留尾部换行；保存前 `flushActiveWidgetEditsBeforeSave` blur 活跃代码块。
+4o. **【GUI CM6 右键菜单 / widget 选区】**：`context-menu.js` 在 **document 捕获** `mousedown`（button 2）快照 DOM/CM6 选区；`context-selection.js` 负责命中/保留/恢复；菜单打开期 `widget-context-menu-guard.js` 暂缓代码块 blur 提交。表格 `table-chrome.js` 的 `onDocPointer`：**右键（button 2）直接 return**；`clearTableInteraction` **仅**清除落在**本表** `tableWrap` 内的 DOM 选区，**禁止**全局 `removeAllRanges`（多表文档靠后的代码块/单元格右键易被误清）。代码块 hljs→plain 压平仅在 `contextmenu` 阶段用逻辑偏移恢复，**禁止**在 mousedown 快照前压平。
 5. **【GUI·Electron】data-line 映射**：preload 仅对 `level===0` 的块级 token 注入 `data-line = map[0]+1`，其值等于段落 `startLine`，GUI 据此做「段落↔批注」双向定位与色条。
 6. **【GUI·Electron】运行前提**：preload `require('../core')` 需 `sandbox:false`；GUI 运行前必须 `npm run build`（否则 `dist/core` 不存在）。
 7. **【数据校验】枚举守卫**：add/edit/scan 入口用 `isAnnotationLevel/isAnnotationStatus` 校验，非法值报错退出而非落盘。
@@ -331,6 +332,7 @@ npm test               # jest（含覆盖率）
 | GUI CM6 空白行插入 / 大纲点击同步 | `renderer/editor/empty-line-insert.js`、`empty-line-insert-menu.js`、`outline-click-sync.js`、`outline-scroll.js` |
 | GUI CM6 hide-mark 点击/剪贴板 | `renderer/editor/caret-syntax-adjust.js`、`syntax-clipboard.js`、`click-collapse.js` |
 | GUI CM6 预览紧致选区 / widget 内拖选 | `renderer/editor/view/tight-selection.js`、`widget-editable-guard.js` |
+| GUI CM6 右键菜单 / 选区快照 | `renderer/editor/context-menu.js`、`context-selection.js`、`widget-context-menu-guard.js`、`link-edit-popover.js` |
 | GUI 文件/欢迎/大纲 | `renderer/welcome.js`、`file-sidebar.js`、`outline-panel.js` |
 | 设计文档 | `docs/P0..P3-*.md`、`docs/README.md` |
 | 里程碑验收 | `docs/M2–M4-acceptance-checklist.md` |

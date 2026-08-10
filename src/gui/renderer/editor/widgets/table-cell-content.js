@@ -241,10 +241,54 @@ function handleTableMathDeleteKey(cell, e) {
   return false;
 }
 
+/**
+ * @param {string} url
+ * @returns {string}
+ */
+function fileUrlToLocalPath(url) {
+  if (!url || !/^file:/i.test(url)) return '';
+  try {
+    return decodeURIComponent(String(url).replace(/^file:\/\//i, '').replace(/^\/([A-Za-z]:)/, '$1'));
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * 单元格内图片 Markdown（复制为：全路径 src）。
+ * @param {HTMLElement | null} wrap
+ * @param {(href: string) => string | null | undefined} [resolveImageUrl]
+ * @returns {string}
+ */
+function tableCellImageMarkdownAbs(wrap, resolveImageUrl) {
+  if (!wrap) return '';
+  const alt = wrap.getAttribute('data-mda-image-alt') || '';
+  const title = wrap.getAttribute('data-mda-image-title') || '';
+  const href = wrap.getAttribute('data-mda-image-src') || '';
+  const img = wrap.querySelector('img');
+  const imgSrc = img ? img.getAttribute('src') || '' : '';
+  let abs = fileUrlToLocalPath(imgSrc);
+  if (!abs && typeof resolveImageUrl === 'function' && href) {
+    const resolved = resolveImageUrl(href);
+    abs = fileUrlToLocalPath(resolved) || '';
+    if (!abs && resolved && !/^https?:/i.test(resolved) && !/^data:/i.test(resolved)) {
+      abs = String(resolved);
+    }
+  }
+  if (!abs && href) {
+    const norm = String(href).replace(/\\/g, '/');
+    if (/^[a-zA-Z]:/.test(norm) || norm.charAt(0) === '/') abs = norm;
+    else abs = href;
+  }
+  abs = String(abs).replace(/\\/g, '/');
+  return serializeImageMarkdown({ alt: alt, src: abs, title: title });
+}
+
 module.exports = {
   setCellMarkdownContent: setCellMarkdownContent,
   getCellMarkdownContent: getCellMarkdownContent,
   selectTableMathAtom: selectTableMathAtom,
   handleTableMathDeleteKey: handleTableMathDeleteKey,
   findCellInlineRanges: findCellInlineRanges,
+  tableCellImageMarkdownAbs: tableCellImageMarkdownAbs,
 };

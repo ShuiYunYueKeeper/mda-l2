@@ -14,6 +14,7 @@ const {
 const { BlockReplaceWidget, countSourceLines, syncWidgetHeightFromDom } = require('./block-widget-base');
 const { createCodeLangPicker } = require('./code-lang-picker');
 const { attachWidgetEditablePointerIsolation } = require('../widget-editable-guard');
+const { isWidgetDomMenuGuard } = require('../widget-context-menu-guard');
 const { normalizeCodeBlockLang } = require('./code-languages');
 const { attachBlockDragHandle } = require('./block-drag-handle');
 const { setSelectedCodeBlock } = require('./code-selection');
@@ -339,6 +340,177 @@ function insertTextAtCaret(el, text) {
 
 /**
  * @param {HTMLElement} el
+ * @param {Node} container
+ * @param {number} offset
+ */
+function logicalOffsetFromPoint(el, container, offset) {
+  const probe = document.createRange();
+  probe.setStart(container, offset);
+  probe.collapse(true);
+  if (!el.contains(probe.startContainer)) return 0;
+  const pre = document.createRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(probe.startContainer, probe.startOffset);
+  if (el.querySelector && el.querySelector('br')) {
+    return plainDomLogicalLength(pre.cloneContents());
+  }
+  return pre.toString().replace(/\u200b/g, '').replace(/\u00a0/g, ' ').length;
+}
+
+/**
+ * @param {HTMLElement} el
+ * @returns {{ start: number, end: number } | null}
+ */
+function getLogicalSelectionOffsets(el) {
+  const sel = window.getSelection && window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.commonAncestorContainer)) return null;
+  const a = logicalOffsetFromPoint(el, range.startContainer, range.startOffset);
+  const b = logicalOffsetFromPoint(el, range.endContainer, range.endOffset);
+  const start = Math.min(a, b);
+  const end = Math.max(a, b);
+  if (end <= start) return null;
+  return { start: start, end: end };
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+function caretOffsetFromClient(el, clientX, clientY) {
+  let probe = null;
+  if (typeof document.caretRangeFromPoint === 'function') {
+    probe = document.caretRangeFromPoint(clientX, clientY);
+  } else if (typeof document.caretPositionFromPoint === 'function') {
+    const pos = document.caretPositionFromPoint(clientX, clientY);
+    if (pos) {
+      probe = document.createRange();
+      probe.setStart(pos.offsetNode, pos.offset);
+      probe.collapse(true);
+    }
+  }
+  if (probe && el.contains(probe.startContainer)) {
+    return logicalOffsetFromPoint(el, probe.startContainer, probe.startOffset);
+  }
+  return caretOffsetIn(el);
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {number} start
+ * @param {number} end
+ */
+function setLogicalSelection(el, start, end) {
+  const sel = window.getSelection && window.getSelection();
+  if (!sel) return;
+  const lo = Math.min(start | 0, end | 0);
+  const hi = Math.max(start | 0, end | 0);
+  if (hi <= lo) {
+    setCaretOffsetIn(el, lo);
+    return;
+  }
+  setCaretOffsetIn(el, lo);
+  if (!sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  const endPoint = logicalOffsetToDomPoint(el, hi);
+  if (!endPoint) return;
+  try {
+    range.setEnd(endPoint.node, endPoint.offset);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/**
+ * @param {HTMLElement} el
+ * @param {number} offset
+ * @returns {{ node: Node, offset: number } | null}
+ */
+function logicalOffsetToDomPoint(el, offset) {
+  let remaining = Math.max(0, offset | 0);
+  /** @type {{ node: Node, offset: number } | null} */
+  let last = null;
+
+  /** @param {Node} node @returns {boolean} */
+  function walk(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const raw = node.nodeValue || '';
+      const logical = logicalTextLength(raw);
+      if (remaining <= logical) {
+        let logicalSeen = 0;
+        let domOff = 0;
+        for (let i = 0; i < raw.length; i++) {
+          if (raw.charAt(i) === CODE_PLAIN_ZWSP) continue;
+          if (logicalSeen === remaining) {
+            last = { node: node, offset: domOff };
+            return true;
+          }
+          logicalSeen += 1;
+          domOff = i + 1;
+        }
+        last = { node: node, offset: raw.length };
+        return true;
+      }
+      remaining -= logical;
+      last = { node: node, offset: raw.length };
+      return false;
+    }
+    if (node.nodeName === 'BR') {
+      if (remaining === 0) {
+        const parent = node.parentNode;
+        if (parent) {
+          last = { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, node) };
+        }
+        return true;
+      }
+      if (remaining === 1) {
+        const next = node.nextSibling;
+        if (next && next.nodeType === Node.TEXT_NODE) last = { node: next, offset: 0 };
+        else {
+          const parent = node.parentNode;
+          if (parent) {
+            last = {
+              node: parent,
+              offset: Array.prototype.indexOf.call(parent.childNodes, node) + 1,
+            };
+          }
+        }
+        return true;
+      }
+      remaining -= 1;
+      return false;
+    }
+    for (let child = node.firstChild; child; child = child.nextSibling) {
+      if (walk(child)) return true;
+    }
+    return false;
+  }
+
+  if (el.querySelector && el.querySelector('br')) {
+    walk(el);
+    return last;
+  }
+
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const len = node.nodeValue ? node.nodeValue.length : 0;
+    if (remaining <= len) {
+      return { node: node, offset: remaining };
+    }
+    remaining -= len;
+    last = { node: node, offset: len };
+    node = walker.nextNode();
+  }
+  return last;
+}
+
+/**
+ * @param {HTMLElement} el
  * @param {number} offset
  */
 function setCaretOffsetIn(el, offset) {
@@ -584,15 +756,61 @@ class CodeFenceWidget extends BlockReplaceWidget {
       return true;
     }
 
+    let selectionAnchor = 0;
+
     /**
-     * 聚焦编辑时用 <br>+ZWSP 结构保留尾部空行；失焦再上色。
+     * @param {{ start?: number, end?: number, caret?: number, clientX?: number, clientY?: number, preserveSelection?: boolean }} [opts]
      */
-    function flattenToPlain() {
-      if (plainEditing) return;
-      const pos = getCaretOffset();
+    function ensurePlainForEdit(opts) {
+      opts = opts || {};
+      let selOffsets = null;
+      if (typeof opts.start === 'number' && typeof opts.end === 'number' && opts.end > opts.start) {
+        selOffsets = { start: opts.start, end: opts.end };
+      } else if (opts.preserveSelection) {
+        selOffsets = getLogicalSelectionOffsets(codeInput);
+      }
+      let caret = typeof opts.caret === 'number' ? opts.caret : null;
+      if (plainEditing) {
+        if (selOffsets) setLogicalSelection(codeInput, selOffsets.start, selOffsets.end);
+        else if (caret != null) setCaretOffset(caret);
+        return;
+      }
+      if (!selOffsets && caret == null && typeof opts.clientX === 'number' && typeof opts.clientY === 'number') {
+        caret = caretOffsetFromClient(codeInput, opts.clientX, opts.clientY);
+      }
+      if (caret == null && !selOffsets) caret = getCaretOffset();
       plainEditing = true;
-      renderFromLocalCode(pos);
+      renderFromLocalCode(selOffsets ? selOffsets.start : caret);
+      if (selOffsets) setLogicalSelection(codeInput, selOffsets.start, selOffsets.end);
+      else if (caret != null) setCaretOffset(caret);
     }
+
+    function flattenToPlain(opts) {
+      ensurePlainForEdit(opts || {});
+    }
+
+    function stabilizeForContextMenu() {
+      enterEditMode();
+      const offsets = getLogicalSelectionOffsets(codeInput);
+      if (!offsets) return;
+      ensurePlainForEdit({ start: offsets.start, end: offsets.end });
+    }
+
+    function restoreLogicalSelection(start, end) {
+      enterEditMode();
+      if (!plainEditing) {
+        plainEditing = true;
+        renderFromLocalCode(start);
+      }
+      setLogicalSelection(codeInput, start, end);
+    }
+
+    root._mdaStabilizeCodeSelection = stabilizeForContextMenu;
+    root._mdaRestoreLogicalSelection = restoreLogicalSelection;
+    codeInput._mdaRestoreLogicalSelection = restoreLogicalSelection;
+    codeInput._mdaLogicalOffsetFromPoint = function (container, offset) {
+      return logicalOffsetFromPoint(codeInput, container, offset);
+    };
 
     function syncLineNumbers() {
       gutter.textContent = buildLineNumbers(readCodeText());
@@ -730,10 +948,41 @@ class CodeFenceWidget extends BlockReplaceWidget {
       }
     });
 
-    codeInput.addEventListener('mousedown', function (e) {
-      e.stopPropagation();
-      enterEditMode();
-    });
+    codeInput.addEventListener(
+      'mousedown',
+      function (e) {
+        e.stopPropagation();
+        if (e.button === 2) return;
+        if (isWidgetDomMenuGuard()) return;
+        enterEditMode();
+        if (e.shiftKey) {
+          const head = caretOffsetFromClient(codeInput, e.clientX, e.clientY);
+          ensurePlainForEdit({ caret: selectionAnchor });
+          setLogicalSelection(codeInput, selectionAnchor, head);
+          e.preventDefault();
+        }
+      },
+      true
+    );
+    codeInput.addEventListener(
+      'mouseup',
+      function (e) {
+        if (e.button !== 0) return;
+        if (isWidgetDomMenuGuard()) return;
+        enterEditMode();
+        if (e.shiftKey) return;
+        const offsets = getLogicalSelectionOffsets(codeInput);
+        if (offsets) {
+          ensurePlainForEdit({ start: offsets.start, end: offsets.end });
+          selectionAnchor = offsets.start;
+        } else {
+          const caret = caretOffsetFromClient(codeInput, e.clientX, e.clientY);
+          ensurePlainForEdit({ caret: caret });
+          selectionAnchor = caret;
+        }
+      },
+      true
+    );
     codeInput.addEventListener('beforeinput', function (e) {
       if (composing || applyingProgrammatic) return;
       if (e.inputType === 'historyUndo') {
@@ -794,32 +1043,40 @@ class CodeFenceWidget extends BlockReplaceWidget {
       const session = { undo: undoLocal, redo: redoLocal };
       activeCodeEditSession = session;
       root._mdaCodeEditSession = session;
-      // 等点击落点落稳后再压平，保留光标位置
+      if (plainEditing || isWidgetDomMenuGuard()) return;
       requestAnimationFrame(function () {
-        flattenToPlain();
+        if (isWidgetDomMenuGuard() || plainEditing) return;
+        if (document.activeElement !== codeInput) return;
+        const offsets = getLogicalSelectionOffsets(codeInput);
+        if (offsets) ensurePlainForEdit({ start: offsets.start, end: offsets.end });
+        else ensurePlainForEdit({ caret: getCaretOffset() });
       });
     });
     codeInput.addEventListener('blur', function () {
-      if (activeCodeEditSession === root._mdaCodeEditSession) {
-        activeCodeEditSession = null;
-        root._mdaCodeEditSession = null;
-      }
-      if (root._mdaCodeTearingDown || !codeInput.isConnected) return;
-      commitCodeEdit(false);
-      plainEditing = false;
-      paintHighlight(false);
-      syncLineNumbers();
-      frame.classList.remove('mda-cm-code-editing');
-      requestHeightMeasure();
-      try {
-        if (view) {
-          requestAnimationFrame(function () {
-            syncWidgetHeightFromDom(self, view, root);
-          });
+      requestAnimationFrame(function () {
+        if (isWidgetDomMenuGuard()) return;
+        if (document.querySelector('.mda-cm-context-menu')) return;
+        if (activeCodeEditSession === root._mdaCodeEditSession) {
+          activeCodeEditSession = null;
+          root._mdaCodeEditSession = null;
         }
-      } catch (_) {
-        /* ignore */
-      }
+        if (root._mdaCodeTearingDown || !codeInput.isConnected) return;
+        commitCodeEdit(false);
+        plainEditing = false;
+        paintHighlight(false);
+        syncLineNumbers();
+        frame.classList.remove('mda-cm-code-editing');
+        requestHeightMeasure();
+        try {
+          if (view) {
+            requestAnimationFrame(function () {
+              syncWidgetHeightFromDom(self, view, root);
+            });
+          }
+        } catch (_) {
+          /* ignore */
+        }
+      });
     });
 
     scroll.addEventListener('mousedown', function (e) {
@@ -847,7 +1104,7 @@ class CodeFenceWidget extends BlockReplaceWidget {
     if (resumed) {
       requestAnimationFrame(function () {
         enterEditMode();
-        flattenToPlain();
+        flattenToPlain({});
         codeInput.focus();
         setCaretOffset(resumed.caret);
       });
@@ -856,6 +1113,15 @@ class CodeFenceWidget extends BlockReplaceWidget {
     return root;
   }
   destroy(dom) {
+    if (dom) {
+      dom._mdaStabilizeCodeSelection = null;
+      dom._mdaRestoreLogicalSelection = null;
+      const input = dom.querySelector('.mda-cm-code-input');
+      if (input) {
+        input._mdaRestoreLogicalSelection = null;
+        input._mdaLogicalOffsetFromPoint = null;
+      }
+    }
     if (dom && dom._mdaCodeEditSession && activeCodeEditSession === dom._mdaCodeEditSession) {
       activeCodeEditSession = null;
     }

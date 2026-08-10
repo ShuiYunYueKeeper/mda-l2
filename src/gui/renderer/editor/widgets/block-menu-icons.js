@@ -19,6 +19,12 @@ const ICONS = {
   copyAsImage:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="5.8" cy="6.6" r="1.15"/><path d="M3.5 11.2l2.8-2.3 2 1.4 2.4-2.1 2.3 3"/></svg>',
   cut: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="4.5" r="1.8"/><circle cx="4.5" cy="11.5" r="1.8"/><path d="M6.2 6l3.6 4M6.2 10l3.6-4l3.2 1.8"/></svg>',
+  paste:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="2.5" width="7" height="9" rx="1"/><path d="M4 4.5H3.5a1.5 1.5 0 010-3H7a1.5 1.5 0 011.4 1"/><path d="M8 9.5v3M6.5 11h3"/></svg>',
+  edit:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 13h2.5l7.2-7.2a1.2 1.2 0 00-1.7-1.7L3.8 11.3V13z"/><path d="M9.5 4.5l2 2"/></svg>',
+  askAi:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 4.5h9a1 1 0 011 1v5a1 1 0 01-1 1H7l-2.5 2v-2H3.5a1 1 0 01-1-1v-5a1 1 0 011-1z"/><circle cx="6" cy="8" r=".55" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r=".55" fill="currentColor" stroke="none"/><circle cx="10" cy="8" r=".55" fill="currentColor" stroke="none"/></svg>',
   delete:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 5h9l-.8 8.2a1 1 0 01-1 .8H5.3a1 1 0 01-1-.8L3.5 5z"/><path d="M2.5 5h11M6.5 5V3.8a1 1 0 011-1h1a1 1 0 011 1V5"/></svg>',
   continue:

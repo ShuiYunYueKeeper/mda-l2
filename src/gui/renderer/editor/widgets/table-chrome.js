@@ -20,8 +20,17 @@ const {
   isFullRowSelection,
   isEntireTableSelection,
 } = require('../model/table-model');
-const { copyText, uiT, clearBlockWidgetSelection, clearMediaSelection } = require('./widget-common');
+const { copyText, uiT, clearBlockWidgetSelection, clearMediaSelection, HOVER_LEAVE_MS } = require('./widget-common');
 const { attachWidgetEditablePointerIsolation } = require('../widget-editable-guard');
+const {
+  shouldPreserveDomSelection,
+  clearCmSelectionIfAny,
+  collapseWidgetDomAt,
+  restoreWidgetDomCaret,
+} = require('../context-selection');
+const { isWidgetDomMenuGuard } = require('../widget-context-menu-guard');
+const { menuIconHtml } = require('./block-menu-icons');
+const { MOD_KEY } = require('./block-handle-menu');
 const { attachTableGridResize, applyTableLayout, ensureLayoutArrays } = require('./table-resize');
 const { hasTableLayoutMeta } = require('../model/parse-table');
 const {
@@ -33,6 +42,7 @@ const {
   setCellMarkdownContent,
   selectTableMathAtom,
   handleTableMathDeleteKey,
+  tableCellImageMarkdownAbs,
 } = require('./table-cell-content');
 const { undo, redo } = require('@codemirror/commands');
 const { attachBlockDragHandle } = require('./block-drag-handle');
@@ -43,6 +53,17 @@ const { clearSelectedInlineMath } = require('./inline-math-selection');
 
 /** @type {string} */
 let internalClipboard = '';
+
+/** @type {HTMLElement | null} */
+let activeTableSubmenu = null;
+let tableSubOpenTimer = 0;
+let tableSubCloseTimer = 0;
+const TABLE_SUB_CLOSE_MS = HOVER_LEAVE_MS;
+
+const TABLE_CELL_IMAGE_COPY_AS = [
+  { id: 'copy-as-markdown', i18nKey: 'blockMenuCopyAsMarkdown', icon: 'markdown' },
+  { id: 'copy-as-image', i18nKey: 'blockMenuCopyAsImage', icon: 'copyAsImage' },
+];
 
 /**
  * @param {{
@@ -143,38 +164,156 @@ function applySelectionHighlight(table, selection) {
 }
 
 /**
+ * @param {string} label
+ * @param {string} [icon]
+ * @param {string} [keyHint]
+ */
+function tableMenuItemInner(label, icon, keyHint) {
+  return (
+    menuIconHtml(icon || '') +
+    '<span class="mda-menu-label">' +
+    label +
+    '</span>' +
+    (keyHint ? '<span class="mda-menu-key">' + keyHint + '</span>' : '')
+  );
+}
+
+/**
+ * @param {string} label
+ * @param {string} [icon]
+ */
+function submenuItemInner(label, icon) {
+  return (
+    menuIconHtml(icon || '') +
+    '<span class="mda-menu-label">' +
+    label +
+    '</span>'
+  );
+}
+
+/**
+ * @param {HTMLElement} parentItem
+ * @param {HTMLElement} submenu
+ */
+function placeTableSubmenu(parentItem, submenu) {
+  document.body.appendChild(submenu);
+  const pr = parentItem.getBoundingClientRect();
+  const pad = 6;
+  let left = pr.right - 4;
+  let top = pr.top - 4;
+  submenu.style.left = left + 'px';
+  submenu.style.top = top + 'px';
+  if (left + submenu.offsetWidth > window.innerWidth - pad) {
+    left = pr.left - submenu.offsetWidth + 4;
+    submenu.style.left = left + 'px';
+  }
+  if (top + submenu.offsetHeight > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - submenu.offsetHeight - pad);
+    submenu.style.top = top + 'px';
+  }
+}
+
+/**
+ * @param {(key: string) => string} t
+ * @param {{ id: string, i18nKey: string, icon?: string }[]} items
+ * @param {(id: string) => void} onPick
+ */
+function buildTableSubmenu(t, items, onPick) {
+  const sub = document.createElement('div');
+  sub.className = 'mda-context-menu mda-block-handle-submenu';
+  sub.setAttribute('role', 'menu');
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const row = document.createElement('div');
+    row.className = 'mda-menu-item';
+    row.setAttribute('role', 'menuitem');
+    row.dataset.act = it.id;
+    row.innerHTML = submenuItemInner(uiT(it.i18nKey, t), it.icon);
+    sub.appendChild(row);
+  }
+  sub.addEventListener('mousedown', function (e) {
+    const item = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!item) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeTableMenu();
+    onPick(item.dataset.act || '');
+  });
+  sub.addEventListener('mouseenter', function () {
+    window.clearTimeout(tableSubCloseTimer);
+    tableSubCloseTimer = 0;
+  });
+  sub.addEventListener('mouseleave', function () {
+    window.clearTimeout(tableSubCloseTimer);
+    tableSubCloseTimer = window.setTimeout(closeTableSubmenu, TABLE_SUB_CLOSE_MS);
+  });
+  return sub;
+}
+
+/**
  * @param {HTMLElement} host
- * @param {{ items: { id: string, i18nKey: string, disabled?: boolean }[] }} spec
+ * @param {{ items: { id: string, i18nKey: string, disabled?: boolean, icon?: string, key?: string, submenu?: { id: string, i18nKey: string, icon?: string }[] }[], x: number, y: number }} spec
  * @param {(id: string) => void} onAction
  * @param {(key: string) => string} t
  */
 function openTableMenu(host, spec, onAction, t) {
   closeTableMenu();
   const menu = document.createElement('div');
-  menu.className = 'mda-cm-table-menu';
+  menu.className = 'mda-context-menu mda-block-handle-menu mda-cm-table-menu';
   menu.setAttribute('role', 'menu');
   for (let i = 0; i < spec.items.length; i++) {
     const item = spec.items[i];
     if (item.id === '---') {
       const sep = document.createElement('div');
-      sep.className = 'mda-cm-table-menu-sep';
+      sep.className = 'mda-menu-sep';
+      sep.setAttribute('aria-hidden', 'true');
       menu.appendChild(sep);
+      continue;
+    }
+    if (item.submenu && item.submenu.length) {
+      const row = document.createElement('div');
+      row.className = 'mda-menu-item mda-menu-has-sub mda-cm-table-menu-item';
+      row.setAttribute('role', 'menuitem');
+      row.innerHTML =
+        tableMenuItemInner(uiT(item.i18nKey, t), item.icon, '<span class="mda-menu-chevron" aria-hidden="true">\u203a</span>');
+      row.addEventListener('mouseenter', function () {
+        window.clearTimeout(tableSubCloseTimer);
+        tableSubCloseTimer = 0;
+        window.clearTimeout(tableSubOpenTimer);
+        tableSubOpenTimer = window.setTimeout(function () {
+          closeTableSubmenu();
+          activeTableSubmenu = buildTableSubmenu(t, item.submenu, onAction);
+          placeTableSubmenu(row, activeTableSubmenu);
+        }, 100);
+      });
+      row.addEventListener('mouseleave', function (ev) {
+        window.clearTimeout(tableSubOpenTimer);
+        tableSubOpenTimer = 0;
+        const rt = ev.relatedTarget;
+        if (activeTableSubmenu && rt && activeTableSubmenu.contains(/** @type {Node} */ (rt))) return;
+        window.clearTimeout(tableSubCloseTimer);
+        tableSubCloseTimer = window.setTimeout(closeTableSubmenu, TABLE_SUB_CLOSE_MS);
+      });
+      menu.appendChild(row);
       continue;
     }
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'mda-cm-table-menu-item';
+    btn.className = 'mda-menu-item mda-cm-table-menu-item' + (item.disabled ? ' disabled' : '');
     btn.dataset.action = item.id;
     btn.dataset.i18nKey = item.i18nKey;
-    btn.textContent = uiT(item.i18nKey, t);
+    btn.innerHTML = tableMenuItemInner(uiT(item.i18nKey, t), item.icon, item.key);
     btn.disabled = !!item.disabled;
-    btn.addEventListener('mousedown', function (e) {
-      if (e.button !== 0 || btn.disabled) return;
-      e.preventDefault();
-      e.stopPropagation();
-      closeTableMenu();
-      onAction(item.id);
-    });
+    if (!item.disabled) {
+      btn.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        closeTableMenu();
+        onAction(item.id);
+      });
+    }
     menu.appendChild(btn);
   }
   host.appendChild(menu);
@@ -193,8 +332,20 @@ function openTableMenu(host, spec, onAction, t) {
   });
 }
 
+function closeTableSubmenu() {
+  window.clearTimeout(tableSubOpenTimer);
+  window.clearTimeout(tableSubCloseTimer);
+  tableSubOpenTimer = 0;
+  tableSubCloseTimer = 0;
+  if (activeTableSubmenu && activeTableSubmenu.parentNode) {
+    activeTableSubmenu.parentNode.removeChild(activeTableSubmenu);
+  }
+  activeTableSubmenu = null;
+}
+
 function closeTableMenu() {
   if (typeof document === 'undefined') return;
+  closeTableSubmenu();
   const menus = document.querySelectorAll('.mda-cm-table-menu');
   for (let i = 0; i < menus.length; i++) menus[i].remove();
 }
@@ -211,6 +362,7 @@ function closeTableMenu() {
  *   resolveImageUrl?: Function,
  *   onOpenZoom?: Function,
  *   onCopyImage?: (img: HTMLImageElement) => void,
+ *   onPasteTableCellImage?: (wrap: HTMLElement) => Promise<{ line: string, href: string, alt?: string, title?: string } | null>,
  *   onParsedChange: (parsed: object) => void,
  *   readParsedFromDom: () => object | null,
  *   blockSource?: string,
@@ -278,6 +430,8 @@ function mountTableChrome(ctx) {
   let selection = { kind: 'none' };
   let dragAnchor = null;
   let mutating = false;
+  /** @type {{ cell: HTMLElement, wrap: HTMLElement } | null} */
+  let activeCellImageTarget = null;
   /** @type {ReturnType<typeof attachTableGridResize> | null} */
   let resizeCtl = null;
 
@@ -366,9 +520,12 @@ function mountTableChrome(ctx) {
     if (active && tableWrap.contains(active) && typeof active.blur === 'function') {
       active.blur();
     }
-    if (typeof window.getSelection === 'function') {
-      const domSel = window.getSelection();
-      if (domSel && domSel.rangeCount) domSel.removeAllRanges();
+    const domSel = typeof window.getSelection === 'function' ? window.getSelection() : null;
+    if (domSel && domSel.rangeCount > 0) {
+      const range = domSel.getRangeAt(0);
+      if (tableWrap.contains(range.commonAncestorContainer)) {
+        domSel.removeAllRanges();
+      }
     }
     setSelection({ kind: 'none' });
   }
@@ -526,8 +683,119 @@ function mountTableChrome(ctx) {
     }
   }
 
-  function menuItems() {
-    const hasSel = selection.kind !== 'none';
+  function cellImageMenuItems() {
+    return [
+      { id: 'copy', i18nKey: 'copyBtn', icon: 'copy', key: MOD_KEY + 'C' },
+      { id: 'cut', i18nKey: 'widgetTableCut', icon: 'cut', key: MOD_KEY + 'X' },
+      { id: 'paste', i18nKey: 'widgetTablePaste', icon: 'paste', key: MOD_KEY + 'V' },
+      { id: '---' },
+      {
+        id: 'copy-as',
+        i18nKey: 'blockMenuCopyAs',
+        icon: 'copyAs',
+        submenu: TABLE_CELL_IMAGE_COPY_AS,
+      },
+      { id: '---' },
+      { id: 'clear', i18nKey: 'widgetTableClear', icon: 'delete' },
+    ];
+  }
+
+  /**
+   * @param {HTMLElement} wrap
+   * @param {{ line: string, href: string, alt?: string, title?: string }} payload
+   */
+  function applyTableCellImageUpdate(wrap, payload) {
+    wrap.setAttribute('data-mda-image-source', payload.line);
+    wrap.setAttribute('data-mda-image-src', payload.href);
+    wrap.setAttribute('data-mda-image-alt', payload.alt || '');
+    if (payload.title) wrap.setAttribute('data-mda-image-title', payload.title);
+    else wrap.removeAttribute('data-mda-image-title');
+    const img = wrap.querySelector('img');
+    if (img) {
+      img.setAttribute('alt', payload.alt || '');
+      if (payload.title) img.setAttribute('title', payload.title);
+      else img.removeAttribute('title');
+      const resolved =
+        typeof ctx.resolveImageUrl === 'function'
+          ? ctx.resolveImageUrl(payload.href)
+          : payload.href;
+      if (resolved) img.setAttribute('src', resolved);
+    }
+  }
+
+  /**
+   * @param {HTMLElement} wrap
+   */
+  function removeCellImageWrap(wrap) {
+    if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+  }
+
+  /**
+   * @param {HTMLElement} cell
+   * @param {HTMLElement} wrap
+   */
+  function pasteCellImage(cell, wrap) {
+    if (typeof ctx.onPasteTableCellImage !== 'function') return;
+    Promise.resolve(ctx.onPasteTableCellImage(wrap))
+      .then(function (payload) {
+        if (!payload || !payload.line) return;
+        applyTableCellImageUpdate(wrap, payload);
+        syncFromDomIfNeeded();
+        commitParsed();
+        if (cell && typeof cell.focus === 'function') cell.focus();
+      })
+      .catch(function () {
+        /* ignore */
+      });
+  }
+
+  /**
+   * @param {string} id
+   */
+  function runCellImageMenuAction(id) {
+    const target = activeCellImageTarget;
+    activeCellImageTarget = null;
+    if (!target) return;
+    const cell = target.cell;
+    const wrap = target.wrap;
+    const img = wrap.querySelector('img');
+    const row = parseInt(cell.getAttribute('data-mda-row') || '0', 10);
+    const col = parseInt(cell.getAttribute('data-mda-col') || '0', 10);
+
+    if (id === 'copy' || id === 'copy-as-image') {
+      if (img && typeof ctx.onCopyImage === 'function') ctx.onCopyImage(img);
+      return;
+    }
+    if (id === 'cut') {
+      if (img && typeof ctx.onCopyImage === 'function') ctx.onCopyImage(img);
+      removeCellImageWrap(wrap);
+      syncFromDomIfNeeded();
+      commitParsed();
+      return;
+    }
+    if (id === 'paste') {
+      pasteCellImage(cell, wrap);
+      return;
+    }
+    if (id === 'copy-as-markdown') {
+      const text = tableCellImageMarkdownAbs(wrap, ctx.resolveImageUrl);
+      if (text) copyText(text, ctx.copyFn);
+      return;
+    }
+    if (id === 'clear') {
+      setSelection({ kind: 'cell', row: row, col: col });
+      mutate(function (p) {
+        clearTableSelection(p, { kind: 'cell', row: row, col: col });
+      });
+    }
+  }
+
+  function menuItems(clientX, clientY, targetCell) {
+    const domTextAtClick =
+      targetCell &&
+      shouldPreserveDomSelection(/** @type {HTMLElement} */ (targetCell), clientX, clientY);
+    const tableStructuralSel = selection.kind !== 'none' && selection.kind !== 'cell';
+    const hasClipboard = !!(domTextAtClick || tableStructuralSel);
     const anchor = selectionAnchor(selection);
     const b = selectionBounds(selection);
     const isBodyRow =
@@ -536,14 +804,30 @@ function mountTableChrome(ctx) {
     const isColSel = selection.kind === 'col' || isFullColumnSelection(selection);
     const canDeleteRow = isBodyRow && parsed.rows.length > 0;
     const canDeleteCol = isColSel && parsed.headers.length > 1;
+    const inCell = !!targetCell;
     const items = [];
 
-    if (hasSel) {
-      items.push({ id: 'copy', i18nKey: 'copyBtn' });
-      items.push({ id: 'cut', i18nKey: 'widgetTableCut' });
-    }
+    items.push({
+      id: 'copy',
+      i18nKey: 'copyBtn',
+      icon: 'copy',
+      key: MOD_KEY + 'C',
+      disabled: !hasClipboard,
+    });
+    items.push({
+      id: 'cut',
+      i18nKey: 'widgetTableCut',
+      icon: 'cut',
+      key: MOD_KEY + 'X',
+      disabled: !hasClipboard,
+    });
     if (anchor) {
-      items.push({ id: 'paste', i18nKey: 'widgetTablePaste' });
+      items.push({
+        id: 'paste',
+        i18nKey: 'widgetTablePaste',
+        icon: 'paste',
+        key: MOD_KEY + 'V',
+      });
     }
 
     if (isBodyRow || (selection.kind === 'row' && selection.row === -1)) {
@@ -562,16 +846,20 @@ function mountTableChrome(ctx) {
       if (canDeleteCol) items.push({ id: 'delete-col', i18nKey: 'widgetTableDeleteCol' });
     }
 
-    if (hasSel) {
+    if (hasClipboard || inCell) {
       if (items.length) items.push({ id: '---' });
       let clearKey = 'widgetTableClear';
       if (selection.kind === 'row' || isFullRowSelection(selection)) clearKey = 'widgetTableClearRow';
-      else if (selection.kind === 'col' || isFullColumnSelection(selection)) clearKey = 'widgetTableClearCol';
-      items.push({ id: 'clear', i18nKey: clearKey });
+      else if (selection.kind === 'col' || isFullColumnSelection(selection)) {
+        clearKey = 'widgetTableClearCol';
+      }
+      items.push({ id: 'clear', i18nKey: clearKey, icon: 'delete' });
     }
 
     if (items.length) items.push({ id: '---' });
-    items.push({ id: 'delete-table', i18nKey: 'widgetTableDeleteTable' });
+    if (!inCell || hasClipboard || tableStructuralSel) {
+      items.push({ id: 'delete-table', i18nKey: 'widgetTableDeleteTable', icon: 'delete' });
+    }
 
     return items;
   }
@@ -696,10 +984,21 @@ function mountTableChrome(ctx) {
     }
   }
 
-  function openMenuAt(clientX, clientY) {
+  function openMenuAt(clientX, clientY, targetCell, imgWrap) {
+    if (imgWrap && targetCell) {
+      activeCellImageTarget = { cell: targetCell, wrap: imgWrap };
+      openTableMenu(
+        stage,
+        { x: clientX, y: clientY, items: cellImageMenuItems() },
+        runCellImageMenuAction,
+        t
+      );
+      return;
+    }
+    activeCellImageTarget = null;
     openTableMenu(
       stage,
-      { x: clientX, y: clientY, items: menuItems() },
+      { x: clientX, y: clientY, items: menuItems(clientX, clientY, targetCell) },
       runMenuAction,
       t
     );
@@ -776,9 +1075,14 @@ function mountTableChrome(ctx) {
       }
 
       cell.addEventListener('mousedown', function (e) {
-        if (e.button !== 0) return;
+        if (e.button !== 0 && e.button !== 2) return;
         if (!e.target.closest('.mda-cm-table-menu')) closeTableMenu();
         e.stopPropagation();
+        if (e.button === 2) return;
+        if (!shouldPreserveDomSelection(cell, e.clientX, e.clientY)) {
+          collapseWidgetDomAt(cell, e.clientX, e.clientY);
+        }
+        clearCmSelectionIfAny(ctx.view);
         const atomEl = e.target.closest
           ? e.target.closest('.mda-cm-table-math, .mda-cm-table-img')
           : null;
@@ -1059,9 +1363,55 @@ function mountTableChrome(ctx) {
 
   stage.addEventListener('contextmenu', function (e) {
     if (!stage.contains(e.target)) return;
+    const cell =
+      e.target && e.target.closest
+        ? e.target.closest('th[contenteditable], td[contenteditable]')
+        : null;
+    const imgWrap =
+      e.target && e.target.closest ? e.target.closest('.mda-cm-table-img') : null;
+    if (cell && imgWrap && cell.contains(imgWrap)) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearCmSelectionIfAny(ctx.view);
+      selectTableMathAtom(imgWrap);
+      const row = parseInt(cell.getAttribute('data-mda-row') || '0', 10);
+      const col = parseInt(cell.getAttribute('data-mda-col') || '0', 10);
+      dragAnchor = { row: row, col: col };
+      setSelection({ kind: 'cell', row: row, col: col });
+      openMenuAt(e.clientX, e.clientY, cell, imgWrap);
+      return;
+    }
+    /** @type {Range | null} */
+    let caretSnap = null;
+    if (cell) {
+      if (isWidgetDomMenuGuard()) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      const preserve = shouldPreserveDomSelection(
+        /** @type {HTMLElement} */ (cell),
+        e.clientX,
+        e.clientY
+      );
+      if (!preserve) {
+        caretSnap = collapseWidgetDomAt(/** @type {HTMLElement} */ (cell), e.clientX, e.clientY);
+      }
+      clearCmSelectionIfAny(ctx.view);
+      if (preserve) {
+        return;
+      }
+    }
     e.preventDefault();
     e.stopPropagation();
-    openMenuAt(e.clientX, e.clientY);
+    openMenuAt(e.clientX, e.clientY, cell);
+    if (cell && caretSnap) {
+      const snap = caretSnap;
+      requestAnimationFrame(function () {
+        if (!cell.isConnected) return;
+        restoreWidgetDomCaret(/** @type {HTMLElement} */ (cell), snap);
+      });
+    }
   });
 
   stage.addEventListener('mousedown', function (e) {
@@ -1119,6 +1469,7 @@ function mountTableChrome(ctx) {
       document.removeEventListener('mousedown', onDocPointer, true);
       return;
     }
+    if (e.button === 2) return;
     if (e.target && stage.contains(e.target)) return;
     clearTableInteraction();
   }

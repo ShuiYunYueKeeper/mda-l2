@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const {
   parseGfmTable,
@@ -249,6 +249,7 @@ class TableWidget extends BlockReplaceWidget {
         onMoveTableBlock: opts.onMoveTableBlock,
         onOpenZoom: opts.onOpenZoom,
         onCopyImage: opts.onCopyImage,
+        onPasteTableCellImage: opts.onPasteTableCellImage,
         pinEditor: function () {
           pinEditorToTable(view, self);
         },

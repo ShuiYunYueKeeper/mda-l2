@@ -38,6 +38,7 @@ function createMediaOutsideClickPlugin() {
         this.view = view;
         const self = this;
         this.onPointer = function (e) {
+          if (e.button === 2) return;
           if (!self.view.dom.isConnected) {
             document.removeEventListener('mousedown', self.onPointer, true);
             return;

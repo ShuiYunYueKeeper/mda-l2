@@ -1,4 +1,4 @@
-﻿// MDA Renderer — Markdown 工作台 GUI
+// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -646,6 +646,30 @@
         },
         onPasteImageBlock: function (block) {
           pasteClipboardImageToEditor(block, null);
+        },
+        onPasteTableCellImage: function (wrap) {
+          if (!wrap) return Promise.resolve(null);
+          if (!isCm6Ready() || !currentFilePath || !api.saveClipboardImageAsset) {
+            uiAlert(uiT('alertOpenDocFirst'));
+            return Promise.resolve(null);
+          }
+          return api.saveClipboardImageAsset(currentFilePath).then(function (r) {
+            if (!r || !r.success) {
+              if (r && r.error) uiAlert(uiT('alertPasteImageEmpty'));
+              return null;
+            }
+            var href = r.relativePath || normalizeImageRefForMarkdown(r.filePath);
+            var alt = wrap.getAttribute('data-mda-image-alt') || '';
+            var title = wrap.getAttribute('data-mda-image-title') || '';
+            var line = window.MDAEditor.serializeImageMarkdown({
+              alt: alt,
+              src: href,
+              title: title,
+            });
+            if (!line) return null;
+            syncDirtyFromEditor();
+            return { line: line, href: href, alt: alt, title: title };
+          });
         },
         onInsertImageAt: function (pos) {
           pasteClipboardImageToEditor(null, pos);

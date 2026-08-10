@@ -2680,7 +2680,7 @@ var MDAEditorBundle = (() => {
         Create a [range](https://codemirror.net/6/docs/ref/#state.Range) with this value.
         */
         range(from, to = from) {
-          return Range.create(from, to, this);
+          return Range2.create(from, to, this);
         }
       };
       RangeValue.prototype.startSide = RangeValue.prototype.endSide = 0;
@@ -2689,7 +2689,7 @@ var MDAEditorBundle = (() => {
       function cmpVal(a, b) {
         return a == b || a.constructor == b.constructor && a.eq(b);
       }
-      var Range = class _Range {
+      var Range2 = class _Range {
         constructor(from, to, value) {
           this.from = from;
           this.to = to;
@@ -2837,7 +2837,7 @@ var MDAEditorBundle = (() => {
             } else {
               if (!filter || filterFrom > cur.to || filterTo < cur.from || filter(cur.from, cur.to, cur.value)) {
                 if (!builder.addInner(cur.from, cur.to, cur.value))
-                  spill.push(Range.create(cur.from, cur.to, cur.value));
+                  spill.push(Range2.create(cur.from, cur.to, cur.value));
               }
               cur.next();
             }
@@ -2980,7 +2980,7 @@ var MDAEditorBundle = (() => {
         */
         static of(ranges, sort = false) {
           let build = new RangeSetBuilder();
-          for (let range of ranges instanceof Range ? [ranges] : sort ? lazySort(ranges) : ranges)
+          for (let range of ranges instanceof Range2 ? [ranges] : sort ? lazySort(ranges) : ranges)
             build.add(range.from, range.to, range.value);
           return build.finish();
         }
@@ -3473,7 +3473,7 @@ var MDAEditorBundle = (() => {
       exports.Facet = Facet;
       exports.Line = Line;
       exports.Prec = Prec;
-      exports.Range = Range;
+      exports.Range = Range2;
       exports.RangeSet = RangeSet;
       exports.RangeSetBuilder = RangeSetBuilder;
       exports.RangeValue = RangeValue;
@@ -14562,7 +14562,7 @@ var MDAEditorBundle = (() => {
       "use strict";
       var DefaultBufferLength = 1024;
       var nextPropID = 0;
-      var Range = class {
+      var Range2 = class {
         constructor(from, to) {
           this.from = from;
           this.to = to;
@@ -16195,7 +16195,7 @@ var MDAEditorBundle = (() => {
         startParse(input, fragments, ranges) {
           if (typeof input == "string")
             input = new StringInput(input);
-          ranges = !ranges ? [new Range(0, input.length)] : ranges.length ? ranges.map((r) => new Range(r.from, r.to)) : [new Range(0, 0)];
+          ranges = !ranges ? [new Range2(0, input.length)] : ranges.length ? ranges.map((r) => new Range2(r.from, r.to)) : [new Range2(0, 0)];
           return this.createParse(input, fragments || [], ranges);
         }
         /**
@@ -16350,11 +16350,11 @@ var MDAEditorBundle = (() => {
               if (typeof nest.overlay == "function") {
                 overlay = new ActiveOverlay(nest.parser, nest.overlay, oldMounts, this.inner.length, cursor.from, !!nest.bracketed, cursor.tree, overlay);
               } else {
-                let ranges = punchRanges(this.ranges, nest.overlay || (cursor.from < cursor.to ? [new Range(cursor.from, cursor.to)] : []));
+                let ranges = punchRanges(this.ranges, nest.overlay || (cursor.from < cursor.to ? [new Range2(cursor.from, cursor.to)] : []));
                 if (ranges.length)
                   checkRanges(ranges);
                 if (ranges.length || !nest.overlay)
-                  this.inner.push(new InnerParse(nest.parser, ranges.length ? nest.parser.startParse(this.input, enterFragments(oldMounts, ranges), ranges) : nest.parser.startParse(""), nest.overlay ? nest.overlay.map((r) => new Range(r.from - cursor.from, r.to - cursor.from)) : null, !!nest.bracketed, cursor.tree, ranges.length ? ranges[0].from : cursor.from));
+                  this.inner.push(new InnerParse(nest.parser, ranges.length ? nest.parser.startParse(this.input, enterFragments(oldMounts, ranges), ranges) : nest.parser.startParse(""), nest.overlay ? nest.overlay.map((r) => new Range2(r.from - cursor.from, r.to - cursor.from)) : null, !!nest.bracketed, cursor.tree, ranges.length ? ranges[0].from : cursor.from));
                 if (!nest.overlay)
                   enter = false;
                 else if (ranges.length)
@@ -16362,7 +16362,7 @@ var MDAEditorBundle = (() => {
               }
             } else if (overlay && (range = overlay.predicate(cursor))) {
               if (range === true)
-                range = new Range(cursor.from, cursor.to);
+                range = new Range2(cursor.from, cursor.to);
               if (range.from < range.to) {
                 let last = overlay.ranges.length - 1;
                 if (last >= 0 && overlay.ranges[last].to == range.from)
@@ -16386,7 +16386,7 @@ var MDAEditorBundle = (() => {
                   let ranges = punchRanges(this.ranges, overlay.ranges);
                   if (ranges.length) {
                     checkRanges(ranges);
-                    this.inner.splice(overlay.index, 0, new InnerParse(overlay.parser, overlay.parser.startParse(this.input, enterFragments(overlay.mounts, ranges), ranges), overlay.ranges.map((r) => new Range(r.from - overlay.start, r.to - overlay.start)), overlay.bracketed, overlay.target, ranges[0].from));
+                    this.inner.splice(overlay.index, 0, new InnerParse(overlay.parser, overlay.parser.startParse(this.input, enterFragments(overlay.mounts, ranges), ranges), overlay.ranges.map((r) => new Range2(r.from - overlay.start, r.to - overlay.start)), overlay.bracketed, overlay.target, ranges[0].from));
                   }
                   overlay = overlay.prev;
                 }
@@ -16542,11 +16542,11 @@ var MDAEditorBundle = (() => {
             if (!copy)
               current = copy = ranges.slice();
             if (r.from < gapFrom) {
-              copy[j] = new Range(r.from, gapFrom);
+              copy[j] = new Range2(r.from, gapFrom);
               if (r.to > gapTo)
-                copy.splice(j + 1, 0, new Range(gapTo, r.to));
+                copy.splice(j + 1, 0, new Range2(gapTo, r.to));
             } else if (r.to > gapTo) {
-              copy[j--] = new Range(gapTo, r.to);
+              copy[j--] = new Range2(gapTo, r.to);
             } else {
               copy.splice(j--, 1);
             }
@@ -16563,7 +16563,7 @@ var MDAEditorBundle = (() => {
           if (inA != inB) {
             let start = Math.max(pos, from), end = Math.min(nextA, nextB, to);
             if (start < end)
-              result.push(new Range(start, end));
+              result.push(new Range2(start, end));
           }
           pos = Math.min(nextA, nextB);
           if (pos == 1e9)
@@ -16593,7 +16593,7 @@ var MDAEditorBundle = (() => {
           let startPos = pos + (mount.overlay ? mount.overlay[0].from : 0), endPos = startPos + mount.tree.length;
           let from = Math.max(frag.from, startPos), to = Math.min(frag.to, endPos);
           if (mount.overlay) {
-            let overlay = mount.overlay.map((r) => new Range(r.from + pos, r.to + pos));
+            let overlay = mount.overlay.map((r) => new Range2(r.from + pos, r.to + pos));
             let changes = findCoverChanges(ranges, overlay, from, to);
             for (let i = 0, pos2 = from; ; i++) {
               let last = i == changes.length, end = last ? to : changes[i].from;
@@ -33053,6 +33053,929 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/context-selection.js
+  var require_context_selection = __commonJS({
+    "src/gui/renderer/editor/context-selection.js"(exports, module) {
+      "use strict";
+      var { Transaction } = require_dist2();
+      function getDomSelectionText(root) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return "";
+        const range = sel.getRangeAt(0);
+        if (!root.contains(range.commonAncestorContainer)) return "";
+        return sel.toString();
+      }
+      function logicalOffsetInRoot(root, container, offset) {
+        const probe = document.createRange();
+        probe.setStart(container, offset);
+        probe.collapse(true);
+        if (!root.contains(probe.startContainer)) return 0;
+        const pre = document.createRange();
+        pre.selectNodeContents(root);
+        pre.setEnd(probe.startContainer, probe.startOffset);
+        return pre.toString().replace(/\u200b/g, "").replace(/\u00a0/g, " ").length;
+      }
+      function snapshotDomSelection(root) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+        const range = sel.getRangeAt(0);
+        if (!root.contains(range.commonAncestorContainer)) return null;
+        const text = sel.toString();
+        if (!text) return null;
+        let start;
+        let end;
+        if (typeof root._mdaLogicalOffsetFromPoint === "function") {
+          start = root._mdaLogicalOffsetFromPoint(range.startContainer, range.startOffset);
+          end = root._mdaLogicalOffsetFromPoint(range.endContainer, range.endOffset);
+        } else {
+          start = logicalOffsetInRoot(root, range.startContainer, range.startOffset);
+          end = logicalOffsetInRoot(root, range.endContainer, range.endOffset);
+        }
+        return {
+          dom: {
+            root,
+            text,
+            range: range.cloneRange(),
+            start: Math.min(start, end),
+            end: Math.max(start, end)
+          }
+        };
+      }
+      function domRangeClientBounds(range) {
+        const rects = range.getClientRects();
+        if (rects.length) {
+          let left = Infinity;
+          let right = -Infinity;
+          let top = Infinity;
+          let bottom = -Infinity;
+          for (let i = 0; i < rects.length; i++) {
+            const r = rects[i];
+            left = Math.min(left, r.left);
+            right = Math.max(right, r.right);
+            top = Math.min(top, r.top);
+            bottom = Math.max(bottom, r.bottom);
+          }
+          if (isFinite(left) && isFinite(right)) {
+            return { left, right, top, bottom };
+          }
+        }
+        const box = range.getBoundingClientRect();
+        if (box.width || box.height) {
+          return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+        }
+        return null;
+      }
+      function domPointInRangeBounds(range, clientX, clientY) {
+        const pad = 2;
+        const rects = range.getClientRects();
+        for (let i = 0; i < rects.length; i++) {
+          const r = rects[i];
+          if (clientX >= r.left - pad && clientX <= r.right + pad && clientY >= r.top - pad && clientY <= r.bottom + pad) {
+            return true;
+          }
+        }
+        const bounds = domRangeClientBounds(range);
+        if (!bounds) return false;
+        return clientX >= bounds.left - pad && clientX <= bounds.right + pad && clientY >= bounds.top - pad && clientY <= bounds.bottom + pad;
+      }
+      function domClickInSelection(root, clientX, clientY) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+        const range = sel.getRangeAt(0);
+        if (!root.contains(range.commonAncestorContainer)) return false;
+        if (!sel.toString()) return false;
+        if (domPointInRangeBounds(range, clientX, clientY)) return true;
+        let hit = document.elementFromPoint(clientX, clientY);
+        while (hit && hit !== root) {
+          if (hit.nodeType === Node.TEXT_NODE) {
+            try {
+              const probe = document.createRange();
+              probe.setStart(hit, 0);
+              probe.collapse(true);
+              if (range.compareBoundaryPoints(Range.END_TO_START, probe) < 0 && range.compareBoundaryPoints(Range.START_TO_END, probe) > 0) {
+                return true;
+              }
+            } catch (_) {
+            }
+          } else {
+            try {
+              if (range.intersectsNode(hit) && !hit.querySelector("*")) {
+                return true;
+              }
+            } catch (_) {
+            }
+          }
+          hit = hit.parentElement;
+        }
+        return false;
+      }
+      function shouldPreserveDomSelection(root, clientX, clientY) {
+        if (!snapshotDomSelection(root)) return false;
+        return domClickInSelection(root, clientX, clientY);
+      }
+      function selectionSegmentOnLine(doc, from, to, clickLine) {
+        const selStartLine = doc.lineAt(from);
+        const selEndLine = doc.lineAt(to);
+        if (clickLine.number < selStartLine.number || clickLine.number > selEndLine.number) {
+          return null;
+        }
+        let segFrom = clickLine.from;
+        let segTo = clickLine.to;
+        if (clickLine.number === selStartLine.number) segFrom = from;
+        if (clickLine.number === selEndLine.number) segTo = to;
+        return { from: segFrom, to: segTo };
+      }
+      function selectionSegmentBounds(view, segFrom, segTo) {
+        const startCoords = view.coordsAtPos(segFrom, 1);
+        const endCoords = view.coordsAtPos(segTo, -1);
+        if (!startCoords || !endCoords) return null;
+        return {
+          left: Math.min(startCoords.left, endCoords.left),
+          right: Math.max(startCoords.right, endCoords.right),
+          top: Math.min(startCoords.top, endCoords.top),
+          bottom: Math.max(startCoords.bottom, endCoords.bottom)
+        };
+      }
+      function cmClickInSelection(view, clientX, clientY) {
+        const sel = view.state.selection.main;
+        if (sel.empty) return false;
+        const from = Math.min(sel.from, sel.to);
+        const to = Math.max(sel.from, sel.to);
+        const clickPos = view.posAtCoords({ x: clientX, y: clientY, exact: false });
+        if (clickPos == null) return false;
+        const doc = view.state.doc;
+        const clickLine = doc.lineAt(clickPos);
+        const seg = selectionSegmentOnLine(doc, from, to, clickLine);
+        if (!seg) return false;
+        const bounds = selectionSegmentBounds(view, seg.from, seg.to);
+        if (!bounds) return false;
+        if (clientY < bounds.top - 2 || clientY > bounds.bottom + 2) return false;
+        if (clientX < bounds.left - 2 || clientX > bounds.right + 2) return false;
+        return true;
+      }
+      function snapshotCmSelection(view) {
+        const sel = view.state.selection.main;
+        if (sel.empty) return null;
+        return {
+          cm: {
+            anchor: sel.anchor,
+            head: sel.head,
+            from: sel.from,
+            to: sel.to
+          }
+        };
+      }
+      function restoreCmSelection(view, snap) {
+        if (!view || view.destroyed || !snap) return;
+        const cur = view.state.selection.main;
+        if (cur.from === snap.from && cur.to === snap.to) return;
+        view.dispatch({
+          selection: { anchor: snap.anchor, head: snap.head },
+          annotations: Transaction.addToHistory.of(false)
+        });
+      }
+      function restoreDomSelection(snap) {
+        if (!snap || !snap.root) return;
+        const sel = window.getSelection();
+        if (!sel) return;
+        let restored = false;
+        if (snap.range) {
+          try {
+            if (snap.root.isConnected && snap.root.contains(snap.range.startContainer)) {
+              sel.removeAllRanges();
+              sel.addRange(snap.range.cloneRange());
+              restored = true;
+            }
+          } catch (_) {
+            restored = false;
+          }
+        }
+        if (!restored && typeof snap.start === "number" && typeof snap.end === "number" && snap.end > snap.start) {
+          const restoreRoot = typeof snap.root._mdaRestoreLogicalSelection === "function" ? snap.root : snap.root.closest ? snap.root.closest(".mda-cm-code-block") : null;
+          if (restoreRoot && typeof restoreRoot._mdaRestoreLogicalSelection === "function") {
+            try {
+              restoreRoot._mdaRestoreLogicalSelection(snap.start, snap.end);
+              restored = true;
+            } catch (_) {
+              restored = false;
+            }
+          }
+        }
+        if (!restored) return;
+        try {
+          snap.root.focus({ preventScroll: true });
+        } catch (_) {
+          try {
+            snap.root.focus();
+          } catch (_2) {
+          }
+        }
+      }
+      function collapseCmAtClick(view, clientX, clientY) {
+        let pos = view.posAtCoords({ x: clientX, y: clientY, exact: true });
+        if (pos == null) {
+          const loose = view.posAtCoords({ x: clientX, y: clientY, exact: false });
+          if (loose == null) return;
+          const line = view.state.doc.lineAt(loose);
+          const endCoords = view.coordsAtPos(line.to, -1);
+          if (endCoords && clientX > endCoords.right + 2) {
+            pos = line.to;
+          } else {
+            pos = loose;
+          }
+        }
+        view.dispatch({
+          selection: { anchor: pos, head: pos },
+          annotations: Transaction.addToHistory.of(false)
+        });
+      }
+      function clearCmSelectionIfAny(view) {
+        if (!view || view.destroyed) return;
+        const sel = view.state.selection.main;
+        if (sel.empty) return;
+        view.dispatch({
+          selection: { anchor: sel.head, head: sel.head },
+          annotations: Transaction.addToHistory.of(false)
+        });
+      }
+      function caretRangeAtPointInRoot(root, clientX, clientY) {
+        if (!root) return null;
+        let range = null;
+        if (typeof document.caretRangeFromPoint === "function") {
+          range = document.caretRangeFromPoint(clientX, clientY);
+        } else if (typeof document.caretPositionFromPoint === "function") {
+          const pos = document.caretPositionFromPoint(clientX, clientY);
+          if (pos) {
+            range = document.createRange();
+            range.setStart(pos.offsetNode, pos.offset);
+            range.collapse(true);
+          }
+        }
+        if (!range || !root.contains(range.startContainer)) return null;
+        return range;
+      }
+      function collapseWidgetDomAt(root, clientX, clientY) {
+        if (!root) return null;
+        const sel = window.getSelection();
+        if (!sel) return null;
+        let range = null;
+        if (typeof clientX === "number" && typeof clientY === "number") {
+          range = caretRangeAtPointInRoot(root, clientX, clientY);
+        }
+        if (!range) {
+          range = document.createRange();
+          range.selectNodeContents(root);
+          range.collapse(false);
+        }
+        const applied = range.cloneRange();
+        sel.removeAllRanges();
+        try {
+          sel.addRange(range);
+        } catch (_) {
+        }
+        try {
+          root.focus({ preventScroll: true });
+        } catch (_) {
+          try {
+            root.focus();
+          } catch (_2) {
+          }
+        }
+        return applied;
+      }
+      function restoreWidgetDomCaret(root, range) {
+        if (!root || !range) return;
+        const sel = window.getSelection();
+        if (!sel) return;
+        try {
+          if (!root.contains(range.startContainer)) return;
+          sel.removeAllRanges();
+          sel.addRange(range.cloneRange());
+        } catch (_) {
+          return;
+        }
+        try {
+          root.focus({ preventScroll: true });
+        } catch (_) {
+          try {
+            root.focus();
+          } catch (_2) {
+          }
+        }
+      }
+      function clearWidgetDomSelection(root) {
+        collapseWidgetDomAt(root);
+      }
+      function shouldPreserveCmSelection(view, clientX, clientY) {
+        if (!view || view.state.selection.main.empty) return false;
+        return cmClickInSelection(view, clientX, clientY);
+      }
+      module.exports = {
+        getDomSelectionText,
+        snapshotDomSelection,
+        domClickInSelection,
+        domPointInRangeBounds,
+        shouldPreserveDomSelection,
+        cmClickInSelection,
+        snapshotCmSelection,
+        restoreCmSelection,
+        restoreDomSelection,
+        collapseCmAtClick,
+        clearCmSelectionIfAny,
+        clearWidgetDomSelection,
+        collapseWidgetDomAt,
+        restoreWidgetDomCaret,
+        shouldPreserveCmSelection
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widget-context-menu-guard.js
+  var require_widget_context_menu_guard = __commonJS({
+    "src/gui/renderer/editor/widget-context-menu-guard.js"(exports, module) {
+      "use strict";
+      var widgetDomMenuGuard = false;
+      function setWidgetDomMenuGuard(on) {
+        widgetDomMenuGuard = !!on;
+      }
+      function isWidgetDomMenuGuard() {
+        return widgetDomMenuGuard;
+      }
+      module.exports = {
+        setWidgetDomMenuGuard,
+        isWidgetDomMenuGuard
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-menu-icons.js
+  var require_block_menu_icons = __commonJS({
+    "src/gui/renderer/editor/widgets/block-menu-icons.js"(exports, module) {
+      "use strict";
+      var ICONS = {
+        ai: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2l1 3h3l-2.5 2 1 3L8 8l-2.5 2 1-3L4 5h3z"/></svg>',
+        insertAbove: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 10h10M8 3v7"/><path d="M5.5 6.5L8 4l2.5 2.5"/></svg>',
+        insertBelow: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6h10M8 13V6"/><path d="M5.5 9.5L8 12l2.5-2.5"/></svg>',
+        copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
+        copyAs: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
+        markdown: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3.5" y="2.5" width="9" height="11" rx="1"/><path d="M5.5 11V5.2l1.6 3.4h.8L9.5 5.2V11"/><path d="M11.2 5.5h1.3v5.5h-1.3z" fill="currentColor" stroke="none"/></svg>',
+        copyAsImage: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="5.8" cy="6.6" r="1.15"/><path d="M3.5 11.2l2.8-2.3 2 1.4 2.4-2.1 2.3 3"/></svg>',
+        cut: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="4.5" r="1.8"/><circle cx="4.5" cy="11.5" r="1.8"/><path d="M6.2 6l3.6 4M6.2 10l3.6-4l3.2 1.8"/></svg>',
+        paste: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="2.5" width="7" height="9" rx="1"/><path d="M4 4.5H3.5a1.5 1.5 0 010-3H7a1.5 1.5 0 011.4 1"/><path d="M8 9.5v3M6.5 11h3"/></svg>',
+        edit: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 13h2.5l7.2-7.2a1.2 1.2 0 00-1.7-1.7L3.8 11.3V13z"/><path d="M9.5 4.5l2 2"/></svg>',
+        askAi: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 4.5h9a1 1 0 011 1v5a1 1 0 01-1 1H7l-2.5 2v-2H3.5a1 1 0 01-1-1v-5a1 1 0 011-1z"/><circle cx="6" cy="8" r=".55" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r=".55" fill="currentColor" stroke="none"/><circle cx="10" cy="8" r=".55" fill="currentColor" stroke="none"/></svg>',
+        delete: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 5h9l-.8 8.2a1 1 0 01-1 .8H5.3a1 1 0 01-1-.8L3.5 5z"/><path d="M2.5 5h11M6.5 5V3.8a1 1 0 011-1h1a1 1 0 011 1V5"/></svg>',
+        continue: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 12l3-8 3 5 2-3"/></svg>',
+        companion: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 8h7M10 5v6"/><path d="M12.5 6.5l1.5 1.5-1.5 1.5"/></svg>',
+        polish: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 13l7-7 3 3-7 7H3v-3z"/><path d="M9 4l2 2"/></svg>',
+        expand: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 6h8M4 8.5h6M4 11h4"/></svg>',
+        shorten: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 6h8M4 9h5"/></svg>',
+        grammar: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h8v8H4z"/><path d="M6 8h4M6 10.5h2.5"/></svg>',
+        explain: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.5"/><path d="M8 7v3.5"/><circle cx="8" cy="5.2" r=".8" fill="currentColor" stroke="none"/></svg>',
+        translate: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 4.5h6M5.5 4.5V3M4 8.5h5M11 4l2.5 2.5L11 9"/><path d="M11 11.5h2.5"/></svg>',
+        summarize: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h8M4 7h8M4 10h5"/></svg>',
+        more: '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="4" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="12" cy="8" r="1.1"/></svg>',
+        // 块类型（手柄左侧）
+        image: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="5.8" cy="6.6" r="1.15"/><path d="M3.5 11.2l2.8-2.3 2 1.4 2.4-2.1 2.3 3"/></svg>',
+        table: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="3" width="10" height="10" rx="1"/><path d="M3 8h10M8 3v10"/></svg>',
+        code: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 3.5C4.6 3.5 4 4.6 4 5.8v1.1c0 .9-.4 1.3-1.2 1.3.8 0 1.2.4 1.2 1.3v1.1c0 1.2.6 2.3 2.2 2.3M9.8 3.5c1.6 0 2.2 1.1 2.2 2.3v1.1c0 .9.4 1.3 1.2 1.3-.8 0-1.2.4-1.2 1.3v1.1c0 1.2-.6 2.3-2.2 2.3"/></svg>',
+        quote: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.2 11.5V8.2C3.2 5.6 4.8 3.8 7.2 3.2l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H3.2zm5.7 0V8.2c0-2.6 1.6-4.4 4-5l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H8.9z"/></svg>',
+        mermaid: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 5.5V3.5h2M10.5 3.5h2v2M12.5 10.5v2h-2M5.5 12.5h-2v-2"/></svg>',
+        math: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h3.2M5.6 4.5v7M4 11.5h3.2M9.2 5.2l3.6 5.6M12.8 5.2l-3.6 5.6"/></svg>',
+        hr: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 8h10"/></svg>'
+      };
+      var BLOCK_KIND_ICON = {
+        image: "image",
+        mermaid: "mermaid",
+        math: "math",
+        table: "table",
+        code: "code",
+        quote: "quote",
+        hr: "hr"
+      };
+      function menuIconHtml(name) {
+        const svg = ICONS[name] || "";
+        if (!svg) return "";
+        return '<span class="mda-menu-icon" aria-hidden="true">' + svg + "</span>";
+      }
+      function blockTypeIconHtml(blockKind) {
+        const key = BLOCK_KIND_ICON[blockKind || ""] || "";
+        const svg = key ? ICONS[key] : "";
+        if (!svg) return "";
+        return '<span class="mda-cm-block-type-icon" aria-hidden="true" data-kind="' + (blockKind || "") + '">' + svg + "</span>";
+      }
+      module.exports = {
+        menuIconHtml,
+        blockTypeIconHtml,
+        BLOCK_KIND_ICON,
+        ICONS
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/empty-line-insert-menu.js
+  var require_empty_line_insert_menu = __commonJS({
+    "src/gui/renderer/editor/widgets/empty-line-insert-menu.js"(exports, module) {
+      "use strict";
+      var { uiT, HOVER_LEAVE_MS } = require_widget_common();
+      var { menuIconHtml } = require_block_menu_icons();
+      var activeMenu = null;
+      var menuAnchorEl = null;
+      var menuBlockRoot = null;
+      var dismissFn = null;
+      var escFn = null;
+      var menuGraceUntil = 0;
+      var MENU_GRACE_MS = 380;
+      var INSERT_ITEMS = [
+        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: false },
+        { id: "table", key: "blockMenuInsertTable", icon: "table", soon: false },
+        { id: "code", key: "blockMenuInsertCode", icon: "code", soon: false },
+        { id: "quote", key: "blockMenuInsertQuote", icon: "quote", soon: false },
+        { id: "mermaid", key: "blockMenuInsertMermaid", icon: "mermaid", soon: false },
+        { id: "hr", key: "blockMenuInsertHr", icon: "hr", soon: false }
+      ];
+      function isInMenuCluster(target) {
+        if (!target) return false;
+        const el = (
+          /** @type {Node} */
+          target
+        );
+        if (activeMenu && activeMenu.contains(el)) return true;
+        if (menuAnchorEl && menuAnchorEl.contains(el)) return true;
+        if (menuBlockRoot && menuBlockRoot.contains(el)) return true;
+        return false;
+      }
+      function closeEmptyLineInsertMenu() {
+        const prevRoot = menuBlockRoot;
+        if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
+        activeMenu = null;
+        menuAnchorEl = null;
+        menuBlockRoot = null;
+        menuGraceUntil = 0;
+        if (prevRoot && !prevRoot.matches(":hover")) {
+          prevRoot.classList.remove("mda-cm-block-handle-show");
+        }
+        if (dismissFn) {
+          document.removeEventListener("mousedown", dismissFn, true);
+          document.removeEventListener("contextmenu", dismissFn, true);
+          window.removeEventListener("blur", dismissFn);
+          dismissFn = null;
+        }
+        if (escFn) {
+          document.removeEventListener("keydown", escFn, true);
+          escFn = null;
+        }
+      }
+      function isEmptyLineInsertMenuOpenFor(blockRoot) {
+        return !!(activeMenu && menuBlockRoot && blockRoot && menuBlockRoot === blockRoot);
+      }
+      function menuItemInner(label, iconName) {
+        return menuIconHtml(iconName || "") + '<span class="mda-menu-label">' + label + "</span>";
+      }
+      function placeMenu(menu, x, y) {
+        menu.style.left = "0px";
+        menu.style.top = "0px";
+        document.body.appendChild(menu);
+        const pad = 6;
+        const w = menu.offsetWidth;
+        const h = menu.offsetHeight;
+        let left = x;
+        let top = y;
+        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
+        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
+        if (left < pad) left = pad;
+        if (top < pad) top = pad;
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+      }
+      function showEmptyLineInsertMenu(ctx) {
+        closeEmptyLineInsertMenu();
+        const { closeBlockHandleMenu } = require_block_handle_menu();
+        closeBlockHandleMenu();
+        const t = ctx.t;
+        const handlers = ctx.handlers || {};
+        const anchor = ctx.anchorEl;
+        const rect = anchor.getBoundingClientRect();
+        menuAnchorEl = anchor;
+        menuBlockRoot = ctx.blockRoot || null;
+        menuGraceUntil = Date.now() + MENU_GRACE_MS;
+        if (menuBlockRoot) menuBlockRoot.classList.add("mda-cm-block-handle-show");
+        const menu = document.createElement("div");
+        menu.className = "mda-context-menu mda-empty-line-insert-menu mda-block-handle-submenu";
+        menu.id = "mda-empty-line-insert-menu";
+        menu.setAttribute("role", "menu");
+        for (let i = 0; i < INSERT_ITEMS.length; i++) {
+          const it = INSERT_ITEMS[i];
+          const row = document.createElement("div");
+          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "");
+          row.setAttribute("role", "menuitem");
+          row.dataset.act = it.id;
+          row.dataset.soon = it.soon ? "1" : "0";
+          row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
+          menu.appendChild(row);
+        }
+        menu.addEventListener("click", function(e) {
+          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+          if (!item) return;
+          e.stopPropagation();
+          const id = item.dataset.act || "";
+          const soon = item.dataset.soon === "1";
+          if (soon) {
+            if (typeof handlers.onSoon === "function") handlers.onSoon("insert-blank", id);
+            closeEmptyLineInsertMenu();
+            return;
+          }
+          if (typeof handlers.onBlankInsert === "function") {
+            handlers.onBlankInsert(id, ctx.block);
+          }
+          closeEmptyLineInsertMenu();
+        });
+        placeMenu(menu, rect.left, rect.bottom + 2);
+        activeMenu = menu;
+        dismissFn = function(ev) {
+          if (Date.now() < menuGraceUntil) return;
+          if (ev && (ev.type === "mousedown" || ev.type === "contextmenu")) {
+            const target = (
+              /** @type {Node | null} */
+              ev.target
+            );
+            if (isInMenuCluster(target)) return;
+          }
+          closeEmptyLineInsertMenu();
+        };
+        escFn = function(ev) {
+          if (ev.key === "Escape") closeEmptyLineInsertMenu();
+        };
+        document.addEventListener("keydown", escFn, true);
+        window.setTimeout(function() {
+          if (!activeMenu) return;
+          document.addEventListener("mousedown", dismissFn, true);
+          document.addEventListener("contextmenu", dismissFn, true);
+          window.addEventListener("blur", dismissFn);
+        }, MENU_GRACE_MS);
+      }
+      module.exports = {
+        showEmptyLineInsertMenu,
+        closeEmptyLineInsertMenu,
+        isEmptyLineInsertMenuOpenFor
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-handle-menu.js
+  var require_block_handle_menu = __commonJS({
+    "src/gui/renderer/editor/widgets/block-handle-menu.js"(exports, module) {
+      "use strict";
+      var { uiT, HOVER_LEAVE_MS } = require_widget_common();
+      var { menuIconHtml } = require_block_menu_icons();
+      var activeMenu = null;
+      var activeSubmenu = null;
+      var menuAnchorEl = null;
+      var menuBlockRoot = null;
+      var dismissFn = null;
+      var subOpenTimer = 0;
+      var subCloseTimer = 0;
+      var escFn = null;
+      var menuCloseTimer = 0;
+      var menuGraceUntil = 0;
+      var MENU_GRACE_MS = 380;
+      var SUB_CLOSE_MS = HOVER_LEAVE_MS;
+      var MENU_CLOSE_MS = HOVER_LEAVE_MS;
+      var MOD_KEY = typeof navigator !== "undefined" && (navigator.platform || "").toLowerCase().indexOf("mac") >= 0 ? "\u2318" : "Ctrl+";
+      var COPY_AS_ITEMS = [
+        { id: "markdown", key: "blockMenuCopyAsMarkdown", icon: "markdown" },
+        { id: "image", key: "blockMenuCopyAsImage", icon: "copyAsImage" }
+      ];
+      var AI_ITEMS = [
+        { id: "continue", key: "blockMenuAiContinue", icon: "continue", soon: true },
+        { id: "companion", key: "blockMenuAiCompanion", icon: "companion", soon: true },
+        { id: "polish", key: "blockMenuAiPolish", icon: "polish", soon: true },
+        { id: "expand", key: "blockMenuAiExpand", icon: "expand", soon: true },
+        { id: "shorten", key: "blockMenuAiShorten", icon: "shorten", soon: true },
+        { id: "grammar", key: "blockMenuAiGrammar", icon: "grammar", soon: true },
+        { id: "explain", key: "blockMenuAiExplain", icon: "explain", soon: true },
+        { id: "translate", key: "blockMenuAiTranslate", icon: "translate", soon: true },
+        { id: "summarize", key: "blockMenuAiSummarize", icon: "summarize", soon: true },
+        { id: "more", key: "blockMenuAiMore", icon: "more", soon: true }
+      ];
+      var INSERT_ITEMS = [
+        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: false },
+        { id: "table", key: "blockMenuInsertTable", icon: "table", soon: false },
+        { id: "code", key: "blockMenuInsertCode", icon: "code", soon: false },
+        { id: "quote", key: "blockMenuInsertQuote", icon: "quote", soon: false },
+        { id: "mermaid", key: "blockMenuInsertMermaid", icon: "mermaid", soon: false },
+        { id: "hr", key: "blockMenuInsertHr", icon: "hr", soon: false }
+      ];
+      function clearSubTimers() {
+        window.clearTimeout(subOpenTimer);
+        window.clearTimeout(subCloseTimer);
+        window.clearTimeout(menuCloseTimer);
+        subOpenTimer = 0;
+        subCloseTimer = 0;
+        menuCloseTimer = 0;
+      }
+      function closeActiveSubmenu() {
+        if (activeSubmenu && activeSubmenu.parentNode) {
+          activeSubmenu.parentNode.removeChild(activeSubmenu);
+        }
+        activeSubmenu = null;
+      }
+      function removeOrphanSubmenus() {
+        const nodes = document.querySelectorAll(".mda-block-handle-submenu");
+        for (let i = 0; i < nodes.length; i++) {
+          const el = nodes[i];
+          if (el.parentNode) el.parentNode.removeChild(el);
+        }
+      }
+      function isInMenuCluster(target) {
+        if (!target) return false;
+        const el = (
+          /** @type {Node} */
+          target
+        );
+        if (activeMenu && activeMenu.contains(el)) return true;
+        if (activeSubmenu && activeSubmenu.contains(el)) return true;
+        if (menuAnchorEl && menuAnchorEl.contains(el)) return true;
+        if (menuBlockRoot && menuBlockRoot.contains(el)) return true;
+        return false;
+      }
+      function closeBlockHandleMenu() {
+        clearSubTimers();
+        closeActiveSubmenu();
+        removeOrphanSubmenus();
+        const prevRoot = menuBlockRoot;
+        if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
+        activeMenu = null;
+        menuAnchorEl = null;
+        menuBlockRoot = null;
+        menuGraceUntil = 0;
+        if (prevRoot && !prevRoot.matches(":hover")) {
+          const handle = prevRoot.querySelector(".mda-cm-block-drag-handle");
+          if (!handle || !handle.matches(":hover")) {
+            prevRoot.classList.remove("mda-cm-block-handle-show");
+          }
+        }
+        if (dismissFn) {
+          document.removeEventListener("mousedown", dismissFn, true);
+          document.removeEventListener("contextmenu", dismissFn, true);
+          window.removeEventListener("blur", dismissFn);
+          dismissFn = null;
+        }
+        if (escFn) {
+          document.removeEventListener("keydown", escFn, true);
+          escFn = null;
+        }
+      }
+      function isBlockHandleMenuOpenFor(blockRoot) {
+        return !!(activeMenu && menuBlockRoot && blockRoot && menuBlockRoot === blockRoot);
+      }
+      function addMenuSeparator(menu) {
+        const sep = document.createElement("div");
+        sep.className = "mda-menu-sep";
+        sep.setAttribute("aria-hidden", "true");
+        menu.appendChild(sep);
+      }
+      function menuItemInner(label, iconName, suffixHtml) {
+        return menuIconHtml(iconName || "") + '<span class="mda-menu-label">' + label + "</span>" + (suffixHtml || "");
+      }
+      function placeMenu(menu, x, y) {
+        menu.style.left = "0px";
+        menu.style.top = "0px";
+        document.body.appendChild(menu);
+        const pad = 6;
+        const w = menu.offsetWidth;
+        const h = menu.offsetHeight;
+        let left = x;
+        let top = y;
+        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
+        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
+        if (left < pad) left = pad;
+        if (top < pad) top = pad;
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+      }
+      function placeSubmenu(parentItem, submenu) {
+        document.body.appendChild(submenu);
+        const pr = parentItem.getBoundingClientRect();
+        const pad = 6;
+        let left = pr.right - 4;
+        let top = pr.top - 4;
+        submenu.style.left = left + "px";
+        submenu.style.top = top + "px";
+        if (left + submenu.offsetWidth > window.innerWidth - pad) {
+          left = pr.left - submenu.offsetWidth + 4;
+          submenu.style.left = left + "px";
+        }
+        if (top + submenu.offsetHeight > window.innerHeight - pad) {
+          top = Math.max(pad, window.innerHeight - submenu.offsetHeight - pad);
+          submenu.style.top = top + "px";
+        }
+      }
+      function buildSubmenu(t, items, onPick) {
+        const sub = document.createElement("div");
+        sub.className = "mda-context-menu mda-block-handle-submenu";
+        sub.setAttribute("role", "menu");
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          const row = document.createElement("div");
+          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "");
+          row.setAttribute("role", "menuitem");
+          row.dataset.act = it.id;
+          row.dataset.soon = it.soon ? "1" : "0";
+          row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
+          sub.appendChild(row);
+        }
+        sub.addEventListener("click", function(e) {
+          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+          if (!item) return;
+          e.stopPropagation();
+          onPick(item.dataset.act || "", item.dataset.soon === "1");
+          closeBlockHandleMenu();
+        });
+        sub.addEventListener("mouseenter", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = 0;
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = 0;
+        });
+        sub.addEventListener("mouseleave", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
+        });
+        return sub;
+      }
+      function addSubRow(menu, t, key, icon, submenuFactory) {
+        const row = document.createElement("div");
+        row.className = "mda-menu-item mda-menu-has-sub";
+        row.setAttribute("role", "menuitem");
+        row.innerHTML = menuItemInner(uiT(key, t), icon, '<span class="mda-menu-chevron" aria-hidden="true">\u203A</span>');
+        row.addEventListener("mouseenter", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = 0;
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = 0;
+          window.clearTimeout(subOpenTimer);
+          subOpenTimer = window.setTimeout(function() {
+            closeActiveSubmenu();
+            activeSubmenu = submenuFactory();
+            placeSubmenu(row, activeSubmenu);
+          }, 100);
+        });
+        row.addEventListener("mouseleave", function(e) {
+          window.clearTimeout(subOpenTimer);
+          subOpenTimer = 0;
+          const rt = e.relatedTarget;
+          if (activeSubmenu && rt && activeSubmenu.contains(
+            /** @type {Node} */
+            rt
+          )) return;
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
+        });
+        menu.appendChild(row);
+      }
+      function showBlockHandleMenu(ctx) {
+        const { closeEmptyLineInsertMenu } = require_empty_line_insert_menu();
+        closeEmptyLineInsertMenu();
+        closeBlockHandleMenu();
+        const t = ctx.t;
+        const handlers = ctx.handlers || {};
+        const anchor = ctx.anchorEl;
+        const rect = anchor.getBoundingClientRect();
+        menuAnchorEl = anchor;
+        menuBlockRoot = ctx.blockRoot || null;
+        menuGraceUntil = Date.now() + MENU_GRACE_MS;
+        if (menuBlockRoot) menuBlockRoot.classList.add("mda-cm-block-handle-show");
+        const menu = document.createElement("div");
+        menu.className = "mda-context-menu mda-block-handle-menu";
+        menu.id = "mda-block-handle-menu";
+        menu.setAttribute("role", "menu");
+        addSubRow(menu, t, "blockMenuAiEdit", "ai", function() {
+          return buildSubmenu(t, AI_ITEMS, function(id, soon) {
+            if (soon) {
+              if (typeof handlers.onSoon === "function") handlers.onSoon("ai", id);
+              return;
+            }
+            if (typeof handlers.onAi === "function") {
+              handlers.onAi(id, ctx.block, ctx.blockKind);
+            }
+          });
+        });
+        addMenuSeparator(menu);
+        addSubRow(menu, t, "blockMenuInsertAbove", "insertAbove", function() {
+          return buildSubmenu(t, INSERT_ITEMS, function(id, soon) {
+            if (soon) {
+              if (typeof handlers.onSoon === "function") handlers.onSoon("insert-above", id);
+              return;
+            }
+            if (typeof handlers.onInsert === "function") {
+              handlers.onInsert("above", id, ctx.block, ctx.blockKind);
+            }
+          });
+        });
+        addSubRow(menu, t, "blockMenuInsertBelow", "insertBelow", function() {
+          return buildSubmenu(t, INSERT_ITEMS, function(id, soon) {
+            if (soon) {
+              if (typeof handlers.onSoon === "function") handlers.onSoon("insert-below", id);
+              return;
+            }
+            if (typeof handlers.onInsert === "function") {
+              handlers.onInsert("below", id, ctx.block, ctx.blockKind);
+            }
+          });
+        });
+        addMenuSeparator(menu);
+        const mod = ctx.modKey || MOD_KEY;
+        function addActionRow(spec) {
+          const row = document.createElement("div");
+          row.className = "mda-menu-item" + (spec.danger ? " mda-menu-danger" : "");
+          row.dataset.act = spec.act;
+          row.setAttribute("role", "menuitem");
+          row.innerHTML = menuItemInner(
+            uiT(spec.key, t),
+            spec.icon,
+            spec.shortcut ? '<span class="mda-menu-key">' + spec.shortcut + "</span>" : ""
+          );
+          menu.appendChild(row);
+        }
+        addActionRow({ act: "copy", key: "copyBtn", icon: "copy", shortcut: mod + "C" });
+        addActionRow({ act: "cut", key: "blockMenuCut", icon: "cut", shortcut: mod + "X" });
+        addSubRow(menu, t, "blockMenuCopyAs", "copyAs", function() {
+          return buildSubmenu(t, COPY_AS_ITEMS, function(id) {
+            if (typeof handlers.onCopyAs === "function") {
+              handlers.onCopyAs(ctx.block, ctx.blockKind, id);
+            }
+          });
+        });
+        addActionRow({
+          act: "delete",
+          key: "blockMenuDelete",
+          icon: "delete",
+          shortcut: "Backspace",
+          danger: true
+        });
+        menu.addEventListener("click", function(e) {
+          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+          if (!item || item.classList.contains("mda-menu-has-sub")) return;
+          const act = item.dataset.act;
+          if (act === "copy" && typeof handlers.onCopy === "function") {
+            handlers.onCopy(ctx.block, ctx.blockKind);
+          } else if (act === "cut" && typeof handlers.onCut === "function") {
+            handlers.onCut(ctx.block, ctx.blockKind);
+          } else if (act === "delete" && typeof handlers.onDelete === "function") {
+            handlers.onDelete(ctx.block, ctx.blockKind);
+          }
+          closeBlockHandleMenu();
+        });
+        menu.addEventListener("mouseenter", function() {
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = 0;
+        });
+        menu.addEventListener("mouseleave", function(e) {
+          const rt = e.relatedTarget;
+          if (activeSubmenu && rt && activeSubmenu.contains(
+            /** @type {Node} */
+            rt
+          )) return;
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = window.setTimeout(function() {
+            if (Date.now() < menuGraceUntil) return;
+            closeBlockHandleMenu();
+          }, MENU_CLOSE_MS);
+        });
+        placeMenu(menu, rect.left, rect.bottom + 2);
+        activeMenu = menu;
+        dismissFn = function(ev) {
+          if (Date.now() < menuGraceUntil) return;
+          if (ev && (ev.type === "mousedown" || ev.type === "contextmenu")) {
+            const target = (
+              /** @type {Node | null} */
+              ev.target
+            );
+            if (isInMenuCluster(target)) return;
+          }
+          closeBlockHandleMenu();
+        };
+        escFn = function(ev) {
+          if (ev.key === "Escape") closeBlockHandleMenu();
+        };
+        document.addEventListener("keydown", escFn, true);
+        window.setTimeout(function() {
+          if (!activeMenu) return;
+          document.addEventListener("mousedown", dismissFn, true);
+          document.addEventListener("contextmenu", dismissFn, true);
+          window.addEventListener("blur", dismissFn);
+        }, MENU_GRACE_MS);
+      }
+      module.exports = {
+        showBlockHandleMenu,
+        closeBlockHandleMenu,
+        isBlockHandleMenuOpenFor,
+        MOD_KEY
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/table-resize.js
   var require_table_resize = __commonJS({
     "src/gui/renderer/editor/widgets/table-resize.js"(exports, module) {
@@ -48676,571 +49599,6 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/widgets/block-menu-icons.js
-  var require_block_menu_icons = __commonJS({
-    "src/gui/renderer/editor/widgets/block-menu-icons.js"(exports, module) {
-      "use strict";
-      var ICONS = {
-        ai: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2l1 3h3l-2.5 2 1 3L8 8l-2.5 2 1-3L4 5h3z"/></svg>',
-        insertAbove: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 10h10M8 3v7"/><path d="M5.5 6.5L8 4l2.5 2.5"/></svg>',
-        insertBelow: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6h10M8 13V6"/><path d="M5.5 9.5L8 12l2.5-2.5"/></svg>',
-        copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
-        copyAs: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
-        markdown: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3.5" y="2.5" width="9" height="11" rx="1"/><path d="M5.5 11V5.2l1.6 3.4h.8L9.5 5.2V11"/><path d="M11.2 5.5h1.3v5.5h-1.3z" fill="currentColor" stroke="none"/></svg>',
-        copyAsImage: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="5.8" cy="6.6" r="1.15"/><path d="M3.5 11.2l2.8-2.3 2 1.4 2.4-2.1 2.3 3"/></svg>',
-        cut: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="4.5" r="1.8"/><circle cx="4.5" cy="11.5" r="1.8"/><path d="M6.2 6l3.6 4M6.2 10l3.6-4l3.2 1.8"/></svg>',
-        delete: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 5h9l-.8 8.2a1 1 0 01-1 .8H5.3a1 1 0 01-1-.8L3.5 5z"/><path d="M2.5 5h11M6.5 5V3.8a1 1 0 011-1h1a1 1 0 011 1V5"/></svg>',
-        continue: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 12l3-8 3 5 2-3"/></svg>',
-        companion: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 8h7M10 5v6"/><path d="M12.5 6.5l1.5 1.5-1.5 1.5"/></svg>',
-        polish: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 13l7-7 3 3-7 7H3v-3z"/><path d="M9 4l2 2"/></svg>',
-        expand: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 6h8M4 8.5h6M4 11h4"/></svg>',
-        shorten: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 6h8M4 9h5"/></svg>',
-        grammar: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h8v8H4z"/><path d="M6 8h4M6 10.5h2.5"/></svg>',
-        explain: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.5"/><path d="M8 7v3.5"/><circle cx="8" cy="5.2" r=".8" fill="currentColor" stroke="none"/></svg>',
-        translate: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 4.5h6M5.5 4.5V3M4 8.5h5M11 4l2.5 2.5L11 9"/><path d="M11 11.5h2.5"/></svg>',
-        summarize: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h8M4 7h8M4 10h5"/></svg>',
-        more: '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="4" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="12" cy="8" r="1.1"/></svg>',
-        // 块类型（手柄左侧）
-        image: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="5.8" cy="6.6" r="1.15"/><path d="M3.5 11.2l2.8-2.3 2 1.4 2.4-2.1 2.3 3"/></svg>',
-        table: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="3" width="10" height="10" rx="1"/><path d="M3 8h10M8 3v10"/></svg>',
-        code: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 3.5C4.6 3.5 4 4.6 4 5.8v1.1c0 .9-.4 1.3-1.2 1.3.8 0 1.2.4 1.2 1.3v1.1c0 1.2.6 2.3 2.2 2.3M9.8 3.5c1.6 0 2.2 1.1 2.2 2.3v1.1c0 .9.4 1.3 1.2 1.3-.8 0-1.2.4-1.2 1.3v1.1c0 1.2-.6 2.3-2.2 2.3"/></svg>',
-        quote: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.2 11.5V8.2C3.2 5.6 4.8 3.8 7.2 3.2l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H3.2zm5.7 0V8.2c0-2.6 1.6-4.4 4-5l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H8.9z"/></svg>',
-        mermaid: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 5.5V3.5h2M10.5 3.5h2v2M12.5 10.5v2h-2M5.5 12.5h-2v-2"/></svg>',
-        math: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h3.2M5.6 4.5v7M4 11.5h3.2M9.2 5.2l3.6 5.6M12.8 5.2l-3.6 5.6"/></svg>',
-        hr: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 8h10"/></svg>'
-      };
-      var BLOCK_KIND_ICON = {
-        image: "image",
-        mermaid: "mermaid",
-        math: "math",
-        table: "table",
-        code: "code",
-        quote: "quote",
-        hr: "hr"
-      };
-      function menuIconHtml(name) {
-        const svg = ICONS[name] || "";
-        if (!svg) return "";
-        return '<span class="mda-menu-icon" aria-hidden="true">' + svg + "</span>";
-      }
-      function blockTypeIconHtml(blockKind) {
-        const key = BLOCK_KIND_ICON[blockKind || ""] || "";
-        const svg = key ? ICONS[key] : "";
-        if (!svg) return "";
-        return '<span class="mda-cm-block-type-icon" aria-hidden="true" data-kind="' + (blockKind || "") + '">' + svg + "</span>";
-      }
-      module.exports = {
-        menuIconHtml,
-        blockTypeIconHtml,
-        BLOCK_KIND_ICON,
-        ICONS
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/empty-line-insert-menu.js
-  var require_empty_line_insert_menu = __commonJS({
-    "src/gui/renderer/editor/widgets/empty-line-insert-menu.js"(exports, module) {
-      "use strict";
-      var { uiT, HOVER_LEAVE_MS } = require_widget_common();
-      var { menuIconHtml } = require_block_menu_icons();
-      var activeMenu = null;
-      var menuAnchorEl = null;
-      var menuBlockRoot = null;
-      var dismissFn = null;
-      var escFn = null;
-      var menuGraceUntil = 0;
-      var MENU_GRACE_MS = 380;
-      var INSERT_ITEMS = [
-        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: false },
-        { id: "table", key: "blockMenuInsertTable", icon: "table", soon: false },
-        { id: "code", key: "blockMenuInsertCode", icon: "code", soon: false },
-        { id: "quote", key: "blockMenuInsertQuote", icon: "quote", soon: false },
-        { id: "mermaid", key: "blockMenuInsertMermaid", icon: "mermaid", soon: false },
-        { id: "hr", key: "blockMenuInsertHr", icon: "hr", soon: false }
-      ];
-      function isInMenuCluster(target) {
-        if (!target) return false;
-        const el = (
-          /** @type {Node} */
-          target
-        );
-        if (activeMenu && activeMenu.contains(el)) return true;
-        if (menuAnchorEl && menuAnchorEl.contains(el)) return true;
-        if (menuBlockRoot && menuBlockRoot.contains(el)) return true;
-        return false;
-      }
-      function closeEmptyLineInsertMenu() {
-        const prevRoot = menuBlockRoot;
-        if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
-        activeMenu = null;
-        menuAnchorEl = null;
-        menuBlockRoot = null;
-        menuGraceUntil = 0;
-        if (prevRoot && !prevRoot.matches(":hover")) {
-          prevRoot.classList.remove("mda-cm-block-handle-show");
-        }
-        if (dismissFn) {
-          document.removeEventListener("mousedown", dismissFn, true);
-          document.removeEventListener("contextmenu", dismissFn, true);
-          window.removeEventListener("blur", dismissFn);
-          dismissFn = null;
-        }
-        if (escFn) {
-          document.removeEventListener("keydown", escFn, true);
-          escFn = null;
-        }
-      }
-      function isEmptyLineInsertMenuOpenFor(blockRoot) {
-        return !!(activeMenu && menuBlockRoot && blockRoot && menuBlockRoot === blockRoot);
-      }
-      function menuItemInner(label, iconName) {
-        return menuIconHtml(iconName || "") + '<span class="mda-menu-label">' + label + "</span>";
-      }
-      function placeMenu(menu, x, y) {
-        menu.style.left = "0px";
-        menu.style.top = "0px";
-        document.body.appendChild(menu);
-        const pad = 6;
-        const w = menu.offsetWidth;
-        const h = menu.offsetHeight;
-        let left = x;
-        let top = y;
-        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
-        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
-        if (left < pad) left = pad;
-        if (top < pad) top = pad;
-        menu.style.left = left + "px";
-        menu.style.top = top + "px";
-      }
-      function showEmptyLineInsertMenu(ctx) {
-        closeEmptyLineInsertMenu();
-        const { closeBlockHandleMenu } = require_block_handle_menu();
-        closeBlockHandleMenu();
-        const t = ctx.t;
-        const handlers = ctx.handlers || {};
-        const anchor = ctx.anchorEl;
-        const rect = anchor.getBoundingClientRect();
-        menuAnchorEl = anchor;
-        menuBlockRoot = ctx.blockRoot || null;
-        menuGraceUntil = Date.now() + MENU_GRACE_MS;
-        if (menuBlockRoot) menuBlockRoot.classList.add("mda-cm-block-handle-show");
-        const menu = document.createElement("div");
-        menu.className = "mda-context-menu mda-empty-line-insert-menu mda-block-handle-submenu";
-        menu.id = "mda-empty-line-insert-menu";
-        menu.setAttribute("role", "menu");
-        for (let i = 0; i < INSERT_ITEMS.length; i++) {
-          const it = INSERT_ITEMS[i];
-          const row = document.createElement("div");
-          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "");
-          row.setAttribute("role", "menuitem");
-          row.dataset.act = it.id;
-          row.dataset.soon = it.soon ? "1" : "0";
-          row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
-          menu.appendChild(row);
-        }
-        menu.addEventListener("click", function(e) {
-          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
-          if (!item) return;
-          e.stopPropagation();
-          const id = item.dataset.act || "";
-          const soon = item.dataset.soon === "1";
-          if (soon) {
-            if (typeof handlers.onSoon === "function") handlers.onSoon("insert-blank", id);
-            closeEmptyLineInsertMenu();
-            return;
-          }
-          if (typeof handlers.onBlankInsert === "function") {
-            handlers.onBlankInsert(id, ctx.block);
-          }
-          closeEmptyLineInsertMenu();
-        });
-        placeMenu(menu, rect.left, rect.bottom + 2);
-        activeMenu = menu;
-        dismissFn = function(ev) {
-          if (Date.now() < menuGraceUntil) return;
-          if (ev && (ev.type === "mousedown" || ev.type === "contextmenu")) {
-            const target = (
-              /** @type {Node | null} */
-              ev.target
-            );
-            if (isInMenuCluster(target)) return;
-          }
-          closeEmptyLineInsertMenu();
-        };
-        escFn = function(ev) {
-          if (ev.key === "Escape") closeEmptyLineInsertMenu();
-        };
-        document.addEventListener("keydown", escFn, true);
-        window.setTimeout(function() {
-          if (!activeMenu) return;
-          document.addEventListener("mousedown", dismissFn, true);
-          document.addEventListener("contextmenu", dismissFn, true);
-          window.addEventListener("blur", dismissFn);
-        }, MENU_GRACE_MS);
-      }
-      module.exports = {
-        showEmptyLineInsertMenu,
-        closeEmptyLineInsertMenu,
-        isEmptyLineInsertMenuOpenFor
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/block-handle-menu.js
-  var require_block_handle_menu = __commonJS({
-    "src/gui/renderer/editor/widgets/block-handle-menu.js"(exports, module) {
-      "use strict";
-      var { uiT, HOVER_LEAVE_MS } = require_widget_common();
-      var { menuIconHtml } = require_block_menu_icons();
-      var activeMenu = null;
-      var activeSubmenu = null;
-      var menuAnchorEl = null;
-      var menuBlockRoot = null;
-      var dismissFn = null;
-      var subOpenTimer = 0;
-      var subCloseTimer = 0;
-      var escFn = null;
-      var menuCloseTimer = 0;
-      var menuGraceUntil = 0;
-      var MENU_GRACE_MS = 380;
-      var SUB_CLOSE_MS = HOVER_LEAVE_MS;
-      var MENU_CLOSE_MS = HOVER_LEAVE_MS;
-      var MOD_KEY = typeof navigator !== "undefined" && (navigator.platform || "").toLowerCase().indexOf("mac") >= 0 ? "\u2318" : "Ctrl+";
-      var COPY_AS_ITEMS = [
-        { id: "markdown", key: "blockMenuCopyAsMarkdown", icon: "markdown" },
-        { id: "image", key: "blockMenuCopyAsImage", icon: "copyAsImage" }
-      ];
-      var AI_ITEMS = [
-        { id: "continue", key: "blockMenuAiContinue", icon: "continue", soon: true },
-        { id: "companion", key: "blockMenuAiCompanion", icon: "companion", soon: true },
-        { id: "polish", key: "blockMenuAiPolish", icon: "polish", soon: true },
-        { id: "expand", key: "blockMenuAiExpand", icon: "expand", soon: true },
-        { id: "shorten", key: "blockMenuAiShorten", icon: "shorten", soon: true },
-        { id: "grammar", key: "blockMenuAiGrammar", icon: "grammar", soon: true },
-        { id: "explain", key: "blockMenuAiExplain", icon: "explain", soon: true },
-        { id: "translate", key: "blockMenuAiTranslate", icon: "translate", soon: true },
-        { id: "summarize", key: "blockMenuAiSummarize", icon: "summarize", soon: true },
-        { id: "more", key: "blockMenuAiMore", icon: "more", soon: true }
-      ];
-      var INSERT_ITEMS = [
-        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: false },
-        { id: "table", key: "blockMenuInsertTable", icon: "table", soon: false },
-        { id: "code", key: "blockMenuInsertCode", icon: "code", soon: false },
-        { id: "quote", key: "blockMenuInsertQuote", icon: "quote", soon: false },
-        { id: "mermaid", key: "blockMenuInsertMermaid", icon: "mermaid", soon: false },
-        { id: "hr", key: "blockMenuInsertHr", icon: "hr", soon: false }
-      ];
-      function clearSubTimers() {
-        window.clearTimeout(subOpenTimer);
-        window.clearTimeout(subCloseTimer);
-        window.clearTimeout(menuCloseTimer);
-        subOpenTimer = 0;
-        subCloseTimer = 0;
-        menuCloseTimer = 0;
-      }
-      function closeActiveSubmenu() {
-        if (activeSubmenu && activeSubmenu.parentNode) {
-          activeSubmenu.parentNode.removeChild(activeSubmenu);
-        }
-        activeSubmenu = null;
-      }
-      function removeOrphanSubmenus() {
-        const nodes = document.querySelectorAll(".mda-block-handle-submenu");
-        for (let i = 0; i < nodes.length; i++) {
-          const el = nodes[i];
-          if (el.parentNode) el.parentNode.removeChild(el);
-        }
-      }
-      function isInMenuCluster(target) {
-        if (!target) return false;
-        const el = (
-          /** @type {Node} */
-          target
-        );
-        if (activeMenu && activeMenu.contains(el)) return true;
-        if (activeSubmenu && activeSubmenu.contains(el)) return true;
-        if (menuAnchorEl && menuAnchorEl.contains(el)) return true;
-        if (menuBlockRoot && menuBlockRoot.contains(el)) return true;
-        return false;
-      }
-      function closeBlockHandleMenu() {
-        clearSubTimers();
-        closeActiveSubmenu();
-        removeOrphanSubmenus();
-        const prevRoot = menuBlockRoot;
-        if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
-        activeMenu = null;
-        menuAnchorEl = null;
-        menuBlockRoot = null;
-        menuGraceUntil = 0;
-        if (prevRoot && !prevRoot.matches(":hover")) {
-          const handle = prevRoot.querySelector(".mda-cm-block-drag-handle");
-          if (!handle || !handle.matches(":hover")) {
-            prevRoot.classList.remove("mda-cm-block-handle-show");
-          }
-        }
-        if (dismissFn) {
-          document.removeEventListener("mousedown", dismissFn, true);
-          document.removeEventListener("contextmenu", dismissFn, true);
-          window.removeEventListener("blur", dismissFn);
-          dismissFn = null;
-        }
-        if (escFn) {
-          document.removeEventListener("keydown", escFn, true);
-          escFn = null;
-        }
-      }
-      function isBlockHandleMenuOpenFor(blockRoot) {
-        return !!(activeMenu && menuBlockRoot && blockRoot && menuBlockRoot === blockRoot);
-      }
-      function addMenuSeparator(menu) {
-        const sep = document.createElement("div");
-        sep.className = "mda-menu-sep";
-        sep.setAttribute("aria-hidden", "true");
-        menu.appendChild(sep);
-      }
-      function menuItemInner(label, iconName, suffixHtml) {
-        return menuIconHtml(iconName || "") + '<span class="mda-menu-label">' + label + "</span>" + (suffixHtml || "");
-      }
-      function placeMenu(menu, x, y) {
-        menu.style.left = "0px";
-        menu.style.top = "0px";
-        document.body.appendChild(menu);
-        const pad = 6;
-        const w = menu.offsetWidth;
-        const h = menu.offsetHeight;
-        let left = x;
-        let top = y;
-        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
-        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
-        if (left < pad) left = pad;
-        if (top < pad) top = pad;
-        menu.style.left = left + "px";
-        menu.style.top = top + "px";
-      }
-      function placeSubmenu(parentItem, submenu) {
-        document.body.appendChild(submenu);
-        const pr = parentItem.getBoundingClientRect();
-        const pad = 6;
-        let left = pr.right - 4;
-        let top = pr.top - 4;
-        submenu.style.left = left + "px";
-        submenu.style.top = top + "px";
-        if (left + submenu.offsetWidth > window.innerWidth - pad) {
-          left = pr.left - submenu.offsetWidth + 4;
-          submenu.style.left = left + "px";
-        }
-        if (top + submenu.offsetHeight > window.innerHeight - pad) {
-          top = Math.max(pad, window.innerHeight - submenu.offsetHeight - pad);
-          submenu.style.top = top + "px";
-        }
-      }
-      function buildSubmenu(t, items, onPick) {
-        const sub = document.createElement("div");
-        sub.className = "mda-context-menu mda-block-handle-submenu";
-        sub.setAttribute("role", "menu");
-        for (let i = 0; i < items.length; i++) {
-          const it = items[i];
-          const row = document.createElement("div");
-          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "");
-          row.setAttribute("role", "menuitem");
-          row.dataset.act = it.id;
-          row.dataset.soon = it.soon ? "1" : "0";
-          row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
-          sub.appendChild(row);
-        }
-        sub.addEventListener("click", function(e) {
-          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
-          if (!item) return;
-          e.stopPropagation();
-          onPick(item.dataset.act || "", item.dataset.soon === "1");
-          closeBlockHandleMenu();
-        });
-        sub.addEventListener("mouseenter", function() {
-          window.clearTimeout(subCloseTimer);
-          subCloseTimer = 0;
-          window.clearTimeout(menuCloseTimer);
-          menuCloseTimer = 0;
-        });
-        sub.addEventListener("mouseleave", function() {
-          window.clearTimeout(subCloseTimer);
-          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
-        });
-        return sub;
-      }
-      function addSubRow(menu, t, key, icon, submenuFactory) {
-        const row = document.createElement("div");
-        row.className = "mda-menu-item mda-menu-has-sub";
-        row.setAttribute("role", "menuitem");
-        row.innerHTML = menuItemInner(uiT(key, t), icon, '<span class="mda-menu-chevron" aria-hidden="true">\u203A</span>');
-        row.addEventListener("mouseenter", function() {
-          window.clearTimeout(subCloseTimer);
-          subCloseTimer = 0;
-          window.clearTimeout(menuCloseTimer);
-          menuCloseTimer = 0;
-          window.clearTimeout(subOpenTimer);
-          subOpenTimer = window.setTimeout(function() {
-            closeActiveSubmenu();
-            activeSubmenu = submenuFactory();
-            placeSubmenu(row, activeSubmenu);
-          }, 100);
-        });
-        row.addEventListener("mouseleave", function(e) {
-          window.clearTimeout(subOpenTimer);
-          subOpenTimer = 0;
-          const rt = e.relatedTarget;
-          if (activeSubmenu && rt && activeSubmenu.contains(
-            /** @type {Node} */
-            rt
-          )) return;
-          window.clearTimeout(subCloseTimer);
-          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
-        });
-        menu.appendChild(row);
-      }
-      function showBlockHandleMenu(ctx) {
-        const { closeEmptyLineInsertMenu } = require_empty_line_insert_menu();
-        closeEmptyLineInsertMenu();
-        closeBlockHandleMenu();
-        const t = ctx.t;
-        const handlers = ctx.handlers || {};
-        const anchor = ctx.anchorEl;
-        const rect = anchor.getBoundingClientRect();
-        menuAnchorEl = anchor;
-        menuBlockRoot = ctx.blockRoot || null;
-        menuGraceUntil = Date.now() + MENU_GRACE_MS;
-        if (menuBlockRoot) menuBlockRoot.classList.add("mda-cm-block-handle-show");
-        const menu = document.createElement("div");
-        menu.className = "mda-context-menu mda-block-handle-menu";
-        menu.id = "mda-block-handle-menu";
-        menu.setAttribute("role", "menu");
-        addSubRow(menu, t, "blockMenuAiEdit", "ai", function() {
-          return buildSubmenu(t, AI_ITEMS, function(id, soon) {
-            if (soon) {
-              if (typeof handlers.onSoon === "function") handlers.onSoon("ai", id);
-              return;
-            }
-            if (typeof handlers.onAi === "function") {
-              handlers.onAi(id, ctx.block, ctx.blockKind);
-            }
-          });
-        });
-        addMenuSeparator(menu);
-        addSubRow(menu, t, "blockMenuInsertAbove", "insertAbove", function() {
-          return buildSubmenu(t, INSERT_ITEMS, function(id, soon) {
-            if (soon) {
-              if (typeof handlers.onSoon === "function") handlers.onSoon("insert-above", id);
-              return;
-            }
-            if (typeof handlers.onInsert === "function") {
-              handlers.onInsert("above", id, ctx.block, ctx.blockKind);
-            }
-          });
-        });
-        addSubRow(menu, t, "blockMenuInsertBelow", "insertBelow", function() {
-          return buildSubmenu(t, INSERT_ITEMS, function(id, soon) {
-            if (soon) {
-              if (typeof handlers.onSoon === "function") handlers.onSoon("insert-below", id);
-              return;
-            }
-            if (typeof handlers.onInsert === "function") {
-              handlers.onInsert("below", id, ctx.block, ctx.blockKind);
-            }
-          });
-        });
-        addMenuSeparator(menu);
-        const mod = ctx.modKey || MOD_KEY;
-        function addActionRow(spec) {
-          const row = document.createElement("div");
-          row.className = "mda-menu-item" + (spec.danger ? " mda-menu-danger" : "");
-          row.dataset.act = spec.act;
-          row.setAttribute("role", "menuitem");
-          row.innerHTML = menuItemInner(
-            uiT(spec.key, t),
-            spec.icon,
-            spec.shortcut ? '<span class="mda-menu-key">' + spec.shortcut + "</span>" : ""
-          );
-          menu.appendChild(row);
-        }
-        addActionRow({ act: "copy", key: "copyBtn", icon: "copy", shortcut: mod + "C" });
-        addActionRow({ act: "cut", key: "blockMenuCut", icon: "cut", shortcut: mod + "X" });
-        addSubRow(menu, t, "blockMenuCopyAs", "copyAs", function() {
-          return buildSubmenu(t, COPY_AS_ITEMS, function(id) {
-            if (typeof handlers.onCopyAs === "function") {
-              handlers.onCopyAs(ctx.block, ctx.blockKind, id);
-            }
-          });
-        });
-        addActionRow({
-          act: "delete",
-          key: "blockMenuDelete",
-          icon: "delete",
-          shortcut: "Backspace",
-          danger: true
-        });
-        menu.addEventListener("click", function(e) {
-          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
-          if (!item || item.classList.contains("mda-menu-has-sub")) return;
-          const act = item.dataset.act;
-          if (act === "copy" && typeof handlers.onCopy === "function") {
-            handlers.onCopy(ctx.block, ctx.blockKind);
-          } else if (act === "cut" && typeof handlers.onCut === "function") {
-            handlers.onCut(ctx.block, ctx.blockKind);
-          } else if (act === "delete" && typeof handlers.onDelete === "function") {
-            handlers.onDelete(ctx.block, ctx.blockKind);
-          }
-          closeBlockHandleMenu();
-        });
-        menu.addEventListener("mouseenter", function() {
-          window.clearTimeout(menuCloseTimer);
-          menuCloseTimer = 0;
-        });
-        menu.addEventListener("mouseleave", function(e) {
-          const rt = e.relatedTarget;
-          if (activeSubmenu && rt && activeSubmenu.contains(
-            /** @type {Node} */
-            rt
-          )) return;
-          window.clearTimeout(menuCloseTimer);
-          menuCloseTimer = window.setTimeout(function() {
-            if (Date.now() < menuGraceUntil) return;
-            closeBlockHandleMenu();
-          }, MENU_CLOSE_MS);
-        });
-        placeMenu(menu, rect.left, rect.bottom + 2);
-        activeMenu = menu;
-        dismissFn = function(ev) {
-          if (Date.now() < menuGraceUntil) return;
-          if (ev && (ev.type === "mousedown" || ev.type === "contextmenu")) {
-            const target = (
-              /** @type {Node | null} */
-              ev.target
-            );
-            if (isInMenuCluster(target)) return;
-          }
-          closeBlockHandleMenu();
-        };
-        escFn = function(ev) {
-          if (ev.key === "Escape") closeBlockHandleMenu();
-        };
-        document.addEventListener("keydown", escFn, true);
-        window.setTimeout(function() {
-          if (!activeMenu) return;
-          document.addEventListener("mousedown", dismissFn, true);
-          document.addEventListener("contextmenu", dismissFn, true);
-          window.addEventListener("blur", dismissFn);
-        }, MENU_GRACE_MS);
-      }
-      module.exports = {
-        showBlockHandleMenu,
-        closeBlockHandleMenu,
-        isBlockHandleMenuOpenFor,
-        MOD_KEY
-      };
-    }
-  });
-
   // src/gui/renderer/editor/widgets/block-drag-handle.js
   var require_block_drag_handle = __commonJS({
     "src/gui/renderer/editor/widgets/block-drag-handle.js"(exports, module) {
@@ -50318,12 +50676,44 @@ var MDAEditorBundle = (() => {
         }
         return false;
       }
+      function fileUrlToLocalPath(url) {
+        if (!url || !/^file:/i.test(url)) return "";
+        try {
+          return decodeURIComponent(String(url).replace(/^file:\/\//i, "").replace(/^\/([A-Za-z]:)/, "$1"));
+        } catch (_) {
+          return "";
+        }
+      }
+      function tableCellImageMarkdownAbs(wrap, resolveImageUrl) {
+        if (!wrap) return "";
+        const alt = wrap.getAttribute("data-mda-image-alt") || "";
+        const title = wrap.getAttribute("data-mda-image-title") || "";
+        const href = wrap.getAttribute("data-mda-image-src") || "";
+        const img = wrap.querySelector("img");
+        const imgSrc = img ? img.getAttribute("src") || "" : "";
+        let abs = fileUrlToLocalPath(imgSrc);
+        if (!abs && typeof resolveImageUrl === "function" && href) {
+          const resolved = resolveImageUrl(href);
+          abs = fileUrlToLocalPath(resolved) || "";
+          if (!abs && resolved && !/^https?:/i.test(resolved) && !/^data:/i.test(resolved)) {
+            abs = String(resolved);
+          }
+        }
+        if (!abs && href) {
+          const norm = String(href).replace(/\\/g, "/");
+          if (/^[a-zA-Z]:/.test(norm) || norm.charAt(0) === "/") abs = norm;
+          else abs = href;
+        }
+        abs = String(abs).replace(/\\/g, "/");
+        return serializeImageMarkdown({ alt, src: abs, title });
+      }
       module.exports = {
         setCellMarkdownContent,
         getCellMarkdownContent,
         selectTableMathAtom,
         handleTableMathDeleteKey,
-        findCellInlineRanges
+        findCellInlineRanges,
+        tableCellImageMarkdownAbs
       };
     }
   });
@@ -50349,8 +50739,17 @@ var MDAEditorBundle = (() => {
         isFullRowSelection,
         isEntireTableSelection
       } = require_table_model();
-      var { copyText, uiT, clearBlockWidgetSelection, clearMediaSelection } = require_widget_common();
+      var { copyText, uiT, clearBlockWidgetSelection, clearMediaSelection, HOVER_LEAVE_MS } = require_widget_common();
       var { attachWidgetEditablePointerIsolation } = require_widget_editable_guard();
+      var {
+        shouldPreserveDomSelection,
+        clearCmSelectionIfAny,
+        collapseWidgetDomAt,
+        restoreWidgetDomCaret
+      } = require_context_selection();
+      var { isWidgetDomMenuGuard } = require_widget_context_menu_guard();
+      var { menuIconHtml } = require_block_menu_icons();
+      var { MOD_KEY } = require_block_handle_menu();
       var { attachTableGridResize, applyTableLayout, ensureLayoutArrays } = require_table_resize();
       var { hasTableLayoutMeta } = require_parse_table();
       var {
@@ -50361,7 +50760,8 @@ var MDAEditorBundle = (() => {
       var {
         setCellMarkdownContent,
         selectTableMathAtom,
-        handleTableMathDeleteKey
+        handleTableMathDeleteKey,
+        tableCellImageMarkdownAbs
       } = require_table_cell_content();
       var { undo, redo } = require_dist8();
       var { attachBlockDragHandle } = require_block_drag_handle();
@@ -50370,6 +50770,14 @@ var MDAEditorBundle = (() => {
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
       var { clearSelectedInlineMath } = require_inline_math_selection();
       var internalClipboard = "";
+      var activeTableSubmenu = null;
+      var tableSubOpenTimer = 0;
+      var tableSubCloseTimer = 0;
+      var TABLE_SUB_CLOSE_MS = HOVER_LEAVE_MS;
+      var TABLE_CELL_IMAGE_COPY_AS = [
+        { id: "copy-as-markdown", i18nKey: "blockMenuCopyAsMarkdown", icon: "markdown" },
+        { id: "copy-as-image", i18nKey: "blockMenuCopyAsImage", icon: "copyAsImage" }
+      ];
       function rememberTableBlockSelected(ctx) {
         clearSelectedImageBlock();
         clearSelectedMermaidBlock();
@@ -50447,33 +50855,120 @@ var MDAEditorBundle = (() => {
           }
         }
       }
+      function tableMenuItemInner(label, icon, keyHint) {
+        return menuIconHtml(icon || "") + '<span class="mda-menu-label">' + label + "</span>" + (keyHint ? '<span class="mda-menu-key">' + keyHint + "</span>" : "");
+      }
+      function submenuItemInner(label, icon) {
+        return menuIconHtml(icon || "") + '<span class="mda-menu-label">' + label + "</span>";
+      }
+      function placeTableSubmenu(parentItem, submenu) {
+        document.body.appendChild(submenu);
+        const pr = parentItem.getBoundingClientRect();
+        const pad = 6;
+        let left = pr.right - 4;
+        let top = pr.top - 4;
+        submenu.style.left = left + "px";
+        submenu.style.top = top + "px";
+        if (left + submenu.offsetWidth > window.innerWidth - pad) {
+          left = pr.left - submenu.offsetWidth + 4;
+          submenu.style.left = left + "px";
+        }
+        if (top + submenu.offsetHeight > window.innerHeight - pad) {
+          top = Math.max(pad, window.innerHeight - submenu.offsetHeight - pad);
+          submenu.style.top = top + "px";
+        }
+      }
+      function buildTableSubmenu(t, items, onPick) {
+        const sub = document.createElement("div");
+        sub.className = "mda-context-menu mda-block-handle-submenu";
+        sub.setAttribute("role", "menu");
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          const row = document.createElement("div");
+          row.className = "mda-menu-item";
+          row.setAttribute("role", "menuitem");
+          row.dataset.act = it.id;
+          row.innerHTML = submenuItemInner(uiT(it.i18nKey, t), it.icon);
+          sub.appendChild(row);
+        }
+        sub.addEventListener("mousedown", function(e) {
+          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+          if (!item) return;
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          closeTableMenu();
+          onPick(item.dataset.act || "");
+        });
+        sub.addEventListener("mouseenter", function() {
+          window.clearTimeout(tableSubCloseTimer);
+          tableSubCloseTimer = 0;
+        });
+        sub.addEventListener("mouseleave", function() {
+          window.clearTimeout(tableSubCloseTimer);
+          tableSubCloseTimer = window.setTimeout(closeTableSubmenu, TABLE_SUB_CLOSE_MS);
+        });
+        return sub;
+      }
       function openTableMenu(host, spec, onAction, t) {
         closeTableMenu();
         const menu = document.createElement("div");
-        menu.className = "mda-cm-table-menu";
+        menu.className = "mda-context-menu mda-block-handle-menu mda-cm-table-menu";
         menu.setAttribute("role", "menu");
         for (let i = 0; i < spec.items.length; i++) {
           const item = spec.items[i];
           if (item.id === "---") {
             const sep = document.createElement("div");
-            sep.className = "mda-cm-table-menu-sep";
+            sep.className = "mda-menu-sep";
+            sep.setAttribute("aria-hidden", "true");
             menu.appendChild(sep);
+            continue;
+          }
+          if (item.submenu && item.submenu.length) {
+            const row = document.createElement("div");
+            row.className = "mda-menu-item mda-menu-has-sub mda-cm-table-menu-item";
+            row.setAttribute("role", "menuitem");
+            row.innerHTML = tableMenuItemInner(uiT(item.i18nKey, t), item.icon, '<span class="mda-menu-chevron" aria-hidden="true">\u203A</span>');
+            row.addEventListener("mouseenter", function() {
+              window.clearTimeout(tableSubCloseTimer);
+              tableSubCloseTimer = 0;
+              window.clearTimeout(tableSubOpenTimer);
+              tableSubOpenTimer = window.setTimeout(function() {
+                closeTableSubmenu();
+                activeTableSubmenu = buildTableSubmenu(t, item.submenu, onAction);
+                placeTableSubmenu(row, activeTableSubmenu);
+              }, 100);
+            });
+            row.addEventListener("mouseleave", function(ev) {
+              window.clearTimeout(tableSubOpenTimer);
+              tableSubOpenTimer = 0;
+              const rt = ev.relatedTarget;
+              if (activeTableSubmenu && rt && activeTableSubmenu.contains(
+                /** @type {Node} */
+                rt
+              )) return;
+              window.clearTimeout(tableSubCloseTimer);
+              tableSubCloseTimer = window.setTimeout(closeTableSubmenu, TABLE_SUB_CLOSE_MS);
+            });
+            menu.appendChild(row);
             continue;
           }
           const btn = document.createElement("button");
           btn.type = "button";
-          btn.className = "mda-cm-table-menu-item";
+          btn.className = "mda-menu-item mda-cm-table-menu-item" + (item.disabled ? " disabled" : "");
           btn.dataset.action = item.id;
           btn.dataset.i18nKey = item.i18nKey;
-          btn.textContent = uiT(item.i18nKey, t);
+          btn.innerHTML = tableMenuItemInner(uiT(item.i18nKey, t), item.icon, item.key);
           btn.disabled = !!item.disabled;
-          btn.addEventListener("mousedown", function(e) {
-            if (e.button !== 0 || btn.disabled) return;
-            e.preventDefault();
-            e.stopPropagation();
-            closeTableMenu();
-            onAction(item.id);
-          });
+          if (!item.disabled) {
+            btn.addEventListener("mousedown", function(e) {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              e.stopPropagation();
+              closeTableMenu();
+              onAction(item.id);
+            });
+          }
           menu.appendChild(btn);
         }
         host.appendChild(menu);
@@ -50491,8 +50986,19 @@ var MDAEditorBundle = (() => {
           menu.style.top = top + "px";
         });
       }
+      function closeTableSubmenu() {
+        window.clearTimeout(tableSubOpenTimer);
+        window.clearTimeout(tableSubCloseTimer);
+        tableSubOpenTimer = 0;
+        tableSubCloseTimer = 0;
+        if (activeTableSubmenu && activeTableSubmenu.parentNode) {
+          activeTableSubmenu.parentNode.removeChild(activeTableSubmenu);
+        }
+        activeTableSubmenu = null;
+      }
       function closeTableMenu() {
         if (typeof document === "undefined") return;
+        closeTableSubmenu();
         const menus = document.querySelectorAll(".mda-cm-table-menu");
         for (let i = 0; i < menus.length; i++) menus[i].remove();
       }
@@ -50544,6 +51050,7 @@ var MDAEditorBundle = (() => {
         let selection = { kind: "none" };
         let dragAnchor = null;
         let mutating = false;
+        let activeCellImageTarget = null;
         let resizeCtl = null;
         stage.setAttribute("tabindex", "-1");
         function syncFromDomIfNeeded() {
@@ -50622,9 +51129,12 @@ var MDAEditorBundle = (() => {
           if (active && tableWrap.contains(active) && typeof active.blur === "function") {
             active.blur();
           }
-          if (typeof window.getSelection === "function") {
-            const domSel = window.getSelection();
-            if (domSel && domSel.rangeCount) domSel.removeAllRanges();
+          const domSel = typeof window.getSelection === "function" ? window.getSelection() : null;
+          if (domSel && domSel.rangeCount > 0) {
+            const range = domSel.getRangeAt(0);
+            if (tableWrap.contains(range.commonAncestorContainer)) {
+              domSel.removeAllRanges();
+            }
           }
           setSelection({ kind: "none" });
         }
@@ -50762,21 +51272,125 @@ var MDAEditorBundle = (() => {
             }
           }
         }
-        function menuItems() {
-          const hasSel = selection.kind !== "none";
+        function cellImageMenuItems() {
+          return [
+            { id: "copy", i18nKey: "copyBtn", icon: "copy", key: MOD_KEY + "C" },
+            { id: "cut", i18nKey: "widgetTableCut", icon: "cut", key: MOD_KEY + "X" },
+            { id: "paste", i18nKey: "widgetTablePaste", icon: "paste", key: MOD_KEY + "V" },
+            { id: "---" },
+            {
+              id: "copy-as",
+              i18nKey: "blockMenuCopyAs",
+              icon: "copyAs",
+              submenu: TABLE_CELL_IMAGE_COPY_AS
+            },
+            { id: "---" },
+            { id: "clear", i18nKey: "widgetTableClear", icon: "delete" }
+          ];
+        }
+        function applyTableCellImageUpdate(wrap, payload) {
+          wrap.setAttribute("data-mda-image-source", payload.line);
+          wrap.setAttribute("data-mda-image-src", payload.href);
+          wrap.setAttribute("data-mda-image-alt", payload.alt || "");
+          if (payload.title) wrap.setAttribute("data-mda-image-title", payload.title);
+          else wrap.removeAttribute("data-mda-image-title");
+          const img = wrap.querySelector("img");
+          if (img) {
+            img.setAttribute("alt", payload.alt || "");
+            if (payload.title) img.setAttribute("title", payload.title);
+            else img.removeAttribute("title");
+            const resolved = typeof ctx.resolveImageUrl === "function" ? ctx.resolveImageUrl(payload.href) : payload.href;
+            if (resolved) img.setAttribute("src", resolved);
+          }
+        }
+        function removeCellImageWrap(wrap) {
+          if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+        }
+        function pasteCellImage(cell, wrap) {
+          if (typeof ctx.onPasteTableCellImage !== "function") return;
+          Promise.resolve(ctx.onPasteTableCellImage(wrap)).then(function(payload) {
+            if (!payload || !payload.line) return;
+            applyTableCellImageUpdate(wrap, payload);
+            syncFromDomIfNeeded();
+            commitParsed();
+            if (cell && typeof cell.focus === "function") cell.focus();
+          }).catch(function() {
+          });
+        }
+        function runCellImageMenuAction(id) {
+          const target = activeCellImageTarget;
+          activeCellImageTarget = null;
+          if (!target) return;
+          const cell = target.cell;
+          const wrap = target.wrap;
+          const img = wrap.querySelector("img");
+          const row = parseInt(cell.getAttribute("data-mda-row") || "0", 10);
+          const col = parseInt(cell.getAttribute("data-mda-col") || "0", 10);
+          if (id === "copy" || id === "copy-as-image") {
+            if (img && typeof ctx.onCopyImage === "function") ctx.onCopyImage(img);
+            return;
+          }
+          if (id === "cut") {
+            if (img && typeof ctx.onCopyImage === "function") ctx.onCopyImage(img);
+            removeCellImageWrap(wrap);
+            syncFromDomIfNeeded();
+            commitParsed();
+            return;
+          }
+          if (id === "paste") {
+            pasteCellImage(cell, wrap);
+            return;
+          }
+          if (id === "copy-as-markdown") {
+            const text = tableCellImageMarkdownAbs(wrap, ctx.resolveImageUrl);
+            if (text) copyText(text, ctx.copyFn);
+            return;
+          }
+          if (id === "clear") {
+            setSelection({ kind: "cell", row, col });
+            mutate(function(p) {
+              clearTableSelection(p, { kind: "cell", row, col });
+            });
+          }
+        }
+        function menuItems(clientX, clientY, targetCell) {
+          const domTextAtClick = targetCell && shouldPreserveDomSelection(
+            /** @type {HTMLElement} */
+            targetCell,
+            clientX,
+            clientY
+          );
+          const tableStructuralSel = selection.kind !== "none" && selection.kind !== "cell";
+          const hasClipboard = !!(domTextAtClick || tableStructuralSel);
           const anchor = selectionAnchor(selection);
           const b = selectionBounds(selection);
           const isBodyRow = selection.kind === "row" && selection.row >= 0 || isFullRowSelection(selection) && b && b.row1 >= 0;
           const isColSel = selection.kind === "col" || isFullColumnSelection(selection);
           const canDeleteRow = isBodyRow && parsed.rows.length > 0;
           const canDeleteCol = isColSel && parsed.headers.length > 1;
+          const inCell = !!targetCell;
           const items = [];
-          if (hasSel) {
-            items.push({ id: "copy", i18nKey: "copyBtn" });
-            items.push({ id: "cut", i18nKey: "widgetTableCut" });
-          }
+          items.push({
+            id: "copy",
+            i18nKey: "copyBtn",
+            icon: "copy",
+            key: MOD_KEY + "C",
+            disabled: !hasClipboard
+          });
+          items.push({
+            id: "cut",
+            i18nKey: "widgetTableCut",
+            icon: "cut",
+            key: MOD_KEY + "X",
+            disabled: !hasClipboard
+          });
           if (anchor) {
-            items.push({ id: "paste", i18nKey: "widgetTablePaste" });
+            items.push({
+              id: "paste",
+              i18nKey: "widgetTablePaste",
+              icon: "paste",
+              key: MOD_KEY + "V"
+            });
           }
           if (isBodyRow || selection.kind === "row" && selection.row === -1) {
             if (items.length) items.push({ id: "---" });
@@ -50792,15 +51406,19 @@ var MDAEditorBundle = (() => {
             if (canDeleteRow) items.push({ id: "delete-row", i18nKey: "widgetTableDeleteRow" });
             if (canDeleteCol) items.push({ id: "delete-col", i18nKey: "widgetTableDeleteCol" });
           }
-          if (hasSel) {
+          if (hasClipboard || inCell) {
             if (items.length) items.push({ id: "---" });
             let clearKey = "widgetTableClear";
             if (selection.kind === "row" || isFullRowSelection(selection)) clearKey = "widgetTableClearRow";
-            else if (selection.kind === "col" || isFullColumnSelection(selection)) clearKey = "widgetTableClearCol";
-            items.push({ id: "clear", i18nKey: clearKey });
+            else if (selection.kind === "col" || isFullColumnSelection(selection)) {
+              clearKey = "widgetTableClearCol";
+            }
+            items.push({ id: "clear", i18nKey: clearKey, icon: "delete" });
           }
           if (items.length) items.push({ id: "---" });
-          items.push({ id: "delete-table", i18nKey: "widgetTableDeleteTable" });
+          if (!inCell || hasClipboard || tableStructuralSel) {
+            items.push({ id: "delete-table", i18nKey: "widgetTableDeleteTable", icon: "delete" });
+          }
           return items;
         }
         function runMenuAction(id) {
@@ -50911,10 +51529,21 @@ var MDAEditorBundle = (() => {
             return;
           }
         }
-        function openMenuAt(clientX, clientY) {
+        function openMenuAt(clientX, clientY, targetCell, imgWrap) {
+          if (imgWrap && targetCell) {
+            activeCellImageTarget = { cell: targetCell, wrap: imgWrap };
+            openTableMenu(
+              stage,
+              { x: clientX, y: clientY, items: cellImageMenuItems() },
+              runCellImageMenuAction,
+              t
+            );
+            return;
+          }
+          activeCellImageTarget = null;
           openTableMenu(
             stage,
-            { x: clientX, y: clientY, items: menuItems() },
+            { x: clientX, y: clientY, items: menuItems(clientX, clientY, targetCell) },
             runMenuAction,
             t
           );
@@ -50982,9 +51611,14 @@ var MDAEditorBundle = (() => {
             let cellContentDirty = false;
             attachWidgetEditablePointerIsolation(cell);
             cell.addEventListener("mousedown", function(e) {
-              if (e.button !== 0) return;
+              if (e.button !== 0 && e.button !== 2) return;
               if (!e.target.closest(".mda-cm-table-menu")) closeTableMenu();
               e.stopPropagation();
+              if (e.button === 2) return;
+              if (!shouldPreserveDomSelection(cell, e.clientX, e.clientY)) {
+                collapseWidgetDomAt(cell, e.clientX, e.clientY);
+              }
+              clearCmSelectionIfAny(ctx.view);
               const atomEl = e.target.closest ? e.target.closest(".mda-cm-table-math, .mda-cm-table-img") : null;
               const row = parseInt(cell.getAttribute("data-mda-row") || "0", 10);
               const col = parseInt(cell.getAttribute("data-mda-col") || "0", 10);
@@ -51223,9 +51857,60 @@ var MDAEditorBundle = (() => {
         });
         stage.addEventListener("contextmenu", function(e) {
           if (!stage.contains(e.target)) return;
+          const cell = e.target && e.target.closest ? e.target.closest("th[contenteditable], td[contenteditable]") : null;
+          const imgWrap = e.target && e.target.closest ? e.target.closest(".mda-cm-table-img") : null;
+          if (cell && imgWrap && cell.contains(imgWrap)) {
+            e.preventDefault();
+            e.stopPropagation();
+            clearCmSelectionIfAny(ctx.view);
+            selectTableMathAtom(imgWrap);
+            const row = parseInt(cell.getAttribute("data-mda-row") || "0", 10);
+            const col = parseInt(cell.getAttribute("data-mda-col") || "0", 10);
+            dragAnchor = { row, col };
+            setSelection({ kind: "cell", row, col });
+            openMenuAt(e.clientX, e.clientY, cell, imgWrap);
+            return;
+          }
+          let caretSnap = null;
+          if (cell) {
+            if (isWidgetDomMenuGuard()) {
+              e.preventDefault();
+              e.stopPropagation();
+              return;
+            }
+            const preserve = shouldPreserveDomSelection(
+              /** @type {HTMLElement} */
+              cell,
+              e.clientX,
+              e.clientY
+            );
+            if (!preserve) {
+              caretSnap = collapseWidgetDomAt(
+                /** @type {HTMLElement} */
+                cell,
+                e.clientX,
+                e.clientY
+              );
+            }
+            clearCmSelectionIfAny(ctx.view);
+            if (preserve) {
+              return;
+            }
+          }
           e.preventDefault();
           e.stopPropagation();
-          openMenuAt(e.clientX, e.clientY);
+          openMenuAt(e.clientX, e.clientY, cell);
+          if (cell && caretSnap) {
+            const snap = caretSnap;
+            requestAnimationFrame(function() {
+              if (!cell.isConnected) return;
+              restoreWidgetDomCaret(
+                /** @type {HTMLElement} */
+                cell,
+                snap
+              );
+            });
+          }
         });
         stage.addEventListener("mousedown", function(e) {
           if (!(e.target && e.target.closest && e.target.closest(".mda-cm-table-menu"))) {
@@ -51268,6 +51953,7 @@ var MDAEditorBundle = (() => {
             document.removeEventListener("mousedown", onDocPointer, true);
             return;
           }
+          if (e.button === 2) return;
           if (e.target && stage.contains(e.target)) return;
           clearTableInteraction();
         }
@@ -51627,6 +52313,7 @@ var MDAEditorBundle = (() => {
               onMoveTableBlock: opts.onMoveTableBlock,
               onOpenZoom: opts.onOpenZoom,
               onCopyImage: opts.onCopyImage,
+              onPasteTableCellImage: opts.onPasteTableCellImage,
               pinEditor: function() {
                 pinEditorToTable(view, self2);
               },
@@ -52833,6 +53520,7 @@ var MDAEditorBundle = (() => {
       var { BlockReplaceWidget, countSourceLines, syncWidgetHeightFromDom } = require_block_widget_base();
       var { createCodeLangPicker } = require_code_lang_picker();
       var { attachWidgetEditablePointerIsolation } = require_widget_editable_guard();
+      var { isWidgetDomMenuGuard } = require_widget_context_menu_guard();
       var { normalizeCodeBlockLang } = require_code_languages();
       var { attachBlockDragHandle } = require_block_drag_handle();
       var { setSelectedCodeBlock } = require_code_selection();
@@ -53051,6 +53739,142 @@ var MDAEditorBundle = (() => {
         sel.removeAllRanges();
         sel.addRange(range);
       }
+      function logicalOffsetFromPoint(el, container, offset) {
+        const probe = document.createRange();
+        probe.setStart(container, offset);
+        probe.collapse(true);
+        if (!el.contains(probe.startContainer)) return 0;
+        const pre = document.createRange();
+        pre.selectNodeContents(el);
+        pre.setEnd(probe.startContainer, probe.startOffset);
+        if (el.querySelector && el.querySelector("br")) {
+          return plainDomLogicalLength(pre.cloneContents());
+        }
+        return pre.toString().replace(/\u200b/g, "").replace(/\u00a0/g, " ").length;
+      }
+      function getLogicalSelectionOffsets(el) {
+        const sel = window.getSelection && window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+        const range = sel.getRangeAt(0);
+        if (!el.contains(range.commonAncestorContainer)) return null;
+        const a = logicalOffsetFromPoint(el, range.startContainer, range.startOffset);
+        const b = logicalOffsetFromPoint(el, range.endContainer, range.endOffset);
+        const start = Math.min(a, b);
+        const end = Math.max(a, b);
+        if (end <= start) return null;
+        return { start, end };
+      }
+      function caretOffsetFromClient(el, clientX, clientY) {
+        let probe = null;
+        if (typeof document.caretRangeFromPoint === "function") {
+          probe = document.caretRangeFromPoint(clientX, clientY);
+        } else if (typeof document.caretPositionFromPoint === "function") {
+          const pos = document.caretPositionFromPoint(clientX, clientY);
+          if (pos) {
+            probe = document.createRange();
+            probe.setStart(pos.offsetNode, pos.offset);
+            probe.collapse(true);
+          }
+        }
+        if (probe && el.contains(probe.startContainer)) {
+          return logicalOffsetFromPoint(el, probe.startContainer, probe.startOffset);
+        }
+        return caretOffsetIn(el);
+      }
+      function setLogicalSelection(el, start, end) {
+        const sel = window.getSelection && window.getSelection();
+        if (!sel) return;
+        const lo = Math.min(start | 0, end | 0);
+        const hi = Math.max(start | 0, end | 0);
+        if (hi <= lo) {
+          setCaretOffsetIn(el, lo);
+          return;
+        }
+        setCaretOffsetIn(el, lo);
+        if (!sel.rangeCount) return;
+        const range = sel.getRangeAt(0);
+        const endPoint = logicalOffsetToDomPoint(el, hi);
+        if (!endPoint) return;
+        try {
+          range.setEnd(endPoint.node, endPoint.offset);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch (_) {
+        }
+      }
+      function logicalOffsetToDomPoint(el, offset) {
+        let remaining = Math.max(0, offset | 0);
+        let last = null;
+        function walk(node2) {
+          if (node2.nodeType === Node.TEXT_NODE) {
+            const raw = node2.nodeValue || "";
+            const logical = logicalTextLength(raw);
+            if (remaining <= logical) {
+              let logicalSeen = 0;
+              let domOff = 0;
+              for (let i = 0; i < raw.length; i++) {
+                if (raw.charAt(i) === CODE_PLAIN_ZWSP) continue;
+                if (logicalSeen === remaining) {
+                  last = { node: node2, offset: domOff };
+                  return true;
+                }
+                logicalSeen += 1;
+                domOff = i + 1;
+              }
+              last = { node: node2, offset: raw.length };
+              return true;
+            }
+            remaining -= logical;
+            last = { node: node2, offset: raw.length };
+            return false;
+          }
+          if (node2.nodeName === "BR") {
+            if (remaining === 0) {
+              const parent = node2.parentNode;
+              if (parent) {
+                last = { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, node2) };
+              }
+              return true;
+            }
+            if (remaining === 1) {
+              const next = node2.nextSibling;
+              if (next && next.nodeType === Node.TEXT_NODE) last = { node: next, offset: 0 };
+              else {
+                const parent = node2.parentNode;
+                if (parent) {
+                  last = {
+                    node: parent,
+                    offset: Array.prototype.indexOf.call(parent.childNodes, node2) + 1
+                  };
+                }
+              }
+              return true;
+            }
+            remaining -= 1;
+            return false;
+          }
+          for (let child = node2.firstChild; child; child = child.nextSibling) {
+            if (walk(child)) return true;
+          }
+          return false;
+        }
+        if (el.querySelector && el.querySelector("br")) {
+          walk(el);
+          return last;
+        }
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode();
+        while (node) {
+          const len = node.nodeValue ? node.nodeValue.length : 0;
+          if (remaining <= len) {
+            return { node, offset: remaining };
+          }
+          remaining -= len;
+          last = { node, offset: len };
+          node = walker.nextNode();
+        }
+        return last;
+      }
       function setCaretOffsetIn(el, offset) {
         if (el.querySelector && el.querySelector("br")) {
           setCaretOffsetInPlain(el, offset);
@@ -53254,12 +54078,53 @@ var MDAEditorBundle = (() => {
             applyLocalCode(next, caret);
             return true;
           }
-          function flattenToPlain() {
-            if (plainEditing) return;
-            const pos = getCaretOffset();
+          let selectionAnchor = 0;
+          function ensurePlainForEdit(opts2) {
+            opts2 = opts2 || {};
+            let selOffsets = null;
+            if (typeof opts2.start === "number" && typeof opts2.end === "number" && opts2.end > opts2.start) {
+              selOffsets = { start: opts2.start, end: opts2.end };
+            } else if (opts2.preserveSelection) {
+              selOffsets = getLogicalSelectionOffsets(codeInput);
+            }
+            let caret = typeof opts2.caret === "number" ? opts2.caret : null;
+            if (plainEditing) {
+              if (selOffsets) setLogicalSelection(codeInput, selOffsets.start, selOffsets.end);
+              else if (caret != null) setCaretOffset(caret);
+              return;
+            }
+            if (!selOffsets && caret == null && typeof opts2.clientX === "number" && typeof opts2.clientY === "number") {
+              caret = caretOffsetFromClient(codeInput, opts2.clientX, opts2.clientY);
+            }
+            if (caret == null && !selOffsets) caret = getCaretOffset();
             plainEditing = true;
-            renderFromLocalCode(pos);
+            renderFromLocalCode(selOffsets ? selOffsets.start : caret);
+            if (selOffsets) setLogicalSelection(codeInput, selOffsets.start, selOffsets.end);
+            else if (caret != null) setCaretOffset(caret);
           }
+          function flattenToPlain(opts2) {
+            ensurePlainForEdit(opts2 || {});
+          }
+          function stabilizeForContextMenu() {
+            enterEditMode();
+            const offsets = getLogicalSelectionOffsets(codeInput);
+            if (!offsets) return;
+            ensurePlainForEdit({ start: offsets.start, end: offsets.end });
+          }
+          function restoreLogicalSelection(start, end) {
+            enterEditMode();
+            if (!plainEditing) {
+              plainEditing = true;
+              renderFromLocalCode(start);
+            }
+            setLogicalSelection(codeInput, start, end);
+          }
+          root._mdaStabilizeCodeSelection = stabilizeForContextMenu;
+          root._mdaRestoreLogicalSelection = restoreLogicalSelection;
+          codeInput._mdaRestoreLogicalSelection = restoreLogicalSelection;
+          codeInput._mdaLogicalOffsetFromPoint = function(container, offset) {
+            return logicalOffsetFromPoint(codeInput, container, offset);
+          };
           function syncLineNumbers() {
             gutter.textContent = buildLineNumbers(readCodeText());
           }
@@ -53381,10 +54246,41 @@ var MDAEditorBundle = (() => {
               copyText(self2.source, opts.copyText);
             }
           });
-          codeInput.addEventListener("mousedown", function(e) {
-            e.stopPropagation();
-            enterEditMode();
-          });
+          codeInput.addEventListener(
+            "mousedown",
+            function(e) {
+              e.stopPropagation();
+              if (e.button === 2) return;
+              if (isWidgetDomMenuGuard()) return;
+              enterEditMode();
+              if (e.shiftKey) {
+                const head = caretOffsetFromClient(codeInput, e.clientX, e.clientY);
+                ensurePlainForEdit({ caret: selectionAnchor });
+                setLogicalSelection(codeInput, selectionAnchor, head);
+                e.preventDefault();
+              }
+            },
+            true
+          );
+          codeInput.addEventListener(
+            "mouseup",
+            function(e) {
+              if (e.button !== 0) return;
+              if (isWidgetDomMenuGuard()) return;
+              enterEditMode();
+              if (e.shiftKey) return;
+              const offsets = getLogicalSelectionOffsets(codeInput);
+              if (offsets) {
+                ensurePlainForEdit({ start: offsets.start, end: offsets.end });
+                selectionAnchor = offsets.start;
+              } else {
+                const caret = caretOffsetFromClient(codeInput, e.clientX, e.clientY);
+                ensurePlainForEdit({ caret });
+                selectionAnchor = caret;
+              }
+            },
+            true
+          );
           codeInput.addEventListener("beforeinput", function(e) {
             if (composing || applyingProgrammatic) return;
             if (e.inputType === "historyUndo") {
@@ -53445,30 +54341,39 @@ var MDAEditorBundle = (() => {
             const session = { undo: undoLocal, redo: redoLocal };
             activeCodeEditSession = session;
             root._mdaCodeEditSession = session;
+            if (plainEditing || isWidgetDomMenuGuard()) return;
             requestAnimationFrame(function() {
-              flattenToPlain();
+              if (isWidgetDomMenuGuard() || plainEditing) return;
+              if (document.activeElement !== codeInput) return;
+              const offsets = getLogicalSelectionOffsets(codeInput);
+              if (offsets) ensurePlainForEdit({ start: offsets.start, end: offsets.end });
+              else ensurePlainForEdit({ caret: getCaretOffset() });
             });
           });
           codeInput.addEventListener("blur", function() {
-            if (activeCodeEditSession === root._mdaCodeEditSession) {
-              activeCodeEditSession = null;
-              root._mdaCodeEditSession = null;
-            }
-            if (root._mdaCodeTearingDown || !codeInput.isConnected) return;
-            commitCodeEdit(false);
-            plainEditing = false;
-            paintHighlight(false);
-            syncLineNumbers();
-            frame.classList.remove("mda-cm-code-editing");
-            requestHeightMeasure();
-            try {
-              if (view) {
-                requestAnimationFrame(function() {
-                  syncWidgetHeightFromDom(self2, view, root);
-                });
+            requestAnimationFrame(function() {
+              if (isWidgetDomMenuGuard()) return;
+              if (document.querySelector(".mda-cm-context-menu")) return;
+              if (activeCodeEditSession === root._mdaCodeEditSession) {
+                activeCodeEditSession = null;
+                root._mdaCodeEditSession = null;
               }
-            } catch (_) {
-            }
+              if (root._mdaCodeTearingDown || !codeInput.isConnected) return;
+              commitCodeEdit(false);
+              plainEditing = false;
+              paintHighlight(false);
+              syncLineNumbers();
+              frame.classList.remove("mda-cm-code-editing");
+              requestHeightMeasure();
+              try {
+                if (view) {
+                  requestAnimationFrame(function() {
+                    syncWidgetHeightFromDom(self2, view, root);
+                  });
+                }
+              } catch (_) {
+              }
+            });
           });
           scroll.addEventListener("mousedown", function(e) {
             if (e.button !== 0) return;
@@ -53492,7 +54397,7 @@ var MDAEditorBundle = (() => {
           if (resumed) {
             requestAnimationFrame(function() {
               enterEditMode();
-              flattenToPlain();
+              flattenToPlain({});
               codeInput.focus();
               setCaretOffset(resumed.caret);
             });
@@ -53500,6 +54405,15 @@ var MDAEditorBundle = (() => {
           return root;
         }
         destroy(dom) {
+          if (dom) {
+            dom._mdaStabilizeCodeSelection = null;
+            dom._mdaRestoreLogicalSelection = null;
+            const input = dom.querySelector(".mda-cm-code-input");
+            if (input) {
+              input._mdaRestoreLogicalSelection = null;
+              input._mdaLogicalOffsetFromPoint = null;
+            }
+          }
           if (dom && dom._mdaCodeEditSession && activeCodeEditSession === dom._mdaCodeEditSession) {
             activeCodeEditSession = null;
           }
@@ -54719,347 +55633,163 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/widgets/block-insert-snippets.js
-  var require_block_insert_snippets = __commonJS({
-    "src/gui/renderer/editor/widgets/block-insert-snippets.js"(exports, module) {
+  // src/gui/renderer/editor/syntax-clipboard.js
+  var require_syntax_clipboard = __commonJS({
+    "src/gui/renderer/editor/syntax-clipboard.js"(exports, module) {
       "use strict";
-      var INSERT_SNIPPETS = {
-        code: "```\n\n```",
-        mermaid: "```mermaid\ngraph TD\n  A-->B\n```",
-        // 行末保留空格：hide-mark 不藏「仅空格」行，便于落点输入
-        quote: "> ",
-        table: "| \u52171 | \u52172 |\n| --- | --- |\n|  |  |",
-        hr: "---",
-        image: "![](path/to/image.png)"
-      };
-      function getInsertSnippet(type) {
-        return Object.prototype.hasOwnProperty.call(INSERT_SNIPPETS, type) ? INSERT_SNIPPETS[type] : null;
+      var { syntaxTree } = require_dist7();
+      var { SYNTAX_RULES } = require_syntax_rules();
+      var { findLeadingMark, findTrailingMark, adjustSelectionForHiddenMarks } = require_caret_syntax_adjust();
+      function adaptSyntaxNode(node) {
+        return { from: node.from, to: node.to, type: node.name };
       }
-      function caretOffsetInSnippet(type, snippet) {
-        const s = String(snippet || "");
-        if (type === "code") {
-          const nl = s.indexOf("\n");
-          return nl >= 0 ? nl + 1 : s.length;
-        }
-        if (type === "table") {
-          const cell = s.indexOf("|  |");
-          return cell >= 0 ? cell + 2 : s.length;
-        }
-        return s.length;
-      }
-      module.exports = {
-        INSERT_SNIPPETS,
-        getInsertSnippet,
-        caretOffsetInSnippet
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/block-handle-ops.js
-  var require_block_handle_ops = __commonJS({
-    "src/gui/renderer/editor/widgets/block-handle-ops.js"(exports, module) {
-      "use strict";
-      var { Transaction } = require_dist2();
-      var {
-        resolveBlockRange,
-        deleteBlockRange,
-        expandBlockRange
-      } = require_image_block_ops();
-      var { getInsertSnippet, caretOffsetInSnippet } = require_block_insert_snippets();
-      var { copyText } = require_widget_common();
-      function getBlockSource(view, block) {
-        if (!view) return "";
-        if (block && block.source) return String(block.source);
-        const range = resolveBlockRange(view, block || {});
-        if (!range) return "";
-        return view.state.doc.sliceString(range.from, range.to);
-      }
-      function copyBlockSource(view, block, copyFn) {
-        const text = getBlockSource(view, block);
-        if (!text) return false;
-        copyText(text, copyFn);
-        return true;
-      }
-      function pinSelectionForHistory(view, pos) {
-        if (!view || pos == null || isNaN(pos)) return;
-        const caret = Math.max(0, Math.min(pos, view.state.doc.length));
-        const sel = view.state.selection.main;
-        if (sel.from !== caret || sel.to !== caret) {
-          view.dispatch({
-            selection: { anchor: caret, head: caret },
-            annotations: Transaction.addToHistory.of(false)
-          });
-        }
-      }
-      function insertSnippetAtBlankLine(view, block, type) {
-        if (!view) return false;
-        const snippet = getInsertSnippet(type);
-        if (!snippet) return false;
-        const line = view.state.doc.lineAt(block && block.from != null ? block.from : 0);
-        if (String(line.text || "").trim() !== "") return false;
-        const caret = line.from + caretOffsetInSnippet(type, snippet);
-        pinSelectionForHistory(view, line.from);
-        view.dispatch({
-          changes: { from: line.from, to: line.to, insert: snippet },
-          selection: { anchor: caret, head: caret },
-          userEvent: "input"
+      function mergeRanges(ranges) {
+        if (!ranges.length) return [];
+        const sorted = ranges.slice().sort(function(a, b) {
+          return a.from - b.from || a.to - b.to;
         });
-        if (type === "quote") {
-          requestAnimationFrame(function() {
-            const anchor = view.dom.querySelector(
-              '.mda-cm-quote-handle-anchor[data-mda-block-from="' + line.from + '"]'
-            );
-            if (anchor) anchor.classList.add("mda-cm-block-handle-show");
-          });
+        const out = [sorted[0]];
+        for (let i = 1; i < sorted.length; i++) {
+          const prev = out[out.length - 1];
+          const cur = sorted[i];
+          if (cur.from <= prev.to) {
+            prev.to = Math.max(prev.to, cur.to);
+          } else {
+            out.push(cur);
+          }
         }
-        try {
-          view.focus();
-        } catch (_) {
-        }
-        return true;
+        return out;
       }
-      function insertSnippetNearBlock(view, block, where, type) {
-        if (!view) return false;
-        const snippet = getInsertSnippet(type);
-        if (!snippet) return false;
-        const range = resolveBlockRange(view, block || {});
-        if (!range) return false;
-        const doc = view.state.doc.toString();
-        const pos = where === "above" ? range.from : range.to;
-        let insert = snippet;
-        if (where === "above") {
-          if (pos > 0 && doc.charAt(pos - 1) !== "\n") insert = "\n" + insert;
-          insert += "\n";
-        } else {
-          if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
-          if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
-        }
-        const lead = insert.indexOf(snippet);
-        const snippetStart = pos + (lead >= 0 ? lead : 0);
-        const caret = snippetStart + caretOffsetInSnippet(type, snippet);
-        pinSelectionForHistory(view, pos);
-        view.dispatch({
-          changes: { from: pos, to: pos, insert },
-          selection: { anchor: caret, head: caret },
-          userEvent: "input"
-        });
-        if (type === "quote") {
-          requestAnimationFrame(function() {
-            const anchor = view.dom.querySelector(
-              '.mda-cm-quote-handle-anchor[data-mda-block-from="' + snippetStart + '"]'
-            );
-            if (anchor) anchor.classList.add("mda-cm-block-handle-show");
-          });
-        }
-        try {
-          view.focus();
-        } catch (_) {
-        }
-        return true;
-      }
-      function insertMarkdownAtBlankLine(view, block, markdownLine) {
-        if (!view || !markdownLine) return false;
-        const line = view.state.doc.lineAt(block && block.from != null ? block.from : 0);
-        if (String(line.text || "").trim() !== "") return false;
-        const snippet = String(markdownLine);
-        const caret = line.from + snippet.length;
-        pinSelectionForHistory(view, line.from);
-        view.dispatch({
-          changes: { from: line.from, to: line.to, insert: snippet },
-          selection: { anchor: caret, head: caret },
-          userEvent: "input"
-        });
-        try {
-          view.focus();
-        } catch (_) {
-        }
-        return true;
-      }
-      function insertMarkdownNearBlock(view, block, where, markdownLine) {
-        if (!view || !markdownLine) return false;
-        const range = resolveBlockRange(view, block || {});
-        if (!range) return false;
-        const snippet = String(markdownLine);
-        const doc = view.state.doc.toString();
-        const pos = where === "above" ? range.from : range.to;
-        let insert = snippet;
-        if (where === "above") {
-          if (pos > 0 && doc.charAt(pos - 1) !== "\n") insert = "\n" + insert;
-          insert += "\n";
-        } else {
-          if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
-          if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
-        }
-        const lead = insert.indexOf(snippet);
-        const snippetStart = pos + (lead >= 0 ? lead : 0);
-        const caret = snippetStart + snippet.length;
-        pinSelectionForHistory(view, pos);
-        view.dispatch({
-          changes: { from: pos, to: pos, insert },
-          selection: { anchor: caret, head: caret },
-          userEvent: "input"
-        });
-        try {
-          view.focus();
-        } catch (_) {
-        }
-        return true;
-      }
-      function deleteBlock(view, block) {
-        const range = resolveBlockRange(view, block || {});
-        if (!range) return false;
-        deleteBlockRange(view, range.from, range.to);
-        return true;
-      }
-      module.exports = {
-        getBlockSource,
-        copyBlockSource,
-        insertSnippetAtBlankLine,
-        insertMarkdownAtBlankLine,
-        insertMarkdownNearBlock,
-        insertSnippetNearBlock,
-        deleteBlock,
-        expandBlockRange
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/block-menu-handlers.js
-  var require_block_menu_handlers = __commonJS({
-    "src/gui/renderer/editor/widgets/block-menu-handlers.js"(exports, module) {
-      "use strict";
-      var {
-        copyBlockSource,
-        insertSnippetAtBlankLine,
-        insertSnippetNearBlock,
-        deleteBlock
-      } = require_block_handle_ops();
-      function createBlockMenuHandlers(liveOpts) {
-        const opts = liveOpts || {};
-        function getView() {
-          if (typeof opts.getView === "function") return opts.getView();
-          return opts.view || null;
-        }
-        function toast(msg) {
-          if (typeof opts.toast === "function") opts.toast(msg);
-        }
-        function onCopy(block, kind) {
-          if (kind === "image" && typeof opts.onCopyImageBlock === "function") {
-            opts.onCopyImageBlock(block);
-            return;
-          }
-          const view = getView();
-          if (!view) return;
-          if (copyBlockSource(view, block, opts.copyText)) {
-            if (typeof opts.t === "function") toast(opts.t("toastCopied"));
-          }
-        }
-        function onCut(block, kind) {
-          if (kind === "image" && typeof opts.onCopyImageBlock === "function") {
-            Promise.resolve(opts.onCopyImageBlock(block)).finally(function() {
-              onDelete(block, kind);
-            });
-            return;
-          }
-          const view = getView();
-          if (!view) return;
-          if (!copyBlockSource(view, block, opts.copyText)) return;
-          onDelete(block, kind);
-        }
-        function onDelete(block, kind) {
-          const view = getView();
-          if (!view) return;
-          if (kind === "mermaid" && typeof opts.onDeleteMermaidBlock === "function") {
-            opts.onDeleteMermaidBlock(block);
-            return;
-          }
-          if (kind === "code" && typeof opts.onDeleteCodeBlock === "function") {
-            opts.onDeleteCodeBlock(block);
-            return;
-          }
-          if (kind === "image" && typeof opts.onDeleteImageBlock === "function") {
-            opts.onDeleteImageBlock(block);
-            return;
-          }
-          deleteBlock(view, block);
-        }
-        function onInsert(where, type, block) {
-          const view = getView();
-          if (!view) return;
-          if (type === "image" && typeof opts.onPickImageInsert === "function") {
-            opts.onPickImageInsert(where, block);
-            return;
-          }
-          if (insertSnippetNearBlock(view, block, where, type)) return;
-          if (typeof opts.onSoon === "function") opts.onSoon("insert-" + where, type);
-        }
-        function onBlankInsert(type, block) {
-          const view = getView();
-          if (!view) return;
-          if (type === "image" && typeof opts.onPickImageInsert === "function") {
-            opts.onPickImageInsert("blank", block);
-            return;
-          }
-          if (insertSnippetAtBlankLine(view, block, type)) return;
-          if (typeof opts.onSoon === "function") opts.onSoon("insert-blank", type);
-        }
-        function onCopyAs(block, kind, format) {
-          if (format === "markdown") {
-            if (typeof opts.onCopyBlockAsMarkdown === "function") {
-              opts.onCopyBlockAsMarkdown(block, kind);
+      function collectDelimiterExclusions(state, from, to) {
+        const tree = syntaxTree(state);
+        if (!tree) return [];
+        const doc = state.doc.toString();
+        const f = Math.min(from, to);
+        const t = Math.max(from, to);
+        const exclude = [];
+        tree.iterate({
+          enter: function(node) {
+            const rule = SYNTAX_RULES[node.name];
+            if (!rule || rule.class !== "R") return;
+            if (t <= node.from || f >= node.to) return;
+            const adapted = adaptSyntaxNode(node);
+            const marks = typeof rule.markRanges === "function" ? rule.markRanges(adapted, doc) || [] : [];
+            if (!marks.length) return;
+            const content = typeof rule.contentRange === "function" ? rule.contentRange(adapted, doc) : null;
+            if (!content) return;
+            const leading = findLeadingMark(marks, content);
+            const trailing = findTrailingMark(marks, content);
+            if (!leading) return;
+            const hasFullOpen = f <= leading.from && t >= leading.to;
+            const hasFullClose = trailing && f <= trailing.from && t >= trailing.to;
+            if (trailing) {
+              if (hasFullOpen && hasFullClose) return;
+              if (f < leading.to && t > leading.from) {
+                exclude.push({ from: Math.max(f, leading.from), to: Math.min(t, leading.to) });
+              }
+              if (f < trailing.to && t > trailing.from) {
+                exclude.push({ from: Math.max(f, trailing.from), to: Math.min(t, trailing.to) });
+              }
               return;
             }
-            const view = getView();
-            if (!view) return;
-            if (copyBlockSource(view, block, opts.copyText)) {
-              if (typeof opts.t === "function") toast(opts.t("toastCopied"));
-            }
-            return;
-          }
-          if (format === "image") {
-            const run = function() {
-              if (typeof opts.onCopyBlockAsImage === "function") {
-                opts.onCopyBlockAsImage(block, kind);
-                return;
-              }
-              if (kind === "image" && typeof opts.onCopyImageBlock === "function") {
-                opts.onCopyImageBlock(block);
-                return;
-              }
-              if (typeof opts.t === "function") toast(opts.t("toastNoCopy"));
-            };
-            if (typeof window !== "undefined" && window.requestAnimationFrame) {
-              window.requestAnimationFrame(function() {
-                window.requestAnimationFrame(run);
-              });
-            } else {
-              run();
+            if (f < leading.to && t > leading.from) {
+              exclude.push({ from: Math.max(f, leading.from), to: Math.min(t, leading.to) });
             }
           }
+        });
+        return mergeRanges(exclude);
+      }
+      function sliceDocSkippingRanges(doc, from, to, exclusions) {
+        if (!exclusions.length) return doc.slice(from, to);
+        let out = "";
+        let pos = from;
+        for (let i = 0; i < exclusions.length; i++) {
+          const ex = exclusions[i];
+          if (ex.to <= from || ex.from >= to) continue;
+          const clipFrom = Math.max(from, ex.from);
+          const clipTo = Math.min(to, ex.to);
+          if (clipFrom > pos) out += doc.slice(pos, clipFrom);
+          pos = Math.max(pos, clipTo);
         }
-        function onAi(id, block, kind) {
-          if (typeof opts.onAiAction === "function") {
-            opts.onAiAction(id, block, kind);
-            return;
-          }
-          if (typeof opts.onSoon === "function") opts.onSoon("ai", id);
-        }
-        function onSoon(ctx, id) {
-          if (typeof opts.onSoon === "function") opts.onSoon(ctx, id);
-        }
+        if (pos < to) out += doc.slice(pos, to);
+        return out;
+      }
+      function sliceDocForClipboard(state, from, to) {
+        const f = Math.min(from, to);
+        const t = Math.max(from, to);
+        const doc = state.doc.toString();
+        const exclusions = collectDelimiterExclusions(state, f, t);
         return {
-          onCopy,
-          onCut,
-          onCopyAs,
-          onDelete,
-          onInsert,
-          onBlankInsert,
-          onAi,
-          onSoon
+          from: f,
+          to: t,
+          text: normalizeClipboardAtx(sliceDocSkippingRanges(doc, f, t, exclusions))
         };
       }
+      function normalizeClipboardAtx(text) {
+        if (text == null || text === "") return text;
+        return String(text).replace(/\r\n/g, "\n").split("\n").map(function(ln) {
+          return ln.replace(/^#{1,6}\s+/, "").replace(/(\S)#{1,6}$/, "$1");
+        }).join("\n");
+      }
+      function sliceSelectionForClipboard(state) {
+        const sel = state.selection.main;
+        if (sel.empty) return null;
+        const adjusted = adjustSelectionForHiddenMarks(state, sel.anchor, sel.head);
+        const from = Math.min(adjusted.anchor, adjusted.head);
+        const to = Math.max(adjusted.anchor, adjusted.head);
+        return sliceDocForClipboard(state, from, to);
+      }
+      function handleMarkdownSyntaxCopy(event, view) {
+        if (!event || !event.clipboardData) return false;
+        const slice = sliceSelectionForClipboard(view.state);
+        if (!slice) return false;
+        event.clipboardData.setData("text/plain", slice.text);
+        event.preventDefault();
+        return true;
+      }
+      function handleMarkdownSyntaxCut(event, view) {
+        if (!event || !event.clipboardData) return false;
+        const slice = sliceSelectionForClipboard(view.state);
+        if (!slice) return false;
+        event.clipboardData.setData("text/plain", slice.text);
+        event.preventDefault();
+        view.dispatch({
+          changes: { from: slice.from, to: slice.to, insert: "" },
+          selection: { anchor: slice.from, head: slice.from }
+        });
+        return true;
+      }
+      function normalizePasteForHeading(state, pos, text) {
+        if (text == null || text === "") return text;
+        const line = state.doc.lineAt(pos);
+        if (!/^(#{1,6})\s/.test(line.text)) return text;
+        return normalizeClipboardAtx(text);
+      }
+      function handleMarkdownSyntaxPaste(event, view) {
+        if (!event || !event.clipboardData) return false;
+        const plain = event.clipboardData.getData("text/plain");
+        if (plain == null || plain === "") return false;
+        const sel = view.state.selection.main;
+        const pos = Math.min(sel.from, sel.to);
+        const next = normalizePasteForHeading(view.state, pos, plain);
+        if (next === plain) return false;
+        event.preventDefault();
+        view.dispatch({
+          changes: { from: sel.from, to: sel.to, insert: next },
+          userEvent: "input.paste"
+        });
+        return true;
+      }
       module.exports = {
-        createBlockMenuHandlers
+        collectDelimiterExclusions,
+        sliceDocSkippingRanges,
+        sliceDocForClipboard,
+        normalizeClipboardAtx,
+        sliceSelectionForClipboard,
+        normalizePasteForHeading,
+        handleMarkdownSyntaxCopy,
+        handleMarkdownSyntaxCut,
+        handleMarkdownSyntaxPaste
       };
     }
   });
@@ -55481,7 +56211,1390 @@ var MDAEditorBundle = (() => {
       module.exports = {
         createEmptyLineInsertExtension,
         refreshEmptyLineInsertI18n,
-        isBlankProseLine
+        isBlankProseLine,
+        hitBlankLineAt
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/link-edit-popover.js
+  var require_link_edit_popover = __commonJS({
+    "src/gui/renderer/editor/link-edit-popover.js"(exports, module) {
+      "use strict";
+      var { uiT } = require_widget_common();
+      var activePopover = null;
+      var dismissFn = null;
+      function closeLinkEditPopover() {
+        if (activePopover && activePopover.parentNode) {
+          activePopover.parentNode.removeChild(activePopover);
+        }
+        activePopover = null;
+        if (dismissFn) {
+          document.removeEventListener("mousedown", dismissFn, true);
+          document.removeEventListener("keydown", dismissFn, true);
+          dismissFn = null;
+        }
+      }
+      function showLinkEditPopover(opts) {
+        closeLinkEditPopover();
+        const o = opts || {};
+        const t = typeof o.t === "function" ? o.t : function(k) {
+          return uiT(k, o.t);
+        };
+        const initialText = o.text == null ? "" : String(o.text);
+        const initialHref = o.href == null ? "" : String(o.href);
+        const pop = document.createElement("div");
+        pop.className = "mda-link-edit-popover";
+        pop.setAttribute("role", "dialog");
+        pop.innerHTML = '<label class="mda-link-edit-field"><span class="mda-link-edit-label">' + t("contextMenuLinkText") + '</span><input type="text" class="mda-link-edit-input" data-field="text" autocomplete="off" /></label><label class="mda-link-edit-field"><span class="mda-link-edit-label">' + t("contextMenuLinkUrl") + '</span><input type="text" class="mda-link-edit-input" data-field="href" autocomplete="off" /></label><div class="mda-link-edit-actions"><button type="button" class="mda-link-edit-confirm">' + t("contextMenuLinkConfirm") + "</button></div>";
+        const textInput = (
+          /** @type {HTMLInputElement} */
+          pop.querySelector('[data-field="text"]')
+        );
+        const hrefInput = (
+          /** @type {HTMLInputElement} */
+          pop.querySelector('[data-field="href"]')
+        );
+        const confirmBtn = (
+          /** @type {HTMLButtonElement} */
+          pop.querySelector(".mda-link-edit-confirm")
+        );
+        textInput.value = initialText;
+        hrefInput.value = initialHref;
+        document.body.appendChild(pop);
+        activePopover = pop;
+        const pad = 8;
+        let left = o.x;
+        let top = o.y;
+        const w = pop.offsetWidth;
+        const h = pop.offsetHeight;
+        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
+        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
+        if (left < pad) left = pad;
+        if (top < pad) top = pad;
+        pop.style.left = left + "px";
+        pop.style.top = top + "px";
+        function tryConfirm() {
+          const nextText = textInput.value;
+          const nextHref = hrefInput.value.trim();
+          if (nextText === initialText && nextHref === initialHref) {
+            closeLinkEditPopover();
+            return;
+          }
+          closeLinkEditPopover();
+          if (typeof o.onConfirm === "function") o.onConfirm(nextText, nextHref);
+        }
+        confirmBtn.addEventListener("click", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          tryConfirm();
+        });
+        pop.addEventListener("keydown", function(e) {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            tryConfirm();
+          }
+        });
+        dismissFn = function(ev) {
+          const target = ev && ev.target;
+          if (target && pop.contains(
+            /** @type {Node} */
+            target
+          )) return;
+          if (ev && ev.type === "keydown" && ev.key !== "Escape") return;
+          closeLinkEditPopover();
+        };
+        window.setTimeout(function() {
+          if (!dismissFn) return;
+          document.addEventListener("mousedown", dismissFn, true);
+          document.addEventListener("keydown", dismissFn, true);
+        }, 0);
+        textInput.focus();
+        textInput.select();
+      }
+      module.exports = {
+        showLinkEditPopover,
+        closeLinkEditPopover
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/context-menu.js
+  var require_context_menu = __commonJS({
+    "src/gui/renderer/editor/context-menu.js"(exports, module) {
+      "use strict";
+      var { ViewPlugin } = require_dist4();
+      var { syntaxTree } = require_dist7();
+      var { sliceDocForClipboard } = require_syntax_clipboard();
+      var { hitBlankLineAt } = require_empty_line_insert();
+      var {
+        snapshotDomSelection,
+        shouldPreserveDomSelection,
+        shouldPreserveCmSelection,
+        domPointInRangeBounds,
+        snapshotCmSelection,
+        restoreCmSelection,
+        restoreDomSelection,
+        collapseCmAtClick,
+        collapseWidgetDomAt,
+        clearCmSelectionIfAny
+      } = require_context_selection();
+      var { menuIconHtml } = require_block_menu_icons();
+      var { uiT } = require_widget_common();
+      var { closeBlockHandleMenu, MOD_KEY } = require_block_handle_menu();
+      var { closeEmptyLineInsertMenu } = require_empty_line_insert_menu();
+      var { getSelectedImageBlock } = require_image_selection();
+      var { getSelectedMermaidBlock } = require_mermaid_selection();
+      var { getSelectedBlockOfKind } = require_block_selection();
+      var { showLinkEditPopover } = require_link_edit_popover();
+      var {
+        setWidgetDomMenuGuard,
+        isWidgetDomMenuGuard
+      } = require_widget_context_menu_guard();
+      var COPY_AS_ITEMS = [
+        { id: "markdown", key: "blockMenuCopyAsMarkdown", icon: "markdown" },
+        { id: "image", key: "blockMenuCopyAsImage", icon: "copyAsImage" }
+      ];
+      var TABLE_CHROME_SEL = ".mda-cm-table-col-gutter, .mda-cm-table-row-gutter, .mda-cm-table-chrome, .mda-cm-table-col-bar, .mda-cm-table-row-bar, .mda-cm-table-col-gutter-clip, .mda-cm-table-col-resize-handle, .mda-cm-table-row-resize-handle";
+      var WIDGET_EDIT_SEL = ".mda-cm-code-input, .mda-cm-mermaid-source-input, th[contenteditable], td[contenteditable]";
+      var activeMenu = null;
+      var activeSubmenu = null;
+      var subOpenTimer = 0;
+      var subCloseTimer = 0;
+      var dismissFn = null;
+      var escFn = null;
+      var pendingMenuSelection = null;
+      var activeMenuSelection = null;
+      function hasPendingDomMenuFor(root) {
+        if (!root || !pendingMenuSelection || !pendingMenuSelection.dom) return false;
+        return pendingMenuSelection.dom.root === root;
+      }
+      function stashDomMenuSelection(snap, clientX, clientY) {
+        if (!snap) return;
+        snap._menuX = clientX;
+        snap._menuY = clientY;
+        pendingMenuSelection = snap;
+        setWidgetDomMenuGuard(true);
+      }
+      var SUB_CLOSE_MS = 200;
+      function clearSubTimers() {
+        window.clearTimeout(subOpenTimer);
+        window.clearTimeout(subCloseTimer);
+        subOpenTimer = 0;
+        subCloseTimer = 0;
+      }
+      function closeActiveSubmenu() {
+        if (activeSubmenu && activeSubmenu.parentNode) {
+          activeSubmenu.parentNode.removeChild(activeSubmenu);
+        }
+        activeSubmenu = null;
+      }
+      function closeContextMenu() {
+        clearSubTimers();
+        closeActiveSubmenu();
+        if (activeMenu && activeMenu.parentNode) {
+          activeMenu.parentNode.removeChild(activeMenu);
+        }
+        activeMenu = null;
+        if (dismissFn) {
+          document.removeEventListener("mousedown", dismissFn, true);
+          document.removeEventListener("contextmenu", dismissFn, true);
+          window.removeEventListener("blur", dismissFn);
+          dismissFn = null;
+        }
+        if (escFn) {
+          document.removeEventListener("keydown", escFn, true);
+          escFn = null;
+        }
+        activeMenuSelection = null;
+        pendingMenuSelection = null;
+        setWidgetDomMenuGuard(false);
+      }
+      function placeMenu(menu, x, y) {
+        document.body.appendChild(menu);
+        const pad = 6;
+        const w = menu.offsetWidth;
+        const h = menu.offsetHeight;
+        let left = x;
+        let top = y;
+        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
+        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
+        if (left < pad) left = pad;
+        if (top < pad) top = pad;
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+      }
+      function placeSubmenu(parentItem, submenu) {
+        document.body.appendChild(submenu);
+        const pr = parentItem.getBoundingClientRect();
+        const pad = 6;
+        let left = pr.right - 4;
+        let top = pr.top - 4;
+        submenu.style.left = left + "px";
+        submenu.style.top = top + "px";
+        if (left + submenu.offsetWidth > window.innerWidth - pad) {
+          left = pr.left - submenu.offsetWidth + 4;
+          submenu.style.left = left + "px";
+        }
+        if (top + submenu.offsetHeight > window.innerHeight - pad) {
+          top = Math.max(pad, window.innerHeight - submenu.offsetHeight - pad);
+          submenu.style.top = top + "px";
+        }
+      }
+      function menuItemInner(label, iconName, suffixHtml) {
+        return menuIconHtml(iconName || "") + '<span class="mda-menu-label">' + label + "</span>" + (suffixHtml || "");
+      }
+      function menuItemWithKey(label, iconName, keyHint) {
+        return menuItemInner(
+          label,
+          iconName,
+          keyHint ? '<span class="mda-menu-key">' + keyHint + "</span>" : ""
+        );
+      }
+      function getLinkAtCoords(view, clientX, clientY) {
+        const pos = view.posAtCoords({ x: clientX, y: clientY });
+        if (pos == null) return null;
+        let node = syntaxTree(view.state).resolveInner(pos, 1);
+        const doc = view.state.doc.toString();
+        while (node) {
+          if (node.name === "Link") {
+            const slice = doc.slice(node.from, node.to);
+            const m = /^\[([\s\S]*?)\]\(([\s\S]*?)\)$/.exec(slice);
+            if (!m) return null;
+            return {
+              from: node.from,
+              to: node.to,
+              text: m[1],
+              href: String(m[2] || "").trim()
+            };
+          }
+          node = node.parent;
+        }
+        return null;
+      }
+      function finalizeCodeBlockMenuSnapshot(root, snap) {
+        if (!snap || !snap.dom) return;
+        const dom = snap.dom;
+        if (typeof dom.start !== "number" || typeof dom.end !== "number" || dom.end <= dom.start) return;
+        const block = root.closest(".mda-cm-code-block");
+        if (block && typeof block._mdaRestoreLogicalSelection === "function") {
+          block._mdaRestoreLogicalSelection(dom.start, dom.end);
+        }
+      }
+      function skipWidgetMenuCollapse(root, clientX, clientY) {
+        return hasPendingDomMenuFor(root) || isWidgetDomMenuGuard() || shouldPreserveDomSelection(root, clientX, clientY);
+      }
+      function prepareContextSelection(view, e) {
+        const target = (
+          /** @type {HTMLElement} */
+          e.target
+        );
+        const widgetEdit = target.closest && target.closest(WIDGET_EDIT_SEL);
+        const tableCell = target.closest && target.closest("th[contenteditable], td[contenteditable]");
+        if (widgetEdit) {
+          const root = (
+            /** @type {HTMLElement} */
+            widgetEdit
+          );
+          if (!skipWidgetMenuCollapse(root, e.clientX, e.clientY)) {
+            collapseWidgetDomAt(root, e.clientX, e.clientY);
+          }
+          clearCmSelectionIfAny(view);
+          return;
+        }
+        if (tableCell) {
+          const cell = (
+            /** @type {HTMLElement} */
+            tableCell
+          );
+          if (!skipWidgetMenuCollapse(cell, e.clientX, e.clientY)) {
+            collapseWidgetDomAt(cell, e.clientX, e.clientY);
+          }
+          if (!shouldPreserveCmSelection(view, e.clientX, e.clientY)) {
+            if (!view.state.selection.main.empty) {
+              collapseCmAtClick(view, e.clientX, e.clientY);
+            }
+          }
+          return;
+        }
+        if (pendingMenuSelection) return;
+        if (!shouldPreserveCmSelection(view, e.clientX, e.clientY)) {
+          if (!view.state.selection.main.empty) {
+            collapseCmAtClick(view, e.clientX, e.clientY);
+          }
+        }
+      }
+      function menuCoordsMatch(pending, clientX, clientY) {
+        if (!pending || typeof pending._menuX !== "number" || typeof pending._menuY !== "number") {
+          return false;
+        }
+        return Math.abs(clientX - pending._menuX) <= 4 && Math.abs(clientY - pending._menuY) <= 4;
+      }
+      function revalidatePendingSelection(pending, view, clientX, clientY) {
+        if (!pending) return null;
+        if (pending.cm) {
+          if (shouldPreserveCmSelection(view, clientX, clientY)) return pending;
+          if (menuCoordsMatch(pending, clientX, clientY)) return pending;
+          return null;
+        }
+        if (pending.dom) {
+          const snap = pending.dom;
+          if (!snap.root.isConnected) return null;
+          if (menuCoordsMatch(pending, clientX, clientY)) return pending;
+          if (typeof snap.start === "number" && typeof snap.end === "number" && snap.end > snap.start) {
+            return pending;
+          }
+          if (snap.range && snap.root.contains(snap.range.commonAncestorContainer) && domPointInRangeBounds(snap.range, clientX, clientY)) {
+            return pending;
+          }
+          if (snap.text && shouldPreserveDomSelection(snap.root, clientX, clientY)) return pending;
+          return null;
+        }
+        return pending;
+      }
+      function adjustContextWithSelection(ctx, pending) {
+        if (!pending) return ctx;
+        if (pending.dom && (ctx.type === "dom-collapsed" || ctx.type === "dom-text")) {
+          return { type: "dom-text", root: pending.dom.root };
+        }
+        if (pending.cm && (ctx.type === "line" || ctx.type === "text")) {
+          return { type: "text" };
+        }
+        return ctx;
+      }
+      function captureMenuSelection(view, ctx, pending) {
+        if (pending) return pending;
+        if (ctx.type === "dom-text") return snapshotDomSelection(ctx.root);
+        if (ctx.type === "text") return snapshotCmSelection(view);
+        return null;
+      }
+      function replaceDomSelection(root, text) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+        const range = sel.getRangeAt(0);
+        if (!root.contains(range.commonAncestorContainer)) return;
+        range.deleteContents();
+        range.insertNode(document.createTextNode(text));
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        root.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      function blockFromElement(el) {
+        const root = el.closest ? el.closest("[data-mda-block-from][data-mda-block-to]") : null;
+        if (!root) return null;
+        const from = parseInt(root.getAttribute("data-mda-block-from") || "", 10);
+        const to = parseInt(root.getAttribute("data-mda-block-to") || "", 10);
+        if (!(from >= 0 && to > from)) return null;
+        let kind = "block";
+        if (root.classList.contains("mda-cm-image-block")) kind = "image";
+        else if (root.classList.contains("mda-cm-mermaid-block")) kind = "mermaid";
+        else if (root.classList.contains("mda-cm-hr-block")) kind = "hr";
+        else if (root.classList.contains("mda-cm-code-block")) kind = "code";
+        return {
+          from,
+          to,
+          source: root.getAttribute("data-mda-block-source") || "",
+          kind
+        };
+      }
+      function shouldDeferToTableMenu(view, e) {
+        const target = (
+          /** @type {HTMLElement} */
+          e.target
+        );
+        if (!target || !target.closest) return false;
+        if (!target.closest(".mda-cm-table-stage")) return false;
+        if (target.closest(TABLE_CHROME_SEL)) return true;
+        const cell = target.closest("th[contenteditable], td[contenteditable]");
+        if (!cell) return true;
+        const cellEl = (
+          /** @type {HTMLElement} */
+          cell
+        );
+        if (hasPendingDomMenuFor(cellEl) || isWidgetDomMenuGuard()) {
+          return false;
+        }
+        if (snapshotDomSelection(cellEl)) return false;
+        return !shouldPreserveDomSelection(cellEl, e.clientX, e.clientY);
+      }
+      function shouldSkipContextMenu(e) {
+        const target = (
+          /** @type {HTMLElement} */
+          e.target
+        );
+        if (!target || !target.closest) return true;
+        if (target.closest(
+          ".mda-block-handle-menu, .mda-block-handle-submenu, .mda-empty-line-insert-menu, .mda-cm-table-menu, .mda-link-edit-popover"
+        )) {
+          return true;
+        }
+        return false;
+      }
+      function resolveMenuContext(view, e) {
+        const target = (
+          /** @type {HTMLElement} */
+          e.target
+        );
+        const cmSel = view.state.selection.main;
+        const hasCmSelection = cmSel.from !== cmSel.to;
+        const link = getLinkAtCoords(view, e.clientX, e.clientY);
+        if (link) {
+          return { type: "link", link };
+        }
+        const imgSel = getSelectedImageBlock();
+        if (imgSel) {
+          return { type: "media", block: imgSel, kind: "image" };
+        }
+        const imageHit = target.closest && target.closest(".mda-cm-image-block");
+        if (imageHit) {
+          const block = blockFromElement(
+            /** @type {HTMLElement} */
+            imageHit
+          );
+          if (block) return { type: "media", block, kind: "image" };
+        }
+        const mermaidSel = getSelectedMermaidBlock();
+        if (mermaidSel && !target.closest(".mda-cm-mermaid-source-input")) {
+          const frame = target.closest && target.closest(".mda-cm-mermaid-frame");
+          if (frame && !frame.classList.contains("mda-cm-mermaid-source-mode")) {
+            return { type: "media", block: mermaidSel, kind: "mermaid" };
+          }
+          if (!target.closest(".mda-cm-mermaid-source")) {
+            return { type: "media", block: mermaidSel, kind: "mermaid" };
+          }
+        }
+        const mermaidHit = target.closest && target.closest(".mda-cm-mermaid-block");
+        if (mermaidHit && !target.closest(".mda-cm-mermaid-source-input")) {
+          const frame = mermaidHit.querySelector(".mda-cm-mermaid-frame");
+          if (frame && !frame.classList.contains("mda-cm-mermaid-source-mode")) {
+            const block = blockFromElement(
+              /** @type {HTMLElement} */
+              mermaidHit
+            );
+            if (block) return { type: "media", block, kind: "mermaid" };
+          }
+        }
+        const hrSel = getSelectedBlockOfKind("hr");
+        if (hrSel) {
+          return { type: "media", block: hrSel, kind: "hr" };
+        }
+        const hrHit = target.closest && target.closest(".mda-cm-hr-block");
+        if (hrHit) {
+          const block = blockFromElement(
+            /** @type {HTMLElement} */
+            hrHit
+          );
+          if (block) return { type: "media", block, kind: "hr" };
+        }
+        const widgetEdit = target.closest && target.closest(WIDGET_EDIT_SEL);
+        if (widgetEdit) {
+          const root = (
+            /** @type {HTMLElement} */
+            widgetEdit
+          );
+          if (hasPendingDomMenuFor(root) || isWidgetDomMenuGuard() || shouldPreserveDomSelection(root, e.clientX, e.clientY)) {
+            return { type: "dom-text", root };
+          }
+          return { type: "dom-collapsed", root };
+        }
+        if (hasCmSelection && shouldPreserveCmSelection(view, e.clientX, e.clientY)) {
+          return { type: "text" };
+        }
+        const blank = hitBlankLineAt(view, e.clientX, e.clientY);
+        if (blank && blank.kind === "line") {
+          return { type: "blank", line: blank.line };
+        }
+        return { type: "line" };
+      }
+      function addClipboardRows(menu, t, disabled, onCopy, onCut, onPaste) {
+        const copyRow = document.createElement("div");
+        copyRow.className = "mda-menu-item" + (disabled ? " disabled" : "");
+        copyRow.setAttribute("role", "menuitem");
+        copyRow.innerHTML = menuItemWithKey(t("copyBtn"), "copy", MOD_KEY + "C");
+        if (!disabled) {
+          copyRow.addEventListener("click", function(ev) {
+            ev.stopPropagation();
+            onCopy();
+            closeContextMenu();
+          });
+        }
+        menu.appendChild(copyRow);
+        const cutRow = document.createElement("div");
+        cutRow.className = "mda-menu-item" + (disabled ? " disabled" : "");
+        cutRow.setAttribute("role", "menuitem");
+        cutRow.innerHTML = menuItemWithKey(t("blockMenuCut"), "cut", MOD_KEY + "X");
+        if (!disabled) {
+          cutRow.addEventListener("click", function(ev) {
+            ev.stopPropagation();
+            onCut();
+            closeContextMenu();
+          });
+        }
+        menu.appendChild(cutRow);
+        const pasteRow = document.createElement("div");
+        pasteRow.className = "mda-menu-item";
+        pasteRow.setAttribute("role", "menuitem");
+        pasteRow.innerHTML = menuItemWithKey(t("contextMenuPaste"), "paste", MOD_KEY + "V");
+        pasteRow.addEventListener("click", function(ev) {
+          ev.stopPropagation();
+          onPaste();
+          closeContextMenu();
+        });
+        menu.appendChild(pasteRow);
+      }
+      function addSubRow(menu, t, key, icon, submenuFactory) {
+        const row = document.createElement("div");
+        row.className = "mda-menu-item mda-menu-has-sub";
+        row.setAttribute("role", "menuitem");
+        row.innerHTML = menuItemInner(t(key), icon, '<span class="mda-menu-chevron" aria-hidden="true">\u203A</span>');
+        row.addEventListener("mouseenter", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = 0;
+          window.clearTimeout(subOpenTimer);
+          subOpenTimer = window.setTimeout(function() {
+            closeActiveSubmenu();
+            activeSubmenu = submenuFactory();
+            placeSubmenu(row, activeSubmenu);
+          }, 100);
+        });
+        row.addEventListener("mouseleave", function(ev) {
+          window.clearTimeout(subOpenTimer);
+          subOpenTimer = 0;
+          const rt = ev.relatedTarget;
+          if (activeSubmenu && rt && activeSubmenu.contains(
+            /** @type {Node} */
+            rt
+          )) return;
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
+        });
+        menu.appendChild(row);
+      }
+      function buildSubmenu(t, items, onPick) {
+        const sub = document.createElement("div");
+        sub.className = "mda-context-menu mda-block-handle-submenu";
+        sub.setAttribute("role", "menu");
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          const row = document.createElement("div");
+          row.className = "mda-menu-item";
+          row.setAttribute("role", "menuitem");
+          row.dataset.act = it.id;
+          row.innerHTML = menuItemInner(t(it.key), it.icon);
+          sub.appendChild(row);
+        }
+        sub.addEventListener("click", function(ev) {
+          const item = ev.target && ev.target.closest ? ev.target.closest("[data-act]") : null;
+          if (!item) return;
+          ev.stopPropagation();
+          onPick(item.dataset.act || "");
+          closeContextMenu();
+        });
+        sub.addEventListener("mouseenter", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = 0;
+        });
+        sub.addEventListener("mouseleave", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
+        });
+        return sub;
+      }
+      function copyCmSelection(view, liveOpts) {
+        const snap = activeMenuSelection && activeMenuSelection.cm;
+        if (snap) {
+          restoreCmSelection(view, snap);
+          const slice2 = sliceDocForClipboard(view.state, snap.from, snap.to);
+          if (typeof liveOpts.copyText === "function") liveOpts.copyText(slice2.text);
+          if (typeof liveOpts.toast === "function" && typeof liveOpts.t === "function") {
+            liveOpts.toast(liveOpts.t("toastCopied"));
+          }
+          return true;
+        }
+        const sel = view.state.selection.main;
+        if (sel.from === sel.to) return false;
+        const slice = sliceDocForClipboard(view.state, sel.from, sel.to);
+        if (typeof liveOpts.copyText === "function") liveOpts.copyText(slice.text);
+        if (typeof liveOpts.toast === "function" && typeof liveOpts.t === "function") {
+          liveOpts.toast(liveOpts.t("toastCopied"));
+        }
+        return true;
+      }
+      function cutCmSelection(view, liveOpts) {
+        const snap = activeMenuSelection && activeMenuSelection.cm;
+        if (snap) {
+          restoreCmSelection(view, snap);
+          const slice2 = sliceDocForClipboard(view.state, snap.from, snap.to);
+          if (typeof liveOpts.copyText === "function") liveOpts.copyText(slice2.text);
+          view.dispatch({
+            changes: { from: slice2.from, to: slice2.to, insert: "" }
+          });
+          view.focus();
+          return true;
+        }
+        const sel = view.state.selection.main;
+        if (sel.from === sel.to) return false;
+        const slice = sliceDocForClipboard(view.state, sel.from, sel.to);
+        if (typeof liveOpts.copyText === "function") liveOpts.copyText(slice.text);
+        view.dispatch({
+          changes: { from: slice.from, to: slice.to, insert: "" }
+        });
+        view.focus();
+        return true;
+      }
+      function copyDomFromMenu(liveOpts) {
+        const snap = activeMenuSelection && activeMenuSelection.dom;
+        const root = snap && snap.root;
+        const text = snap ? snap.text : "";
+        if (!root || !text) return;
+        restoreDomSelection(snap);
+        if (typeof liveOpts.copyText === "function") liveOpts.copyText(text);
+        if (typeof liveOpts.toast === "function" && typeof liveOpts.t === "function") {
+          liveOpts.toast(liveOpts.t("toastCopied"));
+        }
+      }
+      function cutDomFromMenu(liveOpts) {
+        const snap = activeMenuSelection && activeMenuSelection.dom;
+        if (!snap || !snap.text) return;
+        restoreDomSelection(snap);
+        if (typeof liveOpts.copyText === "function") liveOpts.copyText(snap.text);
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          sel.deleteFromDocument();
+          snap.root.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        snap.root.focus();
+      }
+      function pasteCmSelection(view) {
+        if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.readText) {
+          navigator.clipboard.readText().then(function(text) {
+            view.dispatch(view.state.replaceSelection(text == null ? "" : String(text)));
+            view.focus();
+          }).catch(function() {
+          });
+          return;
+        }
+        view.focus();
+      }
+      function aiSoon(liveOpts) {
+        if (typeof liveOpts.onBlockMenuSoon === "function") {
+          liveOpts.onBlockMenuSoon();
+          return;
+        }
+        if (typeof liveOpts.toast === "function" && typeof liveOpts.t === "function") {
+          liveOpts.toast(liveOpts.t("blockMenuSoon"));
+        }
+      }
+      function addActionRow(menu, label, icon, onClick) {
+        const row = document.createElement("div");
+        row.className = "mda-menu-item mda-menu-item-soon";
+        row.setAttribute("role", "menuitem");
+        row.innerHTML = menuItemInner(label, icon);
+        row.addEventListener("click", function(ev) {
+          ev.stopPropagation();
+          onClick();
+          closeContextMenu();
+        });
+        menu.appendChild(row);
+      }
+      function openContextMenu(view, x, y, ctx, liveOpts) {
+        const pending = pendingMenuSelection;
+        if (pending && pending.dom) setWidgetDomMenuGuard(true);
+        closeBlockHandleMenu();
+        closeEmptyLineInsertMenu();
+        closeContextMenu();
+        if (pending && pending.dom) setWidgetDomMenuGuard(true);
+        ctx = adjustContextWithSelection(ctx, pending);
+        activeMenuSelection = captureMenuSelection(view, ctx, pending);
+        if (activeMenuSelection && activeMenuSelection.cm && (ctx.type === "text" || ctx.type === "link")) {
+          restoreCmSelection(view, activeMenuSelection.cm);
+        } else if (activeMenuSelection && activeMenuSelection.dom && ctx.type === "dom-text") {
+          restoreDomSelection(activeMenuSelection.dom);
+        }
+        const t = function(key) {
+          return uiT(key, liveOpts.t);
+        };
+        const handlers = liveOpts.blockMenuHandlers;
+        const menu = document.createElement("div");
+        menu.className = "mda-context-menu mda-block-handle-menu mda-cm-context-menu";
+        menu.setAttribute("role", "menu");
+        if (ctx.type === "media" && handlers) {
+          const block = ctx.block;
+          const kind = ctx.kind;
+          addClipboardRows(
+            menu,
+            t,
+            false,
+            function() {
+              handlers.onCopy(block, kind);
+            },
+            function() {
+              handlers.onCut(block, kind);
+            },
+            function() {
+              if (kind === "image" && typeof liveOpts.onPasteImageBlock === "function") {
+                liveOpts.onPasteImageBlock(block);
+                view.focus();
+                return;
+              }
+              pasteCmSelection(view);
+            }
+          );
+          addSubRow(menu, t, "blockMenuCopyAs", "copyAs", function() {
+            return buildSubmenu(t, COPY_AS_ITEMS, function(id) {
+              handlers.onCopyAs(block, kind, id);
+            });
+          });
+        } else if (ctx.type === "link") {
+          const link = ctx.link;
+          addClipboardRows(
+            menu,
+            t,
+            false,
+            function() {
+              if (typeof liveOpts.copyText === "function") {
+                liveOpts.copyText(view.state.sliceDoc(link.from, link.to));
+              }
+              if (typeof liveOpts.toast === "function") liveOpts.toast(t("toastCopied"));
+            },
+            function() {
+              if (typeof liveOpts.copyText === "function") {
+                liveOpts.copyText(view.state.sliceDoc(link.from, link.to));
+              }
+              view.dispatch({ changes: { from: link.from, to: link.to, insert: "" } });
+              view.focus();
+            },
+            function() {
+              pasteCmSelection(view);
+            }
+          );
+          const editRow = document.createElement("div");
+          editRow.className = "mda-menu-item";
+          editRow.setAttribute("role", "menuitem");
+          editRow.innerHTML = menuItemInner(t("contextMenuEditLink"), "edit");
+          editRow.addEventListener("click", function(ev) {
+            ev.stopPropagation();
+            closeContextMenu();
+            showLinkEditPopover({
+              x,
+              y,
+              text: link.text,
+              href: link.href,
+              t: liveOpts.t,
+              onConfirm: function(nextText, nextHref) {
+                const insert = "[" + nextText + "](" + nextHref + ")";
+                view.dispatch({
+                  changes: { from: link.from, to: link.to, insert },
+                  selection: { anchor: link.from + insert.length }
+                });
+                view.focus();
+              }
+            });
+          });
+          menu.appendChild(editRow);
+        } else if (ctx.type === "dom-text") {
+          const root = ctx.root;
+          addClipboardRows(
+            menu,
+            t,
+            false,
+            function() {
+              copyDomFromMenu(liveOpts);
+            },
+            function() {
+              cutDomFromMenu(liveOpts);
+            },
+            function() {
+              if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.readText) {
+                navigator.clipboard.readText().then(function(text) {
+                  replaceDomSelection(root, text == null ? "" : String(text));
+                  root.focus();
+                }).catch(function() {
+                });
+              }
+            }
+          );
+          addActionRow(menu, t("blockMenuAiEdit"), "ai", function() {
+            aiSoon(liveOpts);
+          });
+          addActionRow(menu, t("contextMenuAskAi"), "askAi", function() {
+            aiSoon(liveOpts);
+          });
+        } else if (ctx.type === "dom-collapsed") {
+          const root = ctx.root;
+          addClipboardRows(
+            menu,
+            t,
+            true,
+            function() {
+            },
+            function() {
+            },
+            function() {
+              if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.readText) {
+                navigator.clipboard.readText().then(function(text) {
+                  replaceDomSelection(root, text == null ? "" : String(text));
+                  root.focus();
+                }).catch(function() {
+                });
+              }
+            }
+          );
+        } else if (ctx.type === "text") {
+          addClipboardRows(
+            menu,
+            t,
+            false,
+            function() {
+              copyCmSelection(view, liveOpts);
+            },
+            function() {
+              cutCmSelection(view, liveOpts);
+            },
+            function() {
+              pasteCmSelection(view);
+            }
+          );
+          addActionRow(menu, t("blockMenuAiEdit"), "ai", function() {
+            aiSoon(liveOpts);
+          });
+          addActionRow(menu, t("contextMenuAskAi"), "askAi", function() {
+            aiSoon(liveOpts);
+          });
+        } else if (ctx.type === "blank") {
+          addClipboardRows(
+            menu,
+            t,
+            true,
+            function() {
+            },
+            function() {
+            },
+            function() {
+              pasteCmSelection(view);
+            }
+          );
+          addActionRow(menu, t("contextMenuAiWrite"), "ai", function() {
+            aiSoon(liveOpts);
+          });
+        } else {
+          addClipboardRows(
+            menu,
+            t,
+            true,
+            function() {
+            },
+            function() {
+            },
+            function() {
+              pasteCmSelection(view);
+            }
+          );
+        }
+        placeMenu(menu, x, y);
+        activeMenu = menu;
+        if (activeMenuSelection && activeMenuSelection.dom) {
+          const domSnap = activeMenuSelection.dom;
+          requestAnimationFrame(function() {
+            restoreDomSelection(domSnap);
+          });
+        }
+        dismissFn = function(ev) {
+          const target = ev && ev.target;
+          if (target && menu.contains(
+            /** @type {Node} */
+            target
+          )) return;
+          if (activeSubmenu && target && activeSubmenu.contains(
+            /** @type {Node} */
+            target
+          )) return;
+          closeContextMenu();
+        };
+        escFn = function(ev) {
+          if (ev.key === "Escape") closeContextMenu();
+        };
+        document.addEventListener("mousedown", dismissFn, true);
+        document.addEventListener("contextmenu", dismissFn, true);
+        window.addEventListener("blur", dismissFn);
+        document.addEventListener("keydown", escFn, true);
+      }
+      function createContextMenuExtension(liveOpts) {
+        return ViewPlugin.fromClass(
+          class {
+            /**
+             * @param {import('@codemirror/view').EditorView} view
+             */
+            constructor(view) {
+              this.view = view;
+              this._onCtx = this.onContextMenu.bind(this);
+              this._onMouseDown = this.onMouseDown.bind(this);
+              view.dom.addEventListener("contextmenu", this._onCtx, true);
+              document.addEventListener("mousedown", this._onMouseDown, true);
+            }
+            /**
+             * 右键 mousedown 会折叠 CM6 / contenteditable 选区；在选区内拦截并快照。
+             * @param {MouseEvent} e
+             */
+            onMouseDown(e) {
+              if (e.button !== 2) return;
+              const view = this.view;
+              if (!view.dom.contains(
+                /** @type {Node} */
+                e.target
+              )) return;
+              if (shouldSkipContextMenu(e)) return;
+              const target = (
+                /** @type {HTMLElement} */
+                e.target
+              );
+              if (target.closest && target.closest(".mda-cm-block-drag-handle")) return;
+              const tableCell = target.closest && target.closest("th[contenteditable], td[contenteditable]");
+              if (tableCell && !target.closest(TABLE_CHROME_SEL)) {
+                const cell = (
+                  /** @type {HTMLElement} */
+                  tableCell
+                );
+                const snap = snapshotDomSelection(cell);
+                if (snap) {
+                  stashDomMenuSelection(snap, e.clientX, e.clientY);
+                  e.preventDefault();
+                } else {
+                  pendingMenuSelection = null;
+                }
+                return;
+              }
+              if (shouldDeferToTableMenu(view, e)) return;
+              const widgetEdit = target.closest && target.closest(WIDGET_EDIT_SEL);
+              if (widgetEdit) {
+                const root = (
+                  /** @type {HTMLElement} */
+                  widgetEdit
+                );
+                const snap = snapshotDomSelection(root);
+                if (snap) {
+                  stashDomMenuSelection(snap, e.clientX, e.clientY);
+                  e.preventDefault();
+                } else {
+                  pendingMenuSelection = null;
+                }
+                return;
+              }
+              if (shouldPreserveCmSelection(view, e.clientX, e.clientY)) {
+                const snap = snapshotCmSelection(view);
+                if (snap) {
+                  snap._menuX = e.clientX;
+                  snap._menuY = e.clientY;
+                  pendingMenuSelection = snap;
+                  e.preventDefault();
+                }
+              } else {
+                pendingMenuSelection = null;
+              }
+            }
+            /**
+             * @param {MouseEvent} e
+             */
+            onContextMenu(e) {
+              const view = this.view;
+              if (!view.dom.contains(
+                /** @type {Node} */
+                e.target
+              )) return;
+              if (shouldSkipContextMenu(e)) return;
+              if (shouldDeferToTableMenu(view, e)) return;
+              const target = (
+                /** @type {HTMLElement} */
+                e.target
+              );
+              if (target.closest && target.closest(".mda-cm-block-drag-handle")) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const widgetEditCtx = target.closest && target.closest(WIDGET_EDIT_SEL);
+              const tableCellCtx = target.closest && target.closest("th[contenteditable], td[contenteditable]");
+              const menuRoot = widgetEditCtx || (tableCellCtx && !target.closest(TABLE_CHROME_SEL) ? tableCellCtx : null);
+              if (!pendingMenuSelection && menuRoot) {
+                const snap = snapshotDomSelection(
+                  /** @type {HTMLElement} */
+                  menuRoot
+                );
+                if (snap) {
+                  stashDomMenuSelection(snap, e.clientX, e.clientY);
+                }
+              }
+              pendingMenuSelection = revalidatePendingSelection(
+                pendingMenuSelection,
+                view,
+                e.clientX,
+                e.clientY
+              );
+              if (pendingMenuSelection && pendingMenuSelection.dom) {
+                const domRoot = pendingMenuSelection.dom.root;
+                finalizeCodeBlockMenuSnapshot(domRoot, pendingMenuSelection);
+                restoreDomSelection(pendingMenuSelection.dom);
+              }
+              prepareContextSelection(view, e);
+              const ctx = resolveMenuContext(view, e);
+              openContextMenu(view, e.clientX, e.clientY, ctx, liveOpts || {});
+            }
+            destroy() {
+              this.view.dom.removeEventListener("contextmenu", this._onCtx, true);
+              document.removeEventListener("mousedown", this._onMouseDown, true);
+              closeContextMenu();
+            }
+          }
+        );
+      }
+      module.exports = {
+        createContextMenuExtension,
+        closeContextMenu,
+        isWidgetDomMenuGuard
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-insert-snippets.js
+  var require_block_insert_snippets = __commonJS({
+    "src/gui/renderer/editor/widgets/block-insert-snippets.js"(exports, module) {
+      "use strict";
+      var INSERT_SNIPPETS = {
+        code: "```\n\n```",
+        mermaid: "```mermaid\ngraph TD\n  A-->B\n```",
+        // 行末保留空格：hide-mark 不藏「仅空格」行，便于落点输入
+        quote: "> ",
+        table: "| \u52171 | \u52172 |\n| --- | --- |\n|  |  |",
+        hr: "---",
+        image: "![](path/to/image.png)"
+      };
+      function getInsertSnippet(type) {
+        return Object.prototype.hasOwnProperty.call(INSERT_SNIPPETS, type) ? INSERT_SNIPPETS[type] : null;
+      }
+      function caretOffsetInSnippet(type, snippet) {
+        const s = String(snippet || "");
+        if (type === "code") {
+          const nl = s.indexOf("\n");
+          return nl >= 0 ? nl + 1 : s.length;
+        }
+        if (type === "table") {
+          const cell = s.indexOf("|  |");
+          return cell >= 0 ? cell + 2 : s.length;
+        }
+        return s.length;
+      }
+      module.exports = {
+        INSERT_SNIPPETS,
+        getInsertSnippet,
+        caretOffsetInSnippet
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-handle-ops.js
+  var require_block_handle_ops = __commonJS({
+    "src/gui/renderer/editor/widgets/block-handle-ops.js"(exports, module) {
+      "use strict";
+      var { Transaction } = require_dist2();
+      var {
+        resolveBlockRange,
+        deleteBlockRange,
+        expandBlockRange
+      } = require_image_block_ops();
+      var { getInsertSnippet, caretOffsetInSnippet } = require_block_insert_snippets();
+      var { copyText } = require_widget_common();
+      function getBlockSource(view, block) {
+        if (!view) return "";
+        if (block && block.source) return String(block.source);
+        const range = resolveBlockRange(view, block || {});
+        if (!range) return "";
+        return view.state.doc.sliceString(range.from, range.to);
+      }
+      function copyBlockSource(view, block, copyFn) {
+        const text = getBlockSource(view, block);
+        if (!text) return false;
+        copyText(text, copyFn);
+        return true;
+      }
+      function pinSelectionForHistory(view, pos) {
+        if (!view || pos == null || isNaN(pos)) return;
+        const caret = Math.max(0, Math.min(pos, view.state.doc.length));
+        const sel = view.state.selection.main;
+        if (sel.from !== caret || sel.to !== caret) {
+          view.dispatch({
+            selection: { anchor: caret, head: caret },
+            annotations: Transaction.addToHistory.of(false)
+          });
+        }
+      }
+      function insertSnippetAtBlankLine(view, block, type) {
+        if (!view) return false;
+        const snippet = getInsertSnippet(type);
+        if (!snippet) return false;
+        const line = view.state.doc.lineAt(block && block.from != null ? block.from : 0);
+        if (String(line.text || "").trim() !== "") return false;
+        const caret = line.from + caretOffsetInSnippet(type, snippet);
+        pinSelectionForHistory(view, line.from);
+        view.dispatch({
+          changes: { from: line.from, to: line.to, insert: snippet },
+          selection: { anchor: caret, head: caret },
+          userEvent: "input"
+        });
+        if (type === "quote") {
+          requestAnimationFrame(function() {
+            const anchor = view.dom.querySelector(
+              '.mda-cm-quote-handle-anchor[data-mda-block-from="' + line.from + '"]'
+            );
+            if (anchor) anchor.classList.add("mda-cm-block-handle-show");
+          });
+        }
+        try {
+          view.focus();
+        } catch (_) {
+        }
+        return true;
+      }
+      function insertSnippetNearBlock(view, block, where, type) {
+        if (!view) return false;
+        const snippet = getInsertSnippet(type);
+        if (!snippet) return false;
+        const range = resolveBlockRange(view, block || {});
+        if (!range) return false;
+        const doc = view.state.doc.toString();
+        const pos = where === "above" ? range.from : range.to;
+        let insert = snippet;
+        if (where === "above") {
+          if (pos > 0 && doc.charAt(pos - 1) !== "\n") insert = "\n" + insert;
+          insert += "\n";
+        } else {
+          if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
+          if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
+        }
+        const lead = insert.indexOf(snippet);
+        const snippetStart = pos + (lead >= 0 ? lead : 0);
+        const caret = snippetStart + caretOffsetInSnippet(type, snippet);
+        pinSelectionForHistory(view, pos);
+        view.dispatch({
+          changes: { from: pos, to: pos, insert },
+          selection: { anchor: caret, head: caret },
+          userEvent: "input"
+        });
+        if (type === "quote") {
+          requestAnimationFrame(function() {
+            const anchor = view.dom.querySelector(
+              '.mda-cm-quote-handle-anchor[data-mda-block-from="' + snippetStart + '"]'
+            );
+            if (anchor) anchor.classList.add("mda-cm-block-handle-show");
+          });
+        }
+        try {
+          view.focus();
+        } catch (_) {
+        }
+        return true;
+      }
+      function insertMarkdownAtBlankLine(view, block, markdownLine) {
+        if (!view || !markdownLine) return false;
+        const line = view.state.doc.lineAt(block && block.from != null ? block.from : 0);
+        if (String(line.text || "").trim() !== "") return false;
+        const snippet = String(markdownLine);
+        const caret = line.from + snippet.length;
+        pinSelectionForHistory(view, line.from);
+        view.dispatch({
+          changes: { from: line.from, to: line.to, insert: snippet },
+          selection: { anchor: caret, head: caret },
+          userEvent: "input"
+        });
+        try {
+          view.focus();
+        } catch (_) {
+        }
+        return true;
+      }
+      function insertMarkdownNearBlock(view, block, where, markdownLine) {
+        if (!view || !markdownLine) return false;
+        const range = resolveBlockRange(view, block || {});
+        if (!range) return false;
+        const snippet = String(markdownLine);
+        const doc = view.state.doc.toString();
+        const pos = where === "above" ? range.from : range.to;
+        let insert = snippet;
+        if (where === "above") {
+          if (pos > 0 && doc.charAt(pos - 1) !== "\n") insert = "\n" + insert;
+          insert += "\n";
+        } else {
+          if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
+          if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
+        }
+        const lead = insert.indexOf(snippet);
+        const snippetStart = pos + (lead >= 0 ? lead : 0);
+        const caret = snippetStart + snippet.length;
+        pinSelectionForHistory(view, pos);
+        view.dispatch({
+          changes: { from: pos, to: pos, insert },
+          selection: { anchor: caret, head: caret },
+          userEvent: "input"
+        });
+        try {
+          view.focus();
+        } catch (_) {
+        }
+        return true;
+      }
+      function deleteBlock(view, block) {
+        const range = resolveBlockRange(view, block || {});
+        if (!range) return false;
+        deleteBlockRange(view, range.from, range.to);
+        return true;
+      }
+      module.exports = {
+        getBlockSource,
+        copyBlockSource,
+        insertSnippetAtBlankLine,
+        insertMarkdownAtBlankLine,
+        insertMarkdownNearBlock,
+        insertSnippetNearBlock,
+        deleteBlock,
+        expandBlockRange
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-menu-handlers.js
+  var require_block_menu_handlers = __commonJS({
+    "src/gui/renderer/editor/widgets/block-menu-handlers.js"(exports, module) {
+      "use strict";
+      var {
+        copyBlockSource,
+        insertSnippetAtBlankLine,
+        insertSnippetNearBlock,
+        deleteBlock
+      } = require_block_handle_ops();
+      function createBlockMenuHandlers(liveOpts) {
+        const opts = liveOpts || {};
+        function getView() {
+          if (typeof opts.getView === "function") return opts.getView();
+          return opts.view || null;
+        }
+        function toast(msg) {
+          if (typeof opts.toast === "function") opts.toast(msg);
+        }
+        function onCopy(block, kind) {
+          if (kind === "image" && typeof opts.onCopyImageBlock === "function") {
+            opts.onCopyImageBlock(block);
+            return;
+          }
+          const view = getView();
+          if (!view) return;
+          if (copyBlockSource(view, block, opts.copyText)) {
+            if (typeof opts.t === "function") toast(opts.t("toastCopied"));
+          }
+        }
+        function onCut(block, kind) {
+          if (kind === "image" && typeof opts.onCopyImageBlock === "function") {
+            Promise.resolve(opts.onCopyImageBlock(block)).finally(function() {
+              onDelete(block, kind);
+            });
+            return;
+          }
+          const view = getView();
+          if (!view) return;
+          if (!copyBlockSource(view, block, opts.copyText)) return;
+          onDelete(block, kind);
+        }
+        function onDelete(block, kind) {
+          const view = getView();
+          if (!view) return;
+          if (kind === "mermaid" && typeof opts.onDeleteMermaidBlock === "function") {
+            opts.onDeleteMermaidBlock(block);
+            return;
+          }
+          if (kind === "code" && typeof opts.onDeleteCodeBlock === "function") {
+            opts.onDeleteCodeBlock(block);
+            return;
+          }
+          if (kind === "image" && typeof opts.onDeleteImageBlock === "function") {
+            opts.onDeleteImageBlock(block);
+            return;
+          }
+          deleteBlock(view, block);
+        }
+        function onInsert(where, type, block) {
+          const view = getView();
+          if (!view) return;
+          if (type === "image" && typeof opts.onPickImageInsert === "function") {
+            opts.onPickImageInsert(where, block);
+            return;
+          }
+          if (insertSnippetNearBlock(view, block, where, type)) return;
+          if (typeof opts.onSoon === "function") opts.onSoon("insert-" + where, type);
+        }
+        function onBlankInsert(type, block) {
+          const view = getView();
+          if (!view) return;
+          if (type === "image" && typeof opts.onPickImageInsert === "function") {
+            opts.onPickImageInsert("blank", block);
+            return;
+          }
+          if (insertSnippetAtBlankLine(view, block, type)) return;
+          if (typeof opts.onSoon === "function") opts.onSoon("insert-blank", type);
+        }
+        function onCopyAs(block, kind, format) {
+          if (format === "markdown") {
+            if (typeof opts.onCopyBlockAsMarkdown === "function") {
+              opts.onCopyBlockAsMarkdown(block, kind);
+              return;
+            }
+            const view = getView();
+            if (!view) return;
+            if (copyBlockSource(view, block, opts.copyText)) {
+              if (typeof opts.t === "function") toast(opts.t("toastCopied"));
+            }
+            return;
+          }
+          if (format === "image") {
+            const run = function() {
+              if (typeof opts.onCopyBlockAsImage === "function") {
+                opts.onCopyBlockAsImage(block, kind);
+                return;
+              }
+              if (kind === "image" && typeof opts.onCopyImageBlock === "function") {
+                opts.onCopyImageBlock(block);
+                return;
+              }
+              if (typeof opts.t === "function") toast(opts.t("toastNoCopy"));
+            };
+            if (typeof window !== "undefined" && window.requestAnimationFrame) {
+              window.requestAnimationFrame(function() {
+                window.requestAnimationFrame(run);
+              });
+            } else {
+              run();
+            }
+          }
+        }
+        function onAi(id, block, kind) {
+          if (typeof opts.onAiAction === "function") {
+            opts.onAiAction(id, block, kind);
+            return;
+          }
+          if (typeof opts.onSoon === "function") opts.onSoon("ai", id);
+        }
+        function onSoon(ctx, id) {
+          if (typeof opts.onSoon === "function") opts.onSoon(ctx, id);
+        }
+        return {
+          onCopy,
+          onCut,
+          onCopyAs,
+          onDelete,
+          onInsert,
+          onBlankInsert,
+          onAi,
+          onSoon
+        };
+      }
+      module.exports = {
+        createBlockMenuHandlers
       };
     }
   });
@@ -55854,6 +57967,7 @@ var MDAEditorBundle = (() => {
               this.view = view;
               const self2 = this;
               this.onPointer = function(e) {
+                if (e.button === 2) return;
                 if (!self2.view.dom.isConnected) {
                   document.removeEventListener("mousedown", self2.onPointer, true);
                   return;
@@ -56040,167 +58154,6 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/syntax-clipboard.js
-  var require_syntax_clipboard = __commonJS({
-    "src/gui/renderer/editor/syntax-clipboard.js"(exports, module) {
-      "use strict";
-      var { syntaxTree } = require_dist7();
-      var { SYNTAX_RULES } = require_syntax_rules();
-      var { findLeadingMark, findTrailingMark, adjustSelectionForHiddenMarks } = require_caret_syntax_adjust();
-      function adaptSyntaxNode(node) {
-        return { from: node.from, to: node.to, type: node.name };
-      }
-      function mergeRanges(ranges) {
-        if (!ranges.length) return [];
-        const sorted = ranges.slice().sort(function(a, b) {
-          return a.from - b.from || a.to - b.to;
-        });
-        const out = [sorted[0]];
-        for (let i = 1; i < sorted.length; i++) {
-          const prev = out[out.length - 1];
-          const cur = sorted[i];
-          if (cur.from <= prev.to) {
-            prev.to = Math.max(prev.to, cur.to);
-          } else {
-            out.push(cur);
-          }
-        }
-        return out;
-      }
-      function collectDelimiterExclusions(state, from, to) {
-        const tree = syntaxTree(state);
-        if (!tree) return [];
-        const doc = state.doc.toString();
-        const f = Math.min(from, to);
-        const t = Math.max(from, to);
-        const exclude = [];
-        tree.iterate({
-          enter: function(node) {
-            const rule = SYNTAX_RULES[node.name];
-            if (!rule || rule.class !== "R") return;
-            if (t <= node.from || f >= node.to) return;
-            const adapted = adaptSyntaxNode(node);
-            const marks = typeof rule.markRanges === "function" ? rule.markRanges(adapted, doc) || [] : [];
-            if (!marks.length) return;
-            const content = typeof rule.contentRange === "function" ? rule.contentRange(adapted, doc) : null;
-            if (!content) return;
-            const leading = findLeadingMark(marks, content);
-            const trailing = findTrailingMark(marks, content);
-            if (!leading) return;
-            const hasFullOpen = f <= leading.from && t >= leading.to;
-            const hasFullClose = trailing && f <= trailing.from && t >= trailing.to;
-            if (trailing) {
-              if (hasFullOpen && hasFullClose) return;
-              if (f < leading.to && t > leading.from) {
-                exclude.push({ from: Math.max(f, leading.from), to: Math.min(t, leading.to) });
-              }
-              if (f < trailing.to && t > trailing.from) {
-                exclude.push({ from: Math.max(f, trailing.from), to: Math.min(t, trailing.to) });
-              }
-              return;
-            }
-            if (f < leading.to && t > leading.from) {
-              exclude.push({ from: Math.max(f, leading.from), to: Math.min(t, leading.to) });
-            }
-          }
-        });
-        return mergeRanges(exclude);
-      }
-      function sliceDocSkippingRanges(doc, from, to, exclusions) {
-        if (!exclusions.length) return doc.slice(from, to);
-        let out = "";
-        let pos = from;
-        for (let i = 0; i < exclusions.length; i++) {
-          const ex = exclusions[i];
-          if (ex.to <= from || ex.from >= to) continue;
-          const clipFrom = Math.max(from, ex.from);
-          const clipTo = Math.min(to, ex.to);
-          if (clipFrom > pos) out += doc.slice(pos, clipFrom);
-          pos = Math.max(pos, clipTo);
-        }
-        if (pos < to) out += doc.slice(pos, to);
-        return out;
-      }
-      function sliceDocForClipboard(state, from, to) {
-        const f = Math.min(from, to);
-        const t = Math.max(from, to);
-        const doc = state.doc.toString();
-        const exclusions = collectDelimiterExclusions(state, f, t);
-        return {
-          from: f,
-          to: t,
-          text: normalizeClipboardAtx(sliceDocSkippingRanges(doc, f, t, exclusions))
-        };
-      }
-      function normalizeClipboardAtx(text) {
-        if (text == null || text === "") return text;
-        return String(text).replace(/\r\n/g, "\n").split("\n").map(function(ln) {
-          return ln.replace(/^#{1,6}\s+/, "").replace(/(\S)#{1,6}$/, "$1");
-        }).join("\n");
-      }
-      function sliceSelectionForClipboard(state) {
-        const sel = state.selection.main;
-        if (sel.empty) return null;
-        const adjusted = adjustSelectionForHiddenMarks(state, sel.anchor, sel.head);
-        const from = Math.min(adjusted.anchor, adjusted.head);
-        const to = Math.max(adjusted.anchor, adjusted.head);
-        return sliceDocForClipboard(state, from, to);
-      }
-      function handleMarkdownSyntaxCopy(event, view) {
-        if (!event || !event.clipboardData) return false;
-        const slice = sliceSelectionForClipboard(view.state);
-        if (!slice) return false;
-        event.clipboardData.setData("text/plain", slice.text);
-        event.preventDefault();
-        return true;
-      }
-      function handleMarkdownSyntaxCut(event, view) {
-        if (!event || !event.clipboardData) return false;
-        const slice = sliceSelectionForClipboard(view.state);
-        if (!slice) return false;
-        event.clipboardData.setData("text/plain", slice.text);
-        event.preventDefault();
-        view.dispatch({
-          changes: { from: slice.from, to: slice.to, insert: "" },
-          selection: { anchor: slice.from, head: slice.from }
-        });
-        return true;
-      }
-      function normalizePasteForHeading(state, pos, text) {
-        if (text == null || text === "") return text;
-        const line = state.doc.lineAt(pos);
-        if (!/^(#{1,6})\s/.test(line.text)) return text;
-        return normalizeClipboardAtx(text);
-      }
-      function handleMarkdownSyntaxPaste(event, view) {
-        if (!event || !event.clipboardData) return false;
-        const plain = event.clipboardData.getData("text/plain");
-        if (plain == null || plain === "") return false;
-        const sel = view.state.selection.main;
-        const pos = Math.min(sel.from, sel.to);
-        const next = normalizePasteForHeading(view.state, pos, plain);
-        if (next === plain) return false;
-        event.preventDefault();
-        view.dispatch({
-          changes: { from: sel.from, to: sel.to, insert: next },
-          userEvent: "input.paste"
-        });
-        return true;
-      }
-      module.exports = {
-        collectDelimiterExclusions,
-        sliceDocSkippingRanges,
-        sliceDocForClipboard,
-        normalizeClipboardAtx,
-        sliceSelectionForClipboard,
-        normalizePasteForHeading,
-        handleMarkdownSyntaxCopy,
-        handleMarkdownSyntaxCut,
-        handleMarkdownSyntaxPaste
-      };
-    }
-  });
-
   // src/gui/renderer/editor/heading-enter.js
   var require_heading_enter = __commonJS({
     "src/gui/renderer/editor/heading-enter.js"(exports, module) {
@@ -56284,6 +58237,7 @@ var MDAEditorBundle = (() => {
       var { InlineMathWidget, BlockMathWidget } = require_math();
       var { createAnnoGutterField } = require_anno_gutter();
       var { createClickCollapseExtension } = require_click_collapse();
+      var { createContextMenuExtension } = require_context_menu();
       var { createWidgetEditableGuardExtension } = require_widget_editable_guard();
       var {
         createImageSelectionSyncPlugin
@@ -56593,6 +58547,7 @@ var MDAEditorBundle = (() => {
           onMoveImageBlock: liveOpts.onMoveImageBlock,
           onDropReplaceImageBlock: liveOpts.onDropReplaceImageBlock,
           onPasteImageBlock: liveOpts.onPasteImageBlock,
+          onPasteTableCellImage: liveOpts.onPasteTableCellImage,
           onInsertImageAt: liveOpts.onInsertImageAt,
           onStartImageResize: liveOpts.onStartImageResize,
           onImageResize: liveOpts.onImageResize,
@@ -57206,6 +59161,7 @@ var MDAEditorBundle = (() => {
         ].concat(makeLayerPlugin("hide", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("style", liveOpts, {}, blockFocusField)).concat(makeLayerPlugin("widget", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("line", liveOpts, {}, blockFocusField)).concat([
           linkClick,
           createClickCollapseExtension(),
+          createContextMenuExtension(liveOpts),
           createOutlineClickSyncExtension(liveOpts.onHeadingClick),
           theme,
           Prec.high(

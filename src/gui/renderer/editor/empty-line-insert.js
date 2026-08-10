@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 正文空白行：hover 显示「+」插入按钮；光标落点显示占位提示。
  */
 'use strict';
@@ -471,4 +471,5 @@ module.exports = {
   createEmptyLineInsertExtension: createEmptyLineInsertExtension,
   refreshEmptyLineInsertI18n: refreshEmptyLineInsertI18n,
   isBlankProseLine: isBlankProseLine,
+  hitBlankLineAt: hitBlankLineAt,
 };

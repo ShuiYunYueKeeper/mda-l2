@@ -807,3 +807,33 @@ const range = lineSelectionRange(state, docLineAtClick(view, x, y));
 - ❌ `refineIfFar` 用 `dx²+dy²` 触发邻行重选 → widget 下方横向大偏差时吃到上一空行。
 - ❌ 三击 `line.to+1` + `adjustSelectionForHiddenMarks` → 选区含下一行 `2.`。
 - ❌ 拖选仅编辑区 `mouseup` 清状态 → 区外松手后移入仍扩展选区。
+
+---
+
+## 28. CM6 右键菜单与 widget 内选区（`context-menu` / `table-chrome`）
+
+**规则**：
+- 右键 **mousedown** 须在 **document 捕获**、且早于各表 `onDocPointer`，对 widget `contenteditable` / CM6 正文快照选区并 `preventDefault`。
+- 表格 `clearTableInteraction` **不得** `window.getSelection().removeAllRanges()` 清全局选区；仅当选区落在**本表** `tableWrap` 内才清除。
+- 表外点击：`onDocPointer` 对 **button 2 直接 return**；`media-outside-click` 同理。
+- 代码块：快照保存逻辑偏移；`contextmenu` 时再 hljs→plain 并 `restoreDomSelection`；菜单期 `setWidgetDomMenuGuard(true)` 防 blur 提交。
+
+### ✅ 正确
+
+```javascript
+// document 捕获、早于各表 onDocPointer
+document.addEventListener('mousedown', onMouseDown, true);
+
+// 仅清本表内选区
+if (tableWrap.contains(range.commonAncestorContainer)) {
+  domSel.removeAllRanges();
+}
+
+if (e.button === 2) return; // onDocPointer / media-outside-click
+```
+
+### ❌ 错误
+
+- ❌ 每个表的 `onDocPointer` 在表外右键调用全局 `removeAllRanges` → 长文档靠后代码块/单元格右键必丢选区（README §运行指引 后多表场景）。
+- ❌ 仅在 `view.dom` 捕获快照、晚于 document 表监听 → 快照时选区已被清空。
+- ❌ mousedown 快照前 `ensurePlainForEdit` 压平 hljs → 可见选区闪没。
