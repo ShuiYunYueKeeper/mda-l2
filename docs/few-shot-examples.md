@@ -817,6 +817,7 @@ const range = lineSelectionRange(state, docLineAtClick(view, x, y));
 - 表格 `clearTableInteraction` **不得** `window.getSelection().removeAllRanges()` 清全局选区；仅当选区落在**本表** `tableWrap` 内才清除。
 - 表外点击：`onDocPointer` 对 **button 2 直接 return**；`media-outside-click` 同理。
 - 代码块：快照保存逻辑偏移；`contextmenu` 时再 hljs→plain 并 `restoreDomSelection`；菜单期 `setWidgetDomMenuGuard(true)` 防 blur 提交。
+- 正文选区命中：`cmClickInSelection` 须用 `posAtClick` / DOM Range 边界，**禁止**仅依赖 `posAtCoords`/`coordsAtPos`（块 widget 下方高度图失真 → 长文档靠后正文右键丢选区）。
 
 ### ✅ 正确
 
@@ -830,6 +831,9 @@ if (tableWrap.contains(range.commonAncestorContainer)) {
 }
 
 if (e.button === 2) return; // onDocPointer / media-outside-click
+
+// 正文：校准落点已在选区内则保留（勿再被 coordsAtPos 像素框否决）
+if (clickPos != null && clickPos >= from && clickPos <= to) return true;
 ```
 
 ### ❌ 错误
@@ -837,3 +841,4 @@ if (e.button === 2) return; // onDocPointer / media-outside-click
 - ❌ 每个表的 `onDocPointer` 在表外右键调用全局 `removeAllRanges` → 长文档靠后代码块/单元格右键必丢选区（README §运行指引 后多表场景）。
 - ❌ 仅在 `view.dom` 捕获快照、晚于 document 表监听 → 快照时选区已被清空。
 - ❌ mousedown 快照前 `ensurePlainForEdit` 压平 hljs → 可见选区闪没。
+- ❌ 正文 `cmClickInSelection` 只用 `posAtCoords` + `coordsAtPos` 像素框 → 靠后段落右键误判为区外、不 `preventDefault` 而丢选区。

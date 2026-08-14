@@ -302,6 +302,17 @@ function prepareContextSelection(view, e) {
 function revalidatePendingSelection(pending, view, clientX, clientY) {
   if (!pending) return null;
   if (pending.cm) {
+    const cur = view.state.selection.main;
+    // mousedown 已 preventDefault 保住选区时，勿再用易失真的坐标二次否决
+    if (
+      !cur.empty &&
+      cur.from === pending.cm.from &&
+      cur.to === pending.cm.to &&
+      cur.anchor === pending.cm.anchor &&
+      cur.head === pending.cm.head
+    ) {
+      return pending;
+    }
     if (shouldPreserveCmSelection(view, clientX, clientY)) return pending;
     return null;
   }

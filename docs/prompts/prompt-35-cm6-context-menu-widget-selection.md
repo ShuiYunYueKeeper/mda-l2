@@ -29,3 +29,15 @@
 - `AGENTS.md` §9.4o、关键文件索引
 - `quality.md` CM6 右键菜单人工审核点
 - `docs/few-shot-examples.md` §28
+
+---
+
+## 续：正文靠后右键丢选区（2026-08-14）
+
+**现象**：表格/代码块已修好后，长文档**靠后正文**拖选再右键仍丢选区。
+
+**根因**：`cmClickInSelection` 仅用 `posAtCoords` + `coordsAtPos` 像素框；块 widget 下方高度图失真 → 误判区外 → 不 `preventDefault` → CM6 折叠选区。`revalidatePendingSelection` 对已快照的 CM 选区再次坐标否决加重问题。
+
+**修复**：
+- `context-selection.js`：`posAtClick` / `docLineAtClick` + DOM Range 边界；落点已在 `[from,to]` 则直接保留
+- `context-menu.js`：pending CM 选区与当前选区一致时不再二次坐标否决

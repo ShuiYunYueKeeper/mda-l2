@@ -32865,11 +32865,667 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/caret-syntax-adjust.js
+  var require_caret_syntax_adjust = __commonJS({
+    "src/gui/renderer/editor/caret-syntax-adjust.js"(exports, module) {
+      "use strict";
+      var { syntaxTree } = require_dist7();
+      var { SYNTAX_RULES } = require_syntax_rules();
+      var ATX_LINE_RE = /^( {0,3})(#{1,6})(\s*)(.*)$/;
+      function adaptSyntaxNode(node) {
+        return { from: node.from, to: node.to, type: node.name };
+      }
+      function findLeadingMark(marks, content) {
+        var leading = null;
+        for (var i = 0; i < marks.length; i++) {
+          if (marks[i].to <= content.from) {
+            if (!leading || marks[i].from < leading.from) leading = marks[i];
+          }
+        }
+        return leading || (marks.length ? marks[0] : null);
+      }
+      function findTrailingMark(marks, content) {
+        var trailing = null;
+        for (var i = 0; i < marks.length; i++) {
+          if (marks[i].from >= content.to) {
+            if (!trailing || marks[i].to > trailing.to) trailing = marks[i];
+          }
+        }
+        return trailing;
+      }
+      function adjustCaretForHiddenMarks(state, pos) {
+        if (pos == null || pos < 0) return pos;
+        const tree = syntaxTree(state);
+        if (!tree) return pos;
+        const doc = state.doc.toString();
+        const len = doc.length;
+        if (pos > len) return len;
+        var snapLeft = null;
+        var snapRight = null;
+        var bestLeftSpan = Infinity;
+        var bestRightSpan = Infinity;
+        tree.iterate({
+          enter: function(node) {
+            const rule = SYNTAX_RULES[node.name];
+            if (!rule || rule.class !== "R" || typeof rule.contentRange !== "function") return;
+            if (pos < node.from || pos > node.to) return;
+            const adapted = adaptSyntaxNode(node);
+            const content = rule.contentRange(adapted, doc);
+            if (!content || content.from > content.to) return;
+            const marks = typeof rule.markRanges === "function" ? rule.markRanges(adapted, doc) || [] : [];
+            if (!marks.length) return;
+            const leading = findLeadingMark(marks, content);
+            const trailing = findTrailingMark(marks, content);
+            const span = Math.max(0, content.to - content.from);
+            if (leading && pos > leading.from && pos <= content.from) {
+              if (span < bestLeftSpan) {
+                bestLeftSpan = span;
+                snapLeft = leading.from;
+              }
+            }
+            if (trailing && pos >= content.to && pos < trailing.to) {
+              if (span < bestRightSpan) {
+                bestRightSpan = span;
+                snapRight = trailing.to;
+              }
+            }
+          }
+        });
+        if (snapLeft != null && snapRight != null) {
+          return bestLeftSpan <= bestRightSpan ? snapLeft : snapRight;
+        }
+        if (snapLeft != null) return snapLeft;
+        if (snapRight != null) return snapRight;
+        return pos;
+      }
+      function clampSelectionBleed(state, pos, other) {
+        if (pos == null || pos < 0) return pos;
+        const doc = state.doc;
+        if (pos > doc.length) return doc.length;
+        const line = doc.lineAt(pos);
+        const m = ATX_LINE_RE.exec(line.text);
+        if (!m) return pos;
+        const prefixEnd = line.from + m[1].length + m[2].length + m[3].length;
+        if (pos > prefixEnd) return pos;
+        const otherLine = doc.lineAt(other);
+        if (otherLine.number < line.number && line.number > 1) {
+          return doc.line(line.number - 1).to;
+        }
+        return pos;
+      }
+      function clampEmptyLineSelectionBleed(state, pos, other) {
+        if (pos == null || pos < 0) return pos;
+        const doc = state.doc;
+        const line = doc.lineAt(pos);
+        if (line.text.trim() !== "") return pos;
+        if (pos !== line.from) return pos;
+        const otherLine = doc.lineAt(other);
+        if (otherLine.number !== line.number - 1) return pos;
+        return otherLine.to;
+      }
+      function adjustSelectionForHiddenMarks(state, anchor, head) {
+        let a = clampSelectionBleed(state, anchor, head);
+        let h = clampSelectionBleed(state, head, anchor);
+        a = clampEmptyLineSelectionBleed(state, a, h);
+        h = clampEmptyLineSelectionBleed(state, h, a);
+        return {
+          anchor: adjustCaretForHiddenMarks(state, a),
+          head: adjustCaretForHiddenMarks(state, h)
+        };
+      }
+      module.exports = {
+        ATX_LINE_RE,
+        findLeadingMark,
+        findTrailingMark,
+        clampSelectionBleed,
+        clampEmptyLineSelectionBleed,
+        adjustCaretForHiddenMarks,
+        adjustSelectionForHiddenMarks
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/click-collapse.js
+  var require_click_collapse = __commonJS({
+    "src/gui/renderer/editor/click-collapse.js"(exports, module) {
+      "use strict";
+      var { EditorView } = require_dist4();
+      var { EditorSelection } = require_dist2();
+      var { adjustCaretForHiddenMarks, adjustSelectionForHiddenMarks } = require_caret_syntax_adjust();
+      var DRAG_PX = 4;
+      var REFINE_DIST_PX = 10;
+      var mouseDown = null;
+      var docPointerEndBound = false;
+      function takeMouseDownForView(view) {
+        if (!mouseDown || mouseDown.view !== view) return null;
+        const start = mouseDown;
+        mouseDown = null;
+        return start;
+      }
+      function takeAnyMouseDown() {
+        if (!mouseDown) return null;
+        const start = mouseDown;
+        mouseDown = null;
+        return start;
+      }
+      function ensureDocPointerEndListeners() {
+        if (docPointerEndBound || typeof document === "undefined") return;
+        docPointerEndBound = true;
+        document.addEventListener(
+          "mouseup",
+          function(event) {
+            if (event.button !== 0) return;
+            const start = takeAnyMouseDown();
+            if (!start || start.view.destroyed) return;
+            finalizePointerUp(start.view, start, event.clientX, event.clientY, event.detail);
+          },
+          true
+        );
+      }
+      function finalizePointerUp(view, start, clientX, clientY, detail, options) {
+        if (!view || view.destroyed || start.shiftKey) return;
+        if (start.handledMultiClick || detail >= 2) return;
+        const dx = clientX - start.x;
+        const dy = clientY - start.y;
+        const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
+        if (moved) {
+          const pointer = {
+            startX: start.x,
+            startY: start.y,
+            endX: clientX,
+            endY: clientY
+          };
+          adjustDragSelection(view, pointer);
+          requestAnimationFrame(function() {
+            adjustDragSelection(view, pointer);
+          });
+          return;
+        }
+        if (options && options.skipClickCaret) return;
+        placeCaret(view, clientX, clientY);
+        requestAnimationFrame(function() {
+          if (!view || view.destroyed) return;
+          placeCaret(view, clientX, clientY);
+        });
+      }
+      function isBlockWidgetTarget(target) {
+        if (!target || !target.closest) return false;
+        return !!target.closest(
+          ".mda-cm-image-block, .mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-math-block, .mda-cm-hr-block, .mda-cm-math-inline"
+        );
+      }
+      function caretNodeFromPoint(clientX, clientY) {
+        if (typeof document === "undefined") return null;
+        if (typeof document.caretRangeFromPoint === "function") {
+          try {
+            const range = document.caretRangeFromPoint(clientX, clientY);
+            if (range && range.startContainer) {
+              return { node: range.startContainer, offset: range.startOffset };
+            }
+          } catch (_) {
+          }
+        }
+        if (typeof document.caretPositionFromPoint === "function") {
+          try {
+            const pos = document.caretPositionFromPoint(clientX, clientY);
+            if (pos && pos.offsetNode) {
+              return { node: pos.offsetNode, offset: pos.offset };
+            }
+          } catch (_) {
+          }
+        }
+        return null;
+      }
+      function posAtClickFromDom(view, clientX, clientY) {
+        const hit = typeof document !== "undefined" && document.elementFromPoint ? document.elementFromPoint(clientX, clientY) : null;
+        if (isBlockWidgetTarget(hit)) return null;
+        if (hit && hit.closest && !hit.closest(".cm-content")) return null;
+        const caret = caretNodeFromPoint(clientX, clientY);
+        if (!caret) return null;
+        if (isBlockWidgetTarget(caret.node.nodeType === 1 ? caret.node : caret.node.parentElement)) {
+          return null;
+        }
+        try {
+          const pos = view.posAtDOM(caret.node, caret.offset);
+          if (pos == null || pos < 0) return null;
+          if (pos > view.state.doc.length) return view.state.doc.length;
+          return pos;
+        } catch (_) {
+          return null;
+        }
+      }
+      function lineElementAt(view, pos) {
+        try {
+          const at = view.domAtPos(pos, 1);
+          let node = at && at.node;
+          if (!node) return null;
+          if (node.nodeType === 3) node = node.parentElement;
+          return node && node.closest ? (
+            /** @type {HTMLElement} */
+            node.closest(".cm-line")
+          ) : null;
+        } catch (_) {
+          return null;
+        }
+      }
+      function cmLineElementAtPoint(view, clientX, clientY) {
+        if (typeof document === "undefined" || !view || !view.dom) return null;
+        const caret = caretNodeFromPoint(clientX, clientY);
+        if (caret) {
+          const el = caret.node.nodeType === 3 ? caret.node.parentElement : caret.node;
+          if (el && el.closest) {
+            const hit = el.closest(".cm-line");
+            if (hit && view.dom.contains(hit)) return (
+              /** @type {HTMLElement} */
+              hit
+            );
+          }
+        }
+        const target = document.elementFromPoint(clientX, clientY);
+        if (!target || !view.dom.contains(target)) return null;
+        if (target.closest) {
+          const hit = target.closest(".cm-line");
+          if (hit) return (
+            /** @type {HTMLElement} */
+            hit
+          );
+        }
+        let best = null;
+        let bestDy = Infinity;
+        const lines = view.contentDOM.querySelectorAll(".cm-line");
+        for (let i = 0; i < lines.length; i++) {
+          const el = (
+            /** @type {HTMLElement} */
+            lines[i]
+          );
+          const rect = el.getBoundingClientRect();
+          if (clientY < rect.top - 2 || clientY > rect.bottom + 2 || clientX < rect.left - 12 || clientX > rect.right + 12) {
+            continue;
+          }
+          const midY = (rect.top + rect.bottom) / 2;
+          const dy = Math.abs(midY - clientY);
+          if (dy < bestDy) {
+            bestDy = dy;
+            best = el;
+          }
+        }
+        return best;
+      }
+      function docLineAtClick(view, clientX, clientY) {
+        if (!view || view.destroyed) return null;
+        const lineEl = cmLineElementAtPoint(view, clientX, clientY);
+        if (lineEl) {
+          try {
+            const base = view.posAtDOM(lineEl, 0);
+            return view.state.doc.lineAt(base);
+          } catch (_) {
+          }
+        }
+        const raw = posAtClick(view, clientX, clientY);
+        if (raw == null) return null;
+        return view.state.doc.lineAt(caretPosForClick(view, raw));
+      }
+      function lineSelectionRange(state, line) {
+        let from = adjustCaretForHiddenMarks(state, line.from);
+        const to = line.to;
+        if (state.doc.lineAt(from).number < line.number) from = line.from;
+        return { from: Math.min(from, to), to: Math.max(from, to) };
+      }
+      function posFromCmLineAtPoint(view, clientX, clientY) {
+        const lineEl = cmLineElementAtPoint(view, clientX, clientY);
+        if (!lineEl) return null;
+        const caret = caretNodeFromPoint(clientX, clientY);
+        if (caret) {
+          try {
+            const node = caret.node;
+            const el = node.nodeType === 3 ? node.parentElement : node;
+            if (el && lineEl.contains(el)) {
+              const pos = view.posAtDOM(caret.node, caret.offset);
+              if (pos != null && pos >= 0 && pos <= view.state.doc.length) return pos;
+            }
+          } catch (_) {
+          }
+        }
+        try {
+          const base = view.posAtDOM(lineEl, 0);
+          const line = view.state.doc.lineAt(base);
+          if (clientX <= lineEl.getBoundingClientRect().left + 4) return line.from;
+          return line.to;
+        } catch (_) {
+          return null;
+        }
+      }
+      function lineVerticalBand(view, line) {
+        const lineEl = lineElementAt(view, line.from);
+        if (lineEl) {
+          const rect = lineEl.getBoundingClientRect();
+          if (rect.bottom >= rect.top) {
+            return { top: rect.top, bottom: rect.bottom };
+          }
+        }
+        let top = Infinity;
+        let bottom = -Infinity;
+        const positions = [line.from];
+        if (line.to > line.from) {
+          positions.push(line.from + Math.floor((line.to - line.from) / 2));
+          positions.push(Math.max(line.from, line.to - 1));
+        }
+        for (let i = 0; i < positions.length; i++) {
+          const c1 = view.coordsAtPos(positions[i], 1);
+          const c2 = view.coordsAtPos(positions[i], -1);
+          if (c1) {
+            top = Math.min(top, c1.top);
+            bottom = Math.max(bottom, c1.bottom);
+          }
+          if (c2) {
+            top = Math.min(top, c2.top);
+            bottom = Math.max(bottom, c2.bottom);
+          }
+        }
+        if (!isFinite(top) || !isFinite(bottom) || bottom < top) return null;
+        if (bottom - top < 12) bottom = top + 26;
+        return { top, bottom };
+      }
+      function posOnLineAtX(view, line, clientX) {
+        const band = lineVerticalBand(view, line);
+        if (!band) return line.from;
+        const midY = (band.top + band.bottom) / 2;
+        let p = view.posAtCoords({ x: clientX, y: midY }, 1);
+        if (p == null) p = view.posAtCoords({ x: clientX, y: midY }, -1);
+        if (p == null) return line.from;
+        if (p < line.from) return line.from;
+        if (p > line.to) return line.to;
+        return p;
+      }
+      function refinePosAtClick(view, clientX, clientY, hintPos) {
+        const cmPos = posFromCmLineAtPoint(view, clientX, clientY);
+        if (cmPos != null) return cmPos;
+        const doc = view.state.doc;
+        const hintLine = doc.lineAt(hintPos);
+        let bestPos = hintPos;
+        let bestScore = Infinity;
+        let foundInY = false;
+        const fromN = Math.max(1, hintLine.number - 2);
+        const toN = Math.min(doc.lines, hintLine.number + 2);
+        for (let n = fromN; n <= toN; n++) {
+          const line = doc.line(n);
+          const band = lineVerticalBand(view, line);
+          if (!band) continue;
+          const inY = clientY >= band.top - 2 && clientY <= band.bottom + 2;
+          if (!inY) continue;
+          foundInY = true;
+          const p = posOnLineAtX(view, line, clientX);
+          const caret = view.coordsAtPos(p, p <= line.from ? 1 : -1);
+          if (!caret) continue;
+          const dx = caret.left - clientX;
+          const dy = (caret.top + caret.bottom) / 2 - clientY;
+          const score = dx * dx * 0.2 + dy * dy;
+          if (score < bestScore) {
+            bestScore = score;
+            bestPos = p;
+          }
+        }
+        return foundInY ? bestPos : hintPos;
+      }
+      function clickScoreAtPos(view, pos, clientX, clientY) {
+        const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+        if (!caret) return Infinity;
+        const dx = caret.left - clientX;
+        const dy = (caret.top + caret.bottom) / 2 - clientY;
+        return dx * dx + dy * dy;
+      }
+      function posAtClick(view, clientX, clientY) {
+        if (typeof document !== "undefined" && document.elementFromPoint) {
+          const el = document.elementFromPoint(clientX, clientY);
+          if (isBlockWidgetTarget(el)) return null;
+        }
+        const cmPos = posFromCmLineAtPoint(view, clientX, clientY);
+        const fromDom = posAtClickFromDom(view, clientX, clientY);
+        let fromCoords = view.posAtCoords({ x: clientX, y: clientY }, 1);
+        if (fromCoords == null) fromCoords = view.posAtCoords({ x: clientX, y: clientY }, -1);
+        const doc = view.state.doc;
+        if (cmPos != null) {
+          if (fromCoords != null) {
+            const cmLn = doc.lineAt(cmPos);
+            const coLn = doc.lineAt(fromCoords);
+            if (cmLn.number < coLn.number) return cmPos;
+          }
+          return cmPos;
+        }
+        if (fromDom != null && fromCoords != null && fromDom !== fromCoords) {
+          const domLine = doc.lineAt(fromDom);
+          const coLine = doc.lineAt(fromCoords);
+          if (coLine.number > domLine.number) return fromDom;
+          if (domLine.number > coLine.number) return fromCoords;
+          const sDom = clickScoreAtPos(view, fromDom, clientX, clientY);
+          const sCo = clickScoreAtPos(view, fromCoords, clientX, clientY);
+          if (sCo + 9 < sDom) {
+            return refineIfFar(view, clientX, clientY, fromCoords);
+          }
+          return fromDom;
+        }
+        if (fromDom != null) return fromDom;
+        if (fromCoords == null) return null;
+        return refineIfFar(view, clientX, clientY, fromCoords);
+      }
+      function refineIfFar(view, clientX, clientY, pos) {
+        const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+        if (caret) {
+          const dx = caret.left - clientX;
+          const dy = (caret.top + caret.bottom) / 2 - clientY;
+          if (Math.abs(dy) > REFINE_DIST_PX) {
+            return refinePosAtClick(view, clientX, clientY, pos);
+          }
+          return pos;
+        }
+        return refinePosAtClick(view, clientX, clientY, pos);
+      }
+      function caretPosForClick(view, raw) {
+        const pos = adjustCaretForHiddenMarks(view.state, raw);
+        if (pos === raw) return pos;
+        const doc = view.state.doc;
+        const rawLine = doc.lineAt(raw);
+        const posLine = doc.lineAt(pos);
+        if (posLine.number > rawLine.number && posLine.text.trim() === "") {
+          return raw;
+        }
+        return pos;
+      }
+      function setSelectionAtClick(view, clientX, clientY) {
+        if (!view || view.destroyed) return false;
+        if (typeof document !== "undefined" && document.elementFromPoint) {
+          const el = document.elementFromPoint(clientX, clientY);
+          if (isBlockWidgetTarget(el)) return false;
+        }
+        const raw = posAtClick(view, clientX, clientY);
+        if (raw == null) return false;
+        const pos = caretPosForClick(view, raw);
+        const sel = view.state.selection.main;
+        if (sel.from === sel.to && sel.anchor === pos && sel.head === pos) return true;
+        view.dispatch({
+          selection: { anchor: pos, head: pos },
+          scrollIntoView: false
+        });
+        return true;
+      }
+      function placeCaret(view, clientX, clientY) {
+        setSelectionAtClick(view, clientX, clientY);
+      }
+      function selectWordAtClick(view, clientX, clientY) {
+        if (!view || view.destroyed) return false;
+        if (typeof document !== "undefined" && document.elementFromPoint) {
+          const el = document.elementFromPoint(clientX, clientY);
+          if (isBlockWidgetTarget(el)) return false;
+        }
+        const raw = posAtClick(view, clientX, clientY);
+        if (raw == null) return false;
+        const pos = caretPosForClick(view, raw);
+        const word = view.state.wordAt(pos);
+        const from = word ? word.from : pos;
+        const to = word ? word.to : pos;
+        const next = adjustSelectionForHiddenMarks(view.state, from, to);
+        view.dispatch({
+          selection: EditorSelection.range(next.anchor, next.head),
+          scrollIntoView: false
+        });
+        return true;
+      }
+      function selectLineAtClick(view, clientX, clientY) {
+        if (!view || view.destroyed) return false;
+        if (typeof document !== "undefined" && document.elementFromPoint) {
+          const el = document.elementFromPoint(clientX, clientY);
+          if (isBlockWidgetTarget(el)) return false;
+        }
+        const line = docLineAtClick(view, clientX, clientY);
+        if (!line) return false;
+        const range = lineSelectionRange(view.state, line);
+        view.dispatch({
+          selection: EditorSelection.range(range.from, range.to),
+          scrollIntoView: false
+        });
+        return true;
+      }
+      function adjustDragSelection(view, pointer) {
+        if (!view || view.destroyed) return;
+        const sel = view.state.selection.main;
+        if (sel.empty) return;
+        let anchor = sel.anchor;
+        let head = sel.head;
+        const ptr = pointer || {};
+        if (ptr.startX != null && ptr.startY != null) {
+          const mapped = posAtClick(view, ptr.startX, ptr.startY);
+          if (mapped != null) anchor = mapped;
+        }
+        if (ptr.endX != null && ptr.endY != null) {
+          const mapped = posAtClick(view, ptr.endX, ptr.endY);
+          if (mapped != null) head = mapped;
+        }
+        const next = adjustSelectionForHiddenMarks(view.state, anchor, head);
+        if (next.anchor === sel.anchor && next.head === sel.head) return;
+        view.dispatch({
+          selection: { anchor: next.anchor, head: next.head },
+          scrollIntoView: false
+        });
+      }
+      function applyDragSelectionAt(view, anchorX, anchorY, headX, headY) {
+        if (!view || view.destroyed) return false;
+        const anchorPos = posAtClick(view, anchorX, anchorY);
+        const headPos = posAtClick(view, headX, headY);
+        if (anchorPos == null || headPos == null) return false;
+        const next = adjustSelectionForHiddenMarks(view.state, anchorPos, headPos);
+        const main = view.state.selection.main;
+        if (main.anchor === next.anchor && main.head === next.head) return false;
+        view.dispatch({
+          selection: { anchor: next.anchor, head: next.head },
+          scrollIntoView: false
+        });
+        return true;
+      }
+      function createClickCollapseExtension() {
+        ensureDocPointerEndListeners();
+        return EditorView.domEventHandlers({
+          mousedown: function(event, view) {
+            if (event.button !== 0) return false;
+            if (isBlockWidgetTarget(event.target)) return false;
+            mouseDown = {
+              x: event.clientX,
+              y: event.clientY,
+              shiftKey: !!event.shiftKey,
+              dragging: false,
+              handledMultiClick: false,
+              view
+            };
+            if (event.shiftKey) return false;
+            if (event.detail >= 3) {
+              mouseDown.handledMultiClick = selectLineAtClick(view, event.clientX, event.clientY);
+              try {
+                view.focus();
+              } catch (_) {
+              }
+              return mouseDown.handledMultiClick;
+            }
+            if (event.detail === 2) {
+              mouseDown.handledMultiClick = selectWordAtClick(view, event.clientX, event.clientY);
+              try {
+                view.focus();
+              } catch (_) {
+              }
+              return mouseDown.handledMultiClick;
+            }
+            setSelectionAtClick(view, event.clientX, event.clientY);
+            try {
+              view.focus();
+            } catch (_) {
+            }
+            return true;
+          },
+          mousemove: function(event, view) {
+            if (!mouseDown || mouseDown.shiftKey || mouseDown.view !== view) return false;
+            if ((event.buttons & 1) === 0) {
+              const start = takeMouseDownForView(view);
+              if (start) {
+                finalizePointerUp(view, start, event.clientX, event.clientY, 1);
+              }
+              return false;
+            }
+            const dx = event.clientX - mouseDown.x;
+            const dy = event.clientY - mouseDown.y;
+            if (!mouseDown.dragging) {
+              if (dx * dx + dy * dy > DRAG_PX * DRAG_PX) {
+                mouseDown.dragging = true;
+              } else {
+                return false;
+              }
+            }
+            if (isBlockWidgetTarget(event.target)) return false;
+            applyDragSelectionAt(view, mouseDown.x, mouseDown.y, event.clientX, event.clientY);
+            return true;
+          },
+          mouseup: function(event, view) {
+            if (event.button !== 0) return false;
+            const start = takeMouseDownForView(view);
+            if (!start) return false;
+            if (start.shiftKey || event.shiftKey) return false;
+            if (start.handledMultiClick || event.detail >= 2) return true;
+            const blockAtUp = isBlockWidgetTarget(event.target);
+            const dx = event.clientX - start.x;
+            const dy = event.clientY - start.y;
+            const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
+            if (blockAtUp && !moved) return false;
+            finalizePointerUp(view, start, event.clientX, event.clientY, event.detail, {
+              skipClickCaret: blockAtUp
+            });
+            return false;
+          }
+        });
+      }
+      module.exports = {
+        createClickCollapseExtension,
+        posAtClick,
+        posAtClickFromDom,
+        placeCaret,
+        setSelectionAtClick,
+        selectWordAtClick,
+        selectLineAtClick,
+        docLineAtClick,
+        lineSelectionRange,
+        caretPosForClick,
+        adjustDragSelection,
+        applyDragSelectionAt,
+        refinePosAtClick,
+        posFromCmLineAtPoint,
+        refineIfFar,
+        isBlockWidgetTarget
+      };
+    }
+  });
+
   // src/gui/renderer/editor/context-selection.js
   var require_context_selection = __commonJS({
     "src/gui/renderer/editor/context-selection.js"(exports, module) {
       "use strict";
       var { Transaction } = require_dist2();
+      var { posAtClick, docLineAtClick } = require_click_collapse();
       function getDomSelectionText(root) {
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return "";
@@ -33008,18 +33664,36 @@ var MDAEditorBundle = (() => {
           bottom: Math.max(startCoords.bottom, endCoords.bottom)
         };
       }
+      function selectionSegmentBoundsDom(view, segFrom, segTo) {
+        if (typeof document === "undefined" || segFrom >= segTo) return null;
+        try {
+          const a = view.domAtPos(segFrom);
+          const b = view.domAtPos(segTo);
+          if (!a || !b || !a.node || !b.node) return null;
+          const range = document.createRange();
+          range.setStart(a.node, a.offset);
+          range.setEnd(b.node, b.offset);
+          return domRangeClientBounds(range);
+        } catch (_) {
+          return null;
+        }
+      }
       function cmClickInSelection(view, clientX, clientY) {
         const sel = view.state.selection.main;
         if (sel.empty) return false;
         const from = Math.min(sel.from, sel.to);
         const to = Math.max(sel.from, sel.to);
-        const clickPos = view.posAtCoords({ x: clientX, y: clientY, exact: false });
-        if (clickPos == null) return false;
         const doc = view.state.doc;
-        const clickLine = doc.lineAt(clickPos);
+        let clickPos = posAtClick(view, clientX, clientY);
+        if (clickPos == null) {
+          clickPos = view.posAtCoords({ x: clientX, y: clientY, exact: false });
+        }
+        if (clickPos != null && clickPos >= from && clickPos <= to) return true;
+        const clickLine = docLineAtClick(view, clientX, clientY) || (clickPos != null ? doc.lineAt(clickPos) : null);
+        if (!clickLine) return false;
         const seg = selectionSegmentOnLine(doc, from, to, clickLine);
         if (!seg) return false;
-        const bounds = selectionSegmentBounds(view, seg.from, seg.to);
+        const bounds = selectionSegmentBoundsDom(view, seg.from, seg.to) || selectionSegmentBounds(view, seg.from, seg.to);
         if (!bounds) return false;
         if (clientY < bounds.top - 2 || clientY > bounds.bottom + 2) return false;
         if (clientX < bounds.left - 2 || clientX > bounds.right + 2) return false;
@@ -54802,661 +55476,6 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/caret-syntax-adjust.js
-  var require_caret_syntax_adjust = __commonJS({
-    "src/gui/renderer/editor/caret-syntax-adjust.js"(exports, module) {
-      "use strict";
-      var { syntaxTree } = require_dist7();
-      var { SYNTAX_RULES } = require_syntax_rules();
-      var ATX_LINE_RE = /^( {0,3})(#{1,6})(\s*)(.*)$/;
-      function adaptSyntaxNode(node) {
-        return { from: node.from, to: node.to, type: node.name };
-      }
-      function findLeadingMark(marks, content) {
-        var leading = null;
-        for (var i = 0; i < marks.length; i++) {
-          if (marks[i].to <= content.from) {
-            if (!leading || marks[i].from < leading.from) leading = marks[i];
-          }
-        }
-        return leading || (marks.length ? marks[0] : null);
-      }
-      function findTrailingMark(marks, content) {
-        var trailing = null;
-        for (var i = 0; i < marks.length; i++) {
-          if (marks[i].from >= content.to) {
-            if (!trailing || marks[i].to > trailing.to) trailing = marks[i];
-          }
-        }
-        return trailing;
-      }
-      function adjustCaretForHiddenMarks(state, pos) {
-        if (pos == null || pos < 0) return pos;
-        const tree = syntaxTree(state);
-        if (!tree) return pos;
-        const doc = state.doc.toString();
-        const len = doc.length;
-        if (pos > len) return len;
-        var snapLeft = null;
-        var snapRight = null;
-        var bestLeftSpan = Infinity;
-        var bestRightSpan = Infinity;
-        tree.iterate({
-          enter: function(node) {
-            const rule = SYNTAX_RULES[node.name];
-            if (!rule || rule.class !== "R" || typeof rule.contentRange !== "function") return;
-            if (pos < node.from || pos > node.to) return;
-            const adapted = adaptSyntaxNode(node);
-            const content = rule.contentRange(adapted, doc);
-            if (!content || content.from > content.to) return;
-            const marks = typeof rule.markRanges === "function" ? rule.markRanges(adapted, doc) || [] : [];
-            if (!marks.length) return;
-            const leading = findLeadingMark(marks, content);
-            const trailing = findTrailingMark(marks, content);
-            const span = Math.max(0, content.to - content.from);
-            if (leading && pos > leading.from && pos <= content.from) {
-              if (span < bestLeftSpan) {
-                bestLeftSpan = span;
-                snapLeft = leading.from;
-              }
-            }
-            if (trailing && pos >= content.to && pos < trailing.to) {
-              if (span < bestRightSpan) {
-                bestRightSpan = span;
-                snapRight = trailing.to;
-              }
-            }
-          }
-        });
-        if (snapLeft != null && snapRight != null) {
-          return bestLeftSpan <= bestRightSpan ? snapLeft : snapRight;
-        }
-        if (snapLeft != null) return snapLeft;
-        if (snapRight != null) return snapRight;
-        return pos;
-      }
-      function clampSelectionBleed(state, pos, other) {
-        if (pos == null || pos < 0) return pos;
-        const doc = state.doc;
-        if (pos > doc.length) return doc.length;
-        const line = doc.lineAt(pos);
-        const m = ATX_LINE_RE.exec(line.text);
-        if (!m) return pos;
-        const prefixEnd = line.from + m[1].length + m[2].length + m[3].length;
-        if (pos > prefixEnd) return pos;
-        const otherLine = doc.lineAt(other);
-        if (otherLine.number < line.number && line.number > 1) {
-          return doc.line(line.number - 1).to;
-        }
-        return pos;
-      }
-      function clampEmptyLineSelectionBleed(state, pos, other) {
-        if (pos == null || pos < 0) return pos;
-        const doc = state.doc;
-        const line = doc.lineAt(pos);
-        if (line.text.trim() !== "") return pos;
-        if (pos !== line.from) return pos;
-        const otherLine = doc.lineAt(other);
-        if (otherLine.number !== line.number - 1) return pos;
-        return otherLine.to;
-      }
-      function adjustSelectionForHiddenMarks(state, anchor, head) {
-        let a = clampSelectionBleed(state, anchor, head);
-        let h = clampSelectionBleed(state, head, anchor);
-        a = clampEmptyLineSelectionBleed(state, a, h);
-        h = clampEmptyLineSelectionBleed(state, h, a);
-        return {
-          anchor: adjustCaretForHiddenMarks(state, a),
-          head: adjustCaretForHiddenMarks(state, h)
-        };
-      }
-      module.exports = {
-        ATX_LINE_RE,
-        findLeadingMark,
-        findTrailingMark,
-        clampSelectionBleed,
-        clampEmptyLineSelectionBleed,
-        adjustCaretForHiddenMarks,
-        adjustSelectionForHiddenMarks
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/click-collapse.js
-  var require_click_collapse = __commonJS({
-    "src/gui/renderer/editor/click-collapse.js"(exports, module) {
-      "use strict";
-      var { EditorView } = require_dist4();
-      var { EditorSelection } = require_dist2();
-      var { adjustCaretForHiddenMarks, adjustSelectionForHiddenMarks } = require_caret_syntax_adjust();
-      var DRAG_PX = 4;
-      var REFINE_DIST_PX = 10;
-      var mouseDown = null;
-      var docPointerEndBound = false;
-      function takeMouseDownForView(view) {
-        if (!mouseDown || mouseDown.view !== view) return null;
-        const start = mouseDown;
-        mouseDown = null;
-        return start;
-      }
-      function takeAnyMouseDown() {
-        if (!mouseDown) return null;
-        const start = mouseDown;
-        mouseDown = null;
-        return start;
-      }
-      function ensureDocPointerEndListeners() {
-        if (docPointerEndBound || typeof document === "undefined") return;
-        docPointerEndBound = true;
-        document.addEventListener(
-          "mouseup",
-          function(event) {
-            if (event.button !== 0) return;
-            const start = takeAnyMouseDown();
-            if (!start || start.view.destroyed) return;
-            finalizePointerUp(start.view, start, event.clientX, event.clientY, event.detail);
-          },
-          true
-        );
-      }
-      function finalizePointerUp(view, start, clientX, clientY, detail, options) {
-        if (!view || view.destroyed || start.shiftKey) return;
-        if (start.handledMultiClick || detail >= 2) return;
-        const dx = clientX - start.x;
-        const dy = clientY - start.y;
-        const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
-        if (moved) {
-          const pointer = {
-            startX: start.x,
-            startY: start.y,
-            endX: clientX,
-            endY: clientY
-          };
-          adjustDragSelection(view, pointer);
-          requestAnimationFrame(function() {
-            adjustDragSelection(view, pointer);
-          });
-          return;
-        }
-        if (options && options.skipClickCaret) return;
-        placeCaret(view, clientX, clientY);
-        requestAnimationFrame(function() {
-          if (!view || view.destroyed) return;
-          placeCaret(view, clientX, clientY);
-        });
-      }
-      function isBlockWidgetTarget(target) {
-        if (!target || !target.closest) return false;
-        return !!target.closest(
-          ".mda-cm-image-block, .mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-math-block, .mda-cm-hr-block, .mda-cm-math-inline"
-        );
-      }
-      function caretNodeFromPoint(clientX, clientY) {
-        if (typeof document === "undefined") return null;
-        if (typeof document.caretRangeFromPoint === "function") {
-          try {
-            const range = document.caretRangeFromPoint(clientX, clientY);
-            if (range && range.startContainer) {
-              return { node: range.startContainer, offset: range.startOffset };
-            }
-          } catch (_) {
-          }
-        }
-        if (typeof document.caretPositionFromPoint === "function") {
-          try {
-            const pos = document.caretPositionFromPoint(clientX, clientY);
-            if (pos && pos.offsetNode) {
-              return { node: pos.offsetNode, offset: pos.offset };
-            }
-          } catch (_) {
-          }
-        }
-        return null;
-      }
-      function posAtClickFromDom(view, clientX, clientY) {
-        const hit = typeof document !== "undefined" && document.elementFromPoint ? document.elementFromPoint(clientX, clientY) : null;
-        if (isBlockWidgetTarget(hit)) return null;
-        if (hit && hit.closest && !hit.closest(".cm-content")) return null;
-        const caret = caretNodeFromPoint(clientX, clientY);
-        if (!caret) return null;
-        if (isBlockWidgetTarget(caret.node.nodeType === 1 ? caret.node : caret.node.parentElement)) {
-          return null;
-        }
-        try {
-          const pos = view.posAtDOM(caret.node, caret.offset);
-          if (pos == null || pos < 0) return null;
-          if (pos > view.state.doc.length) return view.state.doc.length;
-          return pos;
-        } catch (_) {
-          return null;
-        }
-      }
-      function lineElementAt(view, pos) {
-        try {
-          const at = view.domAtPos(pos, 1);
-          let node = at && at.node;
-          if (!node) return null;
-          if (node.nodeType === 3) node = node.parentElement;
-          return node && node.closest ? (
-            /** @type {HTMLElement} */
-            node.closest(".cm-line")
-          ) : null;
-        } catch (_) {
-          return null;
-        }
-      }
-      function cmLineElementAtPoint(view, clientX, clientY) {
-        if (typeof document === "undefined" || !view || !view.dom) return null;
-        const caret = caretNodeFromPoint(clientX, clientY);
-        if (caret) {
-          const el = caret.node.nodeType === 3 ? caret.node.parentElement : caret.node;
-          if (el && el.closest) {
-            const hit = el.closest(".cm-line");
-            if (hit && view.dom.contains(hit)) return (
-              /** @type {HTMLElement} */
-              hit
-            );
-          }
-        }
-        const target = document.elementFromPoint(clientX, clientY);
-        if (!target || !view.dom.contains(target)) return null;
-        if (target.closest) {
-          const hit = target.closest(".cm-line");
-          if (hit) return (
-            /** @type {HTMLElement} */
-            hit
-          );
-        }
-        let best = null;
-        let bestDy = Infinity;
-        const lines = view.contentDOM.querySelectorAll(".cm-line");
-        for (let i = 0; i < lines.length; i++) {
-          const el = (
-            /** @type {HTMLElement} */
-            lines[i]
-          );
-          const rect = el.getBoundingClientRect();
-          if (clientY < rect.top - 2 || clientY > rect.bottom + 2 || clientX < rect.left - 12 || clientX > rect.right + 12) {
-            continue;
-          }
-          const midY = (rect.top + rect.bottom) / 2;
-          const dy = Math.abs(midY - clientY);
-          if (dy < bestDy) {
-            bestDy = dy;
-            best = el;
-          }
-        }
-        return best;
-      }
-      function docLineAtClick(view, clientX, clientY) {
-        if (!view || view.destroyed) return null;
-        const lineEl = cmLineElementAtPoint(view, clientX, clientY);
-        if (lineEl) {
-          try {
-            const base = view.posAtDOM(lineEl, 0);
-            return view.state.doc.lineAt(base);
-          } catch (_) {
-          }
-        }
-        const raw = posAtClick(view, clientX, clientY);
-        if (raw == null) return null;
-        return view.state.doc.lineAt(caretPosForClick(view, raw));
-      }
-      function lineSelectionRange(state, line) {
-        let from = adjustCaretForHiddenMarks(state, line.from);
-        const to = line.to;
-        if (state.doc.lineAt(from).number < line.number) from = line.from;
-        return { from: Math.min(from, to), to: Math.max(from, to) };
-      }
-      function posFromCmLineAtPoint(view, clientX, clientY) {
-        const lineEl = cmLineElementAtPoint(view, clientX, clientY);
-        if (!lineEl) return null;
-        const caret = caretNodeFromPoint(clientX, clientY);
-        if (caret) {
-          try {
-            const node = caret.node;
-            const el = node.nodeType === 3 ? node.parentElement : node;
-            if (el && lineEl.contains(el)) {
-              const pos = view.posAtDOM(caret.node, caret.offset);
-              if (pos != null && pos >= 0 && pos <= view.state.doc.length) return pos;
-            }
-          } catch (_) {
-          }
-        }
-        try {
-          const base = view.posAtDOM(lineEl, 0);
-          const line = view.state.doc.lineAt(base);
-          if (clientX <= lineEl.getBoundingClientRect().left + 4) return line.from;
-          return line.to;
-        } catch (_) {
-          return null;
-        }
-      }
-      function lineVerticalBand(view, line) {
-        const lineEl = lineElementAt(view, line.from);
-        if (lineEl) {
-          const rect = lineEl.getBoundingClientRect();
-          if (rect.bottom >= rect.top) {
-            return { top: rect.top, bottom: rect.bottom };
-          }
-        }
-        let top = Infinity;
-        let bottom = -Infinity;
-        const positions = [line.from];
-        if (line.to > line.from) {
-          positions.push(line.from + Math.floor((line.to - line.from) / 2));
-          positions.push(Math.max(line.from, line.to - 1));
-        }
-        for (let i = 0; i < positions.length; i++) {
-          const c1 = view.coordsAtPos(positions[i], 1);
-          const c2 = view.coordsAtPos(positions[i], -1);
-          if (c1) {
-            top = Math.min(top, c1.top);
-            bottom = Math.max(bottom, c1.bottom);
-          }
-          if (c2) {
-            top = Math.min(top, c2.top);
-            bottom = Math.max(bottom, c2.bottom);
-          }
-        }
-        if (!isFinite(top) || !isFinite(bottom) || bottom < top) return null;
-        if (bottom - top < 12) bottom = top + 26;
-        return { top, bottom };
-      }
-      function posOnLineAtX(view, line, clientX) {
-        const band = lineVerticalBand(view, line);
-        if (!band) return line.from;
-        const midY = (band.top + band.bottom) / 2;
-        let p = view.posAtCoords({ x: clientX, y: midY }, 1);
-        if (p == null) p = view.posAtCoords({ x: clientX, y: midY }, -1);
-        if (p == null) return line.from;
-        if (p < line.from) return line.from;
-        if (p > line.to) return line.to;
-        return p;
-      }
-      function refinePosAtClick(view, clientX, clientY, hintPos) {
-        const cmPos = posFromCmLineAtPoint(view, clientX, clientY);
-        if (cmPos != null) return cmPos;
-        const doc = view.state.doc;
-        const hintLine = doc.lineAt(hintPos);
-        let bestPos = hintPos;
-        let bestScore = Infinity;
-        let foundInY = false;
-        const fromN = Math.max(1, hintLine.number - 2);
-        const toN = Math.min(doc.lines, hintLine.number + 2);
-        for (let n = fromN; n <= toN; n++) {
-          const line = doc.line(n);
-          const band = lineVerticalBand(view, line);
-          if (!band) continue;
-          const inY = clientY >= band.top - 2 && clientY <= band.bottom + 2;
-          if (!inY) continue;
-          foundInY = true;
-          const p = posOnLineAtX(view, line, clientX);
-          const caret = view.coordsAtPos(p, p <= line.from ? 1 : -1);
-          if (!caret) continue;
-          const dx = caret.left - clientX;
-          const dy = (caret.top + caret.bottom) / 2 - clientY;
-          const score = dx * dx * 0.2 + dy * dy;
-          if (score < bestScore) {
-            bestScore = score;
-            bestPos = p;
-          }
-        }
-        return foundInY ? bestPos : hintPos;
-      }
-      function clickScoreAtPos(view, pos, clientX, clientY) {
-        const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
-        if (!caret) return Infinity;
-        const dx = caret.left - clientX;
-        const dy = (caret.top + caret.bottom) / 2 - clientY;
-        return dx * dx + dy * dy;
-      }
-      function posAtClick(view, clientX, clientY) {
-        if (typeof document !== "undefined" && document.elementFromPoint) {
-          const el = document.elementFromPoint(clientX, clientY);
-          if (isBlockWidgetTarget(el)) return null;
-        }
-        const cmPos = posFromCmLineAtPoint(view, clientX, clientY);
-        const fromDom = posAtClickFromDom(view, clientX, clientY);
-        let fromCoords = view.posAtCoords({ x: clientX, y: clientY }, 1);
-        if (fromCoords == null) fromCoords = view.posAtCoords({ x: clientX, y: clientY }, -1);
-        const doc = view.state.doc;
-        if (cmPos != null) {
-          if (fromCoords != null) {
-            const cmLn = doc.lineAt(cmPos);
-            const coLn = doc.lineAt(fromCoords);
-            if (cmLn.number < coLn.number) return cmPos;
-          }
-          return cmPos;
-        }
-        if (fromDom != null && fromCoords != null && fromDom !== fromCoords) {
-          const domLine = doc.lineAt(fromDom);
-          const coLine = doc.lineAt(fromCoords);
-          if (coLine.number > domLine.number) return fromDom;
-          if (domLine.number > coLine.number) return fromCoords;
-          const sDom = clickScoreAtPos(view, fromDom, clientX, clientY);
-          const sCo = clickScoreAtPos(view, fromCoords, clientX, clientY);
-          if (sCo + 9 < sDom) {
-            return refineIfFar(view, clientX, clientY, fromCoords);
-          }
-          return fromDom;
-        }
-        if (fromDom != null) return fromDom;
-        if (fromCoords == null) return null;
-        return refineIfFar(view, clientX, clientY, fromCoords);
-      }
-      function refineIfFar(view, clientX, clientY, pos) {
-        const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
-        if (caret) {
-          const dx = caret.left - clientX;
-          const dy = (caret.top + caret.bottom) / 2 - clientY;
-          if (Math.abs(dy) > REFINE_DIST_PX) {
-            return refinePosAtClick(view, clientX, clientY, pos);
-          }
-          return pos;
-        }
-        return refinePosAtClick(view, clientX, clientY, pos);
-      }
-      function caretPosForClick(view, raw) {
-        const pos = adjustCaretForHiddenMarks(view.state, raw);
-        if (pos === raw) return pos;
-        const doc = view.state.doc;
-        const rawLine = doc.lineAt(raw);
-        const posLine = doc.lineAt(pos);
-        if (posLine.number > rawLine.number && posLine.text.trim() === "") {
-          return raw;
-        }
-        return pos;
-      }
-      function setSelectionAtClick(view, clientX, clientY) {
-        if (!view || view.destroyed) return false;
-        if (typeof document !== "undefined" && document.elementFromPoint) {
-          const el = document.elementFromPoint(clientX, clientY);
-          if (isBlockWidgetTarget(el)) return false;
-        }
-        const raw = posAtClick(view, clientX, clientY);
-        if (raw == null) return false;
-        const pos = caretPosForClick(view, raw);
-        const sel = view.state.selection.main;
-        if (sel.from === sel.to && sel.anchor === pos && sel.head === pos) return true;
-        view.dispatch({
-          selection: { anchor: pos, head: pos },
-          scrollIntoView: false
-        });
-        return true;
-      }
-      function placeCaret(view, clientX, clientY) {
-        setSelectionAtClick(view, clientX, clientY);
-      }
-      function selectWordAtClick(view, clientX, clientY) {
-        if (!view || view.destroyed) return false;
-        if (typeof document !== "undefined" && document.elementFromPoint) {
-          const el = document.elementFromPoint(clientX, clientY);
-          if (isBlockWidgetTarget(el)) return false;
-        }
-        const raw = posAtClick(view, clientX, clientY);
-        if (raw == null) return false;
-        const pos = caretPosForClick(view, raw);
-        const word = view.state.wordAt(pos);
-        const from = word ? word.from : pos;
-        const to = word ? word.to : pos;
-        const next = adjustSelectionForHiddenMarks(view.state, from, to);
-        view.dispatch({
-          selection: EditorSelection.range(next.anchor, next.head),
-          scrollIntoView: false
-        });
-        return true;
-      }
-      function selectLineAtClick(view, clientX, clientY) {
-        if (!view || view.destroyed) return false;
-        if (typeof document !== "undefined" && document.elementFromPoint) {
-          const el = document.elementFromPoint(clientX, clientY);
-          if (isBlockWidgetTarget(el)) return false;
-        }
-        const line = docLineAtClick(view, clientX, clientY);
-        if (!line) return false;
-        const range = lineSelectionRange(view.state, line);
-        view.dispatch({
-          selection: EditorSelection.range(range.from, range.to),
-          scrollIntoView: false
-        });
-        return true;
-      }
-      function adjustDragSelection(view, pointer) {
-        if (!view || view.destroyed) return;
-        const sel = view.state.selection.main;
-        if (sel.empty) return;
-        let anchor = sel.anchor;
-        let head = sel.head;
-        const ptr = pointer || {};
-        if (ptr.startX != null && ptr.startY != null) {
-          const mapped = posAtClick(view, ptr.startX, ptr.startY);
-          if (mapped != null) anchor = mapped;
-        }
-        if (ptr.endX != null && ptr.endY != null) {
-          const mapped = posAtClick(view, ptr.endX, ptr.endY);
-          if (mapped != null) head = mapped;
-        }
-        const next = adjustSelectionForHiddenMarks(view.state, anchor, head);
-        if (next.anchor === sel.anchor && next.head === sel.head) return;
-        view.dispatch({
-          selection: { anchor: next.anchor, head: next.head },
-          scrollIntoView: false
-        });
-      }
-      function applyDragSelectionAt(view, anchorX, anchorY, headX, headY) {
-        if (!view || view.destroyed) return false;
-        const anchorPos = posAtClick(view, anchorX, anchorY);
-        const headPos = posAtClick(view, headX, headY);
-        if (anchorPos == null || headPos == null) return false;
-        const next = adjustSelectionForHiddenMarks(view.state, anchorPos, headPos);
-        const main = view.state.selection.main;
-        if (main.anchor === next.anchor && main.head === next.head) return false;
-        view.dispatch({
-          selection: { anchor: next.anchor, head: next.head },
-          scrollIntoView: false
-        });
-        return true;
-      }
-      function createClickCollapseExtension() {
-        ensureDocPointerEndListeners();
-        return EditorView.domEventHandlers({
-          mousedown: function(event, view) {
-            if (event.button !== 0) return false;
-            if (isBlockWidgetTarget(event.target)) return false;
-            mouseDown = {
-              x: event.clientX,
-              y: event.clientY,
-              shiftKey: !!event.shiftKey,
-              dragging: false,
-              handledMultiClick: false,
-              view
-            };
-            if (event.shiftKey) return false;
-            if (event.detail >= 3) {
-              mouseDown.handledMultiClick = selectLineAtClick(view, event.clientX, event.clientY);
-              try {
-                view.focus();
-              } catch (_) {
-              }
-              return mouseDown.handledMultiClick;
-            }
-            if (event.detail === 2) {
-              mouseDown.handledMultiClick = selectWordAtClick(view, event.clientX, event.clientY);
-              try {
-                view.focus();
-              } catch (_) {
-              }
-              return mouseDown.handledMultiClick;
-            }
-            setSelectionAtClick(view, event.clientX, event.clientY);
-            try {
-              view.focus();
-            } catch (_) {
-            }
-            return true;
-          },
-          mousemove: function(event, view) {
-            if (!mouseDown || mouseDown.shiftKey || mouseDown.view !== view) return false;
-            if ((event.buttons & 1) === 0) {
-              const start = takeMouseDownForView(view);
-              if (start) {
-                finalizePointerUp(view, start, event.clientX, event.clientY, 1);
-              }
-              return false;
-            }
-            const dx = event.clientX - mouseDown.x;
-            const dy = event.clientY - mouseDown.y;
-            if (!mouseDown.dragging) {
-              if (dx * dx + dy * dy > DRAG_PX * DRAG_PX) {
-                mouseDown.dragging = true;
-              } else {
-                return false;
-              }
-            }
-            if (isBlockWidgetTarget(event.target)) return false;
-            applyDragSelectionAt(view, mouseDown.x, mouseDown.y, event.clientX, event.clientY);
-            return true;
-          },
-          mouseup: function(event, view) {
-            if (event.button !== 0) return false;
-            const start = takeMouseDownForView(view);
-            if (!start) return false;
-            if (start.shiftKey || event.shiftKey) return false;
-            if (start.handledMultiClick || event.detail >= 2) return true;
-            const blockAtUp = isBlockWidgetTarget(event.target);
-            const dx = event.clientX - start.x;
-            const dy = event.clientY - start.y;
-            const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
-            if (blockAtUp && !moved) return false;
-            finalizePointerUp(view, start, event.clientX, event.clientY, event.detail, {
-              skipClickCaret: blockAtUp
-            });
-            return false;
-          }
-        });
-      }
-      module.exports = {
-        createClickCollapseExtension,
-        posAtClick,
-        posAtClickFromDom,
-        placeCaret,
-        setSelectionAtClick,
-        selectWordAtClick,
-        selectLineAtClick,
-        docLineAtClick,
-        lineSelectionRange,
-        caretPosForClick,
-        adjustDragSelection,
-        applyDragSelectionAt,
-        refinePosAtClick,
-        posFromCmLineAtPoint,
-        refineIfFar,
-        isBlockWidgetTarget
-      };
-    }
-  });
-
   // src/gui/renderer/editor/syntax-clipboard.js
   var require_syntax_clipboard = __commonJS({
     "src/gui/renderer/editor/syntax-clipboard.js"(exports, module) {
@@ -56350,6 +56369,10 @@ var MDAEditorBundle = (() => {
       function revalidatePendingSelection(pending, view, clientX, clientY) {
         if (!pending) return null;
         if (pending.cm) {
+          const cur = view.state.selection.main;
+          if (!cur.empty && cur.from === pending.cm.from && cur.to === pending.cm.to && cur.anchor === pending.cm.anchor && cur.head === pending.cm.head) {
+            return pending;
+          }
           if (shouldPreserveCmSelection(view, clientX, clientY)) return pending;
           return null;
         }

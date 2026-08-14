@@ -4,6 +4,7 @@
 'use strict';
 
 const { Transaction } = require('@codemirror/state');
+const { posAtClick, docLineAtClick } = require('./click-collapse');
 
 /**
  * @param {HTMLElement} root
@@ -198,6 +199,7 @@ function selectionSegmentOnLine(doc, from, to, clickLine) {
 
 /**
  * 选区片段在视口中的字符边界（不含行尾空白）。
+ * coordsAtPos 在块 widget 下方高度图失真时不可靠，优先走 DOM Range。
  * @param {import('@codemirror/view').EditorView} view
  * @param {number} segFrom
  * @param {number} segTo
@@ -216,6 +218,28 @@ function selectionSegmentBounds(view, segFrom, segTo) {
 
 /**
  * @param {import('@codemirror/view').EditorView} view
+ * @param {number} segFrom
+ * @param {number} segTo
+ */
+function selectionSegmentBoundsDom(view, segFrom, segTo) {
+  if (typeof document === 'undefined' || segFrom >= segTo) return null;
+  try {
+    const a = view.domAtPos(segFrom);
+    const b = view.domAtPos(segTo);
+    if (!a || !b || !a.node || !b.node) return null;
+    const range = document.createRange();
+    range.setStart(a.node, a.offset);
+    range.setEnd(b.node, b.offset);
+    return domRangeClientBounds(range);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * 右键是否落在 CM6 正文选区内。
+ * 块 widget 下方 posAtCoords/coordsAtPos 常偏行，须用 posAtClick / DOM 边界（同 click-collapse）。
+ * @param {import('@codemirror/view').EditorView} view
  * @param {number} clientX
  * @param {number} clientY
  */
@@ -224,16 +248,27 @@ function cmClickInSelection(view, clientX, clientY) {
   if (sel.empty) return false;
   const from = Math.min(sel.from, sel.to);
   const to = Math.max(sel.from, sel.to);
-
-  const clickPos = view.posAtCoords({ x: clientX, y: clientY, exact: false });
-  if (clickPos == null) return false;
-
   const doc = view.state.doc;
-  const clickLine = doc.lineAt(clickPos);
+
+  let clickPos = posAtClick(view, clientX, clientY);
+  if (clickPos == null) {
+    clickPos = view.posAtCoords({ x: clientX, y: clientY, exact: false });
+  }
+
+  // 校准落点已在选区内：勿再依赖易失真的 coordsAtPos 像素框（长文档靠后正文右键易误判）
+  if (clickPos != null && clickPos >= from && clickPos <= to) return true;
+
+  const clickLine =
+    docLineAtClick(view, clientX, clientY) ||
+    (clickPos != null ? doc.lineAt(clickPos) : null);
+  if (!clickLine) return false;
+
   const seg = selectionSegmentOnLine(doc, from, to, clickLine);
   if (!seg) return false;
 
-  const bounds = selectionSegmentBounds(view, seg.from, seg.to);
+  const bounds =
+    selectionSegmentBoundsDom(view, seg.from, seg.to) ||
+    selectionSegmentBounds(view, seg.from, seg.to);
   if (!bounds) return false;
 
   if (clientY < bounds.top - 2 || clientY > bounds.bottom + 2) return false;
