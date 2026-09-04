@@ -151,6 +151,22 @@ const SYNTAX_RULES = {
       return pairedContentRange(node, text, 2);
     },
   },
+  // 产品约定：单 `~text~` 为下划线（非 Lezer 节点，由 findUnderlineRanges 注入）
+  Underline: {
+    class: 'R',
+    cls: 'mda-cm-underline',
+    markRanges: function (node) {
+      if (node.to - node.from < 2) return [];
+      return [
+        { from: node.from, to: node.from + 1 },
+        { from: node.to - 1, to: node.to },
+      ];
+    },
+    contentRange: function (node) {
+      if (node.to - node.from < 2) return null;
+      return { from: node.from + 1, to: node.to - 1 };
+    },
+  },
   InlineCode: {
     class: 'R',
     cls: 'mda-cm-code',

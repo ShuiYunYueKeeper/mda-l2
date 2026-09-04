@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 编辑面运行时配置：功能闸门 + 开发调试开关（发布时统一关闭）。
  *
  * 分阶段交付（代码已签收，开发默认 math）：
@@ -23,6 +23,11 @@ var FLAGS = {
   },
   logDecoBuild: {
     storageKey: 'mda-editor-log-deco',
+    devDefault: false,
+    releaseValue: false,
+  },
+  inlineFormatDebug: {
+    storageKey: 'mda-editor-debug-inline-format',
     devDefault: false,
     releaseValue: false,
   },
@@ -51,11 +56,12 @@ var WIDGET_MIN_PHASE = {
   'math-inline': 'math',
   'math-block': 'math',
   'quote-handle': 'text',
+  'heading-handle': 'text',
   hr: 'math',
 };
 
 /**
- * @param {'clickDebug'|'logDecoBuild'} name
+ * @param {'clickDebug'|'logDecoBuild'|'inlineFormatDebug'} name
  */
 function readFlag(name) {
   var spec = FLAGS[name];
@@ -96,7 +102,7 @@ function widgetPhaseAtLeast(minPhase) {
 }
 
 /**
- * @param {'image'|'mermaid'|'table'|'code'|'hr'|'quote-handle'} kind
+ * @param {'image'|'mermaid'|'table'|'code'|'hr'|'quote-handle'|'heading-handle'} kind
  */
 function blockWidgetEnabled(kind) {
   var min = WIDGET_MIN_PHASE[kind];
@@ -105,7 +111,7 @@ function blockWidgetEnabled(kind) {
 }
 
 /**
- * @param {'math-inline'|'math-block'|'quote-handle'} kind
+ * @param {'math-inline'|'math-block'|'quote-handle'|'heading-handle'} kind
  */
 function mathWidgetEnabled(kind) {
   var min = WIDGET_MIN_PHASE[kind];
@@ -129,6 +135,9 @@ module.exports = {
   },
   logDecoBuildEnabled: function () {
     return readFlag('logDecoBuild');
+  },
+  inlineFormatDebugEnabled: function () {
+    return readFlag('inlineFormatDebug');
   },
   readWidgetPhase: readWidgetPhase,
   widgetPhaseAtLeast: widgetPhaseAtLeast,

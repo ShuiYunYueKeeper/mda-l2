@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-B/C 实时预览视图层：语法隐藏（D15 = hide-mark 零宽 replace widget + atomicRanges）。
  */
 'use strict';
@@ -9,7 +9,7 @@ const keymap = cmView.keymap;
 const Decoration = cmView.Decoration;
 const ViewPlugin = cmView.ViewPlugin;
 const WidgetType = cmView.WidgetType;
-const { RangeSetBuilder, StateField, Transaction, Prec } = require('@codemirror/state');
+const { RangeSetBuilder, StateField, StateEffect, Transaction, Prec } = require('@codemirror/state');
 const { syntaxTree, ensureSyntaxTree } = require('@codemirror/language');
 const { buildDecorationSpecs, collectSyntaxNodes } = require('./model/build-specs');
 const { HiddenLineWidget, HIDE_MARK_WIDGET } = require('./widgets/hidden-line');
@@ -29,11 +29,13 @@ const {
 } = require('./state/block-focus');
 const { TableWidget } = require('./widgets/table');
 const { QuoteHandleWidget } = require('./widgets/quote-handle');
+const { HeadingHandleWidget } = require('./widgets/heading-handle');
 const { ImageWidget } = require('./widgets/image');
 const { CodeFenceWidget } = require('./widgets/code');
 const { MermaidWidget } = require('./widgets/mermaid');
 const { InlineMathWidget, BlockMathWidget } = require('./widgets/math');
-const { createAnnoGutterField } = require('./anno-gutter');
+const { createAnnoMalformedGutter, appendAnnoLineDecorations } = require('./anno-gutter');
+const { createAnnoParagraphSyncExtension } = require('./anno-paragraph-sync');
 const { createClickCollapseExtension } = require('./click-collapse');
 const { createContextMenuExtension } = require('./context-menu');
 const { createWidgetEditableGuardExtension } = require('./widget-editable-guard');
@@ -72,7 +74,12 @@ const {
   handleMarkdownSyntaxCut,
   handleMarkdownSyntaxPaste,
 } = require('./syntax-clipboard');
-const { handlePreviewHeadingEnter } = require('./heading-enter');
+const { handlePreviewHeadingEnter, handlePreviewHeadingBackspace } = require('./heading-enter');
+const {
+  handleInlineDelimiterBackspace,
+  handleInlineDelimiterDelete,
+} = require('./state/inline-delimiter-ops');
+const { createDocLineCursorKeymap } = require('./doc-line-cursor');
 const { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require('./widgets/block-widget-base');
 const { attachBlockDragHandle } = require('./widgets/block-drag-handle');
 const {
@@ -356,8 +363,8 @@ function widgetEnabled(kind) {
   if (kind === 'math-inline' || kind === 'math-block') {
     return editorConfig.mathWidgetEnabled(kind);
   }
-  if (kind === 'quote-handle') {
-    return editorConfig.blockWidgetEnabled('quote-handle');
+  if (kind === 'quote-handle' || kind === 'heading-handle') {
+    return editorConfig.blockWidgetEnabled(kind);
   }
   return editorConfig.blockWidgetEnabled(kind);
 }
@@ -419,6 +426,7 @@ function buildLayerDecos(specs, text, liveOpts) {
     onMoveMathBlock: liveOpts.onMoveMathBlock,
     onMoveTableBlock: liveOpts.onMoveTableBlock,
     onMoveQuoteBlock: liveOpts.onMoveQuoteBlock,
+    onMoveHeadingBlock: liveOpts.onMoveHeadingBlock,
     onMoveHrBlock: liveOpts.onMoveHrBlock,
     onSwitchSource: liveOpts.onSwitchSource,
     blockMenuHandlers: liveOpts.blockMenuHandlers,
@@ -475,10 +483,12 @@ function buildLayerDecos(specs, text, liveOpts) {
         hideLines.push({
           from: br.from,
           to: br.to,
-          deco: cmView.Decoration.replace({
-            widget: new HiddenLineWidget(),
-            block: true,
-          }),
+          deco: blockReplaceDeco(new HiddenLineWidget()),
+        });
+        lines.push({
+          from: br.from,
+          to: br.from,
+          deco: cmView.Decoration.line({ class: 'mda-cm-anno-hide-line' }),
         });
       }
       continue;
@@ -539,6 +549,30 @@ function buildLayerDecos(specs, text, liveOpts) {
               t: widgetOpts.t,
               blockMenuHandlers: widgetOpts.blockMenuHandlers,
               onMoveQuoteBlock: widgetOpts.onMoveQuoteBlock,
+            }),
+            side: -1,
+          }),
+        });
+        continue;
+      }
+      if (s.widget === 'heading-handle') {
+        if (!widgetEnabled('heading-handle')) continue;
+        const hFrom = s.blockFrom != null ? s.blockFrom : s.from;
+        const hTo = s.blockTo != null ? s.blockTo : s.to;
+        const hAnchor = s.from;
+        const hLevel = s.headingLevel != null ? s.headingLevel : 1;
+        widgets.push({
+          from: hAnchor,
+          to: hAnchor,
+          deco: cmView.Decoration.widget({
+            widget: new HeadingHandleWidget({
+              from: hFrom,
+              to: hTo,
+              headingLevel: hLevel,
+              source: s.source || text.slice(hFrom, hTo),
+              t: widgetOpts.t,
+              blockMenuHandlers: widgetOpts.blockMenuHandlers,
+              onMoveHeadingBlock: widgetOpts.onMoveHeadingBlock,
             }),
             side: -1,
           }),
@@ -650,6 +684,8 @@ function buildLayerDecos(specs, text, liveOpts) {
     }
   }
 
+  appendAnnoLineDecorations(text, lines, liveOpts, cmView.Decoration);
+
   return {
     block: addSortedNonOverlapping(hideLines.concat(blockWidgets)),
     hideBlock: addSortedNonOverlapping(hideLines),
@@ -707,7 +743,7 @@ function buildDecosFromState(state, liveOpts, viewHints, blockFocusField) {
         ? Math.min(state.doc.length, viewHints.viewportTo + 4000)
         : state.doc.length;
     const tree = parseTreeForState(state, upto);
-    const nodes = collectSyntaxNodes(tree);
+    const nodes = collectSyntaxNodes(tree, text);
     const specs = buildDecorationSpecs(text, nodes, {
       widgetEnabled: function (kind) {
         return widgetEnabled(kind);
@@ -818,6 +854,29 @@ function hrefAtEvent(view, event) {
 
 var layerBuildCache = { doc: null, fp: '', result: null, opts: null };
 
+/** 批注筛选变更：须强制重算 line 色条（缓存键不含 filter 回调） */
+const AnnoFilterRefresh = StateEffect.define();
+
+function annoDecorCacheKey(liveOpts) {
+  if (liveOpts && typeof liveOpts.getAnnoFilterRevision === 'function') {
+    return String(liveOpts.getAnnoFilterRevision());
+  }
+  return '0';
+}
+
+function transactionHasAnnoFilterRefresh(tr) {
+  for (let i = 0; i < tr.effects.length; i++) {
+    if (tr.effects[i].is(AnnoFilterRefresh)) return true;
+  }
+  return false;
+}
+
+function invalidateLayerBuildCache() {
+  layerBuildCache.doc = null;
+  layerBuildCache.fp = '';
+  layerBuildCache.result = null;
+}
+
 function getBuiltLayers(view, liveOpts, blockFocusField) {
   const fp =
     view.viewport.from +
@@ -829,7 +888,7 @@ function getBuiltLayers(view, liveOpts, blockFocusField) {
     parseTreeForState(view.state, view.state.doc.length).length;
   const focus = blockFocusField ? readBlockFocus(view.state, blockFocusField) : null;
   const focusKey = focus ? focus.from + '-' + focus.to + '-' + (focus.kind || '') : '';
-  const fpFull = fp + ':' + focusKey;
+  const fpFull = fp + ':' + focusKey + ':' + annoDecorCacheKey(liveOpts);
   if (
     layerBuildCache.doc === view.state.doc &&
     layerBuildCache.fp === fpFull &&
@@ -876,13 +935,23 @@ function makeLayerPlugin(layerKey, liveOpts, pluginOpts, blockFocusField) {
           ? focusKey(readBlockFocus(update.state, blockFocusField))
           : '';
         const focusChanged = focusKeyNow !== this._lastFocusKey;
+        const cacheInvalid = layerBuildCache.doc === null;
+        let annoFilterChanged = false;
+        for (let ti = 0; ti < update.transactions.length; ti++) {
+          if (transactionHasAnnoFilterRefresh(update.transactions[ti])) {
+            annoFilterChanged = true;
+            break;
+          }
+        }
         if (
           !(
             this._imePending ||
             update.docChanged ||
             update.viewportChanged ||
             treeGrew ||
-            focusChanged
+            focusChanged ||
+            cacheInvalid ||
+            annoFilterChanged
           )
         ) {
           return;
@@ -993,6 +1062,7 @@ function livePreview(opts) {
     onPickImageInsert: opts.onPickImageInsert,
     onSoon: opts.onBlockMenuSoon,
     onAiAction: opts.onBlockMenuAi,
+    onAddBlockAnnotation: opts.onAddBlockAnnotation,
   });
   const liveOpts = Object.assign({}, opts, {
     blockMenuHandlers: blockMenuHandlers,
@@ -1018,12 +1088,12 @@ function livePreview(opts) {
   );
 
   const blockDecoField = createBlockDecoField(liveOpts, blockFocusField);
-  const annoGutterField = createAnnoGutterField(liveOpts);
+  const annoMalformedGutter = createAnnoMalformedGutter();
 
   const readonlyFilter = createReadonlyChangeFilter(function (state) {
     const text = state.doc.toString();
     const tree = parseTreeForState(state, state.doc.length);
-    const nodes = collectSyntaxNodes(tree);
+    const nodes = collectSyntaxNodes(tree, text);
     return collectReadonlyRanges(text, nodes);
   }, opts.onReadonlyBlocked);
 
@@ -1033,7 +1103,7 @@ function livePreview(opts) {
       if (target && target.closest) {
         if (
           target.closest(
-            '.mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-image-block, .mda-cm-math-block, .mda-cm-quote-handle-anchor, .mda-cm-hr-block'
+            '.mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-image-block, .mda-cm-math-block, .mda-cm-quote-handle-anchor, .mda-cm-heading-handle-anchor, .mda-cm-hr-block'
           )
         ) {
           return false;
@@ -1102,13 +1172,21 @@ function livePreview(opts) {
     .concat(makeLayerPlugin('widget', liveOpts, { atomic: true }, blockFocusField))
     .concat(makeLayerPlugin('line', liveOpts, {}, blockFocusField))
     .concat([
+      createDocLineCursorKeymap(blockDecoField),
       linkClick,
       createClickCollapseExtension(),
       createContextMenuExtension(liveOpts),
       createOutlineClickSyncExtension(liveOpts.onHeadingClick),
+      createAnnoParagraphSyncExtension(liveOpts.onParagraphClick),
       theme,
       Prec.high(
-        keymap.of([{ key: 'Enter', run: handlePreviewHeadingEnter }])
+        keymap.of([
+          { key: 'Enter', run: handlePreviewHeadingEnter },
+          { key: 'Backspace', run: handlePreviewHeadingBackspace },
+          // 定界符隐藏时删除须作用到可见字符，并清掉被删空的定界符对
+          { key: 'Backspace', run: handleInlineDelimiterBackspace },
+          { key: 'Delete', run: handleInlineDelimiterDelete },
+        ])
       ),
       EditorView.domEventHandlers({
         paste: function (event, view) {
@@ -1147,19 +1225,25 @@ function livePreview(opts) {
     editorConfig.blockWidgetEnabled('code') ||
     editorConfig.blockWidgetEnabled('table') ||
     editorConfig.blockWidgetEnabled('quote-handle') ||
+    editorConfig.blockWidgetEnabled('heading-handle') ||
     editorConfig.blockWidgetEnabled('hr') ||
     editorConfig.mathWidgetEnabled('math-inline')
   ) {
     ext.push(createMediaOutsideClickPlugin());
   }
-  if (annoGutterField) {
-    if (Array.isArray(annoGutterField)) {
-      for (let i = 0; i < annoGutterField.length; i++) ext.push(annoGutterField[i]);
-    } else {
-      ext.push(annoGutterField);
-    }
+  if (annoMalformedGutter && annoMalformedGutter.length) {
+    for (let m = 0; m < annoMalformedGutter.length; m++) ext.push(annoMalformedGutter[m]);
   }
   return ext;
+}
+
+function notifyAnnoFilterChanged(view) {
+  if (!view || typeof view.dispatch !== 'function') return;
+  invalidateLayerBuildCache();
+  view.dispatch({
+    effects: AnnoFilterRefresh.of(null),
+    annotations: Transaction.addToHistory.of(false),
+  });
 }
 
 module.exports = {
@@ -1171,4 +1255,6 @@ module.exports = {
   createBlockDecoField: createBlockDecoField,
   parseTreeForState: parseTreeForState,
   syntaxTreeBudget: syntaxTreeBudget,
+  invalidateLayerBuildCache: invalidateLayerBuildCache,
+  notifyAnnoFilterChanged: notifyAnnoFilterChanged,
 };

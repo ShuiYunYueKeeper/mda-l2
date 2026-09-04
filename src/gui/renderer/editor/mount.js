@@ -27,8 +27,14 @@ const { syncSelectedMermaidFrameClass } = require('./widgets/mermaid-selection')
 const { refreshBlockToolbars } = require('./widgets/widget-common');
 const { outlineFlashExtension, flashOutlineLine } = require('./outline-flash');
 const { getOutlineActiveLine } = require('./outline-scroll');
+const { refreshAnnoGutter } = require('./anno-gutter');
+const { invalidateLayerBuildCache, notifyAnnoFilterChanged } = require('./live-preview');
 const { refreshEmptyLineInsertI18n } = require('./empty-line-insert');
 const { sliceDocForClipboard } = require('./syntax-clipboard');
+const { adjustCaretForKeyboardNav } = require('./caret-syntax-adjust');
+const { createEditorToolbar } = require('./toolbar');
+const { createFormatKeymap } = require('./format-commands');
+const { createPendingInlineFormatExtension } = require('./state/pending-inline-format');
 
 function stripBom(text) {
   if (typeof text !== 'string') return { text: '', bom: '' };
@@ -54,6 +60,23 @@ function createEditor(opts) {
   let bom = initial.bom;
   let mode = opts.mode || MODE_PREVIEW;
   const comps = createModeCompartments();
+  const externalToolbar = !!(opts.toolbarHost && opts.toolbarHost.nodeType === 1);
+
+  /** @type {HTMLElement} */
+  let toolbarMount;
+  if (externalToolbar) {
+    toolbarMount = opts.toolbarHost;
+  } else {
+    toolbarMount = document.createElement('div');
+    toolbarMount.className = 'mda-cm-edit-toolbar-host';
+    parent.appendChild(toolbarMount);
+  }
+  const editorParent = document.createElement('div');
+  editorParent.className = 'mda-cm-editor-surface';
+  parent.appendChild(editorParent);
+
+  /** @type {{ refresh?: () => void, destroy?: () => void } | null} */
+  let toolbarApi = null;
 
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged && typeof opts.onChange === 'function') {
@@ -65,6 +88,15 @@ function createEditor(opts) {
     if (update.viewportChanged && typeof opts.onViewportChange === 'function') {
       opts.onViewportChange();
     }
+    if (update.selectionSet || update.docChanged || update.focusChanged) {
+      if (toolbarApi && typeof toolbarApi.refresh === 'function') toolbarApi.refresh();
+    }
+    if (
+      (update.selectionSet || update.focusChanged) &&
+      typeof opts.onSelectionUpdate === 'function'
+    ) {
+      opts.onSelectionUpdate(update.view);
+    }
   });
 
   function buildExtensions(currentMode) {
@@ -73,9 +105,15 @@ function createEditor(opts) {
       drawSelection(),
     ]
       .concat([
-        // 不用 highlightActiveLine：整行浅底会像「选中了一整行」
         markdown({ extensions: GFM }),
         keymap.of(defaultKeymap.concat(historyKeymap)),
+        createFormatKeymap({
+          t: opts.t,
+          onPickImageInsert: opts.onPickImageInsert,
+        }),
+      ])
+      .concat(createPendingInlineFormatExtension())
+      .concat([
         updateListener,
         createClickDebugExtension(),
         outlineFlashExtension(),
@@ -92,8 +130,31 @@ function createEditor(opts) {
       doc: initial.text,
       extensions: buildExtensions(mode),
     }),
-    parent: parent,
+    parent: editorParent,
   });
+
+  if (opts.toolbar !== false) {
+    toolbarApi = createEditorToolbar(toolbarMount, view, {
+      t: opts.t,
+      getMode: function () {
+        return mode;
+      },
+      onToggleMode: opts.onToggleMode,
+      onFind: opts.onFind,
+      onTogglePanel: opts.onTogglePanel,
+      getPanelVisible: opts.getPanelVisible,
+      onPickImageInsert: opts.onPickImageInsert,
+      onSoon: opts.onBlockMenuSoon,
+      onCopy: opts.onCopy,
+      onCut: opts.onCut,
+      onPaste: opts.onPaste,
+      onSave: opts.onSave,
+      onCopyPreview: opts.onCopyPreview,
+      onExportHtml: opts.onExportHtml,
+      onExportPdf: opts.onExportPdf,
+      onExportDocx: opts.onExportDocx,
+    });
+  }
 
   /** @type {ReturnType<typeof setTimeout>|null} */
   let outlineFlashTimer = null;
@@ -116,9 +177,14 @@ function createEditor(opts) {
     setText: function (raw, options) {
       const parsed = stripBom(raw || '');
       bom = parsed.bom;
-      // 内容未变则不动 view，保留光标 / 选区 / 撤销栈
-      if (view.state.doc.toString() === parsed.text) return;
       const resetHistory = options && (options.resetHistory || options.keepHistory === false);
+      // 内容未变则不动 view，保留光标 / 选区 / 撤销栈
+      if (view.state.doc.toString() === parsed.text) {
+        if (resetHistory && toolbarApi && typeof toolbarApi.notifyDocOpened === 'function') {
+          toolbarApi.notifyDocOpened();
+        }
+        return;
+      }
       if (!resetHistory) {
         view.dispatch({
           changes: {
@@ -135,6 +201,9 @@ function createEditor(opts) {
           extensions: buildExtensions(mode),
         })
       );
+      if (toolbarApi && typeof toolbarApi.notifyDocOpened === 'function') {
+        toolbarApi.notifyDocOpened();
+      }
     },
     getMode: function () {
       return mode;
@@ -153,9 +222,20 @@ function createEditor(opts) {
       }
       view.focus();
       if (typeof opts.onModeChange === 'function') opts.onModeChange(mode);
+      if (toolbarApi && typeof toolbarApi.refresh === 'function') toolbarApi.refresh();
     },
     focus: function () {
       view.focus();
+    },
+    /**
+     * 批注落盘同步：最小 diff 写入，不进入撤销栈。
+     * @param {import('@codemirror/state').ChangeSpec|import('@codemirror/state').ChangeSpec[]} changes
+     */
+    patchDocNoHistory: function (changes) {
+      view.dispatch({
+        changes: changes,
+        annotations: Transaction.addToHistory.of(false),
+      });
     },
     /**
      * 大纲跳转：滚到 1-based 行，光标落行尾，标题闪高亮后清除。
@@ -167,10 +247,17 @@ function createEditor(opts) {
       if (doc.lines < 1) return;
       const n = Math.min(Math.max(1, line1Based | 0), doc.lines);
       const line = doc.line(n);
-      // 行尾：标题可见文本末；隐藏的 ATX `#` 标记不改变 line.to
+      let pos = line.to;
+      while (pos > line.from) {
+        const ch = doc.sliceString(pos - 1, pos);
+        if (ch !== '\n' && ch !== '\r') break;
+        pos -= 1;
+      }
+      if (pos <= line.from) pos = line.from;
+      else pos = adjustCaretForKeyboardNav(view.state, pos);
       view.dispatch({
-        selection: { anchor: line.to, head: line.to },
-        effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+        selection: { anchor: pos, head: pos },
+        effects: EditorView.scrollIntoView(pos, { y: 'center' }),
       });
       flashOutlineLine(view, n, opts && opts.flashMs, {
         clearTimer: function () {
@@ -183,7 +270,35 @@ function createEditor(opts) {
           outlineFlashTimer = tid;
         },
       });
-      if (!(opts && opts.skipFocus)) view.focus();
+      if (!(opts && opts.skipFocus)) {
+        view.focus();
+        requestAnimationFrame(function () {
+          if (!view.destroyed) view.focus();
+        });
+      }
+    },
+    /**
+     * 选区批注定位：滚到 anchor 并选中对应 UTF-16 区间。
+     * @param {{ start: number, end: number }} anchor
+     * @param {{ skipFocus?: boolean }} [opts]
+     */
+    scrollToAnchor: function (anchor, opts) {
+      if (!anchor) return;
+      const doc = view.state.doc;
+      let from = Math.max(0, Math.min(anchor.start | 0, doc.length));
+      let to = Math.max(from, Math.min(anchor.end | 0, doc.length));
+      from = adjustCaretForKeyboardNav(view.state, from);
+      if (to > from) to = adjustCaretForKeyboardNav(view.state, to);
+      view.dispatch({
+        selection: { anchor: from, head: to },
+        effects: EditorView.scrollIntoView(from, { y: 'center' }),
+      });
+      if (!(opts && opts.skipFocus)) {
+        view.focus();
+        requestAnimationFrame(function () {
+          if (!view.destroyed) view.focus();
+        });
+      }
     },
     /**
      * 大纲滚动高亮：视口内标题 DOM 真实位置（见 outline-scroll.js）。
@@ -279,7 +394,15 @@ function createEditor(opts) {
         clearTimeout(outlineFlashTimer);
         outlineFlashTimer = null;
       }
+      if (toolbarApi && typeof toolbarApi.destroy === 'function') toolbarApi.destroy();
+      toolbarApi = null;
       view.destroy();
+    },
+    refreshToolbar: function () {
+      if (toolbarApi) {
+        if (typeof toolbarApi.refreshI18n === 'function') toolbarApi.refreshI18n();
+        if (typeof toolbarApi.refresh === 'function') toolbarApi.refresh();
+      }
     },
   };
 }
@@ -289,8 +412,11 @@ module.exports = {
   stripBom: stripBom,
   refreshDecorations: function (view) {
     if (!view || typeof view.dispatch !== 'function') return;
+    invalidateLayerBuildCache();
+    refreshAnnoGutter(view);
     view.dispatch({ annotations: Transaction.addToHistory.of(false) });
   },
+  notifyAnnoFilterChanged: notifyAnnoFilterChanged,
   refreshWidgetI18n: function (view, t) {
     if (!view || !view.dom || typeof t !== 'function') return;
     refreshBlockToolbars(view.dom, t);
