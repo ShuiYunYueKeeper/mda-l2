@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 块手柄类型图标
  */
 import * as path from 'path';
@@ -32,6 +32,7 @@ describe('block handle type icons', () => {
       const html = blockTypeIconHtml(kind);
       expect(html).toContain('mda-cm-block-type-icon');
       expect(html).toContain('<svg');
+      expect(html).toContain('viewBox="0 0 24 24"');
       expect(html).toContain('data-kind="' + kind + '"');
     }
   });
