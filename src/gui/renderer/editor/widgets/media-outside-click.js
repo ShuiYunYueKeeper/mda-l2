@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 图片 / Mermaid / 块 widget：点击块外取消选中（与表格 onDocPointer 一致）。
  */
 'use strict';
@@ -70,6 +70,7 @@ function createMediaOutsideClickPlugin() {
           if (blockContainsTarget(self.view, blockSel, 'mda-cm-math-block', target)) return;
           if (blockContainsTarget(self.view, blockSel, 'mda-cm-table-block', target)) return;
           if (blockContainsTarget(self.view, blockSel, 'mda-cm-quote-handle-anchor', target)) return;
+          if (blockContainsTarget(self.view, blockSel, 'mda-cm-heading-handle-anchor', target)) return;
           if (blockContainsTarget(self.view, blockSel, 'mda-cm-hr-block', target)) return;
           if (target && target.closest && target.closest('.mda-cm-math-inline-selected')) return;
           if (target && target.closest && target.closest('.mda-cm-math-inline')) return;

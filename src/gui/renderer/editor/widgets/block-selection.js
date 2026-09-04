@@ -11,20 +11,32 @@ const { clearBlockWidgetSelection, clearMediaSelection } = require('./widget-com
 /** @type {{ kind: string, from: number, to: number, source: string } | null} */
 let selected = null;
 
-/** @type {Record<string, { rootSel: string, frameSel?: string, media?: boolean, hrSelected?: boolean }>} */
-const KIND_CONFIG = {
-  code: { rootSel: '.mda-cm-code-block', frameSel: '.mda-cm-code-frame', media: true },
-  math: { rootSel: '.mda-cm-math-block', frameSel: '.mda-cm-math-frame', media: true },
-  table: { rootSel: '.mda-cm-table-block' },
-  quote: { rootSel: '.mda-cm-quote-handle-anchor' },
-  hr: { rootSel: '.mda-cm-hr-block', frameSel: '.mda-cm-hr-frame', hrSelected: true },
-};
+/** @type {((block: typeof selected) => void) | null} */
+let selectionListener = null;
+
+/**
+ * @param {((block: typeof selected) => void) | null} fn
+ */
+function setBlockSelectionListener(fn) {
+  selectionListener = typeof fn === 'function' ? fn : null;
+}
+
+function notifySelectionListener() {
+  if (selectionListener) {
+    try {
+      selectionListener(selected);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+}
 
 /**
  * @param {{ kind: string, from: number, to: number, source: string } | null} block
  */
 function setSelectedBlock(block) {
   selected = block;
+  notifySelectionListener();
 }
 
 function getSelectedBlock() {
@@ -39,8 +51,20 @@ function getSelectedBlockOfKind(kind) {
 }
 
 function clearSelectedBlock() {
+  if (selected == null) return;
   selected = null;
+  notifySelectionListener();
 }
+
+/** @type {Record<string, { rootSel: string, frameSel?: string, media?: boolean, hrSelected?: boolean }>} */
+const KIND_CONFIG = {
+  code: { rootSel: '.mda-cm-code-block', frameSel: '.mda-cm-code-frame', media: true },
+  math: { rootSel: '.mda-cm-math-block', frameSel: '.mda-cm-math-frame', media: true },
+  table: { rootSel: '.mda-cm-table-block' },
+  quote: { rootSel: '.mda-cm-quote-handle-anchor' },
+  heading: { rootSel: '.mda-cm-heading-handle-anchor' },
+  hr: { rootSel: '.mda-cm-hr-block', frameSel: '.mda-cm-hr-frame', hrSelected: true },
+};
 
 /**
  * @param {HTMLElement | null | undefined} editorRoot
@@ -124,6 +148,7 @@ module.exports = {
   getSelectedBlock: getSelectedBlock,
   getSelectedBlockOfKind: getSelectedBlockOfKind,
   clearSelectedBlock: clearSelectedBlock,
+  setBlockSelectionListener: setBlockSelectionListener,
   syncSelectedBlockClass: syncSelectedBlockClass,
   reconcileSelectedBlock: reconcileSelectedBlock,
   createBlockSelectionSyncPlugin: createBlockSelectionSyncPlugin,

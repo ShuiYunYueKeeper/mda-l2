@@ -6,6 +6,12 @@
 const { ViewPlugin } = require('@codemirror/view');
 const { syntaxTree } = require('@codemirror/language');
 const { sliceDocForClipboard } = require('./syntax-clipboard');
+const { anchorFromSelection } = require('./model/anchor-from-sel');
+const {
+  canUseSelectionAnnoForRange,
+  isBlockOnlyKind,
+  blockAnnotationLine,
+} = require('./model/anno-add-context');
 const { hitBlankLineAt } = require('./empty-line-insert');
 const {
   snapshotDomSelection,
@@ -678,6 +684,55 @@ function cutCmSelection(view, liveOpts) {
   return true;
 }
 
+function hasCmMenuSelection(view) {
+  const snap = activeMenuSelection && activeMenuSelection.cm;
+  if (snap && snap.from < snap.to) return true;
+  const sel = view.state.selection.main;
+  return sel.from !== sel.to;
+}
+
+/**
+ * @param {HTMLElement} menu
+ * @param {(key: string) => string} t
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {*} liveOpts
+ */
+function addSelectionAnnoRow(menu, t, view, liveOpts) {
+  if (typeof liveOpts.onAddSelectionAnnotation !== 'function') return;
+  const hasSel = hasCmMenuSelection(view);
+  let selAllowed = hasSel;
+  if (hasSel) {
+    const sel = view.state.selection.main;
+    const text = view.state.doc.toString();
+    selAllowed = canUseSelectionAnnoForRange(text, sel.from, sel.to);
+  }
+  const row = document.createElement('div');
+  row.className = 'mda-menu-item' + (selAllowed ? '' : ' disabled');
+  row.setAttribute('role', 'menuitem');
+  row.innerHTML = menuItemInner(t('addSelAnno'), 'anno');
+  row.addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    if (!hasCmMenuSelection(view)) return;
+    const sel = view.state.selection.main;
+    if (!canUseSelectionAnnoForRange(view.state.doc.toString(), sel.from, sel.to)) {
+      if (typeof liveOpts.alert === 'function') liveOpts.alert(t('alertAnnoProseOnly'));
+      return;
+    }
+    if (activeMenuSelection && activeMenuSelection.cm) {
+      restoreCmSelection(view, activeMenuSelection.cm);
+    }
+    const anchor = anchorFromSelection(view.state);
+    closeContextMenu();
+    if (!anchor) {
+      if (typeof liveOpts.alert === 'function') liveOpts.alert(t('alertBadSelectionEditor'));
+      return;
+    }
+    liveOpts.onAddSelectionAnnotation(anchor);
+    view.focus();
+  });
+  menu.appendChild(row);
+}
+
 /**
  * @param {*} liveOpts
  */
@@ -811,6 +866,15 @@ function openContextMenu(view, x, y, ctx, liveOpts) {
         handlers.onCopyAs(block, kind, id);
       });
     });
+    if (
+      isBlockOnlyKind(kind) &&
+      typeof liveOpts.onAddBlockAnnotation === 'function'
+    ) {
+      addActionRow(menu, t('addAnno'), 'anno', function () {
+        liveOpts.onAddBlockAnnotation(block, kind);
+        view.focus();
+      });
+    }
   } else if (ctx.type === 'link') {
     const link = ctx.link;
     addClipboardRows(
@@ -917,6 +981,7 @@ function openContextMenu(view, x, y, ctx, liveOpts) {
         pasteCmSelection(view);
       }
     );
+    addSelectionAnnoRow(menu, t, view, liveOpts);
     addActionRow(menu, t('blockMenuAiEdit'), 'ai', function () {
       aiSoon(liveOpts);
     });

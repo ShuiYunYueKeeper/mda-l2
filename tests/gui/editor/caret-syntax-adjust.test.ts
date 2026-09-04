@@ -9,6 +9,7 @@ import { ensureSyntaxTree } from '@codemirror/language';
 
 const {
   adjustCaretForHiddenMarks,
+  adjustCaretForKeyboardNav,
   adjustSelectionForHiddenMarks,
 } = require(path.join(__dirname, '../../../src/gui/renderer/editor/caret-syntax-adjust.js'));
 
@@ -22,11 +23,17 @@ function mdState(doc: string) {
 }
 
 describe('caret-syntax-adjust', () => {
-  test('标题可见内容左缘 → ## 左侧', () => {
+  test('标题可见内容左缘 → ## 之后', () => {
     const doc = '## 目录结构\n';
     const state = mdState(doc);
     const contentStart = doc.indexOf('目');
-    expect(adjustCaretForHiddenMarks(state, contentStart)).toBe(0);
+    expect(adjustCaretForHiddenMarks(state, contentStart)).toBe(3);
+  });
+
+  test('空标题行点击行首 → ## 之后', () => {
+    const doc = '## \n';
+    const state = mdState(doc);
+    expect(adjustCaretForHiddenMarks(state, 0)).toBe(3);
   });
 
   test('加粗可见内容左缘 → 开 ** 左侧', () => {
@@ -36,19 +43,19 @@ describe('caret-syntax-adjust', () => {
     expect(adjustCaretForHiddenMarks(state, contentStart)).toBe(0);
   });
 
-  test('加粗可见内容右缘 → 闭 ** 右侧', () => {
+  test('加粗可见内容右缘 → 内容末尾（延续样式编辑）', () => {
     const doc = '**MDA** 是本地';
     const state = mdState(doc);
     const contentEnd = doc.indexOf('**', 1);
-    expect(adjustCaretForHiddenMarks(state, contentEnd)).toBe(contentEnd + 2);
+    expect(adjustCaretForHiddenMarks(state, contentEnd)).toBe(contentEnd);
   });
 
-  test('行内 code 右缘 → 闭 ` 右侧', () => {
+  test('行内 code 右缘 → 内容末尾', () => {
     const doc = '调用 `mda-cli` 工具';
     const state = mdState(doc);
     const open = doc.indexOf('`');
     const close = doc.indexOf('`', open + 1);
-    expect(adjustCaretForHiddenMarks(state, close)).toBe(close + 1);
+    expect(adjustCaretForHiddenMarks(state, close)).toBe(close);
   });
 
   test('加粗中间字符不校准', () => {
@@ -69,7 +76,21 @@ describe('caret-syntax-adjust', () => {
     expect(next.head).toBe(localEnd);
     const onlyBold = adjustSelectionForHiddenMarks(state, contentStart, contentEnd);
     expect(onlyBold.anchor).toBe(0);
-    expect(onlyBold.head).toBe(contentEnd + 2);
+    expect(onlyBold.head).toBe(contentEnd);
+  });
+
+  test('键盘落到标题行首 → 可见正文首', () => {
+    const doc = '# Mermaid 图表\n';
+    const state = mdState(doc);
+    const line = state.doc.line(1);
+    expect(adjustCaretForKeyboardNav(state, line.from)).toBe(line.from + 2);
+  });
+
+  test('键盘落在标题正文中间不偏移', () => {
+    const doc = '# Mermaid 图表\n';
+    const state = mdState(doc);
+    const mid = doc.indexOf('图');
+    expect(adjustCaretForKeyboardNav(state, mid)).toBe(mid);
   });
 
   test('拖选行末勿吃进下一空行行首', () => {
