@@ -11,6 +11,7 @@ CLI / GUI 体验、人工验收与录屏演示的统一样本目录。
 | `mermaid-diagrams.md` | **语法全景**：Flowchart 外形/边样式 + Sequence…Venn 共 23 类 |
 | `katex.md` | KaTeX 公式：行内 `$…$` / 块级 `$$…$$`（含物理/化学/生物） |
 | `all-features.md` | 综合演示：标题层级 + 图片（`assets/`）+ 流程图 + 代码块 + 批注 |
+| `all-blocks.md` | **全块类型**：标题/列表/引用/表格/代码/Mermaid/图片/公式/分割线（编辑栏验收） |
 | `ac1-basic.md` | AC-1 基础 GFM 验收样例（删除线、嵌套列表、表格等） |
 | `perf-mixed.md` | 大文件性能测试样例（混合正文与批注） |
 | `assets/demo.png` | `all-features.md` 引用的演示图片 |

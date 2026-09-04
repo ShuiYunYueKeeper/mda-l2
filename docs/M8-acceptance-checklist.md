@@ -1,4 +1,4 @@
-﻿# M8 Phase — 预览直接编辑（WYSIWYG）验收清单
+# M8 Phase — 预览直接编辑（WYSIWYG）验收清单
 
 > 对应 P3 [`P3-implementation-plan-v3-wysiwyg.md`](P3-implementation-plan-v3-wysiwyg.md)；前置：P0 **v1.10** / P1 **v1.6** / P2 **v1.4** 已确认。  
 > 产品目标：**全程隐藏 Markdown 语法**（P0 **D15**），坐标质量优先于工期。  
@@ -18,7 +18,7 @@
 | **3 · 表格** | `table` | GFM 表格块 widget + 就地编辑 | ✅ 2026-07-31 |
 | **4 · 代码** | `code` | 围栏代码块 widget + 语法高亮 + 源码编辑 + 语言切换 | ✅ 2026-07-31 |
 | **5 · 公式** | `math`（**开发默认**） | 行内 `$...$` + 块级 `$$...$$` KaTeX widget；块级双击/顶栏源码微编辑 | ⏸ 暂缓（基础可用；后续再迭代） |
-| 6 · 其他 | `full` | 分隔线等 | ⬜ |
+| 6 · 其他 | `full` | 分隔线等 | 🔄 分隔线插入/hover/选中 **2026-08-11 用户复验 ✅** |
 
 兼容：旧键 `mda-editor-block-widgets=1` 视为 `full`（仅开发调试）。
 
@@ -34,8 +34,8 @@
 | M8-C3 | 表格就地编辑 | ✅ | ✅ 2026-07-31 |
 | M8-C4 | 围栏代码块 widget | ✅ | ✅ 2026-07-31 |
 | M8-C5 | 公式 widget（KaTeX） | ⏸ | ⏸ 暂缓：行内选中/剪贴板已验；块级与体验后续再迭代 |
-| M8-D | 批注共存 | ⬜ | ⬜ |
-| M8-E | 交互层（栏/`/`/浮动/右键） | ⬜ | ⬜ |
+| M8-D | 批注共存 | ✅ | ✅ **2026-08-11** 用户确认：已大部分支持，当前满足需求 |
+| M8-E | 交互层（栏/`/`/浮动/右键） | 🔄 | 🔄 空白行/`/`、块手柄已验；**E1 常驻工具栏已实现，待实机复验** |
 | M8-F | 文档态 / 模板 | ⬜ | ⬜ |
 | M8-G0 | AI 模型设置 | ⬜ | ⬜ |
 | M8-G | Pro AI 入口 | ⬜ | ⬜ |
@@ -147,7 +147,14 @@ MDA_EDITOR_RELEASE=1 npm run build:editor
 | widget 内文字拖选 / 表格拖选卡死 | 2026-08-06 | ✅ | `widget-editable-guard` + `transactionFilter`；勿 `domEventHandlers` `return true`；预览 CSS 恢复 widget `::selection`；SEL-2–4 复验 |
 | 块 widget 邻接行指针（单击/拖选/双三击） | 2026-08-07 | ✅ | `click-collapse`：`posAtClick`/`.cm-line`/`mousedown` 抢先/document `mouseup`；`mermaid-diagrams.md` §6 后复验 |
 | **正文选区着色 SEL-1** | **2026-08-07** | **✅** | 紧致自绘层 + 指针/拖选守卫；用户实机复验 |
-| M8 总验收 | | ⬜ | SEL-1 已复验 ✅；其余 M8-D–J 待签 |
+| CM6 空标题行占位/行高/Backspace | 2026-08-11 | ✅ | `build-specs` + `heading-enter`；勿 atomic 只剥 `#` |
+| CM6 块手柄 hover 高亮 + tooltip | 2026-08-11 | ✅ | 对齐空白行「+」；代码/图/Mermaid 除外 |
+| CM6 空白行 `/` 插入菜单 | 2026-08-11 | ✅ | 与「+」同面板；`handleBlankLineSlashOpen` |
+| CM6 常驻编辑工具栏（M8-E1） | 2026-08-11 | ⬜ | 撤销/重做、段落下拉、B/I/S/code/链接、列表/引用、插入 ▾、查找、预览↔源码；快捷键 Mod-b/i/k/`/Shift-x |
+| CM6 分隔线插入（Setext 规避 + 光标） | 2026-08-11 | ✅ | `hrLeadingNewline`；光标落补空行 |
+| CM6 分隔线 hover 高亮对齐选中 | 2026-08-11 | ✅ | `.mda-cm-hr-frame` 12% accent |
+| **M8-D 批注共存** | **2026-08-11** | **✅** | 用户确认：已大部分支持，当前满足需求（不挡后续） |
+| M8 总验收 | | ⬜ | M8-D 已签收；M8-E–J 待签 |
 
 ## 自动化
 
