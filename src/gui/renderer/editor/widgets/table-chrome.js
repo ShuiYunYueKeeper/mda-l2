@@ -43,6 +43,8 @@ const {
   selectTableMathAtom,
   handleTableMathDeleteKey,
   tableCellImageMarkdownAbs,
+  applyInlineFormatToTableCell,
+  getCellInlineFlags,
 } = require('./table-cell-content');
 const { undo, redo } = require('@codemirror/commands');
 const { attachBlockDragHandle } = require('./block-drag-handle');
@@ -50,6 +52,7 @@ const { setSelectedBlock } = require('./block-selection');
 const { clearSelectedImageBlock } = require('./image-selection');
 const { clearSelectedMermaidBlock } = require('./mermaid-selection');
 const { clearSelectedInlineMath } = require('./inline-math-selection');
+const { toggleWidgetPendingMark } = require('../state/pending-inline-format');
 
 /** @type {string} */
 let internalClipboard = '';
@@ -91,6 +94,19 @@ function rememberTableBlockSelected(ctx) {
  * @param {{ resolveImageUrl?: Function }} [opts]
  * @returns {HTMLTableElement}
  */
+/**
+ * 格内 DOM 选区是否为空（无选区时字符格式只武装待输入格式，不改已有文本）。
+ * @param {HTMLElement} cell
+ */
+function isCellSelectionCollapsed(cell) {
+  if (typeof window === 'undefined' || !window.getSelection) return true;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount < 1 || sel.isCollapsed) return true;
+  const range = sel.getRangeAt(0);
+  if (!cell.contains(range.startContainer) || !cell.contains(range.endContainer)) return true;
+  return range.toString().length === 0;
+}
+
 function renderTableElement(parsed, opts) {
   opts = opts || {};
   const cellOpts = { resolveImageUrl: opts.resolveImageUrl };
@@ -532,9 +548,12 @@ function mountTableChrome(ctx) {
 
   /** 结构变更：写文档并本地刷新，避免 CM 重建延迟导致「无反应」 */
   function mutate(fn) {
+    // 必须在置 mutating 之前把格内未提交的编辑读回来：syncFromDomIfNeeded 自身以 mutating
+    // 早退（那是给 renderLocal 拆 DOM 时误触发的 blur 用的），置位后再调等于空转，
+    // fn 会在旧 parsed 上加行/列，renderLocal 随即用它重建 —— 正在编辑的单元格内容就没了。
+    syncFromDomIfNeeded();
     mutating = true;
     try {
-      syncFromDomIfNeeded();
       applyTableLayoutSession(blockSource, parsed);
       if (hasTableLayoutMeta(parsed)) ensureLayoutArrays(parsed);
       fn(parsed);
@@ -1120,6 +1139,55 @@ function mountTableChrome(ctx) {
         // 单元格内 Ctrl+Z/Y 走 CM6 历史（公式原子删除等已写回文档的变更）
         if ((e.ctrlKey || e.metaKey) && !e.altKey) {
           const key = e.key;
+          if (
+            key === 'b' ||
+            key === 'B' ||
+            key === 'i' ||
+            key === 'I' ||
+            key === 'u' ||
+            key === 'U' ||
+            key === '`' ||
+            ((key === 'x' || key === 'X') && e.shiftKey)
+          ) {
+            e.preventDefault();
+            e.stopPropagation();
+            let before = '**';
+            let after = '**';
+            let mark = 'bold';
+            if (key === 'i' || key === 'I') {
+              before = '*';
+              after = '*';
+              mark = 'italic';
+            } else if (key === 'u' || key === 'U') {
+              before = '~';
+              after = '~';
+              mark = 'underline';
+            } else if (key === 'x' || key === 'X') {
+              before = '~~';
+              after = '~~';
+              mark = 'strike';
+            } else if (key === '`') {
+              before = '`';
+              after = '`';
+              mark = 'code';
+            }
+            // 与正文一致：无选区只改「后续输入格式」，不往格里塞空定界符对
+            // （旧行为直接 toggleWrap 空选区，会写入 `**​**` 这种带零宽空格的空对）。
+            if (isCellSelectionCollapsed(cell)) {
+              // base 取光标处已有标记，否则「在斜体里按 Ctrl+B」会把斜体一并关掉
+              const caret = getCellInlineFlags(cell);
+              toggleWidgetPendingMark(
+                cell,
+                mark,
+                caret ? caret.flags : null,
+                caret ? caret.pos : null
+              );
+              return;
+            }
+            applyInlineFormatToTableCell(cell, before, after, null);
+            cellContentDirty = true;
+            return;
+          }
           if (key === 'z' || key === 'Z') {
             e.preventDefault();
             e.stopPropagation();
@@ -1237,6 +1305,8 @@ function mountTableChrome(ctx) {
         requestAnimationFrame(function () {
           if (mutating) return;
           if (!cellContentDirty) return;
+          const ae = document.activeElement;
+          if (ae && ae.closest && ae.closest('.mda-cm-edit-toolbar')) return;
           cellContentDirty = false;
           if (!ctx.root.isConnected || !table.isConnected) return;
           if (table.contains(document.activeElement)) return;
@@ -1486,6 +1556,10 @@ function mountTableChrome(ctx) {
     }
     if (e.button === 2) return;
     if (e.target && stage.contains(e.target)) return;
+    // 工具栏是「仍在编辑本格」的操作面，不是「点到表外」：这里若照常 clearTableInteraction，
+    // 会 blur 单元格并清掉 DOM 选区 —— 无选区时点加粗，光标就直接没了
+    // （有选区那条路只是碰巧被 applyInlineFormatToTableCell 的 restore 救回来）。
+    if (e.target && e.target.closest && e.target.closest('.mda-cm-edit-toolbar')) return;
     clearTableInteraction();
   }
   document.addEventListener('mousedown', onDocPointer, true);

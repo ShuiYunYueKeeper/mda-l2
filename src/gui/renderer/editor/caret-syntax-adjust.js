@@ -85,25 +85,70 @@ function adjustCaretForHiddenMarks(state, pos) {
       if (leading && pos > leading.from && pos <= content.from) {
         if (span < bestLeftSpan) {
           bestLeftSpan = span;
-          snapLeft = leading.from;
+          // ATX 标题：可见区从 # 之后开始，落点应在正文首而非 # 左侧
+          snapLeft = /^ATXHeading/.test(node.name) ? content.from : leading.from;
         }
       }
 
       if (trailing && pos >= content.to && pos < trailing.to) {
         if (span < bestRightSpan) {
           bestRightSpan = span;
-          snapRight = trailing.to;
+          // 延续样式编辑：落在内容末尾，而非闭定界符之后（规则 4 退出由工具栏切换处理）
+          snapRight = content.to;
         }
       }
     },
   });
 
+  var result = pos;
   if (snapLeft != null && snapRight != null) {
-    return bestLeftSpan <= bestRightSpan ? snapLeft : snapRight;
+    result = bestLeftSpan <= bestRightSpan ? snapLeft : snapRight;
+  } else if (snapLeft != null) {
+    result = snapLeft;
+  } else if (snapRight != null) {
+    result = snapRight;
   }
-  if (snapLeft != null) return snapLeft;
-  if (snapRight != null) return snapRight;
+  return adjustCaretForHeadingClick(state, result);
+}
+
+/**
+ * 点击/落点落在 ATX 前缀内时推到 # 之后（空标题行与键盘导航一致）。
+ * @param {import('@codemirror/state').EditorState} state
+ * @param {number} pos
+ * @returns {number}
+ */
+function adjustCaretForHeadingClick(state, pos) {
+  if (pos == null || pos < 0) return pos;
+  const doc = state.doc;
+  if (pos > doc.length) return doc.length;
+  const line = doc.lineAt(pos);
+  const m = ATX_LINE_RE.exec(line.text);
+  if (!m) return pos;
+  const contentStart = line.from + m[1].length + m[2].length + m[3].length;
+  if (contentStart <= line.to && pos < contentStart) return contentStart;
   return pos;
+}
+
+/**
+ * 键盘逐行移动：空行 col=0 落在标题行 line.from（ATX # 前缀）时 caret 不可见，推到可见正文首。
+ * @param {import('@codemirror/state').EditorState} state
+ * @param {number} pos
+ * @returns {number}
+ */
+function adjustCaretForKeyboardNav(state, pos) {
+  if (pos == null || pos < 0) return pos;
+  const doc = state.doc;
+  if (pos > doc.length) return doc.length;
+  const line = doc.lineAt(pos);
+  const m = ATX_LINE_RE.exec(line.text);
+  if (m) {
+    const contentStart = line.from + m[1].length + m[2].length + m[3].length;
+    if (contentStart <= line.to) {
+      if (pos < contentStart) return contentStart;
+      if (pos <= line.to) return pos;
+    }
+  }
+  return adjustCaretForHiddenMarks(state, pos);
 }
 
 /**
@@ -169,5 +214,7 @@ module.exports = {
   clampSelectionBleed: clampSelectionBleed,
   clampEmptyLineSelectionBleed: clampEmptyLineSelectionBleed,
   adjustCaretForHiddenMarks: adjustCaretForHiddenMarks,
+  adjustCaretForHeadingClick: adjustCaretForHeadingClick,
+  adjustCaretForKeyboardNav: adjustCaretForKeyboardNav,
   adjustSelectionForHiddenMarks: adjustSelectionForHiddenMarks,
 };

@@ -30415,6 +30415,22 @@ var MDAEditorBundle = (() => {
             return pairedContentRange(node, text, 2);
           }
         },
+        // 产品约定：单 `~text~` 为下划线（非 Lezer 节点，由 findUnderlineRanges 注入）
+        Underline: {
+          class: "R",
+          cls: "mda-cm-underline",
+          markRanges: function(node) {
+            if (node.to - node.from < 2) return [];
+            return [
+              { from: node.from, to: node.from + 1 },
+              { from: node.to - 1, to: node.to }
+            ];
+          },
+          contentRange: function(node) {
+            if (node.to - node.from < 2) return null;
+            return { from: node.from + 1, to: node.to - 1 };
+          }
+        },
         InlineCode: {
           class: "R",
           cls: "mda-cm-code",
@@ -30606,8 +30622,57 @@ var MDAEditorBundle = (() => {
         }
         return ranges;
       }
+      var HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
+      function findHtmlCommentHideRanges(text) {
+        if (!text) return [];
+        const rows = [];
+        let lineStart = 0;
+        for (let i = 0; i <= text.length; i++) {
+          if (i === text.length || text.charAt(i) === "\n") {
+            rows.push({ from: lineStart, to: i < text.length ? i + 1 : Math.max(i, lineStart) });
+            lineStart = i + 1;
+          }
+        }
+        const mask = buildFenceMask(
+          rows.map(function(r) {
+            return text.slice(r.from, r.to).replace(/\r?\n$/, "");
+          })
+        );
+        const ranges = [];
+        HTML_COMMENT_RE.lastIndex = 0;
+        let m;
+        while (m = HTML_COMMENT_RE.exec(text)) {
+          const from = m.index;
+          const to = from + m[0].length;
+          let lineIdx = 0;
+          for (let r = rows.length - 1; r >= 0; r--) {
+            if (from >= rows[r].from) {
+              lineIdx = r;
+              break;
+            }
+          }
+          if (mask[lineIdx]) continue;
+          const startRow = rows[lineIdx];
+          let endRow = startRow;
+          for (let r = lineIdx; r < rows.length; r++) {
+            if (to <= rows[r].to || r === rows.length - 1) {
+              endRow = rows[r];
+              break;
+            }
+          }
+          const before = text.slice(startRow.from, from);
+          const after = text.slice(to, endRow.to).replace(/\r?\n$/, "");
+          if (!before.trim() && !after.trim()) {
+            ranges.push({ from: startRow.from, to: endRow.to, kind: "line" });
+          } else {
+            ranges.push({ from, to, kind: "mark" });
+          }
+        }
+        return ranges;
+      }
       module.exports = {
         findAnnotationHideRanges,
+        findHtmlCommentHideRanges,
         buildFenceMask,
         ANNO_STRICT,
         ANNO_ISH
@@ -30921,14 +30986,91 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/model/underline.js
+  var require_underline = __commonJS({
+    "src/gui/renderer/editor/model/underline.js"(exports, module) {
+      "use strict";
+      function overlapsExclude(from, to, excludes) {
+        if (!excludes || !excludes.length) return false;
+        for (let i = 0; i < excludes.length; i++) {
+          const e = excludes[i];
+          if (from < e.to && to > e.from) return true;
+        }
+        return false;
+      }
+      function findUnderlineRanges(text, excludeRanges) {
+        const src = text == null ? "" : String(text);
+        const n = src.length;
+        const ranges = [];
+        let i = 0;
+        while (i < n) {
+          const ch = src.charAt(i);
+          if (ch === "~" && src.charAt(i + 1) === "~") {
+            i += 2;
+            continue;
+          }
+          if (ch === "~") {
+            let j = i + 1;
+            let close = -1;
+            while (j < n) {
+              const c = src.charAt(j);
+              if (c === "\n" || c === "\r") break;
+              if (c === "~" && src.charAt(j + 1) === "~") {
+                j += 2;
+                continue;
+              }
+              if (c === "~") {
+                close = j;
+                break;
+              }
+              j += 1;
+            }
+            if (close > i) {
+              const from = i;
+              const to = close + 1;
+              if (!overlapsExclude(from, to, excludeRanges || [])) {
+                ranges.push({ from, to, type: "Underline" });
+              }
+              i = close + 1;
+              continue;
+            }
+          }
+          i += 1;
+        }
+        return ranges;
+      }
+      function isSingleTildeWrapped(selected) {
+        const s = String(selected || "");
+        if (s.length < 2) return false;
+        if (s.charAt(0) !== "~" || s.charAt(s.length - 1) !== "~") return false;
+        if (s.charAt(1) === "~") return false;
+        if (s.length >= 3 && s.charAt(s.length - 2) === "~") return false;
+        return true;
+      }
+      function isSingleTildeAt(value, pos) {
+        if (pos < 0 || pos >= value.length || value.charAt(pos) !== "~") return false;
+        if (pos > 0 && value.charAt(pos - 1) === "~") return false;
+        if (pos + 1 < value.length && value.charAt(pos + 1) === "~") return false;
+        return true;
+      }
+      module.exports = {
+        findUnderlineRanges,
+        isSingleTildeWrapped,
+        isSingleTildeAt,
+        overlapsExclude
+      };
+    }
+  });
+
   // src/gui/renderer/editor/model/build-specs.js
   var require_build_specs = __commonJS({
     "src/gui/renderer/editor/model/build-specs.js"(exports, module) {
       "use strict";
       var { SYNTAX_RULES } = require_syntax_rules();
-      var { findAnnotationHideRanges } = require_anno_lines();
+      var { findAnnotationHideRanges, findHtmlCommentHideRanges } = require_anno_lines();
       var { detectFrontMatter } = require_readonly_blocks();
       var { findMathRanges } = require_parse_math();
+      var { findUnderlineRanges } = require_underline();
       var PRIORITY = {
         "hide-line": 100,
         "readonly-block": 80,
@@ -30938,6 +31080,17 @@ var MDAEditorBundle = (() => {
         "line-style": 25,
         raw: 10
       };
+      function headingHandleMeta(node, text) {
+        if (/^ATXHeading([1-6])$/.test(node.type)) {
+          const level = parseInt(node.type.slice(-1), 10);
+          let end = node.from + level;
+          if (end < node.to && text.charAt(end) === " ") end += 1;
+          return { level, anchorFrom: end > node.from ? end : node.from };
+        }
+        if (node.type === "SetextHeading1") return { level: 1, anchorFrom: node.from };
+        if (node.type === "SetextHeading2") return { level: 2, anchorFrom: node.from };
+        return { level: 1, anchorFrom: node.from };
+      }
       function buildDecorationSpecs(text, nodes, opts) {
         opts = opts || {};
         const skipTypes = opts.skipTypes || { CodeBlock: 1 };
@@ -30968,10 +31121,38 @@ var MDAEditorBundle = (() => {
             });
           }
         }
+        const htmlComments = findHtmlCommentHideRanges(text);
+        for (let h = 0; h < htmlComments.length; h++) {
+          const cr = htmlComments[h];
+          if (!(cr.from < cr.to)) continue;
+          specs.push({
+            kind: cr.kind === "mark" ? "hide-mark" : "hide-line",
+            from: cr.from,
+            to: cr.to,
+            priority: PRIORITY["hide-line"]
+          });
+        }
         for (let i = 0; i < nodes.length; i++) {
           const node = nodes[i];
           if (!node || node.from >= node.to) continue;
           if (skipTypes[node.type]) continue;
+          if (/^ATXHeading[1-6]$/.test(node.type) || /^SetextHeading[12]$/.test(node.type)) {
+            if (widgetEnabled("heading-handle")) {
+              const source = text.slice(node.from, node.to);
+              const meta = headingHandleMeta(node, text);
+              specs.push({
+                kind: "widget",
+                widget: "heading-handle",
+                from: meta.anchorFrom,
+                to: meta.anchorFrom,
+                blockFrom: node.from,
+                blockTo: node.to,
+                headingLevel: meta.level,
+                source,
+                priority: PRIORITY.widget
+              });
+            }
+          }
           if (node.type === "Blockquote") {
             if (widgetEnabled("quote-handle")) {
               const source = text.slice(node.from, node.to);
@@ -31096,15 +31277,17 @@ var MDAEditorBundle = (() => {
           }
           const content = typeof rule.contentRange === "function" ? rule.contentRange(node, text) : null;
           const href = typeof rule.hrefOf === "function" ? rule.hrefOf(node, text) : "";
-          if (content && content.from < content.to && rule.cls) {
-            specs.push({
-              kind: "style",
-              from: content.from,
-              to: content.to,
-              cls: rule.cls,
-              href: href || void 0,
-              priority: PRIORITY.style
-            });
+          if (content && rule.cls) {
+            if (content.from < content.to) {
+              specs.push({
+                kind: "style",
+                from: content.from,
+                to: content.to,
+                cls: rule.cls,
+                href: href || void 0,
+                priority: PRIORITY.style
+              });
+            }
             if (/^mda-cm-h[1-6]$/.test(rule.cls)) {
               specs.push({
                 kind: "line-style",
@@ -31163,7 +31346,33 @@ var MDAEditorBundle = (() => {
         });
         return out;
       }
-      function collectSyntaxNodes(tree) {
+      var IMAGE_ONLY_LINE_RE = /^\s*!\[[^\]]*\]\([^)]*\)\s*$/;
+      function hrRangeFromSetext(text, nodeName, from, to) {
+        if (to <= from) return null;
+        let lineEnd = to;
+        while (lineEnd > from && (text.charAt(lineEnd - 1) === "\n" || text.charAt(lineEnd - 1) === "\r")) {
+          lineEnd -= 1;
+        }
+        let lineStart = lineEnd;
+        while (lineStart > from && text.charAt(lineStart - 1) !== "\n" && text.charAt(lineStart - 1) !== "\r") {
+          lineStart -= 1;
+        }
+        if (lineStart <= from) return null;
+        const ul = text.slice(lineStart, lineEnd).trim();
+        const isH2 = /^-{3,}$/.test(ul) || /^_{3,}$/.test(ul);
+        const isH1 = /^={3,}$/.test(ul);
+        if (!isH2 && !isH1) return null;
+        if (nodeName === "SetextHeading2" && isH2) {
+          return { from: lineStart, to };
+        }
+        const nl = text.slice(from, to).search(/\r?\n/);
+        if (nl < 0) return null;
+        const head = text.slice(from, from + nl).trim();
+        if (!IMAGE_ONLY_LINE_RE.test(head)) return null;
+        return { from: lineStart, to };
+      }
+      function collectSyntaxNodes(tree, text) {
+        const doc = text == null ? "" : String(text);
         const nodes = [];
         const stack = [];
         let fenceDepth = 0;
@@ -31191,6 +31400,15 @@ var MDAEditorBundle = (() => {
               nodes.push({ from: node.from, to: node.to, type: "Blockquote" });
               return;
             }
+            if (node.name === "SetextHeading1" || node.name === "SetextHeading2") {
+              const hr = doc ? hrRangeFromSetext(doc, node.name, node.from, node.to) : null;
+              if (hr) {
+                nodes.push({ from: hr.from, to: hr.to, type: "HorizontalRule" });
+                return;
+              }
+              nodes.push({ from: node.from, to: node.to, type: node.name });
+              return;
+            }
             if (!SYNTAX_RULES[node.name]) return;
             const item = { from: node.from, to: node.to, type: node.name };
             if (node.name === "ListMark") {
@@ -31214,6 +31432,17 @@ var MDAEditorBundle = (() => {
             }
           }
         });
+        if (doc) {
+          const exclude = [];
+          for (let i = 0; i < nodes.length; i++) {
+            const n = nodes[i];
+            if (n.type === "FencedCode" || n.type === "CodeBlock" || n.type === "InlineCode" || n.type === "Strikethrough" || n.type === "HorizontalRule") {
+              exclude.push({ from: n.from, to: n.to });
+            }
+          }
+          const unders = findUnderlineRanges(doc, exclude);
+          for (let u = 0; u < unders.length; u++) nodes.push(unders[u]);
+        }
         return nodes;
       }
       module.exports = {
@@ -31221,6 +31450,7 @@ var MDAEditorBundle = (() => {
         appendMathSpecs,
         dedupeByPriority,
         collectSyntaxNodes,
+        headingHandleMeta,
         PRIORITY
       };
     }
@@ -31286,6 +31516,11 @@ var MDAEditorBundle = (() => {
           storageKey: "mda-editor-log-deco",
           devDefault: false,
           releaseValue: false
+        },
+        inlineFormatDebug: {
+          storageKey: "mda-editor-debug-inline-format",
+          devDefault: false,
+          releaseValue: false
         }
       };
       var WIDGET_PHASES = ["text", "image", "mermaid", "table", "code", "math", "full"];
@@ -31306,6 +31541,7 @@ var MDAEditorBundle = (() => {
         "math-inline": "math",
         "math-block": "math",
         "quote-handle": "text",
+        "heading-handle": "text",
         hr: "math"
       };
       function readFlag(name) {
@@ -31359,6 +31595,9 @@ var MDAEditorBundle = (() => {
         },
         logDecoBuildEnabled: function() {
           return readFlag("logDecoBuild");
+        },
+        inlineFormatDebugEnabled: function() {
+          return readFlag("inlineFormatDebug");
         },
         readWidgetPhase,
         widgetPhaseAtLeast,
@@ -31558,3334 +31797,6 @@ var MDAEditorBundle = (() => {
         serializeFencedCode,
         expandFenceBlockRange,
         extractFenceCodeBody
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/model/parse-table.js
-  var require_parse_table = __commonJS({
-    "src/gui/renderer/editor/model/parse-table.js"(exports, module) {
-      "use strict";
-      var MAX_TABLE_COL_WIDTH = 4e3;
-      var MAX_TABLE_ROW_HEIGHT = 600;
-      var MAX_TABLE_WIDGET_HEIGHT = 12e3;
-      function sanitizeLayoutNumbers(arr, max) {
-        if (!Array.isArray(arr)) return [];
-        return arr.map(function(v) {
-          const n = Number(v);
-          if (!Number.isFinite(n) || n <= 0) return 0;
-          return Math.min(Math.round(n), max);
-        });
-      }
-      function alignHintLineRange(text, from, to, len) {
-        let start = Math.max(0, Math.min(from, len));
-        while (start > 0 && text.charAt(start - 1) !== "\n") start -= 1;
-        let end = Math.max(start, Math.min(to, len));
-        while (end < len && text.charAt(end) !== "\n") end += 1;
-        if (end < len) end += 1;
-        return { from: start, to: end };
-      }
-      function splitRow(line) {
-        let s = line.trim();
-        if (s.charAt(0) === "|") s = s.slice(1);
-        if (s.charAt(s.length - 1) === "|") s = s.slice(0, -1);
-        const cells = [];
-        let cur = "";
-        for (let i = 0; i < s.length; i++) {
-          const ch = s.charAt(i);
-          if (ch === "\\" && i + 1 < s.length) {
-            const next = s.charAt(i + 1);
-            if (next === "|" || next === "\\") {
-              cur += next;
-              i += 1;
-              continue;
-            }
-            cur += ch;
-            continue;
-          }
-          if (ch === "|") {
-            cells.push(cur.trim());
-            cur = "";
-            continue;
-          }
-          cur += ch;
-        }
-        cells.push(cur.trim());
-        return cells;
-      }
-      function escapeCell(text) {
-        return String(text || "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, " ");
-      }
-      function isSepRow(line) {
-        const cells = splitRow(line);
-        if (!cells.length) return false;
-        return cells.every(function(c) {
-          return /^:?-+:?$/.test(c);
-        });
-      }
-      function alignOf(sep) {
-        const left = sep.charAt(0) === ":";
-        const right = sep.charAt(sep.length - 1) === ":";
-        if (left && right) return "center";
-        if (right) return "right";
-        return "left";
-      }
-      function parseGfmTable(tableText) {
-        const lines = String(tableText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(function(l, i, arr) {
-          return l.length > 0 || i < arr.length - 1;
-        }).filter(function(l) {
-          return l.trim().length > 0;
-        });
-        if (lines.length < 2) return null;
-        if (!isSepRow(lines[1])) return null;
-        const headers = splitRow(lines[0]);
-        const aligns = splitRow(lines[1]).map(alignOf);
-        while (aligns.length < headers.length) aligns.push("left");
-        const rows = [];
-        for (let i = 2; i < lines.length; i++) {
-          const cells = splitRow(lines[i]);
-          while (cells.length < headers.length) cells.push("");
-          rows.push(cells.slice(0, headers.length));
-        }
-        return { headers, aligns: aligns.slice(0, headers.length), rows };
-      }
-      function alignSep(align) {
-        if (align === "center") return ":---:";
-        if (align === "right") return "---:";
-        return "---";
-      }
-      function formatRow(cells) {
-        return "| " + cells.map(escapeCell).join(" | ") + " |";
-      }
-      function formatSepRow(aligns) {
-        return "| " + aligns.map(alignSep).join(" | ") + " |";
-      }
-      function serializeGfmTable(parsed) {
-        const headers = parsed.headers || [];
-        const aligns = parsed.aligns || [];
-        const rows = parsed.rows || [];
-        const lines = [formatRow(headers), formatSepRow(aligns)];
-        for (let i = 0; i < rows.length; i++) {
-          const row = rows[i].slice(0, headers.length);
-          while (row.length < headers.length) row.push("");
-          lines.push(formatRow(row));
-        }
-        return lines.join("\n");
-      }
-      var TABLE_META_RE = /^\[comment\]:\s*<>\s*\(@mda-table\s+(\{.+?\})\)\s*$/;
-      function parseTableMetaLine(line) {
-        const m = String(line || "").trim().match(TABLE_META_RE);
-        if (!m) return null;
-        try {
-          const meta = JSON.parse(m[1]);
-          return meta && typeof meta === "object" ? meta : null;
-        } catch (_) {
-          return null;
-        }
-      }
-      function hasTableLayoutMeta(parsed) {
-        if (!parsed) return false;
-        const cw = parsed.colWidths || [];
-        const rh = parsed.rowHeights || [];
-        return cw.some(function(w) {
-          return w > 0;
-        }) || rh.some(function(h) {
-          return h > 0;
-        });
-      }
-      function serializeGfmTableBlock(parsed) {
-        const body = serializeGfmTable(parsed);
-        if (!hasTableLayoutMeta(parsed)) return body;
-        const meta = {};
-        if (parsed.colWidths && parsed.colWidths.length) meta.colWidths = parsed.colWidths;
-        if (parsed.rowHeights && parsed.rowHeights.length) meta.rowHeights = parsed.rowHeights;
-        return "[comment]: <> (@mda-table " + JSON.stringify(meta) + ")\n" + body;
-      }
-      function parseGfmTableBlock(blockText) {
-        const lines = String(blockText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(function(l, i, arr) {
-          return l.length > 0 || i < arr.length - 1;
-        });
-        let start = 0;
-        let meta = null;
-        if (lines.length > 0) {
-          meta = parseTableMetaLine(lines[0]);
-          if (meta) start = 1;
-        }
-        const parsed = parseGfmTable(lines.slice(start).join("\n"));
-        if (!parsed) return null;
-        if (meta) {
-          if (Array.isArray(meta.colWidths)) {
-            parsed.colWidths = sanitizeLayoutNumbers(meta.colWidths, MAX_TABLE_COL_WIDTH);
-          }
-          if (Array.isArray(meta.rowHeights)) {
-            parsed.rowHeights = sanitizeLayoutNumbers(meta.rowHeights, MAX_TABLE_ROW_HEIGHT);
-          }
-        }
-        return parsed;
-      }
-      function tableLayoutEqual(a, b) {
-        const cwA = a && a.colWidths ? a.colWidths : [];
-        const cwB = b && b.colWidths ? b.colWidths : [];
-        const rhA = a && a.rowHeights ? a.rowHeights : [];
-        const rhB = b && b.rowHeights ? b.rowHeights : [];
-        if (cwA.length !== cwB.length || rhA.length !== rhB.length) return false;
-        for (let i = 0; i < cwA.length; i++) {
-          if ((cwA[i] || 0) !== (cwB[i] || 0)) return false;
-        }
-        for (let i = 0; i < rhA.length; i++) {
-          if ((rhA[i] || 0) !== (rhB[i] || 0)) return false;
-        }
-        return true;
-      }
-      function normalizeCellText(text) {
-        return String(text || "").replace(/\u00a0/g, " ").replace(/\r\n/g, "\n");
-      }
-      function tablesEqual(a, b) {
-        if (!a || !b) return false;
-        if (a.headers.length !== b.headers.length) return false;
-        for (let i = 0; i < a.headers.length; i++) {
-          if (a.headers[i] !== b.headers[i]) return false;
-          const al = a.aligns[i] || "left";
-          const bl = b.aligns[i] || "left";
-          if (al !== bl) return false;
-        }
-        if (a.rows.length !== b.rows.length) return false;
-        for (let r = 0; r < a.rows.length; r++) {
-          const rowA = a.rows[r];
-          const rowB = b.rows[r];
-          for (let c = 0; c < a.headers.length; c++) {
-            if ((rowA[c] || "") !== (rowB[c] || "")) return false;
-          }
-        }
-        return true;
-      }
-      function readTableFromDom(table) {
-        if (!table) return null;
-        const headers = [];
-        const ths = table.querySelectorAll("thead th");
-        const colWidths = [];
-        for (let i = 0; i < ths.length; i++) {
-          headers.push(serializeTableCellMarkdown(ths[i]).trim());
-          const w = parseInt(ths[i].style.width || "", 10);
-          colWidths.push(w > 0 ? w : 0);
-        }
-        if (!headers.length) return null;
-        const aligns = [];
-        for (let i = 0; i < headers.length; i++) {
-          const th = ths[i];
-          const align = th && th.style.textAlign ? th.style.textAlign : "left";
-          aligns.push(align === "center" || align === "right" ? align : "left");
-        }
-        const rows = [];
-        const rowHeights = [];
-        const headerRow = table.querySelector("thead tr");
-        if (headerRow) {
-          const hh = parseInt(headerRow.style.height || "", 10);
-          rowHeights.push(hh > 0 ? hh : 0);
-        }
-        const trs = table.querySelectorAll("tbody tr");
-        for (let r = 0; r < trs.length; r++) {
-          const cells = [];
-          const tds = trs[r].querySelectorAll("td");
-          for (let c = 0; c < headers.length; c++) {
-            cells.push(tds[c] ? serializeTableCellMarkdown(tds[c]).trim() : "");
-          }
-          rows.push(cells);
-          const rh = parseInt(trs[r].style.height || "", 10);
-          rowHeights.push(rh > 0 ? rh : 0);
-        }
-        const out = { headers, aligns, rows };
-        if (table.getAttribute("data-mda-layout") === "fixed") {
-          if (colWidths.some(function(w) {
-            return w > 0;
-          })) out.colWidths = colWidths;
-          if (rowHeights.some(function(h) {
-            return h > 0;
-          })) out.rowHeights = rowHeights;
-        }
-        return out;
-      }
-      function serializeTableCellMarkdown(cell) {
-        if (!cell) return "";
-        let out = "";
-        function walk(node) {
-          if (!node) return;
-          if (node.nodeType === 3) {
-            out += node.nodeValue || "";
-            return;
-          }
-          if (node.nodeType !== 1) return;
-          if (node.getAttribute && node.getAttribute("data-mda-math-source")) {
-            out += node.getAttribute("data-mda-math-source") || "";
-            return;
-          }
-          if (node.getAttribute && node.hasAttribute("data-mda-math-tex")) {
-            out += "$" + (node.getAttribute("data-mda-math-tex") || "") + "$";
-            return;
-          }
-          if (node.getAttribute && node.getAttribute("data-mda-image-source")) {
-            out += node.getAttribute("data-mda-image-source") || "";
-            return;
-          }
-          if (node.classList && node.classList.contains("mda-cm-table-img") && node.getAttribute) {
-            const alt = node.getAttribute("data-mda-image-alt") || "";
-            const src = node.getAttribute("data-mda-image-src") || "";
-            const title = node.getAttribute("data-mda-image-title") || "";
-            if (title) {
-              out += "![" + alt + "](" + src + ' "' + String(title).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '")';
-            } else {
-              out += "![" + alt + "](" + src + ")";
-            }
-            return;
-          }
-          for (let i = 0; i < node.childNodes.length; i++) walk(node.childNodes[i]);
-        }
-        walk(cell);
-        return normalizeCellText(out);
-      }
-      function isTableLine(line) {
-        const t = String(line || "").trim();
-        return t.length > 0 && t.charAt(0) === "|";
-      }
-      function clampGfmTableRangeByParse(text, start, end) {
-        const len = text.length;
-        const block = text.slice(start, end);
-        const parsed = parseGfmTable(block);
-        if (!parsed) return null;
-        const needLines = 2 + parsed.rows.length;
-        let counted = 0;
-        let pos = start;
-        let tableEnd = start;
-        while (pos < end && counted < needLines) {
-          const lineFrom = pos;
-          const nextNl = text.indexOf("\n", lineFrom);
-          const lineTo = nextNl < 0 ? len : nextNl;
-          const line = text.slice(lineFrom, lineTo);
-          if (!line.trim()) break;
-          if (!isTableLine(line)) break;
-          counted += 1;
-          tableEnd = nextNl < 0 ? len : nextNl + 1;
-          pos = tableEnd;
-        }
-        if (counted < needLines) return null;
-        return { from: start, to: tableEnd };
-      }
-      function expandGfmTableRange(text, from, to) {
-        const len = text.length;
-        let start = Math.max(0, Math.min(from, len));
-        while (start > 0 && text.charAt(start - 1) !== "\n") start -= 1;
-        let seed = start;
-        if (!isTableLine(text.slice(seed, text.indexOf("\n", seed) < 0 ? len : text.indexOf("\n", seed)))) {
-          let pos = seed;
-          let found = false;
-          for (let i = 0; i < 4 && pos < len; i++) {
-            const lineFrom = pos;
-            const nextNl = text.indexOf("\n", lineFrom);
-            const lineTo = nextNl < 0 ? len : nextNl;
-            if (isTableLine(text.slice(lineFrom, lineTo))) {
-              seed = lineFrom;
-              found = true;
-              break;
-            }
-            pos = nextNl < 0 ? len : nextNl + 1;
-          }
-          if (!found) {
-            return alignHintLineRange(text, from, to, len);
-          }
-        }
-        start = seed;
-        let scan = start;
-        while (scan > 0) {
-          const prev = text.lastIndexOf("\n", scan - 1);
-          const lineFrom = prev < 0 ? 0 : prev + 1;
-          const line = text.slice(lineFrom, scan);
-          if (!isTableLine(line)) break;
-          start = lineFrom;
-          scan = lineFrom;
-        }
-        let end = start;
-        while (end < len) {
-          const lineFrom = end;
-          const nextNl = text.indexOf("\n", lineFrom);
-          const lineTo = nextNl < 0 ? len : nextNl;
-          const line = text.slice(lineFrom, lineTo);
-          if (!line.trim()) break;
-          if (!isTableLine(line)) break;
-          end = nextNl < 0 ? len : nextNl + 1;
-        }
-        const clamped = clampGfmTableRangeByParse(text, start, end);
-        if (clamped) return clamped;
-        return alignHintLineRange(text, from, to, len);
-      }
-      function expandTableBlockRange(text, from, to) {
-        const gfm = expandGfmTableRange(text, from, to);
-        let blockFrom = gfm.from;
-        if (blockFrom > 0) {
-          const lineEnd = blockFrom - 1;
-          const lineStart = lineEnd > 0 ? text.lastIndexOf("\n", lineEnd - 1) + 1 : 0;
-          const line = text.slice(lineStart, lineEnd);
-          if (parseTableMetaLine(line)) blockFrom = lineStart;
-        }
-        return { from: blockFrom, to: gfm.to };
-      }
-      module.exports = {
-        MAX_TABLE_COL_WIDTH,
-        MAX_TABLE_ROW_HEIGHT,
-        MAX_TABLE_WIDGET_HEIGHT,
-        parseGfmTable,
-        parseGfmTableBlock,
-        serializeGfmTable,
-        serializeGfmTableBlock,
-        parseTableMetaLine,
-        hasTableLayoutMeta,
-        tableLayoutEqual,
-        readTableFromDom,
-        serializeTableCellMarkdown,
-        expandGfmTableRange,
-        expandTableBlockRange,
-        splitRow,
-        escapeCell,
-        tablesEqual,
-        normalizeCellText,
-        sanitizeLayoutNumbers
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/model/table-model.js
-  var require_table_model = __commonJS({
-    "src/gui/renderer/editor/model/table-model.js"(exports, module) {
-      "use strict";
-      function cloneTableData(parsed) {
-        const out = {
-          headers: parsed.headers.slice(),
-          aligns: (parsed.aligns || []).slice(),
-          rows: parsed.rows.map(function(row) {
-            return row.slice();
-          })
-        };
-        if (parsed.colWidths) out.colWidths = parsed.colWidths.slice();
-        if (parsed.rowHeights) out.rowHeights = parsed.rowHeights.slice();
-        return out;
-      }
-      function emptyRow(parsed) {
-        return parsed.headers.map(function() {
-          return "";
-        });
-      }
-      function insertTableRow(parsed, bodyIndex, position) {
-        const row = emptyRow(parsed);
-        const idx = position === "before" ? bodyIndex : bodyIndex + 1;
-        parsed.rows.splice(Math.max(0, Math.min(idx, parsed.rows.length)), 0, row);
-        if (parsed.rowHeights) {
-          const at = Math.max(0, Math.min(idx, parsed.rows.length - 1)) + 1;
-          parsed.rowHeights.splice(at, 0, 0);
-        }
-      }
-      function insertTableColumn(parsed, colIndex, position) {
-        const idx = position === "before" ? colIndex : colIndex + 1;
-        const at = Math.max(0, Math.min(idx, parsed.headers.length));
-        parsed.headers.splice(at, 0, "");
-        parsed.aligns.splice(at, 0, "left");
-        if (parsed.colWidths) parsed.colWidths.splice(at, 0, 0);
-        for (let r = 0; r < parsed.rows.length; r++) {
-          parsed.rows[r].splice(at, 0, "");
-        }
-      }
-      function deleteTableRow(parsed, bodyIndex) {
-        if (bodyIndex < 0 || bodyIndex >= parsed.rows.length) return;
-        parsed.rows.splice(bodyIndex, 1);
-        if (parsed.rowHeights && parsed.rowHeights.length > bodyIndex + 1) {
-          parsed.rowHeights.splice(bodyIndex + 1, 1);
-        }
-      }
-      function deleteTableColumn(parsed, colIndex) {
-        if (parsed.headers.length <= 1) return;
-        if (colIndex < 0 || colIndex >= parsed.headers.length) return;
-        parsed.headers.splice(colIndex, 1);
-        parsed.aligns.splice(colIndex, 1);
-        if (parsed.colWidths) parsed.colWidths.splice(colIndex, 1);
-        for (let r = 0; r < parsed.rows.length; r++) {
-          parsed.rows[r].splice(colIndex, 1);
-        }
-      }
-      function cellAt(parsed, row, col) {
-        if (col < 0 || col >= parsed.headers.length) return "";
-        if (row === -1) return parsed.headers[col] || "";
-        if (row < 0 || row >= parsed.rows.length) return "";
-        return parsed.rows[row][col] || "";
-      }
-      function setCellAt(parsed, row, col, value) {
-        if (col < 0 || col >= parsed.headers.length) return;
-        if (row === -1) {
-          parsed.headers[col] = value;
-          return;
-        }
-        if (row < 0 || row >= parsed.rows.length) return;
-        parsed.rows[row][col] = value;
-      }
-      function selectionBounds(sel) {
-        if (!sel || sel.kind === "none") return null;
-        if (sel.kind === "cell") {
-          return { row1: sel.row, col1: sel.col, row2: sel.row, col2: sel.col };
-        }
-        if (sel.kind === "row") {
-          return {
-            row1: sel.row,
-            col1: 0,
-            row2: sel.row,
-            col2: Number.MAX_SAFE_INTEGER
-          };
-        }
-        if (sel.kind === "col") {
-          return {
-            row1: -1,
-            col1: sel.col,
-            row2: Number.MAX_SAFE_INTEGER,
-            col2: sel.col
-          };
-        }
-        if (sel.kind === "rect") {
-          return {
-            row1: Math.min(sel.row1, sel.row2),
-            col1: Math.min(sel.col1, sel.col2),
-            row2: Math.max(sel.row1, sel.row2),
-            col2: Math.max(sel.col1, sel.col2)
-          };
-        }
-        return null;
-      }
-      function isFullColumnSelection(sel) {
-        const b = selectionBounds(sel);
-        if (!b) return false;
-        return b.row1 === -1 && b.row2 === Number.MAX_SAFE_INTEGER;
-      }
-      function isFullRowSelection(sel) {
-        const b = selectionBounds(sel);
-        if (!b) return false;
-        return b.col1 === 0 && b.col2 === Number.MAX_SAFE_INTEGER;
-      }
-      function isEntireTableSelection(parsed, sel) {
-        if (!parsed || !parsed.headers || !parsed.headers.length) return false;
-        const b = selectionBounds(sel);
-        if (!b) return false;
-        const maxCol = parsed.headers.length - 1;
-        const maxRow = Math.max(0, (parsed.rows || []).length - 1);
-        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
-        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
-        if (b.row1 !== -1) return false;
-        if (b.col1 > 0 || col2 < maxCol) return false;
-        if ((parsed.rows || []).length === 0) return col2 >= maxCol;
-        return row2 >= maxRow;
-      }
-      function escapeHtmlCell(s) {
-        return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-      }
-      function escapeMdCell(cell) {
-        return String(cell == null ? "" : cell).replace(/\|/g, "\\|").replace(/\n/g, " ");
-      }
-      function formatMdRow(cells) {
-        return "| " + cells.map(escapeMdCell).join(" | ") + " |";
-      }
-      function formatMdSep(aligns) {
-        return "| " + aligns.map(function(a) {
-          if (a === "center") return ":---:";
-          if (a === "right") return "---:";
-          return "---";
-        }).join(" | ") + " |";
-      }
-      function extractTableMarkdown(parsed, sel) {
-        const b = selectionBounds(sel);
-        if (!b) return "";
-        const maxRow = parsed.rows.length - 1;
-        const maxCol = parsed.headers.length - 1;
-        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
-        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
-        const cols = [];
-        for (let c = b.col1; c <= col2; c++) cols.push(c);
-        if (!cols.length) return "";
-        let headers;
-        let aligns;
-        const body = [];
-        if (b.row1 === -1) {
-          headers = cols.map(function(c) {
-            return cellAt(parsed, -1, c);
-          });
-          aligns = cols.map(function(c) {
-            return parsed.aligns && parsed.aligns[c] || "left";
-          });
-          for (let r = 0; r <= row2; r++) {
-            body.push(
-              cols.map(function(c) {
-                return cellAt(parsed, r, c);
-              })
-            );
-          }
-        } else {
-          headers = cols.map(function() {
-            return "";
-          });
-          aligns = cols.map(function(c) {
-            return parsed.aligns && parsed.aligns[c] || "left";
-          });
-          for (let r = b.row1; r <= row2; r++) {
-            body.push(
-              cols.map(function(c) {
-                return cellAt(parsed, r, c);
-              })
-            );
-          }
-        }
-        const lines = [formatMdRow(headers), formatMdSep(aligns)];
-        for (let i = 0; i < body.length; i++) lines.push(formatMdRow(body[i]));
-        return lines.join("\n");
-      }
-      function extractTableHtml(parsed, sel) {
-        const b = selectionBounds(sel);
-        if (!b) return "";
-        const maxRow = parsed.rows.length - 1;
-        const maxCol = parsed.headers.length - 1;
-        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
-        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
-        const parts = ["<table>"];
-        for (let r = b.row1; r <= row2; r++) {
-          parts.push("<tr>");
-          for (let c = b.col1; c <= col2; c++) {
-            const tag = r === -1 ? "th" : "td";
-            parts.push("<" + tag + ">" + escapeHtmlCell(cellAt(parsed, r, c)) + "</" + tag + ">");
-          }
-          parts.push("</tr>");
-        }
-        parts.push("</table>");
-        return parts.join("");
-      }
-      function clearTableSelection(parsed, sel) {
-        const b = selectionBounds(sel);
-        if (!b) return;
-        const maxRow = parsed.rows.length - 1;
-        const maxCol = parsed.headers.length - 1;
-        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
-        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
-        for (let r = b.row1; r <= row2; r++) {
-          for (let c = b.col1; c <= col2; c++) {
-            setCellAt(parsed, r, c, "");
-          }
-        }
-      }
-      function extractTableTSV(parsed, sel) {
-        const b = selectionBounds(sel);
-        if (!b) return "";
-        const maxRow = parsed.rows.length - 1;
-        const maxCol = parsed.headers.length - 1;
-        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
-        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
-        const lines = [];
-        for (let r = b.row1; r <= row2; r++) {
-          const cells = [];
-          for (let c = b.col1; c <= col2; c++) {
-            cells.push(cellAt(parsed, r, c));
-          }
-          lines.push(cells.join("	"));
-        }
-        return lines.join("\n");
-      }
-      function parseClipboardTable(tsvOrMd) {
-        const text = String(tsvOrMd || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
-        if (!text) return [];
-        const mdLines = text.split("\n").filter(function(l) {
-          return l.trim().length > 0;
-        });
-        if (mdLines.length >= 2 && /^\s*\|/.test(mdLines[0]) && /^\s*\|?\s*:?-{3,}/.test(mdLines[1].replace(/\|/g, "|"))) {
-          const sepLooks = mdLines[1].indexOf("---") >= 0 || mdLines[1].indexOf(":--") >= 0 || mdLines[1].indexOf("--:") >= 0;
-          if (sepLooks) {
-            const splitMd = function(line) {
-              let s = String(line || "").trim();
-              if (s.charAt(0) === "|") s = s.slice(1);
-              if (s.charAt(s.length - 1) === "|") s = s.slice(0, -1);
-              return s.split("|").map(function(c) {
-                return c.replace(/^\s+|\s+$/g, "").replace(/\\\|/g, "|");
-              });
-            };
-            const headers = splitMd(mdLines[0]);
-            const out2 = [headers];
-            for (let i = 2; i < mdLines.length; i++) {
-              const cells = splitMd(mdLines[i]);
-              while (cells.length < headers.length) cells.push("");
-              out2.push(cells.slice(0, Math.max(headers.length, cells.length)));
-            }
-            return out2;
-          }
-        }
-        const lines = text.split("\n");
-        const out = [];
-        for (let i = 0; i < lines.length; i++) {
-          if (lines[i].indexOf("	") >= 0) {
-            out.push(lines[i].split("	"));
-          } else {
-            out.push([lines[i]]);
-          }
-        }
-        return out;
-      }
-      function pasteTableTSV(parsed, startRow, startCol, tsv) {
-        const grid = parseClipboardTable(tsv);
-        if (!grid.length) return;
-        for (let r = 0; r < grid.length; r++) {
-          const targetRow = startRow + r;
-          if (targetRow >= 0) {
-            while (parsed.rows.length <= targetRow) {
-              insertTableRow(parsed, parsed.rows.length, "before");
-            }
-          }
-          for (let c = 0; c < grid[r].length; c++) {
-            const targetCol = startCol + c;
-            while (parsed.headers.length <= targetCol) {
-              insertTableColumn(parsed, parsed.headers.length, "before");
-            }
-            setCellAt(parsed, targetRow, targetCol, grid[r][c]);
-          }
-        }
-      }
-      function selectionAnchor(sel) {
-        const b = selectionBounds(sel);
-        if (!b) return null;
-        return { row: b.row1, col: b.col1 };
-      }
-      function clipboardLooksLikeGfmTable(text) {
-        const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(function(l) {
-          return l.trim().length > 0;
-        });
-        if (lines.length < 2) return false;
-        if (!/^\s*\|/.test(lines[0])) return false;
-        return lines[1].indexOf("---") >= 0;
-      }
-      function createTableMarkdownPasteHandler() {
-        return function(event, view) {
-          if (!event || !view || !event.clipboardData) return false;
-          const plain = event.clipboardData.getData("text/plain") || "";
-          if (!clipboardLooksLikeGfmTable(plain)) return false;
-          event.preventDefault();
-          const insert = String(plain).replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/^\n+|\n+$/g, "");
-          const sel = view.state.selection.main;
-          const before = sel.from > 0 ? view.state.doc.sliceString(sel.from - 1, sel.from) : "\n";
-          const after = sel.to < view.state.doc.length ? view.state.doc.sliceString(sel.to, sel.to + 1) : "\n";
-          const prefix = before === "\n" ? "" : "\n";
-          const suffix = after === "\n" ? "\n" : "\n\n";
-          const text = prefix + insert + suffix;
-          view.dispatch({
-            changes: { from: sel.from, to: sel.to, insert: text },
-            selection: { anchor: sel.from + text.length },
-            userEvent: "input.paste"
-          });
-          return true;
-        };
-      }
-      module.exports = {
-        cloneTableData,
-        insertTableRow,
-        insertTableColumn,
-        deleteTableRow,
-        deleteTableColumn,
-        clearTableSelection,
-        extractTableTSV,
-        extractTableHtml,
-        extractTableMarkdown,
-        pasteTableTSV,
-        parseClipboardTable,
-        selectionBounds,
-        selectionAnchor,
-        isFullColumnSelection,
-        isFullRowSelection,
-        isEntireTableSelection,
-        clipboardLooksLikeGfmTable,
-        createTableMarkdownPasteHandler,
-        cellAt,
-        setCellAt
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/state/block-focus.js
-  var require_block_focus = __commonJS({
-    "src/gui/renderer/editor/state/block-focus.js"(exports, module) {
-      "use strict";
-      var { StateField, StateEffect } = require_dist2();
-      var setBlockFocusEffect = StateEffect.define();
-      function createBlockFocusField() {
-        return StateField.define({
-          create: function() {
-            return null;
-          },
-          update: function(value, tr) {
-            for (let i = 0; i < tr.effects.length; i++) {
-              const e = tr.effects[i];
-              if (e.is(setBlockFocusEffect)) return e.value;
-            }
-            if (!value || !tr.docChanged) return value;
-            const from = tr.changes.mapPos(value.from, 1);
-            const to = tr.changes.mapPos(value.to, -1);
-            if (from >= to) return null;
-            return { from, to, kind: value.kind };
-          }
-        });
-      }
-      function setBlockFocus(view, block) {
-        view.dispatch({ effects: setBlockFocusEffect.of(block) });
-      }
-      function readBlockFocus(state, field) {
-        try {
-          return state.field(field);
-        } catch (_) {
-          return null;
-        }
-      }
-      module.exports = {
-        setBlockFocusEffect,
-        createBlockFocusField,
-        setBlockFocus,
-        readBlockFocus
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/block-widget-base.js
-  var require_block_widget_base = __commonJS({
-    "src/gui/renderer/editor/widgets/block-widget-base.js"(exports, module) {
-      "use strict";
-      var { WidgetType } = require_dist4();
-      var DEFAULT_LINE_HEIGHT = 26;
-      var measuredHeightCache = /* @__PURE__ */ new Map();
-      function countSourceLines(text) {
-        if (!text) return 1;
-        let n = 1;
-        for (let i = 0; i < text.length; i++) {
-          if (text.charCodeAt(i) === 10) n += 1;
-        }
-        return n;
-      }
-      function blockHeightCacheKey(kind, from, to, source) {
-        return kind + ":" + from + ":" + to + ":" + String(source || "");
-      }
-      function rememberMeasuredHeight(key, h) {
-        if (!key || !(h > 0)) return;
-        measuredHeightCache.set(key, h);
-      }
-      function recallMeasuredHeight(key) {
-        if (!key || !measuredHeightCache.has(key)) return -1;
-        return measuredHeightCache.get(key);
-      }
-      function attachBlockMeasure(dom, view, widget) {
-        widget._dom = dom;
-        function measure() {
-          if (!dom.isConnected || !view) return;
-          const rect = dom.getBoundingClientRect();
-          const style = window.getComputedStyle(dom);
-          const marginTop = parseFloat(style.marginTop) || 0;
-          const marginBottom = parseFloat(style.marginBottom) || 0;
-          let h = rect.height + marginTop + marginBottom;
-          const cap = widget._maxMeasuredHeight;
-          if (cap > 0 && h > cap) h = cap;
-          if (h > 0 && Math.abs(h - widget._measured) > 0.5) {
-            widget._measured = h;
-            rememberMeasuredHeight(widget._cacheKey, h);
-            try {
-              view.requestMeasure();
-            } catch (_) {
-            }
-          }
-        }
-        requestAnimationFrame(measure);
-        if (typeof ResizeObserver !== "undefined") {
-          const ro = new ResizeObserver(function() {
-            measure();
-          });
-          ro.observe(dom);
-          dom._mdaBlockMeasureRo = ro;
-        }
-      }
-      function syncWidgetHeightFromDom(widget, view, dom) {
-        const el = dom || widget._dom;
-        if (!widget || !el || !el.isConnected) return;
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        const marginTop = parseFloat(style.marginTop) || 0;
-        const marginBottom = parseFloat(style.marginBottom) || 0;
-        let h = rect.height + marginTop + marginBottom;
-        const cap = widget._maxMeasuredHeight;
-        if (cap > 0 && h > cap) h = cap;
-        if (!(h > 0)) return;
-        widget._measured = h;
-        rememberMeasuredHeight(widget._cacheKey, h);
-        if (view) {
-          try {
-            view.requestMeasure();
-          } catch (_) {
-          }
-        }
-      }
-      function handleBlockPointer(view, widget, opts, kind, event) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (view && typeof view.dispatch === "function") {
-          view.dispatch({
-            selection: { anchor: widget.from, head: widget.from },
-            scrollIntoView: true
-          });
-        }
-        if (typeof opts.onFocusBlock === "function") {
-          opts.onFocusBlock({ from: widget.from, to: widget.to, kind });
-        }
-      }
-      var BlockReplaceWidget = class extends WidgetType {
-        /**
-         * @param {string} source
-         * @param {{ from?: number, to?: number, lineHeight?: number, minHeight?: number, heightKind?: string }} [opts]
-         */
-        constructor(source, opts) {
-          super();
-          this.source = source || "";
-          this.opts = opts || {};
-          this.from = opts && opts.from != null ? opts.from : 0;
-          this.to = opts && opts.to != null ? opts.to : 0;
-          this._lineHeight = opts && opts.lineHeight > 0 ? opts.lineHeight : DEFAULT_LINE_HEIGHT;
-          this._minHeight = opts && opts.minHeight > 0 ? opts.minHeight : this._lineHeight;
-          this._lineCount = countSourceLines(this.source);
-          this._cacheKey = blockHeightCacheKey(
-            opts && opts.heightKind || "block",
-            this.from,
-            this.to,
-            this.source
-          );
-          const cached = recallMeasuredHeight(this._cacheKey);
-          this._measured = cached > 0 ? cached : -1;
-        }
-        get estimatedHeight() {
-          if (this._dom && this._dom.isConnected) {
-            const rect = this._dom.getBoundingClientRect();
-            const style = window.getComputedStyle(this._dom);
-            const marginTop = parseFloat(style.marginTop) || 0;
-            const marginBottom = parseFloat(style.marginBottom) || 0;
-            let h = rect.height + marginTop + marginBottom;
-            const cap = this._maxMeasuredHeight;
-            if (cap > 0 && h > cap) h = cap;
-            if (h > 0) {
-              this._measured = h;
-              rememberMeasuredHeight(this._cacheKey, h);
-              return h;
-            }
-          }
-          if (this._measured > 0) return this._measured;
-          return Math.max(this._lineCount * this._lineHeight, this._minHeight);
-        }
-        /**
-         * @param {import('@codemirror/view').EditorView} view
-         * @param {HTMLElement} dom
-         */
-        bindMeasure(view, dom) {
-          this._dom = dom;
-          attachBlockMeasure(dom, view, this);
-        }
-        destroy(dom) {
-          if (this._dom === dom) this._dom = null;
-          if (dom && dom._mdaBlockMeasureRo) {
-            dom._mdaBlockMeasureRo.disconnect();
-            dom._mdaBlockMeasureRo = null;
-          }
-        }
-        ignoreEvent() {
-          return true;
-        }
-      };
-      module.exports = {
-        DEFAULT_LINE_HEIGHT,
-        countSourceLines,
-        attachBlockMeasure,
-        syncWidgetHeightFromDom,
-        handleBlockPointer,
-        blockHeightCacheKey,
-        rememberMeasuredHeight,
-        recallMeasuredHeight,
-        BlockReplaceWidget
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/mermaid-diagram-type.js
-  var require_mermaid_diagram_type = __commonJS({
-    "src/gui/renderer/editor/widgets/mermaid-diagram-type.js"(exports, module) {
-      "use strict";
-      function getMermaidFirstKeyword(code) {
-        if (!code) return "";
-        const lines = String(code).replace(/\r\n/g, "\n").split("\n");
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i].replace(/^\uFEFF/, "").trim();
-          if (!line || line.startsWith("%%")) continue;
-          const token = (line.split(/\s+/)[0] || "").trim();
-          if (token) return token;
-        }
-        return "";
-      }
-      function detectMermaidDiagramType(code) {
-        const kw = getMermaidFirstKeyword(code);
-        if (!kw) return "unknown";
-        const lower = kw.toLowerCase();
-        if (lower === "graph" || lower === "flowchart") return lower;
-        if (lower === "sequencediagram") return "sequence";
-        if (lower.startsWith("classdiagram")) return "class";
-        if (lower.startsWith("statediagram")) return "state";
-        if (lower === "erdiagram") return "er";
-        if (lower === "journey") return "journey";
-        if (lower === "gantt") return "gantt";
-        if (lower === "pie") return "pie";
-        if (lower === "quadrantchart") return "quadrant";
-        if (lower.startsWith("requirementdiagram")) return "requirement";
-        if (lower === "gitgraph") return "gitgraph";
-        if (lower === "mindmap") return "mindmap";
-        if (lower === "timeline") return "timeline";
-        if (lower === "zenuml") return "zenuml";
-        if (lower.startsWith("sankey")) return "sankey";
-        if (lower.startsWith("block")) return "block";
-        if (lower.startsWith("packet")) return "packet";
-        if (lower.startsWith("architecture")) return "architecture";
-        if (lower.startsWith("c4")) return "c4";
-        if (lower === "xychart-beta" || lower === "xychart") return "xychart";
-        if (lower === "kanban") return "kanban";
-        return lower.replace(/-beta$/i, "").replace(/-v\d+$/i, "");
-      }
-      var MERMAID_KEYWORD_I18N_KEYS = {
-        gitgraph: "mermaidKwGitgraph",
-        c4context: "mermaidKwC4",
-        c4container: "mermaidKwC4",
-        c4component: "mermaidKwC4",
-        c4dynamic: "mermaidKwC4",
-        c4deployment: "mermaidKwC4"
-      };
-      function mermaidKeywordI18nKey(keyword) {
-        if (!keyword) return "diagram";
-        const withoutSuffix = keyword.replace(/-beta$/i, "").replace(/-v\d+$/i, "");
-        const lower = withoutSuffix.toLowerCase();
-        if (MERMAID_KEYWORD_I18N_KEYS[lower]) return MERMAID_KEYWORD_I18N_KEYS[lower];
-        const parts = withoutSuffix.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[^a-zA-Z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean).map(function(part) {
-          return part.toLowerCase();
-        });
-        if (!parts.length) return "diagram";
-        const norm = parts.map(function(part, i) {
-          if (i === 0) return part;
-          return part.charAt(0).toUpperCase() + part.slice(1);
-        }).join("");
-        return "mermaidKw" + norm.charAt(0).toUpperCase() + norm.slice(1);
-      }
-      function formatMermaidKeywordFallback(keyword) {
-        if (!keyword) return "";
-        const lower = keyword.toLowerCase();
-        if (lower === "sequencediagram") return "Sequence diagram";
-        if (lower.startsWith("sankey")) {
-          return keyword.replace(/-beta$/i, "").replace(/^sankey/i, "Sankey");
-        }
-        if (lower.startsWith("classdiagram")) return "Class diagram";
-        if (lower.startsWith("statediagram")) return "State diagram";
-        if (lower === "erdiagram") return "ER diagram";
-        if (lower === "gitgraph") return "GitGraph";
-        if (lower.startsWith("c4")) return "C4";
-        if (lower === "quadrantchart") return "Quadrant chart";
-        if (lower.startsWith("requirementdiagram")) return "Requirement diagram";
-        if (lower.startsWith("architecture")) return "Architecture";
-        if (lower === "xychart-beta" || lower === "xychart") return "XY chart";
-        if (lower.startsWith("radar")) return "Radar chart";
-        if (lower.startsWith("treemap")) return "Treemap";
-        if (lower.startsWith("venn")) return "Venn diagram";
-        if (/^[a-z][a-z0-9-]*$/i.test(keyword) && keyword === keyword.toLowerCase()) {
-          return keyword.replace(/-beta$/i, "");
-        }
-        return keyword;
-      }
-      function mermaidDiagramTypeLabel(code, t) {
-        const keyword = getMermaidFirstKeyword(code);
-        if (!keyword) {
-          const fallback = typeof t === "function" ? t("diagram") : "diagram";
-          return fallback !== "diagram" ? fallback : "Diagram";
-        }
-        const key = mermaidKeywordI18nKey(keyword);
-        const label = typeof t === "function" ? t(key) : key;
-        if (label && label !== key) return label;
-        const formatted = formatMermaidKeywordFallback(keyword);
-        return formatted || keyword;
-      }
-      function mermaidDiagramTypeI18nKey(typeId) {
-        if (!typeId || typeId === "unknown") return "diagram";
-        return "mermaidType" + typeId.charAt(0).toUpperCase() + typeId.slice(1).replace(/-([a-z])/g, function(_m, c) {
-          return c.toUpperCase();
-        });
-      }
-      module.exports = {
-        getMermaidFirstKeyword,
-        detectMermaidDiagramType,
-        mermaidKeywordI18nKey,
-        mermaidDiagramTypeLabel,
-        mermaidDiagramTypeI18nKey
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/widget-common.js
-  var require_widget_common = __commonJS({
-    "src/gui/renderer/editor/widgets/widget-common.js"(exports, module) {
-      "use strict";
-      var { mermaidDiagramTypeLabel } = require_mermaid_diagram_type();
-      function uiT(key, t, vars) {
-        if (typeof t === "function") return t(key, vars);
-        return key;
-      }
-      function copyText(text, copyFn) {
-        const s = text == null ? "" : String(text);
-        if (typeof copyFn === "function") {
-          copyFn(s);
-          return;
-        }
-        if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(s).catch(function() {
-          });
-        }
-      }
-      function createBlockToolbar(root, spec) {
-        const t = spec.t;
-        const bar = document.createElement("div");
-        bar.className = "mda-cm-block-toolbar";
-        if (spec.labelKey) {
-          const lab = document.createElement("span");
-          lab.className = "mda-cm-block-toolbar-label";
-          lab.dataset.i18nKey = spec.labelKey;
-          lab.textContent = uiT(spec.labelKey, t);
-          bar.appendChild(lab);
-        } else if (spec.label) {
-          const lab = document.createElement("span");
-          lab.className = "mda-cm-block-toolbar-label";
-          lab.textContent = spec.label;
-          bar.appendChild(lab);
-        }
-        const actions = document.createElement("div");
-        actions.className = "mda-cm-block-toolbar-actions";
-        const buttons = spec.buttons || [];
-        for (let i = 0; i < buttons.length; i++) {
-          const b = buttons[i];
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "mda-cm-block-toolbar-btn";
-          btn.dataset.action = b.id;
-          if (b.i18nKey) {
-            btn.dataset.i18nKey = b.i18nKey;
-            if (b.i18nToggle) btn.dataset.i18nToggle = b.i18nToggle;
-            const label = uiT(b.i18nKey, t);
-            btn.textContent = label;
-            btn.title = label;
-          } else {
-            btn.textContent = b.label || "";
-            if (b.title) btn.title = b.title;
-          }
-          actions.appendChild(btn);
-        }
-        bar.appendChild(actions);
-        root.appendChild(bar);
-        return bar;
-      }
-      function refreshBlockToolbars(root, t) {
-        if (!root || typeof t !== "function") return;
-        const host = root.querySelectorAll ? root : document.body;
-        host.querySelectorAll(".mda-cm-block-toolbar-label[data-i18n-key]").forEach(function(el) {
-          const key = el.getAttribute("data-i18n-key");
-          if (key) el.textContent = t(key);
-        });
-        host.querySelectorAll(".mda-cm-block-toolbar-label[data-mda-mermaid-kw]").forEach(function(el) {
-          const kw = el.getAttribute("data-mda-mermaid-kw") || "";
-          const code = kw ? kw + "\n" : "";
-          el.textContent = mermaidDiagramTypeLabel(code, t);
-        });
-        host.querySelectorAll(".mda-cm-block-toolbar-btn[data-i18n-key]").forEach(function(btn) {
-          let key = btn.getAttribute("data-i18n-key");
-          if (btn.getAttribute("data-i18n-toggle") === "mermaid-source") {
-            const frame = btn.closest(".mda-cm-mermaid-frame");
-            key = frame && frame.classList.contains("mda-cm-mermaid-source-mode") ? "widgetMermaidPreview" : "widgetCodeSource";
-          }
-          if (btn.getAttribute("data-i18n-toggle") === "math-source") {
-            const frame = btn.closest(".mda-cm-math-frame");
-            key = frame && frame.classList.contains("mda-cm-math-source-mode") ? "widgetCodePreview" : "widgetCodeSource";
-          }
-          if (!key) return;
-          const label = t(key);
-          btn.textContent = label;
-          btn.title = label;
-        });
-        host.querySelectorAll("[data-i18n-title]").forEach(function(el) {
-          const key = el.getAttribute("data-i18n-title");
-          if (key) el.title = t(key);
-        });
-        host.querySelectorAll("[data-i18n-aria]").forEach(function(el) {
-          const key = el.getAttribute("data-i18n-aria");
-          if (key) el.setAttribute("aria-label", t(key));
-        });
-        host.querySelectorAll(".mda-cm-table-add-btn[data-i18n-title]").forEach(function(btn) {
-          const key = btn.getAttribute("data-i18n-title");
-          if (key) btn.title = t(key);
-        });
-        host.querySelectorAll(".mda-cm-table-menu-item[data-i18n-key]").forEach(function(btn) {
-          const key = btn.getAttribute("data-i18n-key");
-          if (key) btn.textContent = t(key);
-        });
-      }
-      function clearMediaSelection(container, selectedClass) {
-        if (!container) return;
-        const sel = selectedClass || "mda-cm-media-selected";
-        const nodes = container.querySelectorAll("." + sel);
-        for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove(sel);
-      }
-      var HOVER_LEAVE_MS = 200;
-      function clearBlockWidgetSelection(container) {
-        if (!container || !container.querySelectorAll) return;
-        const nodes = container.querySelectorAll(".mda-cm-block-selected");
-        for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove("mda-cm-block-selected");
-        const hrSel = container.querySelectorAll(".mda-cm-hr-selected");
-        for (let j = 0; j < hrSel.length; j++) hrSel[j].classList.remove("mda-cm-hr-selected");
-      }
-      module.exports = {
-        uiT,
-        copyText,
-        createBlockToolbar,
-        refreshBlockToolbars,
-        clearMediaSelection,
-        clearBlockWidgetSelection,
-        HOVER_LEAVE_MS
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widget-editable-guard.js
-  var require_widget_editable_guard = __commonJS({
-    "src/gui/renderer/editor/widget-editable-guard.js"(exports, module) {
-      "use strict";
-      var { EditorState, EditorSelection, Transaction } = require_dist2();
-      var { EditorView } = require_dist4();
-      var widgetEditablePointerActive = false;
-      var docMouseUpBound = false;
-      function isWidgetInlineEditableTarget(target) {
-        if (!target || !target.closest) return false;
-        return !!target.closest(
-          '.mda-cm-table th[contenteditable="true"], .mda-cm-table td[contenteditable="true"],.mda-cm-code-input[contenteditable="true"],.mda-cm-mermaid-source-input[contenteditable="true"],.mda-cm-math-source-input[contenteditable="true"]'
-        );
-      }
-      function focusInWidgetInlineEditable() {
-        if (typeof document === "undefined") return false;
-        const ae = document.activeElement;
-        if (!ae || !ae.closest) return false;
-        return isWidgetInlineEditableTarget(ae);
-      }
-      function shouldSuppressCm6Selection() {
-        return widgetEditablePointerActive || focusInWidgetInlineEditable();
-      }
-      function collapseCm6Selection(view) {
-        if (!view || view.destroyed) return;
-        const sel = view.state.selection.main;
-        if (sel.empty) return;
-        view.dispatch({
-          selection: { anchor: sel.head, head: sel.head },
-          annotations: Transaction.addToHistory.of(false)
-        });
-      }
-      function ensureDocMouseUpBound() {
-        if (docMouseUpBound || typeof document === "undefined") return;
-        docMouseUpBound = true;
-        document.addEventListener(
-          "mouseup",
-          function() {
-            widgetEditablePointerActive = false;
-          },
-          true
-        );
-      }
-      function attachWidgetEditablePointerIsolation(el) {
-        if (!el || el.dataset.mdaWidgetEditableIso === "1") return;
-        el.dataset.mdaWidgetEditableIso = "1";
-        ensureDocMouseUpBound();
-        el.addEventListener(
-          "mousedown",
-          function(e) {
-            if (e.button === 0) widgetEditablePointerActive = true;
-          },
-          true
-        );
-        el.addEventListener(
-          "mousemove",
-          function(e) {
-            if (e.buttons & 1) e.stopPropagation();
-          },
-          true
-        );
-        el.addEventListener(
-          "mouseup",
-          function(e) {
-            e.stopPropagation();
-            widgetEditablePointerActive = false;
-          },
-          true
-        );
-      }
-      function createWidgetEditableGuardExtension() {
-        ensureDocMouseUpBound();
-        return [
-          EditorState.transactionFilter.of(function(tr) {
-            if (!tr.selection || !shouldSuppressCm6Selection()) return tr;
-            const main = tr.selection.main;
-            if (main.empty) return tr;
-            const head = main.head;
-            if (main.anchor === head && main.from === head && main.to === head) return tr;
-            return {
-              ...tr,
-              selection: EditorSelection.single(head)
-            };
-          }),
-          EditorView.domEventHandlers({
-            mousedown: function(event, view) {
-              if (event.button !== 0) return false;
-              if (!isWidgetInlineEditableTarget(event.target)) {
-                return false;
-              }
-              widgetEditablePointerActive = true;
-              collapseCm6Selection(view);
-              return false;
-            }
-          })
-        ];
-      }
-      module.exports = {
-        isWidgetInlineEditableTarget,
-        focusInWidgetInlineEditable,
-        attachWidgetEditablePointerIsolation,
-        createWidgetEditableGuardExtension,
-        collapseCm6Selection
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/caret-syntax-adjust.js
-  var require_caret_syntax_adjust = __commonJS({
-    "src/gui/renderer/editor/caret-syntax-adjust.js"(exports, module) {
-      "use strict";
-      var { syntaxTree } = require_dist7();
-      var { SYNTAX_RULES } = require_syntax_rules();
-      var ATX_LINE_RE = /^( {0,3})(#{1,6})(\s*)(.*)$/;
-      function adaptSyntaxNode(node) {
-        return { from: node.from, to: node.to, type: node.name };
-      }
-      function findLeadingMark(marks, content) {
-        var leading = null;
-        for (var i = 0; i < marks.length; i++) {
-          if (marks[i].to <= content.from) {
-            if (!leading || marks[i].from < leading.from) leading = marks[i];
-          }
-        }
-        return leading || (marks.length ? marks[0] : null);
-      }
-      function findTrailingMark(marks, content) {
-        var trailing = null;
-        for (var i = 0; i < marks.length; i++) {
-          if (marks[i].from >= content.to) {
-            if (!trailing || marks[i].to > trailing.to) trailing = marks[i];
-          }
-        }
-        return trailing;
-      }
-      function adjustCaretForHiddenMarks(state, pos) {
-        if (pos == null || pos < 0) return pos;
-        const tree = syntaxTree(state);
-        if (!tree) return pos;
-        const doc = state.doc.toString();
-        const len = doc.length;
-        if (pos > len) return len;
-        var snapLeft = null;
-        var snapRight = null;
-        var bestLeftSpan = Infinity;
-        var bestRightSpan = Infinity;
-        tree.iterate({
-          enter: function(node) {
-            const rule = SYNTAX_RULES[node.name];
-            if (!rule || rule.class !== "R" || typeof rule.contentRange !== "function") return;
-            if (pos < node.from || pos > node.to) return;
-            const adapted = adaptSyntaxNode(node);
-            const content = rule.contentRange(adapted, doc);
-            if (!content || content.from > content.to) return;
-            const marks = typeof rule.markRanges === "function" ? rule.markRanges(adapted, doc) || [] : [];
-            if (!marks.length) return;
-            const leading = findLeadingMark(marks, content);
-            const trailing = findTrailingMark(marks, content);
-            const span = Math.max(0, content.to - content.from);
-            if (leading && pos > leading.from && pos <= content.from) {
-              if (span < bestLeftSpan) {
-                bestLeftSpan = span;
-                snapLeft = leading.from;
-              }
-            }
-            if (trailing && pos >= content.to && pos < trailing.to) {
-              if (span < bestRightSpan) {
-                bestRightSpan = span;
-                snapRight = trailing.to;
-              }
-            }
-          }
-        });
-        if (snapLeft != null && snapRight != null) {
-          return bestLeftSpan <= bestRightSpan ? snapLeft : snapRight;
-        }
-        if (snapLeft != null) return snapLeft;
-        if (snapRight != null) return snapRight;
-        return pos;
-      }
-      function clampSelectionBleed(state, pos, other) {
-        if (pos == null || pos < 0) return pos;
-        const doc = state.doc;
-        if (pos > doc.length) return doc.length;
-        const line = doc.lineAt(pos);
-        const m = ATX_LINE_RE.exec(line.text);
-        if (!m) return pos;
-        const prefixEnd = line.from + m[1].length + m[2].length + m[3].length;
-        if (pos > prefixEnd) return pos;
-        const otherLine = doc.lineAt(other);
-        if (otherLine.number < line.number && line.number > 1) {
-          return doc.line(line.number - 1).to;
-        }
-        return pos;
-      }
-      function clampEmptyLineSelectionBleed(state, pos, other) {
-        if (pos == null || pos < 0) return pos;
-        const doc = state.doc;
-        const line = doc.lineAt(pos);
-        if (line.text.trim() !== "") return pos;
-        if (pos !== line.from) return pos;
-        const otherLine = doc.lineAt(other);
-        if (otherLine.number !== line.number - 1) return pos;
-        return otherLine.to;
-      }
-      function adjustSelectionForHiddenMarks(state, anchor, head) {
-        let a = clampSelectionBleed(state, anchor, head);
-        let h = clampSelectionBleed(state, head, anchor);
-        a = clampEmptyLineSelectionBleed(state, a, h);
-        h = clampEmptyLineSelectionBleed(state, h, a);
-        return {
-          anchor: adjustCaretForHiddenMarks(state, a),
-          head: adjustCaretForHiddenMarks(state, h)
-        };
-      }
-      module.exports = {
-        ATX_LINE_RE,
-        findLeadingMark,
-        findTrailingMark,
-        clampSelectionBleed,
-        clampEmptyLineSelectionBleed,
-        adjustCaretForHiddenMarks,
-        adjustSelectionForHiddenMarks
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/click-collapse.js
-  var require_click_collapse = __commonJS({
-    "src/gui/renderer/editor/click-collapse.js"(exports, module) {
-      "use strict";
-      var { EditorView } = require_dist4();
-      var { EditorSelection } = require_dist2();
-      var { adjustCaretForHiddenMarks, adjustSelectionForHiddenMarks } = require_caret_syntax_adjust();
-      var DRAG_PX = 4;
-      var REFINE_DIST_PX = 10;
-      var mouseDown = null;
-      var docPointerEndBound = false;
-      function takeMouseDownForView(view) {
-        if (!mouseDown || mouseDown.view !== view) return null;
-        const start = mouseDown;
-        mouseDown = null;
-        return start;
-      }
-      function takeAnyMouseDown() {
-        if (!mouseDown) return null;
-        const start = mouseDown;
-        mouseDown = null;
-        return start;
-      }
-      function ensureDocPointerEndListeners() {
-        if (docPointerEndBound || typeof document === "undefined") return;
-        docPointerEndBound = true;
-        document.addEventListener(
-          "mouseup",
-          function(event) {
-            if (event.button !== 0) return;
-            const start = takeAnyMouseDown();
-            if (!start || start.view.destroyed) return;
-            finalizePointerUp(start.view, start, event.clientX, event.clientY, event.detail);
-          },
-          true
-        );
-      }
-      function finalizePointerUp(view, start, clientX, clientY, detail, options) {
-        if (!view || view.destroyed || start.shiftKey) return;
-        if (start.handledMultiClick || detail >= 2) return;
-        const dx = clientX - start.x;
-        const dy = clientY - start.y;
-        const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
-        if (moved) {
-          const pointer = {
-            startX: start.x,
-            startY: start.y,
-            endX: clientX,
-            endY: clientY
-          };
-          adjustDragSelection(view, pointer);
-          requestAnimationFrame(function() {
-            adjustDragSelection(view, pointer);
-          });
-          return;
-        }
-        if (options && options.skipClickCaret) return;
-        placeCaret(view, clientX, clientY);
-        requestAnimationFrame(function() {
-          if (!view || view.destroyed) return;
-          placeCaret(view, clientX, clientY);
-        });
-      }
-      function isBlockWidgetTarget(target) {
-        if (!target || !target.closest) return false;
-        return !!target.closest(
-          ".mda-cm-image-block, .mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-math-block, .mda-cm-hr-block, .mda-cm-math-inline"
-        );
-      }
-      function caretNodeFromPoint(clientX, clientY) {
-        if (typeof document === "undefined") return null;
-        if (typeof document.caretRangeFromPoint === "function") {
-          try {
-            const range = document.caretRangeFromPoint(clientX, clientY);
-            if (range && range.startContainer) {
-              return { node: range.startContainer, offset: range.startOffset };
-            }
-          } catch (_) {
-          }
-        }
-        if (typeof document.caretPositionFromPoint === "function") {
-          try {
-            const pos = document.caretPositionFromPoint(clientX, clientY);
-            if (pos && pos.offsetNode) {
-              return { node: pos.offsetNode, offset: pos.offset };
-            }
-          } catch (_) {
-          }
-        }
-        return null;
-      }
-      function posAtClickFromDom(view, clientX, clientY) {
-        const hit = typeof document !== "undefined" && document.elementFromPoint ? document.elementFromPoint(clientX, clientY) : null;
-        if (isBlockWidgetTarget(hit)) return null;
-        if (hit && hit.closest && !hit.closest(".cm-content")) return null;
-        const caret = caretNodeFromPoint(clientX, clientY);
-        if (!caret) return null;
-        if (isBlockWidgetTarget(caret.node.nodeType === 1 ? caret.node : caret.node.parentElement)) {
-          return null;
-        }
-        try {
-          const pos = view.posAtDOM(caret.node, caret.offset);
-          if (pos == null || pos < 0) return null;
-          if (pos > view.state.doc.length) return view.state.doc.length;
-          return pos;
-        } catch (_) {
-          return null;
-        }
-      }
-      function lineElementAt(view, pos) {
-        try {
-          const at = view.domAtPos(pos, 1);
-          let node = at && at.node;
-          if (!node) return null;
-          if (node.nodeType === 3) node = node.parentElement;
-          return node && node.closest ? (
-            /** @type {HTMLElement} */
-            node.closest(".cm-line")
-          ) : null;
-        } catch (_) {
-          return null;
-        }
-      }
-      function cmLineElementAtPoint(view, clientX, clientY) {
-        if (typeof document === "undefined" || !view || !view.dom) return null;
-        const caret = caretNodeFromPoint(clientX, clientY);
-        if (caret) {
-          const el = caret.node.nodeType === 3 ? caret.node.parentElement : caret.node;
-          if (el && el.closest) {
-            const hit = el.closest(".cm-line");
-            if (hit && view.dom.contains(hit)) return (
-              /** @type {HTMLElement} */
-              hit
-            );
-          }
-        }
-        const target = document.elementFromPoint(clientX, clientY);
-        if (!target || !view.dom.contains(target)) return null;
-        if (target.closest) {
-          const hit = target.closest(".cm-line");
-          if (hit) return (
-            /** @type {HTMLElement} */
-            hit
-          );
-        }
-        let best = null;
-        let bestDy = Infinity;
-        const lines = view.contentDOM.querySelectorAll(".cm-line");
-        for (let i = 0; i < lines.length; i++) {
-          const el = (
-            /** @type {HTMLElement} */
-            lines[i]
-          );
-          const rect = el.getBoundingClientRect();
-          if (clientY < rect.top - 2 || clientY > rect.bottom + 2 || clientX < rect.left - 12 || clientX > rect.right + 12) {
-            continue;
-          }
-          const midY = (rect.top + rect.bottom) / 2;
-          const dy = Math.abs(midY - clientY);
-          if (dy < bestDy) {
-            bestDy = dy;
-            best = el;
-          }
-        }
-        return best;
-      }
-      function docLineAtClick(view, clientX, clientY) {
-        if (!view || view.destroyed) return null;
-        const lineEl = cmLineElementAtPoint(view, clientX, clientY);
-        if (lineEl) {
-          try {
-            const base = view.posAtDOM(lineEl, 0);
-            return view.state.doc.lineAt(base);
-          } catch (_) {
-          }
-        }
-        const raw = posAtClick(view, clientX, clientY);
-        if (raw == null) return null;
-        return view.state.doc.lineAt(caretPosForClick(view, raw));
-      }
-      function lineSelectionRange(state, line) {
-        let from = adjustCaretForHiddenMarks(state, line.from);
-        const to = line.to;
-        if (state.doc.lineAt(from).number < line.number) from = line.from;
-        return { from: Math.min(from, to), to: Math.max(from, to) };
-      }
-      function posFromCmLineAtPoint(view, clientX, clientY) {
-        const lineEl = cmLineElementAtPoint(view, clientX, clientY);
-        if (!lineEl) return null;
-        const caret = caretNodeFromPoint(clientX, clientY);
-        if (caret) {
-          try {
-            const node = caret.node;
-            const el = node.nodeType === 3 ? node.parentElement : node;
-            if (el && lineEl.contains(el)) {
-              const pos = view.posAtDOM(caret.node, caret.offset);
-              if (pos != null && pos >= 0 && pos <= view.state.doc.length) return pos;
-            }
-          } catch (_) {
-          }
-        }
-        try {
-          const base = view.posAtDOM(lineEl, 0);
-          const line = view.state.doc.lineAt(base);
-          if (clientX <= lineEl.getBoundingClientRect().left + 4) return line.from;
-          return line.to;
-        } catch (_) {
-          return null;
-        }
-      }
-      function lineVerticalBand(view, line) {
-        const lineEl = lineElementAt(view, line.from);
-        if (lineEl) {
-          const rect = lineEl.getBoundingClientRect();
-          if (rect.bottom >= rect.top) {
-            return { top: rect.top, bottom: rect.bottom };
-          }
-        }
-        let top = Infinity;
-        let bottom = -Infinity;
-        const positions = [line.from];
-        if (line.to > line.from) {
-          positions.push(line.from + Math.floor((line.to - line.from) / 2));
-          positions.push(Math.max(line.from, line.to - 1));
-        }
-        for (let i = 0; i < positions.length; i++) {
-          const c1 = view.coordsAtPos(positions[i], 1);
-          const c2 = view.coordsAtPos(positions[i], -1);
-          if (c1) {
-            top = Math.min(top, c1.top);
-            bottom = Math.max(bottom, c1.bottom);
-          }
-          if (c2) {
-            top = Math.min(top, c2.top);
-            bottom = Math.max(bottom, c2.bottom);
-          }
-        }
-        if (!isFinite(top) || !isFinite(bottom) || bottom < top) return null;
-        if (bottom - top < 12) bottom = top + 26;
-        return { top, bottom };
-      }
-      function posOnLineAtX(view, line, clientX) {
-        const band = lineVerticalBand(view, line);
-        if (!band) return line.from;
-        const midY = (band.top + band.bottom) / 2;
-        let p = view.posAtCoords({ x: clientX, y: midY }, 1);
-        if (p == null) p = view.posAtCoords({ x: clientX, y: midY }, -1);
-        if (p == null) return line.from;
-        if (p < line.from) return line.from;
-        if (p > line.to) return line.to;
-        return p;
-      }
-      function refinePosAtClick(view, clientX, clientY, hintPos) {
-        const cmPos = posFromCmLineAtPoint(view, clientX, clientY);
-        if (cmPos != null) return cmPos;
-        const doc = view.state.doc;
-        const hintLine = doc.lineAt(hintPos);
-        let bestPos = hintPos;
-        let bestScore = Infinity;
-        let foundInY = false;
-        const fromN = Math.max(1, hintLine.number - 2);
-        const toN = Math.min(doc.lines, hintLine.number + 2);
-        for (let n = fromN; n <= toN; n++) {
-          const line = doc.line(n);
-          const band = lineVerticalBand(view, line);
-          if (!band) continue;
-          const inY = clientY >= band.top - 2 && clientY <= band.bottom + 2;
-          if (!inY) continue;
-          foundInY = true;
-          const p = posOnLineAtX(view, line, clientX);
-          const caret = view.coordsAtPos(p, p <= line.from ? 1 : -1);
-          if (!caret) continue;
-          const dx = caret.left - clientX;
-          const dy = (caret.top + caret.bottom) / 2 - clientY;
-          const score = dx * dx * 0.2 + dy * dy;
-          if (score < bestScore) {
-            bestScore = score;
-            bestPos = p;
-          }
-        }
-        return foundInY ? bestPos : hintPos;
-      }
-      function clickScoreAtPos(view, pos, clientX, clientY) {
-        const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
-        if (!caret) return Infinity;
-        const dx = caret.left - clientX;
-        const dy = (caret.top + caret.bottom) / 2 - clientY;
-        return dx * dx + dy * dy;
-      }
-      function posAtClick(view, clientX, clientY) {
-        if (typeof document !== "undefined" && document.elementFromPoint) {
-          const el = document.elementFromPoint(clientX, clientY);
-          if (isBlockWidgetTarget(el)) return null;
-        }
-        const cmPos = posFromCmLineAtPoint(view, clientX, clientY);
-        const fromDom = posAtClickFromDom(view, clientX, clientY);
-        let fromCoords = view.posAtCoords({ x: clientX, y: clientY }, 1);
-        if (fromCoords == null) fromCoords = view.posAtCoords({ x: clientX, y: clientY }, -1);
-        const doc = view.state.doc;
-        if (cmPos != null) {
-          if (fromCoords != null) {
-            const cmLn = doc.lineAt(cmPos);
-            const coLn = doc.lineAt(fromCoords);
-            if (cmLn.number < coLn.number) return cmPos;
-          }
-          return cmPos;
-        }
-        if (fromDom != null && fromCoords != null && fromDom !== fromCoords) {
-          const domLine = doc.lineAt(fromDom);
-          const coLine = doc.lineAt(fromCoords);
-          if (coLine.number > domLine.number) return fromDom;
-          if (domLine.number > coLine.number) return fromCoords;
-          const sDom = clickScoreAtPos(view, fromDom, clientX, clientY);
-          const sCo = clickScoreAtPos(view, fromCoords, clientX, clientY);
-          if (sCo + 9 < sDom) {
-            return refineIfFar(view, clientX, clientY, fromCoords);
-          }
-          return fromDom;
-        }
-        if (fromDom != null) return fromDom;
-        if (fromCoords == null) return null;
-        return refineIfFar(view, clientX, clientY, fromCoords);
-      }
-      function refineIfFar(view, clientX, clientY, pos) {
-        const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
-        if (caret) {
-          const dx = caret.left - clientX;
-          const dy = (caret.top + caret.bottom) / 2 - clientY;
-          if (Math.abs(dy) > REFINE_DIST_PX) {
-            return refinePosAtClick(view, clientX, clientY, pos);
-          }
-          return pos;
-        }
-        return refinePosAtClick(view, clientX, clientY, pos);
-      }
-      function caretPosForClick(view, raw) {
-        const pos = adjustCaretForHiddenMarks(view.state, raw);
-        if (pos === raw) return pos;
-        const doc = view.state.doc;
-        const rawLine = doc.lineAt(raw);
-        const posLine = doc.lineAt(pos);
-        if (posLine.number > rawLine.number && posLine.text.trim() === "") {
-          return raw;
-        }
-        return pos;
-      }
-      function setSelectionAtClick(view, clientX, clientY) {
-        if (!view || view.destroyed) return false;
-        if (typeof document !== "undefined" && document.elementFromPoint) {
-          const el = document.elementFromPoint(clientX, clientY);
-          if (isBlockWidgetTarget(el)) return false;
-        }
-        const raw = posAtClick(view, clientX, clientY);
-        if (raw == null) return false;
-        const pos = caretPosForClick(view, raw);
-        const sel = view.state.selection.main;
-        if (sel.from === sel.to && sel.anchor === pos && sel.head === pos) return true;
-        view.dispatch({
-          selection: { anchor: pos, head: pos },
-          scrollIntoView: false
-        });
-        return true;
-      }
-      function placeCaret(view, clientX, clientY) {
-        setSelectionAtClick(view, clientX, clientY);
-      }
-      function selectWordAtClick(view, clientX, clientY) {
-        if (!view || view.destroyed) return false;
-        if (typeof document !== "undefined" && document.elementFromPoint) {
-          const el = document.elementFromPoint(clientX, clientY);
-          if (isBlockWidgetTarget(el)) return false;
-        }
-        const raw = posAtClick(view, clientX, clientY);
-        if (raw == null) return false;
-        const pos = caretPosForClick(view, raw);
-        const word = view.state.wordAt(pos);
-        const from = word ? word.from : pos;
-        const to = word ? word.to : pos;
-        const next = adjustSelectionForHiddenMarks(view.state, from, to);
-        view.dispatch({
-          selection: EditorSelection.range(next.anchor, next.head),
-          scrollIntoView: false
-        });
-        return true;
-      }
-      function selectLineAtClick(view, clientX, clientY) {
-        if (!view || view.destroyed) return false;
-        if (typeof document !== "undefined" && document.elementFromPoint) {
-          const el = document.elementFromPoint(clientX, clientY);
-          if (isBlockWidgetTarget(el)) return false;
-        }
-        const line = docLineAtClick(view, clientX, clientY);
-        if (!line) return false;
-        const range = lineSelectionRange(view.state, line);
-        view.dispatch({
-          selection: EditorSelection.range(range.from, range.to),
-          scrollIntoView: false
-        });
-        return true;
-      }
-      function adjustDragSelection(view, pointer) {
-        if (!view || view.destroyed) return;
-        const sel = view.state.selection.main;
-        if (sel.empty) return;
-        let anchor = sel.anchor;
-        let head = sel.head;
-        const ptr = pointer || {};
-        if (ptr.startX != null && ptr.startY != null) {
-          const mapped = posAtClick(view, ptr.startX, ptr.startY);
-          if (mapped != null) anchor = mapped;
-        }
-        if (ptr.endX != null && ptr.endY != null) {
-          const mapped = posAtClick(view, ptr.endX, ptr.endY);
-          if (mapped != null) head = mapped;
-        }
-        const next = adjustSelectionForHiddenMarks(view.state, anchor, head);
-        if (next.anchor === sel.anchor && next.head === sel.head) return;
-        view.dispatch({
-          selection: { anchor: next.anchor, head: next.head },
-          scrollIntoView: false
-        });
-      }
-      function applyDragSelectionAt(view, anchorX, anchorY, headX, headY) {
-        if (!view || view.destroyed) return false;
-        const anchorPos = posAtClick(view, anchorX, anchorY);
-        const headPos = posAtClick(view, headX, headY);
-        if (anchorPos == null || headPos == null) return false;
-        const next = adjustSelectionForHiddenMarks(view.state, anchorPos, headPos);
-        const main = view.state.selection.main;
-        if (main.anchor === next.anchor && main.head === next.head) return false;
-        view.dispatch({
-          selection: { anchor: next.anchor, head: next.head },
-          scrollIntoView: false
-        });
-        return true;
-      }
-      function createClickCollapseExtension() {
-        ensureDocPointerEndListeners();
-        return EditorView.domEventHandlers({
-          mousedown: function(event, view) {
-            if (event.button !== 0) return false;
-            if (isBlockWidgetTarget(event.target)) return false;
-            mouseDown = {
-              x: event.clientX,
-              y: event.clientY,
-              shiftKey: !!event.shiftKey,
-              dragging: false,
-              handledMultiClick: false,
-              view
-            };
-            if (event.shiftKey) return false;
-            if (event.detail >= 3) {
-              mouseDown.handledMultiClick = selectLineAtClick(view, event.clientX, event.clientY);
-              try {
-                view.focus();
-              } catch (_) {
-              }
-              return mouseDown.handledMultiClick;
-            }
-            if (event.detail === 2) {
-              mouseDown.handledMultiClick = selectWordAtClick(view, event.clientX, event.clientY);
-              try {
-                view.focus();
-              } catch (_) {
-              }
-              return mouseDown.handledMultiClick;
-            }
-            setSelectionAtClick(view, event.clientX, event.clientY);
-            try {
-              view.focus();
-            } catch (_) {
-            }
-            return true;
-          },
-          mousemove: function(event, view) {
-            if (!mouseDown || mouseDown.shiftKey || mouseDown.view !== view) return false;
-            if ((event.buttons & 1) === 0) {
-              const start = takeMouseDownForView(view);
-              if (start) {
-                finalizePointerUp(view, start, event.clientX, event.clientY, 1);
-              }
-              return false;
-            }
-            const dx = event.clientX - mouseDown.x;
-            const dy = event.clientY - mouseDown.y;
-            if (!mouseDown.dragging) {
-              if (dx * dx + dy * dy > DRAG_PX * DRAG_PX) {
-                mouseDown.dragging = true;
-              } else {
-                return false;
-              }
-            }
-            if (isBlockWidgetTarget(event.target)) return false;
-            applyDragSelectionAt(view, mouseDown.x, mouseDown.y, event.clientX, event.clientY);
-            return true;
-          },
-          mouseup: function(event, view) {
-            if (event.button !== 0) return false;
-            const start = takeMouseDownForView(view);
-            if (!start) return false;
-            if (start.shiftKey || event.shiftKey) return false;
-            if (start.handledMultiClick || event.detail >= 2) return true;
-            const blockAtUp = isBlockWidgetTarget(event.target);
-            const dx = event.clientX - start.x;
-            const dy = event.clientY - start.y;
-            const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
-            if (blockAtUp && !moved) return false;
-            finalizePointerUp(view, start, event.clientX, event.clientY, event.detail, {
-              skipClickCaret: blockAtUp
-            });
-            return false;
-          }
-        });
-      }
-      module.exports = {
-        createClickCollapseExtension,
-        posAtClick,
-        posAtClickFromDom,
-        placeCaret,
-        setSelectionAtClick,
-        selectWordAtClick,
-        selectLineAtClick,
-        docLineAtClick,
-        lineSelectionRange,
-        caretPosForClick,
-        adjustDragSelection,
-        applyDragSelectionAt,
-        refinePosAtClick,
-        posFromCmLineAtPoint,
-        refineIfFar,
-        isBlockWidgetTarget
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/context-selection.js
-  var require_context_selection = __commonJS({
-    "src/gui/renderer/editor/context-selection.js"(exports, module) {
-      "use strict";
-      var { Transaction } = require_dist2();
-      var { posAtClick, docLineAtClick } = require_click_collapse();
-      function getDomSelectionText(root) {
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return "";
-        const range = sel.getRangeAt(0);
-        if (!root.contains(range.commonAncestorContainer)) return "";
-        return sel.toString();
-      }
-      function logicalOffsetInRoot(root, container, offset) {
-        const probe = document.createRange();
-        probe.setStart(container, offset);
-        probe.collapse(true);
-        if (!root.contains(probe.startContainer)) return 0;
-        const pre = document.createRange();
-        pre.selectNodeContents(root);
-        pre.setEnd(probe.startContainer, probe.startOffset);
-        return pre.toString().replace(/\u200b/g, "").replace(/\u00a0/g, " ").length;
-      }
-      function snapshotDomSelection(root) {
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
-        const range = sel.getRangeAt(0);
-        if (!root.contains(range.commonAncestorContainer)) return null;
-        const text = sel.toString();
-        if (!text) return null;
-        let start;
-        let end;
-        if (typeof root._mdaLogicalOffsetFromPoint === "function") {
-          start = root._mdaLogicalOffsetFromPoint(range.startContainer, range.startOffset);
-          end = root._mdaLogicalOffsetFromPoint(range.endContainer, range.endOffset);
-        } else {
-          start = logicalOffsetInRoot(root, range.startContainer, range.startOffset);
-          end = logicalOffsetInRoot(root, range.endContainer, range.endOffset);
-        }
-        return {
-          dom: {
-            root,
-            text,
-            range: range.cloneRange(),
-            start: Math.min(start, end),
-            end: Math.max(start, end)
-          }
-        };
-      }
-      function domRangeClientBounds(range) {
-        const rects = range.getClientRects();
-        if (rects.length) {
-          let left = Infinity;
-          let right = -Infinity;
-          let top = Infinity;
-          let bottom = -Infinity;
-          for (let i = 0; i < rects.length; i++) {
-            const r = rects[i];
-            left = Math.min(left, r.left);
-            right = Math.max(right, r.right);
-            top = Math.min(top, r.top);
-            bottom = Math.max(bottom, r.bottom);
-          }
-          if (isFinite(left) && isFinite(right)) {
-            return { left, right, top, bottom };
-          }
-        }
-        const box = range.getBoundingClientRect();
-        if (box.width || box.height) {
-          return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
-        }
-        return null;
-      }
-      function domPointInRangeBounds(range, clientX, clientY) {
-        const pad = 2;
-        const rects = range.getClientRects();
-        for (let i = 0; i < rects.length; i++) {
-          const r = rects[i];
-          if (clientX >= r.left - pad && clientX <= r.right + pad && clientY >= r.top - pad && clientY <= r.bottom + pad) {
-            return true;
-          }
-        }
-        const bounds = domRangeClientBounds(range);
-        if (!bounds) return false;
-        return clientX >= bounds.left - pad && clientX <= bounds.right + pad && clientY >= bounds.top - pad && clientY <= bounds.bottom + pad;
-      }
-      function domClickInSelection(root, clientX, clientY) {
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
-        const range = sel.getRangeAt(0);
-        if (!root.contains(range.commonAncestorContainer)) return false;
-        if (!sel.toString()) return false;
-        if (domPointInRangeBounds(range, clientX, clientY)) return true;
-        let hit = document.elementFromPoint(clientX, clientY);
-        while (hit && hit !== root) {
-          if (hit.nodeType === Node.TEXT_NODE) {
-            try {
-              const probe = document.createRange();
-              probe.setStart(hit, 0);
-              probe.collapse(true);
-              if (range.compareBoundaryPoints(Range.END_TO_START, probe) < 0 && range.compareBoundaryPoints(Range.START_TO_END, probe) > 0) {
-                return true;
-              }
-            } catch (_) {
-            }
-          } else {
-            try {
-              if (range.intersectsNode(hit) && !hit.querySelector("*")) {
-                return true;
-              }
-            } catch (_) {
-            }
-          }
-          hit = hit.parentElement;
-        }
-        return false;
-      }
-      function shouldPreserveDomSelection(root, clientX, clientY) {
-        if (!snapshotDomSelection(root)) return false;
-        return domClickInSelection(root, clientX, clientY);
-      }
-      function selectionSegmentOnLine(doc, from, to, clickLine) {
-        const selStartLine = doc.lineAt(from);
-        const selEndLine = doc.lineAt(to);
-        if (clickLine.number < selStartLine.number || clickLine.number > selEndLine.number) {
-          return null;
-        }
-        let segFrom = clickLine.from;
-        let segTo = clickLine.to;
-        if (clickLine.number === selStartLine.number) segFrom = from;
-        if (clickLine.number === selEndLine.number) segTo = to;
-        return { from: segFrom, to: segTo };
-      }
-      function selectionSegmentBounds(view, segFrom, segTo) {
-        const startCoords = view.coordsAtPos(segFrom, 1);
-        const endCoords = view.coordsAtPos(segTo, -1);
-        if (!startCoords || !endCoords) return null;
-        return {
-          left: Math.min(startCoords.left, endCoords.left),
-          right: Math.max(startCoords.right, endCoords.right),
-          top: Math.min(startCoords.top, endCoords.top),
-          bottom: Math.max(startCoords.bottom, endCoords.bottom)
-        };
-      }
-      function selectionSegmentBoundsDom(view, segFrom, segTo) {
-        if (typeof document === "undefined" || segFrom >= segTo) return null;
-        try {
-          const a = view.domAtPos(segFrom);
-          const b = view.domAtPos(segTo);
-          if (!a || !b || !a.node || !b.node) return null;
-          const range = document.createRange();
-          range.setStart(a.node, a.offset);
-          range.setEnd(b.node, b.offset);
-          return domRangeClientBounds(range);
-        } catch (_) {
-          return null;
-        }
-      }
-      function cmClickInSelection(view, clientX, clientY) {
-        const sel = view.state.selection.main;
-        if (sel.empty) return false;
-        const from = Math.min(sel.from, sel.to);
-        const to = Math.max(sel.from, sel.to);
-        const doc = view.state.doc;
-        let clickPos = posAtClick(view, clientX, clientY);
-        if (clickPos == null) {
-          clickPos = view.posAtCoords({ x: clientX, y: clientY, exact: false });
-        }
-        if (clickPos != null && clickPos >= from && clickPos <= to) return true;
-        const clickLine = docLineAtClick(view, clientX, clientY) || (clickPos != null ? doc.lineAt(clickPos) : null);
-        if (!clickLine) return false;
-        const seg = selectionSegmentOnLine(doc, from, to, clickLine);
-        if (!seg) return false;
-        const bounds = selectionSegmentBoundsDom(view, seg.from, seg.to) || selectionSegmentBounds(view, seg.from, seg.to);
-        if (!bounds) return false;
-        if (clientY < bounds.top - 2 || clientY > bounds.bottom + 2) return false;
-        if (clientX < bounds.left - 2 || clientX > bounds.right + 2) return false;
-        return true;
-      }
-      function snapshotCmSelection(view) {
-        const sel = view.state.selection.main;
-        if (sel.empty) return null;
-        return {
-          cm: {
-            anchor: sel.anchor,
-            head: sel.head,
-            from: sel.from,
-            to: sel.to
-          }
-        };
-      }
-      function restoreCmSelection(view, snap) {
-        if (!view || view.destroyed || !snap) return;
-        const cur = view.state.selection.main;
-        if (cur.from === snap.from && cur.to === snap.to) return;
-        view.dispatch({
-          selection: { anchor: snap.anchor, head: snap.head },
-          annotations: Transaction.addToHistory.of(false)
-        });
-      }
-      function restoreDomSelection(snap) {
-        if (!snap || !snap.root) return;
-        const sel = window.getSelection();
-        if (!sel) return;
-        let restored = false;
-        if (snap.range) {
-          try {
-            if (snap.root.isConnected && snap.root.contains(snap.range.startContainer)) {
-              sel.removeAllRanges();
-              sel.addRange(snap.range.cloneRange());
-              restored = true;
-            }
-          } catch (_) {
-            restored = false;
-          }
-        }
-        if (!restored && typeof snap.start === "number" && typeof snap.end === "number" && snap.end > snap.start) {
-          const restoreRoot = typeof snap.root._mdaRestoreLogicalSelection === "function" ? snap.root : snap.root.closest ? snap.root.closest(".mda-cm-code-block") : null;
-          if (restoreRoot && typeof restoreRoot._mdaRestoreLogicalSelection === "function") {
-            try {
-              restoreRoot._mdaRestoreLogicalSelection(snap.start, snap.end);
-              restored = true;
-            } catch (_) {
-              restored = false;
-            }
-          }
-        }
-        if (!restored) return;
-        try {
-          snap.root.focus({ preventScroll: true });
-        } catch (_) {
-          try {
-            snap.root.focus();
-          } catch (_2) {
-          }
-        }
-      }
-      function collapseCmAtClick(view, clientX, clientY) {
-        let pos = view.posAtCoords({ x: clientX, y: clientY, exact: true });
-        if (pos == null) {
-          const loose = view.posAtCoords({ x: clientX, y: clientY, exact: false });
-          if (loose == null) return;
-          const line = view.state.doc.lineAt(loose);
-          const endCoords = view.coordsAtPos(line.to, -1);
-          if (endCoords && clientX > endCoords.right + 2) {
-            pos = line.to;
-          } else {
-            pos = loose;
-          }
-        }
-        view.dispatch({
-          selection: { anchor: pos, head: pos },
-          annotations: Transaction.addToHistory.of(false)
-        });
-      }
-      function clearCmSelectionIfAny(view) {
-        if (!view || view.destroyed) return;
-        const sel = view.state.selection.main;
-        if (sel.empty) return;
-        view.dispatch({
-          selection: { anchor: sel.head, head: sel.head },
-          annotations: Transaction.addToHistory.of(false)
-        });
-      }
-      function caretRangeAtPointInRoot(root, clientX, clientY) {
-        if (!root) return null;
-        let range = null;
-        if (typeof document.caretRangeFromPoint === "function") {
-          range = document.caretRangeFromPoint(clientX, clientY);
-        } else if (typeof document.caretPositionFromPoint === "function") {
-          const pos = document.caretPositionFromPoint(clientX, clientY);
-          if (pos) {
-            range = document.createRange();
-            range.setStart(pos.offsetNode, pos.offset);
-            range.collapse(true);
-          }
-        }
-        if (!range || !root.contains(range.startContainer)) return null;
-        return range;
-      }
-      function collapseWidgetDomAt(root, clientX, clientY) {
-        if (!root) return null;
-        const sel = window.getSelection();
-        if (!sel) return null;
-        let range = null;
-        if (typeof clientX === "number" && typeof clientY === "number") {
-          range = caretRangeAtPointInRoot(root, clientX, clientY);
-        }
-        if (!range) {
-          range = document.createRange();
-          range.selectNodeContents(root);
-          range.collapse(false);
-        }
-        const applied = range.cloneRange();
-        sel.removeAllRanges();
-        try {
-          sel.addRange(range);
-        } catch (_) {
-        }
-        try {
-          root.focus({ preventScroll: true });
-        } catch (_) {
-          try {
-            root.focus();
-          } catch (_2) {
-          }
-        }
-        return applied;
-      }
-      function restoreWidgetDomCaret(root, range) {
-        if (!root || !range) return;
-        const sel = window.getSelection();
-        if (!sel) return;
-        try {
-          if (!root.contains(range.startContainer)) return;
-          sel.removeAllRanges();
-          sel.addRange(range.cloneRange());
-        } catch (_) {
-          return;
-        }
-        try {
-          root.focus({ preventScroll: true });
-        } catch (_) {
-          try {
-            root.focus();
-          } catch (_2) {
-          }
-        }
-      }
-      function clearWidgetDomSelection(root) {
-        collapseWidgetDomAt(root);
-      }
-      function shouldPreserveCmSelection(view, clientX, clientY) {
-        if (!view || view.state.selection.main.empty) return false;
-        return cmClickInSelection(view, clientX, clientY);
-      }
-      module.exports = {
-        getDomSelectionText,
-        snapshotDomSelection,
-        domClickInSelection,
-        domPointInRangeBounds,
-        shouldPreserveDomSelection,
-        cmClickInSelection,
-        snapshotCmSelection,
-        restoreCmSelection,
-        restoreDomSelection,
-        collapseCmAtClick,
-        clearCmSelectionIfAny,
-        clearWidgetDomSelection,
-        collapseWidgetDomAt,
-        restoreWidgetDomCaret,
-        shouldPreserveCmSelection
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widget-context-menu-guard.js
-  var require_widget_context_menu_guard = __commonJS({
-    "src/gui/renderer/editor/widget-context-menu-guard.js"(exports, module) {
-      "use strict";
-      var widgetDomMenuGuard = false;
-      function setWidgetDomMenuGuard(on) {
-        widgetDomMenuGuard = !!on;
-      }
-      function isWidgetDomMenuGuard() {
-        return widgetDomMenuGuard;
-      }
-      module.exports = {
-        setWidgetDomMenuGuard,
-        isWidgetDomMenuGuard
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/block-menu-icons.js
-  var require_block_menu_icons = __commonJS({
-    "src/gui/renderer/editor/widgets/block-menu-icons.js"(exports, module) {
-      "use strict";
-      var ICONS = {
-        ai: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 2l1 3h3l-2.5 2 1 3L8 8l-2.5 2 1-3L4 5h3z"/></svg>',
-        insertAbove: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 10h10M8 3v7"/><path d="M5.5 6.5L8 4l2.5 2.5"/></svg>',
-        insertBelow: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 6h10M8 13V6"/><path d="M5.5 9.5L8 12l2.5-2.5"/></svg>',
-        copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
-        copyAs: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="5.5" width="7" height="7" rx="1"/><path d="M4 10.5H3.5a1 1 0 01-1-1v-7a1 1 0 011-1H9a1 1 0 011 1V4"/></svg>',
-        markdown: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3.5" y="2.5" width="9" height="11" rx="1"/><path d="M5.5 11V5.2l1.6 3.4h.8L9.5 5.2V11"/><path d="M11.2 5.5h1.3v5.5h-1.3z" fill="currentColor" stroke="none"/></svg>',
-        copyAsImage: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="5.8" cy="6.6" r="1.15"/><path d="M3.5 11.2l2.8-2.3 2 1.4 2.4-2.1 2.3 3"/></svg>',
-        cut: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="4.5" r="1.8"/><circle cx="4.5" cy="11.5" r="1.8"/><path d="M6.2 6l3.6 4M6.2 10l3.6-4l3.2 1.8"/></svg>',
-        paste: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="2.5" width="7" height="9" rx="1"/><path d="M4 4.5H3.5a1.5 1.5 0 010-3H7a1.5 1.5 0 011.4 1"/><path d="M8 9.5v3M6.5 11h3"/></svg>',
-        edit: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 13h2.5l7.2-7.2a1.2 1.2 0 00-1.7-1.7L3.8 11.3V13z"/><path d="M9.5 4.5l2 2"/></svg>',
-        askAi: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 4.5h9a1 1 0 011 1v5a1 1 0 01-1 1H7l-2.5 2v-2H3.5a1 1 0 01-1-1v-5a1 1 0 011-1z"/><circle cx="6" cy="8" r=".55" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r=".55" fill="currentColor" stroke="none"/><circle cx="10" cy="8" r=".55" fill="currentColor" stroke="none"/></svg>',
-        delete: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3.5 5h9l-.8 8.2a1 1 0 01-1 .8H5.3a1 1 0 01-1-.8L3.5 5z"/><path d="M2.5 5h11M6.5 5V3.8a1 1 0 011-1h1a1 1 0 011 1V5"/></svg>',
-        continue: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 12l3-8 3 5 2-3"/></svg>',
-        companion: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 8h7M10 5v6"/><path d="M12.5 6.5l1.5 1.5-1.5 1.5"/></svg>',
-        polish: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M3 13l7-7 3 3-7 7H3v-3z"/><path d="M9 4l2 2"/></svg>',
-        expand: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 6h8M4 8.5h6M4 11h4"/></svg>',
-        shorten: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 6h8M4 9h5"/></svg>',
-        grammar: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h8v8H4z"/><path d="M6 8h4M6 10.5h2.5"/></svg>',
-        explain: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.5"/><path d="M8 7v3.5"/><circle cx="8" cy="5.2" r=".8" fill="currentColor" stroke="none"/></svg>',
-        translate: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 4.5h6M5.5 4.5V3M4 8.5h5M11 4l2.5 2.5L11 9"/><path d="M11 11.5h2.5"/></svg>',
-        summarize: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h8M4 7h8M4 10h5"/></svg>',
-        more: '<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="4" cy="8" r="1.1"/><circle cx="8" cy="8" r="1.1"/><circle cx="12" cy="8" r="1.1"/></svg>',
-        // 块类型（手柄左侧）
-        image: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3.5" width="11" height="9" rx="1.2"/><circle cx="5.8" cy="6.6" r="1.15"/><path d="M3.5 11.2l2.8-2.3 2 1.4 2.4-2.1 2.3 3"/></svg>',
-        table: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="3" width="10" height="10" rx="1"/><path d="M3 8h10M8 3v10"/></svg>',
-        code: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 3.5C4.6 3.5 4 4.6 4 5.8v1.1c0 .9-.4 1.3-1.2 1.3.8 0 1.2.4 1.2 1.3v1.1c0 1.2.6 2.3 2.2 2.3M9.8 3.5c1.6 0 2.2 1.1 2.2 2.3v1.1c0 .9.4 1.3 1.2 1.3-.8 0-1.2.4-1.2 1.3v1.1c0 1.2-.6 2.3-2.2 2.3"/></svg>',
-        quote: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.2 11.5V8.2C3.2 5.6 4.8 3.8 7.2 3.2l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H3.2zm5.7 0V8.2c0-2.6 1.6-4.4 4-5l.4 1.4c-1.5.4-2.4 1.5-2.4 3.1h2.1v3.8H8.9z"/></svg>',
-        mermaid: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3.5 5.5V3.5h2M10.5 3.5h2v2M12.5 10.5v2h-2M5.5 12.5h-2v-2"/></svg>',
-        math: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h3.2M5.6 4.5v7M4 11.5h3.2M9.2 5.2l3.6 5.6M12.8 5.2l-3.6 5.6"/></svg>',
-        hr: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M3 8h10"/></svg>'
-      };
-      var BLOCK_KIND_ICON = {
-        image: "image",
-        mermaid: "mermaid",
-        math: "math",
-        table: "table",
-        code: "code",
-        quote: "quote",
-        hr: "hr"
-      };
-      function menuIconHtml(name) {
-        const svg = ICONS[name] || "";
-        if (!svg) return "";
-        return '<span class="mda-menu-icon" aria-hidden="true">' + svg + "</span>";
-      }
-      function blockTypeIconHtml(blockKind) {
-        const key = BLOCK_KIND_ICON[blockKind || ""] || "";
-        const svg = key ? ICONS[key] : "";
-        if (!svg) return "";
-        return '<span class="mda-cm-block-type-icon" aria-hidden="true" data-kind="' + (blockKind || "") + '">' + svg + "</span>";
-      }
-      module.exports = {
-        menuIconHtml,
-        blockTypeIconHtml,
-        BLOCK_KIND_ICON,
-        ICONS
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/empty-line-insert-menu.js
-  var require_empty_line_insert_menu = __commonJS({
-    "src/gui/renderer/editor/widgets/empty-line-insert-menu.js"(exports, module) {
-      "use strict";
-      var { uiT, HOVER_LEAVE_MS } = require_widget_common();
-      var { menuIconHtml } = require_block_menu_icons();
-      var activeMenu = null;
-      var menuAnchorEl = null;
-      var menuBlockRoot = null;
-      var dismissFn = null;
-      var escFn = null;
-      var menuGraceUntil = 0;
-      var MENU_GRACE_MS = 380;
-      var INSERT_ITEMS = [
-        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: false },
-        { id: "table", key: "blockMenuInsertTable", icon: "table", soon: false },
-        { id: "code", key: "blockMenuInsertCode", icon: "code", soon: false },
-        { id: "quote", key: "blockMenuInsertQuote", icon: "quote", soon: false },
-        { id: "mermaid", key: "blockMenuInsertMermaid", icon: "mermaid", soon: false },
-        { id: "hr", key: "blockMenuInsertHr", icon: "hr", soon: false }
-      ];
-      function isInMenuCluster(target) {
-        if (!target) return false;
-        const el = (
-          /** @type {Node} */
-          target
-        );
-        if (activeMenu && activeMenu.contains(el)) return true;
-        if (menuAnchorEl && menuAnchorEl.contains(el)) return true;
-        if (menuBlockRoot && menuBlockRoot.contains(el)) return true;
-        return false;
-      }
-      function closeEmptyLineInsertMenu() {
-        const prevRoot = menuBlockRoot;
-        if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
-        activeMenu = null;
-        menuAnchorEl = null;
-        menuBlockRoot = null;
-        menuGraceUntil = 0;
-        if (prevRoot && !prevRoot.matches(":hover")) {
-          prevRoot.classList.remove("mda-cm-block-handle-show");
-        }
-        if (dismissFn) {
-          document.removeEventListener("mousedown", dismissFn, true);
-          document.removeEventListener("contextmenu", dismissFn, true);
-          window.removeEventListener("blur", dismissFn);
-          dismissFn = null;
-        }
-        if (escFn) {
-          document.removeEventListener("keydown", escFn, true);
-          escFn = null;
-        }
-      }
-      function isEmptyLineInsertMenuOpenFor(blockRoot) {
-        return !!(activeMenu && menuBlockRoot && blockRoot && menuBlockRoot === blockRoot);
-      }
-      function menuItemInner(label, iconName) {
-        return menuIconHtml(iconName || "") + '<span class="mda-menu-label">' + label + "</span>";
-      }
-      function placeMenu(menu, x, y) {
-        menu.style.left = "0px";
-        menu.style.top = "0px";
-        document.body.appendChild(menu);
-        const pad = 6;
-        const w = menu.offsetWidth;
-        const h = menu.offsetHeight;
-        let left = x;
-        let top = y;
-        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
-        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
-        if (left < pad) left = pad;
-        if (top < pad) top = pad;
-        menu.style.left = left + "px";
-        menu.style.top = top + "px";
-      }
-      function showEmptyLineInsertMenu(ctx) {
-        closeEmptyLineInsertMenu();
-        const { closeBlockHandleMenu } = require_block_handle_menu();
-        closeBlockHandleMenu();
-        const t = ctx.t;
-        const handlers = ctx.handlers || {};
-        const anchor = ctx.anchorEl;
-        const rect = anchor.getBoundingClientRect();
-        menuAnchorEl = anchor;
-        menuBlockRoot = ctx.blockRoot || null;
-        menuGraceUntil = Date.now() + MENU_GRACE_MS;
-        if (menuBlockRoot) menuBlockRoot.classList.add("mda-cm-block-handle-show");
-        const menu = document.createElement("div");
-        menu.className = "mda-context-menu mda-empty-line-insert-menu mda-block-handle-submenu";
-        menu.id = "mda-empty-line-insert-menu";
-        menu.setAttribute("role", "menu");
-        for (let i = 0; i < INSERT_ITEMS.length; i++) {
-          const it = INSERT_ITEMS[i];
-          const row = document.createElement("div");
-          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "");
-          row.setAttribute("role", "menuitem");
-          row.dataset.act = it.id;
-          row.dataset.soon = it.soon ? "1" : "0";
-          row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
-          menu.appendChild(row);
-        }
-        menu.addEventListener("click", function(e) {
-          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
-          if (!item) return;
-          e.stopPropagation();
-          const id = item.dataset.act || "";
-          const soon = item.dataset.soon === "1";
-          if (soon) {
-            if (typeof handlers.onSoon === "function") handlers.onSoon("insert-blank", id);
-            closeEmptyLineInsertMenu();
-            return;
-          }
-          if (typeof handlers.onBlankInsert === "function") {
-            handlers.onBlankInsert(id, ctx.block);
-          }
-          closeEmptyLineInsertMenu();
-        });
-        placeMenu(menu, rect.left, rect.bottom + 2);
-        activeMenu = menu;
-        dismissFn = function(ev) {
-          if (Date.now() < menuGraceUntil) return;
-          if (ev && (ev.type === "mousedown" || ev.type === "contextmenu")) {
-            const target = (
-              /** @type {Node | null} */
-              ev.target
-            );
-            if (isInMenuCluster(target)) return;
-          }
-          closeEmptyLineInsertMenu();
-        };
-        escFn = function(ev) {
-          if (ev.key === "Escape") closeEmptyLineInsertMenu();
-        };
-        document.addEventListener("keydown", escFn, true);
-        window.setTimeout(function() {
-          if (!activeMenu) return;
-          document.addEventListener("mousedown", dismissFn, true);
-          document.addEventListener("contextmenu", dismissFn, true);
-          window.addEventListener("blur", dismissFn);
-        }, MENU_GRACE_MS);
-      }
-      module.exports = {
-        showEmptyLineInsertMenu,
-        closeEmptyLineInsertMenu,
-        isEmptyLineInsertMenuOpenFor
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/block-handle-menu.js
-  var require_block_handle_menu = __commonJS({
-    "src/gui/renderer/editor/widgets/block-handle-menu.js"(exports, module) {
-      "use strict";
-      var { uiT, HOVER_LEAVE_MS } = require_widget_common();
-      var { menuIconHtml } = require_block_menu_icons();
-      var activeMenu = null;
-      var activeSubmenu = null;
-      var menuAnchorEl = null;
-      var menuBlockRoot = null;
-      var dismissFn = null;
-      var subOpenTimer = 0;
-      var subCloseTimer = 0;
-      var escFn = null;
-      var menuCloseTimer = 0;
-      var menuGraceUntil = 0;
-      var MENU_GRACE_MS = 380;
-      var SUB_CLOSE_MS = HOVER_LEAVE_MS;
-      var MENU_CLOSE_MS = HOVER_LEAVE_MS;
-      var MOD_KEY = typeof navigator !== "undefined" && (navigator.platform || "").toLowerCase().indexOf("mac") >= 0 ? "\u2318" : "Ctrl+";
-      var COPY_AS_ITEMS = [
-        { id: "markdown", key: "blockMenuCopyAsMarkdown", icon: "markdown" },
-        { id: "image", key: "blockMenuCopyAsImage", icon: "copyAsImage" }
-      ];
-      var AI_ITEMS = [
-        { id: "continue", key: "blockMenuAiContinue", icon: "continue", soon: true },
-        { id: "companion", key: "blockMenuAiCompanion", icon: "companion", soon: true },
-        { id: "polish", key: "blockMenuAiPolish", icon: "polish", soon: true },
-        { id: "expand", key: "blockMenuAiExpand", icon: "expand", soon: true },
-        { id: "shorten", key: "blockMenuAiShorten", icon: "shorten", soon: true },
-        { id: "grammar", key: "blockMenuAiGrammar", icon: "grammar", soon: true },
-        { id: "explain", key: "blockMenuAiExplain", icon: "explain", soon: true },
-        { id: "translate", key: "blockMenuAiTranslate", icon: "translate", soon: true },
-        { id: "summarize", key: "blockMenuAiSummarize", icon: "summarize", soon: true },
-        { id: "more", key: "blockMenuAiMore", icon: "more", soon: true }
-      ];
-      var INSERT_ITEMS = [
-        { id: "image", key: "blockMenuInsertImage", icon: "image", soon: false },
-        { id: "table", key: "blockMenuInsertTable", icon: "table", soon: false },
-        { id: "code", key: "blockMenuInsertCode", icon: "code", soon: false },
-        { id: "quote", key: "blockMenuInsertQuote", icon: "quote", soon: false },
-        { id: "mermaid", key: "blockMenuInsertMermaid", icon: "mermaid", soon: false },
-        { id: "hr", key: "blockMenuInsertHr", icon: "hr", soon: false }
-      ];
-      function clearSubTimers() {
-        window.clearTimeout(subOpenTimer);
-        window.clearTimeout(subCloseTimer);
-        window.clearTimeout(menuCloseTimer);
-        subOpenTimer = 0;
-        subCloseTimer = 0;
-        menuCloseTimer = 0;
-      }
-      function closeActiveSubmenu() {
-        if (activeSubmenu && activeSubmenu.parentNode) {
-          activeSubmenu.parentNode.removeChild(activeSubmenu);
-        }
-        activeSubmenu = null;
-      }
-      function removeOrphanSubmenus() {
-        const nodes = document.querySelectorAll(".mda-block-handle-submenu");
-        for (let i = 0; i < nodes.length; i++) {
-          const el = nodes[i];
-          if (el.parentNode) el.parentNode.removeChild(el);
-        }
-      }
-      function isInMenuCluster(target) {
-        if (!target) return false;
-        const el = (
-          /** @type {Node} */
-          target
-        );
-        if (activeMenu && activeMenu.contains(el)) return true;
-        if (activeSubmenu && activeSubmenu.contains(el)) return true;
-        if (menuAnchorEl && menuAnchorEl.contains(el)) return true;
-        if (menuBlockRoot && menuBlockRoot.contains(el)) return true;
-        return false;
-      }
-      function closeBlockHandleMenu() {
-        clearSubTimers();
-        closeActiveSubmenu();
-        removeOrphanSubmenus();
-        const prevRoot = menuBlockRoot;
-        if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
-        activeMenu = null;
-        menuAnchorEl = null;
-        menuBlockRoot = null;
-        menuGraceUntil = 0;
-        if (prevRoot && !prevRoot.matches(":hover")) {
-          const handle = prevRoot.querySelector(".mda-cm-block-drag-handle");
-          if (!handle || !handle.matches(":hover")) {
-            prevRoot.classList.remove("mda-cm-block-handle-show");
-          }
-        }
-        if (dismissFn) {
-          document.removeEventListener("mousedown", dismissFn, true);
-          document.removeEventListener("contextmenu", dismissFn, true);
-          window.removeEventListener("blur", dismissFn);
-          dismissFn = null;
-        }
-        if (escFn) {
-          document.removeEventListener("keydown", escFn, true);
-          escFn = null;
-        }
-      }
-      function isBlockHandleMenuOpenFor(blockRoot) {
-        return !!(activeMenu && menuBlockRoot && blockRoot && menuBlockRoot === blockRoot);
-      }
-      function addMenuSeparator(menu) {
-        const sep = document.createElement("div");
-        sep.className = "mda-menu-sep";
-        sep.setAttribute("aria-hidden", "true");
-        menu.appendChild(sep);
-      }
-      function menuItemInner(label, iconName, suffixHtml) {
-        return menuIconHtml(iconName || "") + '<span class="mda-menu-label">' + label + "</span>" + (suffixHtml || "");
-      }
-      function placeMenu(menu, x, y) {
-        menu.style.left = "0px";
-        menu.style.top = "0px";
-        document.body.appendChild(menu);
-        const pad = 6;
-        const w = menu.offsetWidth;
-        const h = menu.offsetHeight;
-        let left = x;
-        let top = y;
-        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
-        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
-        if (left < pad) left = pad;
-        if (top < pad) top = pad;
-        menu.style.left = left + "px";
-        menu.style.top = top + "px";
-      }
-      function placeSubmenu(parentItem, submenu) {
-        document.body.appendChild(submenu);
-        const pr = parentItem.getBoundingClientRect();
-        const pad = 6;
-        let left = pr.right - 4;
-        let top = pr.top - 4;
-        submenu.style.left = left + "px";
-        submenu.style.top = top + "px";
-        if (left + submenu.offsetWidth > window.innerWidth - pad) {
-          left = pr.left - submenu.offsetWidth + 4;
-          submenu.style.left = left + "px";
-        }
-        if (top + submenu.offsetHeight > window.innerHeight - pad) {
-          top = Math.max(pad, window.innerHeight - submenu.offsetHeight - pad);
-          submenu.style.top = top + "px";
-        }
-      }
-      function buildSubmenu(t, items, onPick) {
-        const sub = document.createElement("div");
-        sub.className = "mda-context-menu mda-block-handle-submenu";
-        sub.setAttribute("role", "menu");
-        for (let i = 0; i < items.length; i++) {
-          const it = items[i];
-          const row = document.createElement("div");
-          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "");
-          row.setAttribute("role", "menuitem");
-          row.dataset.act = it.id;
-          row.dataset.soon = it.soon ? "1" : "0";
-          row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
-          sub.appendChild(row);
-        }
-        sub.addEventListener("click", function(e) {
-          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
-          if (!item) return;
-          e.stopPropagation();
-          onPick(item.dataset.act || "", item.dataset.soon === "1");
-          closeBlockHandleMenu();
-        });
-        sub.addEventListener("mouseenter", function() {
-          window.clearTimeout(subCloseTimer);
-          subCloseTimer = 0;
-          window.clearTimeout(menuCloseTimer);
-          menuCloseTimer = 0;
-        });
-        sub.addEventListener("mouseleave", function() {
-          window.clearTimeout(subCloseTimer);
-          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
-        });
-        return sub;
-      }
-      function addSubRow(menu, t, key, icon, submenuFactory) {
-        const row = document.createElement("div");
-        row.className = "mda-menu-item mda-menu-has-sub";
-        row.setAttribute("role", "menuitem");
-        row.innerHTML = menuItemInner(uiT(key, t), icon, '<span class="mda-menu-chevron" aria-hidden="true">\u203A</span>');
-        row.addEventListener("mouseenter", function() {
-          window.clearTimeout(subCloseTimer);
-          subCloseTimer = 0;
-          window.clearTimeout(menuCloseTimer);
-          menuCloseTimer = 0;
-          window.clearTimeout(subOpenTimer);
-          subOpenTimer = window.setTimeout(function() {
-            closeActiveSubmenu();
-            activeSubmenu = submenuFactory();
-            placeSubmenu(row, activeSubmenu);
-          }, 100);
-        });
-        row.addEventListener("mouseleave", function(e) {
-          window.clearTimeout(subOpenTimer);
-          subOpenTimer = 0;
-          const rt = e.relatedTarget;
-          if (activeSubmenu && rt && activeSubmenu.contains(
-            /** @type {Node} */
-            rt
-          )) return;
-          window.clearTimeout(subCloseTimer);
-          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
-        });
-        menu.appendChild(row);
-      }
-      function showBlockHandleMenu(ctx) {
-        const { closeEmptyLineInsertMenu } = require_empty_line_insert_menu();
-        closeEmptyLineInsertMenu();
-        closeBlockHandleMenu();
-        const t = ctx.t;
-        const handlers = ctx.handlers || {};
-        const anchor = ctx.anchorEl;
-        const rect = anchor.getBoundingClientRect();
-        menuAnchorEl = anchor;
-        menuBlockRoot = ctx.blockRoot || null;
-        menuGraceUntil = Date.now() + MENU_GRACE_MS;
-        if (menuBlockRoot) menuBlockRoot.classList.add("mda-cm-block-handle-show");
-        const menu = document.createElement("div");
-        menu.className = "mda-context-menu mda-block-handle-menu";
-        menu.id = "mda-block-handle-menu";
-        menu.setAttribute("role", "menu");
-        addSubRow(menu, t, "blockMenuAiEdit", "ai", function() {
-          return buildSubmenu(t, AI_ITEMS, function(id, soon) {
-            if (soon) {
-              if (typeof handlers.onSoon === "function") handlers.onSoon("ai", id);
-              return;
-            }
-            if (typeof handlers.onAi === "function") {
-              handlers.onAi(id, ctx.block, ctx.blockKind);
-            }
-          });
-        });
-        addMenuSeparator(menu);
-        addSubRow(menu, t, "blockMenuInsertAbove", "insertAbove", function() {
-          return buildSubmenu(t, INSERT_ITEMS, function(id, soon) {
-            if (soon) {
-              if (typeof handlers.onSoon === "function") handlers.onSoon("insert-above", id);
-              return;
-            }
-            if (typeof handlers.onInsert === "function") {
-              handlers.onInsert("above", id, ctx.block, ctx.blockKind);
-            }
-          });
-        });
-        addSubRow(menu, t, "blockMenuInsertBelow", "insertBelow", function() {
-          return buildSubmenu(t, INSERT_ITEMS, function(id, soon) {
-            if (soon) {
-              if (typeof handlers.onSoon === "function") handlers.onSoon("insert-below", id);
-              return;
-            }
-            if (typeof handlers.onInsert === "function") {
-              handlers.onInsert("below", id, ctx.block, ctx.blockKind);
-            }
-          });
-        });
-        addMenuSeparator(menu);
-        const mod = ctx.modKey || MOD_KEY;
-        function addActionRow(spec) {
-          const row = document.createElement("div");
-          row.className = "mda-menu-item" + (spec.danger ? " mda-menu-danger" : "");
-          row.dataset.act = spec.act;
-          row.setAttribute("role", "menuitem");
-          row.innerHTML = menuItemInner(
-            uiT(spec.key, t),
-            spec.icon,
-            spec.shortcut ? '<span class="mda-menu-key">' + spec.shortcut + "</span>" : ""
-          );
-          menu.appendChild(row);
-        }
-        addActionRow({ act: "copy", key: "copyBtn", icon: "copy", shortcut: mod + "C" });
-        addActionRow({ act: "cut", key: "blockMenuCut", icon: "cut", shortcut: mod + "X" });
-        addSubRow(menu, t, "blockMenuCopyAs", "copyAs", function() {
-          return buildSubmenu(t, COPY_AS_ITEMS, function(id) {
-            if (typeof handlers.onCopyAs === "function") {
-              handlers.onCopyAs(ctx.block, ctx.blockKind, id);
-            }
-          });
-        });
-        addActionRow({
-          act: "delete",
-          key: "blockMenuDelete",
-          icon: "delete",
-          shortcut: "Backspace",
-          danger: true
-        });
-        menu.addEventListener("click", function(e) {
-          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
-          if (!item || item.classList.contains("mda-menu-has-sub")) return;
-          const act = item.dataset.act;
-          if (act === "copy" && typeof handlers.onCopy === "function") {
-            handlers.onCopy(ctx.block, ctx.blockKind);
-          } else if (act === "cut" && typeof handlers.onCut === "function") {
-            handlers.onCut(ctx.block, ctx.blockKind);
-          } else if (act === "delete" && typeof handlers.onDelete === "function") {
-            handlers.onDelete(ctx.block, ctx.blockKind);
-          }
-          closeBlockHandleMenu();
-        });
-        menu.addEventListener("mouseenter", function() {
-          window.clearTimeout(menuCloseTimer);
-          menuCloseTimer = 0;
-        });
-        menu.addEventListener("mouseleave", function(e) {
-          const rt = e.relatedTarget;
-          if (activeSubmenu && rt && activeSubmenu.contains(
-            /** @type {Node} */
-            rt
-          )) return;
-          window.clearTimeout(menuCloseTimer);
-          menuCloseTimer = window.setTimeout(function() {
-            if (Date.now() < menuGraceUntil) return;
-            closeBlockHandleMenu();
-          }, MENU_CLOSE_MS);
-        });
-        placeMenu(menu, rect.left, rect.bottom + 2);
-        activeMenu = menu;
-        dismissFn = function(ev) {
-          if (Date.now() < menuGraceUntil) return;
-          if (ev && (ev.type === "mousedown" || ev.type === "contextmenu")) {
-            const target = (
-              /** @type {Node | null} */
-              ev.target
-            );
-            if (isInMenuCluster(target)) return;
-          }
-          closeBlockHandleMenu();
-        };
-        escFn = function(ev) {
-          if (ev.key === "Escape") closeBlockHandleMenu();
-        };
-        document.addEventListener("keydown", escFn, true);
-        window.setTimeout(function() {
-          if (!activeMenu) return;
-          document.addEventListener("mousedown", dismissFn, true);
-          document.addEventListener("contextmenu", dismissFn, true);
-          window.addEventListener("blur", dismissFn);
-        }, MENU_GRACE_MS);
-      }
-      module.exports = {
-        showBlockHandleMenu,
-        closeBlockHandleMenu,
-        isBlockHandleMenuOpenFor,
-        MOD_KEY
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/table-resize.js
-  var require_table_resize = __commonJS({
-    "src/gui/renderer/editor/widgets/table-resize.js"(exports, module) {
-      "use strict";
-      var { hasTableLayoutMeta, MAX_TABLE_COL_WIDTH, MAX_TABLE_ROW_HEIGHT } = require_parse_table();
-      var { uiT } = require_widget_common();
-      var MIN_COL_WIDTH = 48;
-      var MIN_ROW_HEIGHT = 28;
-      var TABLE_WRAP_BORDER_X = 2;
-      var RESIZE_HANDLE_HIT = 8;
-      var RESIZE_HANDLE_HALF = RESIZE_HANDLE_HIT / 2;
-      function getWrapContentOrigin(wrap) {
-        const rect = wrap.getBoundingClientRect();
-        const cs = window.getComputedStyle(wrap);
-        return {
-          left: rect.left + (parseFloat(cs.borderLeftWidth) || 0),
-          top: rect.top + (parseFloat(cs.borderTopWidth) || 0)
-        };
-      }
-      function capLayout(n, max) {
-        const v = Number(n);
-        if (!Number.isFinite(v) || v <= 0) return 0;
-        return Math.min(Math.round(v), max);
-      }
-      function ensureLayoutArrays(parsed) {
-        if (!parsed.colWidths) parsed.colWidths = [];
-        if (!parsed.rowHeights) parsed.rowHeights = [];
-        const ncol = parsed.headers.length;
-        const nrow = 1 + parsed.rows.length;
-        while (parsed.colWidths.length < ncol) parsed.colWidths.push(0);
-        while (parsed.rowHeights.length < nrow) parsed.rowHeights.push(0);
-        if (parsed.colWidths.length > ncol) parsed.colWidths.length = ncol;
-        if (parsed.rowHeights.length > nrow) parsed.rowHeights.length = nrow;
-      }
-      function clearTableWrapLayout(wrap) {
-        if (!wrap) return;
-        wrap.removeAttribute("data-mda-snap");
-        wrap.removeAttribute("data-mda-overflow");
-        wrap.classList.remove("mda-cm-table-resizing-active");
-        wrap.style.width = "";
-        wrap.style.maxWidth = "";
-      }
-      function syncTableWrapLayout(wrap, table, totalW) {
-        if (!wrap || !table) return;
-        wrap.setAttribute("data-mda-snap", "1");
-        const parent = wrap.parentElement;
-        const limit = parent ? parent.clientWidth : 0;
-        if (limit > 0 && totalW > limit + 1) {
-          wrap.setAttribute("data-mda-overflow", "1");
-          wrap.style.width = "100%";
-          wrap.style.maxWidth = "100%";
-        } else {
-          wrap.removeAttribute("data-mda-overflow");
-          wrap.style.width = totalW + TABLE_WRAP_BORDER_X + "px";
-          wrap.style.maxWidth = limit > 0 ? limit + "px" : "100%";
-        }
-      }
-      function clearTableLayout(table, wrap) {
-        if (!table) return;
-        table.style.tableLayout = "";
-        table.style.width = "";
-        table.style.height = "";
-        table.style.minWidth = "";
-        table.style.maxWidth = "";
-        table.removeAttribute("data-mda-layout");
-        const cells = table.querySelectorAll("th, td");
-        for (let i = 0; i < cells.length; i++) {
-          cells[i].style.width = "";
-          cells[i].style.minWidth = "";
-          cells[i].style.maxWidth = "";
-          cells[i].style.height = "";
-          cells[i].style.boxSizing = "";
-        }
-        const rows = table.querySelectorAll("tr");
-        for (let r = 0; r < rows.length; r++) rows[r].style.height = "";
-        clearTableWrapLayout(wrap || table.parentElement);
-      }
-      function captureLayoutFromTable(table, parsed) {
-        if (!table || !parsed) return;
-        ensureLayoutArrays(parsed);
-        const ths = table.querySelectorAll("thead th");
-        for (let c = 0; c < ths.length; c++) {
-          parsed.colWidths[c] = capLayout(
-            Math.max(MIN_COL_WIDTH, ths[c].getBoundingClientRect().width),
-            MAX_TABLE_COL_WIDTH
-          );
-        }
-        const headerRow = table.querySelector("thead tr");
-        const bodyRows = table.querySelectorAll("tbody tr");
-        const visualRows = [];
-        if (headerRow) visualRows.push(headerRow);
-        for (let i = 0; i < bodyRows.length; i++) visualRows.push(bodyRows[i]);
-        for (let r = 0; r < visualRows.length; r++) {
-          parsed.rowHeights[r] = capLayout(
-            Math.max(MIN_ROW_HEIGHT, visualRows[r].getBoundingClientRect().height),
-            MAX_TABLE_ROW_HEIGHT
-          );
-        }
-        table.setAttribute("data-mda-layout", "fixed");
-      }
-      function applyTableLayout(table, parsed, wrap) {
-        wrap = wrap || table.parentElement;
-        if (!table || !parsed || !hasTableLayoutMeta(parsed)) {
-          clearTableLayout(table, wrap);
-          return 0;
-        }
-        ensureLayoutArrays(parsed);
-        table.setAttribute("data-mda-layout", "fixed");
-        table.style.tableLayout = "fixed";
-        table.style.width = "auto";
-        table.style.minWidth = "0";
-        table.style.maxWidth = "none";
-        const ths = table.querySelectorAll("thead th");
-        let totalW = 0;
-        for (let c = 0; c < ths.length; c++) {
-          const w = capLayout(Math.max(MIN_COL_WIDTH, parsed.colWidths[c] || MIN_COL_WIDTH), MAX_TABLE_COL_WIDTH);
-          parsed.colWidths[c] = w;
-          totalW += w;
-          const cells = table.querySelectorAll(
-            'thead th[data-mda-col="' + c + '"], tbody td[data-mda-col="' + c + '"]'
-          );
-          for (let i = 0; i < cells.length; i++) {
-            cells[i].style.width = w + "px";
-            cells[i].style.minWidth = w + "px";
-            cells[i].style.maxWidth = w + "px";
-            cells[i].style.boxSizing = "border-box";
-          }
-        }
-        table.style.width = totalW + "px";
-        const headerRow = table.querySelector("thead tr");
-        const bodyRows = table.querySelectorAll("tbody tr");
-        const visualRows = [];
-        if (headerRow) visualRows.push(headerRow);
-        for (let i = 0; i < bodyRows.length; i++) visualRows.push(bodyRows[i]);
-        let totalH = 0;
-        for (let r = 0; r < visualRows.length; r++) {
-          const h = capLayout(Math.max(MIN_ROW_HEIGHT, parsed.rowHeights[r] || MIN_ROW_HEIGHT), MAX_TABLE_ROW_HEIGHT);
-          parsed.rowHeights[r] = h;
-          totalH += h;
-          const row = visualRows[r];
-          row.style.height = h + "px";
-          const cells = row.querySelectorAll("th, td");
-          for (let i = 0; i < cells.length; i++) {
-            cells[i].style.height = h + "px";
-            cells[i].style.boxSizing = "border-box";
-          }
-        }
-        table.style.height = totalH + "px";
-        syncTableWrapLayout(wrap, table, totalW);
-        return totalW;
-      }
-      function createTableAddBtn(kind, t) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "mda-cm-table-add-btn";
-        btn.textContent = "+";
-        const i18nKey = kind === "col" ? "widgetTableAddCol" : "widgetTableAddRow";
-        btn.setAttribute("data-i18n-title", i18nKey);
-        if (t) btn.title = uiT(i18nKey, t);
-        btn.addEventListener("mousedown", function(e) {
-          e.preventDefault();
-          e.stopPropagation();
-        });
-        return btn;
-      }
-      function refreshTableAddBtnI18n(wrap, t) {
-        if (!wrap || !t) return;
-        const colBtns = wrap.querySelectorAll(".mda-cm-table-col-resize-handle .mda-cm-table-add-btn");
-        for (let i = 0; i < colBtns.length; i++) {
-          colBtns[i].title = uiT("widgetTableAddCol", t);
-        }
-        const rowBtns = wrap.querySelectorAll(".mda-cm-table-row-resize-handle .mda-cm-table-add-btn");
-        for (let j = 0; j < rowBtns.length; j++) {
-          rowBtns[j].title = uiT("widgetTableAddRow", t);
-        }
-      }
-      function attachTableGridResize(wrap, table, ctx) {
-        const overlay = document.createElement("div");
-        overlay.className = "mda-cm-table-resize-layer";
-        overlay.setAttribute("aria-hidden", "true");
-        wrap.appendChild(overlay);
-        let dragging = null;
-        let layoutCaptured = false;
-        let activeHandle = null;
-        function rebuildHandles() {
-          overlay.innerHTML = "";
-          if (!table.isConnected || !wrap.isConnected) return;
-          const origin = getWrapContentOrigin(wrap);
-          const tableRect = table.getBoundingClientRect();
-          const tableTop = tableRect.top - origin.top;
-          const tableLeft = tableRect.left - origin.left;
-          const tableW = table.offsetWidth;
-          const tableH = table.offsetHeight;
-          const ths = table.querySelectorAll("thead th");
-          for (let c = 0; c < ths.length; c++) {
-            const rect = ths[c].getBoundingClientRect();
-            const borderX = rect.right - origin.left;
-            const handle = document.createElement("div");
-            handle.className = "mda-cm-table-col-resize-handle";
-            handle.dataset.col = String(c);
-            handle.setAttribute("data-i18n-title", "widgetTableResizeCol");
-            if (ctx.t) handle.title = ctx.t("widgetTableResizeCol");
-            handle.style.left = Math.round(borderX - RESIZE_HANDLE_HALF) + "px";
-            handle.style.top = Math.round(tableTop) + "px";
-            handle.style.height = tableH + "px";
-            const addBtn = createTableAddBtn("col", ctx.t);
-            addBtn.addEventListener("click", function(e) {
-              e.preventDefault();
-              e.stopPropagation();
-              if (typeof ctx.onAddColumn === "function") ctx.onAddColumn(c);
-            });
-            handle.appendChild(addBtn);
-            overlay.appendChild(handle);
-          }
-          const rows = table.querySelectorAll("tr");
-          for (let r = 0; r < rows.length; r++) {
-            const rect = rows[r].getBoundingClientRect();
-            const borderY = rect.bottom - origin.top;
-            const handle = document.createElement("div");
-            handle.className = "mda-cm-table-row-resize-handle";
-            handle.dataset.row = String(r);
-            handle.setAttribute("data-i18n-title", "widgetTableResizeRow");
-            if (ctx.t) handle.title = ctx.t("widgetTableResizeRow");
-            handle.style.top = Math.round(borderY - RESIZE_HANDLE_HALF) + "px";
-            handle.style.left = Math.round(tableLeft) + "px";
-            handle.style.width = tableW + "px";
-            const addBtn = createTableAddBtn("row", ctx.t);
-            addBtn.addEventListener("click", function(e) {
-              e.preventDefault();
-              e.stopPropagation();
-              if (typeof ctx.onAddRow === "function") ctx.onAddRow(r);
-            });
-            handle.appendChild(addBtn);
-            overlay.appendChild(handle);
-          }
-        }
-        function ensureCaptured() {
-          if (layoutCaptured) return;
-          const parsed = ctx.getParsed();
-          captureLayoutFromTable(table, parsed);
-          applyTableLayout(table, parsed, wrap);
-          layoutCaptured = true;
-          rebuildHandles();
-        }
-        overlay.addEventListener("mousedown", function(e) {
-          if (e.button !== 0) return;
-          if (e.target && e.target.closest && e.target.closest(".mda-cm-table-add-btn")) return;
-          const colHandle = e.target && e.target.closest ? e.target.closest(".mda-cm-table-col-resize-handle") : null;
-          const rowHandle = e.target && e.target.closest ? e.target.closest(".mda-cm-table-row-resize-handle") : null;
-          if (!colHandle && !rowHandle) return;
-          e.preventDefault();
-          e.stopPropagation();
-          ensureCaptured();
-          const parsed = ctx.getParsed();
-          wrap.classList.add("mda-cm-table-resizing-active");
-          if (colHandle) {
-            const col = parseInt(colHandle.getAttribute("data-col") || "0", 10);
-            activeHandle = colHandle;
-            activeHandle.classList.add("mda-cm-table-resize-dragging");
-            const th = table.querySelectorAll("thead th")[col];
-            const startW = th ? th.getBoundingClientRect().width : parsed.colWidths[col] || MIN_COL_WIDTH;
-            dragging = { kind: "col", col, startX: e.clientX, startW };
-            document.body.classList.add("mda-cm-table-resizing-col");
-          } else if (rowHandle) {
-            const row = parseInt(rowHandle.getAttribute("data-row") || "0", 10);
-            activeHandle = rowHandle;
-            activeHandle.classList.add("mda-cm-table-resize-dragging");
-            const tr = table.querySelectorAll("tr")[row];
-            const startH = tr ? tr.getBoundingClientRect().height : parsed.rowHeights[row] || MIN_ROW_HEIGHT;
-            dragging = { kind: "row", row, startY: e.clientY, startH };
-            document.body.classList.add("mda-cm-table-resizing-row");
-          }
-          document.body.classList.add("mda-cm-table-resizing");
-        });
-        function onMove(e) {
-          if (!dragging) return;
-          const parsed = ctx.getParsed();
-          if (dragging.kind === "col") {
-            const nw = Math.max(
-              MIN_COL_WIDTH,
-              Math.round(dragging.startW + (e.clientX - dragging.startX))
-            );
-            parsed.colWidths[dragging.col] = nw;
-            applyTableLayout(table, parsed, wrap);
-            rebuildHandles();
-            if (activeHandle) activeHandle.classList.add("mda-cm-table-resize-dragging");
-          } else {
-            const nh = Math.max(
-              MIN_ROW_HEIGHT,
-              Math.round(dragging.startH + (e.clientY - dragging.startY))
-            );
-            parsed.rowHeights[dragging.row] = nh;
-            applyTableLayout(table, parsed, wrap);
-            rebuildHandles();
-            if (activeHandle) activeHandle.classList.add("mda-cm-table-resize-dragging");
-          }
-        }
-        function endDrag() {
-          if (activeHandle) {
-            activeHandle.classList.remove("mda-cm-table-resize-dragging");
-            activeHandle = null;
-          }
-          wrap.classList.remove("mda-cm-table-resizing-active");
-          document.body.classList.remove("mda-cm-table-resizing");
-          document.body.classList.remove("mda-cm-table-resizing-col", "mda-cm-table-resizing-row");
-        }
-        function onUp() {
-          if (!dragging) return;
-          dragging = null;
-          endDrag();
-          if (typeof ctx.onLayoutCommit === "function") {
-            ctx.onLayoutCommit(ctx.getParsed());
-          }
-        }
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
-        return {
-          applyLayout: function(parsed) {
-            layoutCaptured = hasTableLayoutMeta(parsed);
-            if (layoutCaptured) applyTableLayout(table, parsed, wrap);
-            else clearTableLayout(table, wrap);
-            rebuildHandles();
-          },
-          rebuildHandles,
-          refreshAddBtnI18n: function(tFn) {
-            refreshTableAddBtnI18n(wrap, tFn);
-          },
-          dispose: function() {
-            document.removeEventListener("mousemove", onMove);
-            document.removeEventListener("mouseup", onUp);
-            endDrag();
-            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-          }
-        };
-      }
-      module.exports = {
-        attachTableGridResize,
-        applyTableLayout,
-        clearTableLayout,
-        clearTableWrapLayout,
-        syncTableWrapLayout,
-        captureLayoutFromTable,
-        ensureLayoutArrays,
-        refreshTableAddBtnI18n
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/table-layout-session.js
-  var require_table_layout_session = __commonJS({
-    "src/gui/renderer/editor/widgets/table-layout-session.js"(exports, module) {
-      "use strict";
-      var { hasTableLayoutMeta } = require_parse_table();
-      var sessions = /* @__PURE__ */ new Map();
-      function normalizeSessionKey(source) {
-        return String(source || "").replace(/\r\n/g, "\n").replace(/\n$/, "");
-      }
-      function getTableLayoutSession(source) {
-        const key = normalizeSessionKey(source);
-        if (!key) return null;
-        const sess = sessions.get(key);
-        if (!sess) return null;
-        return {
-          colWidths: sess.colWidths.slice(),
-          rowHeights: sess.rowHeights.slice()
-        };
-      }
-      function setTableLayoutSession(source, parsed) {
-        const key = normalizeSessionKey(source);
-        if (!key || !parsed || !hasTableLayoutMeta(parsed)) {
-          if (key) sessions.delete(key);
-          return;
-        }
-        sessions.set(key, {
-          colWidths: (parsed.colWidths || []).slice(),
-          rowHeights: (parsed.rowHeights || []).slice()
-        });
-      }
-      function migrateTableLayoutSession(oldSource, newSource) {
-        const oldKey = normalizeSessionKey(oldSource);
-        const newKey = normalizeSessionKey(newSource);
-        if (!oldKey || !newKey || oldKey === newKey) return;
-        const sess = sessions.get(oldKey);
-        if (!sess) return;
-        sessions.set(newKey, {
-          colWidths: sess.colWidths.slice(),
-          rowHeights: sess.rowHeights.slice()
-        });
-        sessions.delete(oldKey);
-      }
-      function mergeTableLayoutSession(parsed, sess) {
-        if (!parsed || !sess) return;
-        const ncol = parsed.headers.length;
-        const nrow = 1 + parsed.rows.length;
-        if (sess.colWidths.length) {
-          const cw = sess.colWidths.slice();
-          while (cw.length < ncol) cw.push(0);
-          if (cw.length > ncol) cw.length = ncol;
-          parsed.colWidths = cw;
-        }
-        if (sess.rowHeights.length) {
-          const rh = sess.rowHeights.slice();
-          while (rh.length < nrow) rh.push(0);
-          if (rh.length > nrow) rh.length = nrow;
-          parsed.rowHeights = rh;
-        }
-      }
-      function applyTableLayoutSession(source, parsed) {
-        if (!parsed) return;
-        const sess = getTableLayoutSession(source);
-        if (!sess) return;
-        mergeTableLayoutSession(parsed, sess);
-      }
-      function clearTableLayoutSession(source) {
-        const key = normalizeSessionKey(source);
-        if (key) sessions.delete(key);
-      }
-      module.exports = {
-        getTableLayoutSession,
-        setTableLayoutSession,
-        applyTableLayoutSession,
-        migrateTableLayoutSession,
-        mergeTableLayoutSession,
-        clearTableLayoutSession
       };
     }
   });
@@ -41898,7 +38809,7 @@ var MDAEditorBundle = (() => {
               }
               return tok;
             };
-            const letCommand = (parser, name, tok, global) => {
+            const letCommand = (parser, name, tok, global2) => {
               let macro = parser.gullet.macros.get(tok.text);
               if (macro == null) {
                 tok.noexpand = true;
@@ -41909,7 +38820,7 @@ var MDAEditorBundle = (() => {
                   unexpandable: !parser.gullet.isExpandable(tok.text)
                 };
               }
-              parser.gullet.macros.set(name, macro, global);
+              parser.gullet.macros.set(name, macro, global2);
             };
             defineFunction({
               type: "internal",
@@ -46832,11 +43743,11 @@ var MDAEditorBundle = (() => {
                * operation at every level, so takes time linear in their number.
                * A value of undefined means to delete existing definitions.
                */
-              set(name, value, global) {
-                if (global === void 0) {
-                  global = false;
+              set(name, value, global2) {
+                if (global2 === void 0) {
+                  global2 = false;
                 }
-                if (global) {
+                if (global2) {
                   for (let i = 0; i < this.undefStack.length; i++) {
                     delete this.undefStack[i][name];
                   }
@@ -49411,6 +46322,416 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widgets/mermaid-diagram-type.js
+  var require_mermaid_diagram_type = __commonJS({
+    "src/gui/renderer/editor/widgets/mermaid-diagram-type.js"(exports, module) {
+      "use strict";
+      function getMermaidFirstKeyword(code) {
+        if (!code) return "";
+        const lines = String(code).replace(/\r\n/g, "\n").split("\n");
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].replace(/^\uFEFF/, "").trim();
+          if (!line || line.startsWith("%%")) continue;
+          const token = (line.split(/\s+/)[0] || "").trim();
+          if (token) return token;
+        }
+        return "";
+      }
+      function detectMermaidDiagramType(code) {
+        const kw = getMermaidFirstKeyword(code);
+        if (!kw) return "unknown";
+        const lower = kw.toLowerCase();
+        if (lower === "graph" || lower === "flowchart") return lower;
+        if (lower === "sequencediagram") return "sequence";
+        if (lower.startsWith("classdiagram")) return "class";
+        if (lower.startsWith("statediagram")) return "state";
+        if (lower === "erdiagram") return "er";
+        if (lower === "journey") return "journey";
+        if (lower === "gantt") return "gantt";
+        if (lower === "pie") return "pie";
+        if (lower === "quadrantchart") return "quadrant";
+        if (lower.startsWith("requirementdiagram")) return "requirement";
+        if (lower === "gitgraph") return "gitgraph";
+        if (lower === "mindmap") return "mindmap";
+        if (lower === "timeline") return "timeline";
+        if (lower === "zenuml") return "zenuml";
+        if (lower.startsWith("sankey")) return "sankey";
+        if (lower.startsWith("block")) return "block";
+        if (lower.startsWith("packet")) return "packet";
+        if (lower.startsWith("architecture")) return "architecture";
+        if (lower.startsWith("c4")) return "c4";
+        if (lower === "xychart-beta" || lower === "xychart") return "xychart";
+        if (lower === "kanban") return "kanban";
+        return lower.replace(/-beta$/i, "").replace(/-v\d+$/i, "");
+      }
+      var MERMAID_KEYWORD_I18N_KEYS = {
+        gitgraph: "mermaidKwGitgraph",
+        c4context: "mermaidKwC4",
+        c4container: "mermaidKwC4",
+        c4component: "mermaidKwC4",
+        c4dynamic: "mermaidKwC4",
+        c4deployment: "mermaidKwC4"
+      };
+      function mermaidKeywordI18nKey(keyword) {
+        if (!keyword) return "diagram";
+        const withoutSuffix = keyword.replace(/-beta$/i, "").replace(/-v\d+$/i, "");
+        const lower = withoutSuffix.toLowerCase();
+        if (MERMAID_KEYWORD_I18N_KEYS[lower]) return MERMAID_KEYWORD_I18N_KEYS[lower];
+        const parts = withoutSuffix.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[^a-zA-Z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean).map(function(part) {
+          return part.toLowerCase();
+        });
+        if (!parts.length) return "diagram";
+        const norm = parts.map(function(part, i) {
+          if (i === 0) return part;
+          return part.charAt(0).toUpperCase() + part.slice(1);
+        }).join("");
+        return "mermaidKw" + norm.charAt(0).toUpperCase() + norm.slice(1);
+      }
+      function formatMermaidKeywordFallback(keyword) {
+        if (!keyword) return "";
+        const lower = keyword.toLowerCase();
+        if (lower === "sequencediagram") return "Sequence diagram";
+        if (lower.startsWith("sankey")) {
+          return keyword.replace(/-beta$/i, "").replace(/^sankey/i, "Sankey");
+        }
+        if (lower.startsWith("classdiagram")) return "Class diagram";
+        if (lower.startsWith("statediagram")) return "State diagram";
+        if (lower === "erdiagram") return "ER diagram";
+        if (lower === "gitgraph") return "GitGraph";
+        if (lower.startsWith("c4")) return "C4";
+        if (lower === "quadrantchart") return "Quadrant chart";
+        if (lower.startsWith("requirementdiagram")) return "Requirement diagram";
+        if (lower.startsWith("architecture")) return "Architecture";
+        if (lower === "xychart-beta" || lower === "xychart") return "XY chart";
+        if (lower.startsWith("radar")) return "Radar chart";
+        if (lower.startsWith("treemap")) return "Treemap";
+        if (lower.startsWith("venn")) return "Venn diagram";
+        if (/^[a-z][a-z0-9-]*$/i.test(keyword) && keyword === keyword.toLowerCase()) {
+          return keyword.replace(/-beta$/i, "");
+        }
+        return keyword;
+      }
+      function mermaidDiagramTypeLabel(code, t) {
+        const keyword = getMermaidFirstKeyword(code);
+        if (!keyword) {
+          const fallback = typeof t === "function" ? t("diagram") : "diagram";
+          return fallback !== "diagram" ? fallback : "Diagram";
+        }
+        const key = mermaidKeywordI18nKey(keyword);
+        const label = typeof t === "function" ? t(key) : key;
+        if (label && label !== key) return label;
+        const formatted = formatMermaidKeywordFallback(keyword);
+        return formatted || keyword;
+      }
+      function mermaidDiagramTypeI18nKey(typeId) {
+        if (!typeId || typeId === "unknown") return "diagram";
+        return "mermaidType" + typeId.charAt(0).toUpperCase() + typeId.slice(1).replace(/-([a-z])/g, function(_m, c) {
+          return c.toUpperCase();
+        });
+      }
+      module.exports = {
+        getMermaidFirstKeyword,
+        detectMermaidDiagramType,
+        mermaidKeywordI18nKey,
+        mermaidDiagramTypeLabel,
+        mermaidDiagramTypeI18nKey
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/widget-common.js
+  var require_widget_common = __commonJS({
+    "src/gui/renderer/editor/widgets/widget-common.js"(exports, module) {
+      "use strict";
+      var { mermaidDiagramTypeLabel } = require_mermaid_diagram_type();
+      function uiT(key, t, vars) {
+        if (typeof t === "function") return t(key, vars);
+        return key;
+      }
+      function copyText(text, copyFn) {
+        const s = text == null ? "" : String(text);
+        if (typeof copyFn === "function") {
+          copyFn(s);
+          return;
+        }
+        if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(s).catch(function() {
+          });
+        }
+      }
+      function createBlockToolbar(root, spec) {
+        const t = spec.t;
+        const bar = document.createElement("div");
+        bar.className = "mda-cm-block-toolbar";
+        if (spec.labelKey) {
+          const lab = document.createElement("span");
+          lab.className = "mda-cm-block-toolbar-label";
+          lab.dataset.i18nKey = spec.labelKey;
+          lab.textContent = uiT(spec.labelKey, t);
+          bar.appendChild(lab);
+        } else if (spec.label) {
+          const lab = document.createElement("span");
+          lab.className = "mda-cm-block-toolbar-label";
+          lab.textContent = spec.label;
+          bar.appendChild(lab);
+        }
+        const actions = document.createElement("div");
+        actions.className = "mda-cm-block-toolbar-actions";
+        const buttons = spec.buttons || [];
+        for (let i = 0; i < buttons.length; i++) {
+          const b = buttons[i];
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "mda-cm-block-toolbar-btn";
+          btn.dataset.action = b.id;
+          if (b.i18nKey) {
+            btn.dataset.i18nKey = b.i18nKey;
+            if (b.i18nToggle) btn.dataset.i18nToggle = b.i18nToggle;
+            const label = uiT(b.i18nKey, t);
+            btn.textContent = label;
+            btn.title = label;
+          } else {
+            btn.textContent = b.label || "";
+            if (b.title) btn.title = b.title;
+          }
+          actions.appendChild(btn);
+        }
+        bar.appendChild(actions);
+        root.appendChild(bar);
+        return bar;
+      }
+      function refreshBlockToolbars(root, t) {
+        if (!root || typeof t !== "function") return;
+        const host = root.querySelectorAll ? root : document.body;
+        host.querySelectorAll(".mda-cm-block-toolbar-label[data-i18n-key]").forEach(function(el) {
+          const key = el.getAttribute("data-i18n-key");
+          if (key) el.textContent = t(key);
+        });
+        host.querySelectorAll(".mda-cm-block-toolbar-label[data-mda-mermaid-kw]").forEach(function(el) {
+          const kw = el.getAttribute("data-mda-mermaid-kw") || "";
+          const code = kw ? kw + "\n" : "";
+          el.textContent = mermaidDiagramTypeLabel(code, t);
+        });
+        host.querySelectorAll(".mda-cm-block-toolbar-btn[data-i18n-key]").forEach(function(btn) {
+          let key = btn.getAttribute("data-i18n-key");
+          if (btn.getAttribute("data-i18n-toggle") === "mermaid-source") {
+            const frame = btn.closest(".mda-cm-mermaid-frame");
+            key = frame && frame.classList.contains("mda-cm-mermaid-source-mode") ? "widgetMermaidPreview" : "widgetCodeSource";
+          }
+          if (btn.getAttribute("data-i18n-toggle") === "math-source") {
+            const frame = btn.closest(".mda-cm-math-frame");
+            key = frame && frame.classList.contains("mda-cm-math-source-mode") ? "widgetCodePreview" : "widgetCodeSource";
+          }
+          if (!key) return;
+          const label = t(key);
+          btn.textContent = label;
+          btn.title = label;
+        });
+        host.querySelectorAll("[data-i18n-title]").forEach(function(el) {
+          const key = el.getAttribute("data-i18n-title");
+          if (key) el.title = t(key);
+        });
+        host.querySelectorAll("[data-i18n-aria]").forEach(function(el) {
+          const key = el.getAttribute("data-i18n-aria");
+          if (key) el.setAttribute("aria-label", t(key));
+        });
+        host.querySelectorAll(".mda-cm-table-add-btn[data-i18n-title]").forEach(function(btn) {
+          const key = btn.getAttribute("data-i18n-title");
+          if (key) btn.title = t(key);
+        });
+        host.querySelectorAll(".mda-cm-table-menu-item[data-i18n-key]").forEach(function(btn) {
+          const key = btn.getAttribute("data-i18n-key");
+          if (key) btn.textContent = t(key);
+        });
+      }
+      function clearMediaSelection(container, selectedClass) {
+        if (!container) return;
+        const sel = selectedClass || "mda-cm-media-selected";
+        const nodes = container.querySelectorAll("." + sel);
+        for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove(sel);
+      }
+      var HOVER_LEAVE_MS = 200;
+      function clearBlockWidgetSelection(container) {
+        if (!container || !container.querySelectorAll) return;
+        const nodes = container.querySelectorAll(".mda-cm-block-selected");
+        for (let i = 0; i < nodes.length; i++) nodes[i].classList.remove("mda-cm-block-selected");
+        const hrSel = container.querySelectorAll(".mda-cm-hr-selected");
+        for (let j = 0; j < hrSel.length; j++) hrSel[j].classList.remove("mda-cm-hr-selected");
+      }
+      module.exports = {
+        uiT,
+        copyText,
+        createBlockToolbar,
+        refreshBlockToolbars,
+        clearMediaSelection,
+        clearBlockWidgetSelection,
+        HOVER_LEAVE_MS
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-widget-base.js
+  var require_block_widget_base = __commonJS({
+    "src/gui/renderer/editor/widgets/block-widget-base.js"(exports, module) {
+      "use strict";
+      var { WidgetType } = require_dist4();
+      var DEFAULT_LINE_HEIGHT = 26;
+      var measuredHeightCache = /* @__PURE__ */ new Map();
+      function countSourceLines(text) {
+        if (!text) return 1;
+        let n = 1;
+        for (let i = 0; i < text.length; i++) {
+          if (text.charCodeAt(i) === 10) n += 1;
+        }
+        return n;
+      }
+      function blockHeightCacheKey(kind, from, to, source) {
+        return kind + ":" + from + ":" + to + ":" + String(source || "");
+      }
+      function rememberMeasuredHeight(key, h) {
+        if (!key || !(h > 0)) return;
+        measuredHeightCache.set(key, h);
+      }
+      function recallMeasuredHeight(key) {
+        if (!key || !measuredHeightCache.has(key)) return -1;
+        return measuredHeightCache.get(key);
+      }
+      function attachBlockMeasure(dom, view, widget) {
+        widget._dom = dom;
+        function measure() {
+          if (!dom.isConnected || !view) return;
+          const rect = dom.getBoundingClientRect();
+          const style = window.getComputedStyle(dom);
+          const marginTop = parseFloat(style.marginTop) || 0;
+          const marginBottom = parseFloat(style.marginBottom) || 0;
+          let h = rect.height + marginTop + marginBottom;
+          const cap = widget._maxMeasuredHeight;
+          if (cap > 0 && h > cap) h = cap;
+          if (h > 0 && Math.abs(h - widget._measured) > 0.5) {
+            widget._measured = h;
+            rememberMeasuredHeight(widget._cacheKey, h);
+            try {
+              view.requestMeasure();
+            } catch (_) {
+            }
+          }
+        }
+        requestAnimationFrame(measure);
+        if (typeof ResizeObserver !== "undefined") {
+          const ro = new ResizeObserver(function() {
+            measure();
+          });
+          ro.observe(dom);
+          dom._mdaBlockMeasureRo = ro;
+        }
+      }
+      function syncWidgetHeightFromDom(widget, view, dom) {
+        const el = dom || widget._dom;
+        if (!widget || !el || !el.isConnected) return;
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const marginTop = parseFloat(style.marginTop) || 0;
+        const marginBottom = parseFloat(style.marginBottom) || 0;
+        let h = rect.height + marginTop + marginBottom;
+        const cap = widget._maxMeasuredHeight;
+        if (cap > 0 && h > cap) h = cap;
+        if (!(h > 0)) return;
+        widget._measured = h;
+        rememberMeasuredHeight(widget._cacheKey, h);
+        if (view) {
+          try {
+            view.requestMeasure();
+          } catch (_) {
+          }
+        }
+      }
+      function handleBlockPointer(view, widget, opts, kind, event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (view && typeof view.dispatch === "function") {
+          view.dispatch({
+            selection: { anchor: widget.from, head: widget.from },
+            scrollIntoView: true
+          });
+        }
+        if (typeof opts.onFocusBlock === "function") {
+          opts.onFocusBlock({ from: widget.from, to: widget.to, kind });
+        }
+      }
+      var BlockReplaceWidget = class extends WidgetType {
+        /**
+         * @param {string} source
+         * @param {{ from?: number, to?: number, lineHeight?: number, minHeight?: number, heightKind?: string }} [opts]
+         */
+        constructor(source, opts) {
+          super();
+          this.source = source || "";
+          this.opts = opts || {};
+          this.from = opts && opts.from != null ? opts.from : 0;
+          this.to = opts && opts.to != null ? opts.to : 0;
+          this._lineHeight = opts && opts.lineHeight > 0 ? opts.lineHeight : DEFAULT_LINE_HEIGHT;
+          this._minHeight = opts && opts.minHeight > 0 ? opts.minHeight : this._lineHeight;
+          this._lineCount = countSourceLines(this.source);
+          this._cacheKey = blockHeightCacheKey(
+            opts && opts.heightKind || "block",
+            this.from,
+            this.to,
+            this.source
+          );
+          const cached = recallMeasuredHeight(this._cacheKey);
+          this._measured = cached > 0 ? cached : -1;
+        }
+        get estimatedHeight() {
+          if (this._dom && this._dom.isConnected) {
+            const rect = this._dom.getBoundingClientRect();
+            const style = window.getComputedStyle(this._dom);
+            const marginTop = parseFloat(style.marginTop) || 0;
+            const marginBottom = parseFloat(style.marginBottom) || 0;
+            let h = rect.height + marginTop + marginBottom;
+            const cap = this._maxMeasuredHeight;
+            if (cap > 0 && h > cap) h = cap;
+            if (h > 0) {
+              this._measured = h;
+              rememberMeasuredHeight(this._cacheKey, h);
+              return h;
+            }
+          }
+          if (this._measured > 0) return this._measured;
+          return Math.max(this._lineCount * this._lineHeight, this._minHeight);
+        }
+        /**
+         * @param {import('@codemirror/view').EditorView} view
+         * @param {HTMLElement} dom
+         */
+        bindMeasure(view, dom) {
+          this._dom = dom;
+          attachBlockMeasure(dom, view, this);
+        }
+        destroy(dom) {
+          if (this._dom === dom) this._dom = null;
+          if (dom && dom._mdaBlockMeasureRo) {
+            dom._mdaBlockMeasureRo.disconnect();
+            dom._mdaBlockMeasureRo = null;
+          }
+        }
+        ignoreEvent() {
+          return true;
+        }
+      };
+      module.exports = {
+        DEFAULT_LINE_HEIGHT,
+        countSourceLines,
+        attachBlockMeasure,
+        syncWidgetHeightFromDom,
+        handleBlockPointer,
+        blockHeightCacheKey,
+        rememberMeasuredHeight,
+        recallMeasuredHeight,
+        BlockReplaceWidget
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/image-block-ops.js
   var require_image_block_ops = __commonJS({
     "src/gui/renderer/editor/widgets/image-block-ops.js"(exports, module) {
@@ -49762,15 +47083,21 @@ var MDAEditorBundle = (() => {
       var { findNearestSourceRange } = require_image_block_ops();
       var { clearBlockWidgetSelection, clearMediaSelection } = require_widget_common();
       var selected = null;
-      var KIND_CONFIG = {
-        code: { rootSel: ".mda-cm-code-block", frameSel: ".mda-cm-code-frame", media: true },
-        math: { rootSel: ".mda-cm-math-block", frameSel: ".mda-cm-math-frame", media: true },
-        table: { rootSel: ".mda-cm-table-block" },
-        quote: { rootSel: ".mda-cm-quote-handle-anchor" },
-        hr: { rootSel: ".mda-cm-hr-block", frameSel: ".mda-cm-hr-frame", hrSelected: true }
-      };
+      var selectionListener = null;
+      function setBlockSelectionListener(fn) {
+        selectionListener = typeof fn === "function" ? fn : null;
+      }
+      function notifySelectionListener() {
+        if (selectionListener) {
+          try {
+            selectionListener(selected);
+          } catch (_) {
+          }
+        }
+      }
       function setSelectedBlock(block) {
         selected = block;
+        notifySelectionListener();
       }
       function getSelectedBlock() {
         return selected;
@@ -49779,8 +47106,18 @@ var MDAEditorBundle = (() => {
         return selected && selected.kind === kind ? selected : null;
       }
       function clearSelectedBlock() {
+        if (selected == null) return;
         selected = null;
+        notifySelectionListener();
       }
+      var KIND_CONFIG = {
+        code: { rootSel: ".mda-cm-code-block", frameSel: ".mda-cm-code-frame", media: true },
+        math: { rootSel: ".mda-cm-math-block", frameSel: ".mda-cm-math-frame", media: true },
+        table: { rootSel: ".mda-cm-table-block" },
+        quote: { rootSel: ".mda-cm-quote-handle-anchor" },
+        heading: { rootSel: ".mda-cm-heading-handle-anchor" },
+        hr: { rootSel: ".mda-cm-hr-block", frameSel: ".mda-cm-hr-frame", hrSelected: true }
+      };
       function syncSelectedBlockClass(editorRoot) {
         const sel = selected;
         if (!sel || !editorRoot) return;
@@ -49846,6 +47183,7 @@ var MDAEditorBundle = (() => {
         getSelectedBlock,
         getSelectedBlockOfKind,
         clearSelectedBlock,
+        setBlockSelectionListener,
         syncSelectedBlockClass,
         reconcileSelectedBlock,
         createBlockSelectionSyncPlugin
@@ -50085,6 +47423,1372 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/lucide-icons.generated.js
+  var require_lucide_icons_generated = __commonJS({
+    "src/gui/renderer/editor/lucide-icons.generated.js"(exports, module) {
+      "use strict";
+      var LUCIDE_ICON_NAMES = [
+        "cut",
+        "copy",
+        "paste",
+        "undo",
+        "redo",
+        "formatBrush",
+        "clearFormat",
+        "bold",
+        "italic",
+        "underline",
+        "strike",
+        "textColor",
+        "highlight",
+        "superscript",
+        "code",
+        "task",
+        "ul",
+        "ol",
+        "save",
+        "print",
+        "find",
+        "comment",
+        "copyPreview",
+        "export",
+        "ai",
+        "insertAbove",
+        "insertBelow",
+        "copyAs",
+        "markdown",
+        "copyAsImage",
+        "edit",
+        "anno",
+        "askAi",
+        "delete",
+        "continue",
+        "companion",
+        "polish",
+        "expand",
+        "shorten",
+        "grammar",
+        "explain",
+        "translate",
+        "summarize",
+        "more",
+        "bulletList",
+        "orderedList",
+        "taskList",
+        "image",
+        "table",
+        "quote",
+        "mermaid",
+        "math",
+        "hr",
+        "heading",
+        "link",
+        "cloud",
+        "folder",
+        "columns",
+        "date",
+        "media",
+        "emoji",
+        "template",
+        "shield",
+        "whiteboard",
+        "mindmap",
+        "flowchart",
+        "spreadsheet",
+        "multitable",
+        "menu"
+      ];
+      var TOOLBAR_ICON_NAMES = [
+        "undo",
+        "redo",
+        "clearFormat",
+        "bold",
+        "italic",
+        "underline",
+        "strike",
+        "code",
+        "task",
+        "ul",
+        "ol",
+        "save",
+        "find",
+        "comment",
+        "copyPreview",
+        "export",
+        "ai"
+      ];
+      var LUCIDE_ICONS = {
+        cut: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></svg>',
+        copy: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
+        paste: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 14h10"/><path d="M16 4h2a2 2 0 0 1 2 2v1.344"/><path d="m17 18 4-4-4-4"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 1.793-1.113"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>',
+        undo: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>',
+        redo: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/></svg>',
+        formatBrush: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14.622 17.897-10.68-2.913"/><path d="M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0z"/><path d="M9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15"/></svg>',
+        clearFormat: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3"/><path d="M5 20h6"/><path d="M13 4 8 20"/><path d="m15 15 5 5"/><path d="m20 15-5 5"/></svg>',
+        bold: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8"/></svg>',
+        italic: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/></svg>',
+        underline: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4v6a6 6 0 0 0 12 0V4"/><line x1="4" x2="20" y1="20" y2="20"/></svg>',
+        strike: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" x2="20" y1="12" y2="12"/></svg>',
+        textColor: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="m6 16 6-12 6 12"/><path d="M8 12h8"/></svg>',
+        highlight: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>',
+        superscript: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 19 8-8"/><path d="m12 19-8-8"/><path d="M20 12h-4c0-1.5.442-2 1.5-2.5S20 8.334 20 7.002c0-.472-.17-.93-.484-1.29a2.105 2.105 0 0 0-2.617-.436c-.42.239-.738.614-.899 1.06"/></svg>',
+        code: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></svg>',
+        task: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><rect x="3" y="4" width="6" height="6" rx="1"/></svg>',
+        ul: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></svg>',
+        ol: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5h10"/><path d="M11 12h10"/><path d="M11 19h10"/><path d="M4 4h1v5"/><path d="M4 9h2"/><path d="M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02"/></svg>',
+        save: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>',
+        print: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg>',
+        find: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>',
+        comment: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/></svg>',
+        copyPreview: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M16 4h2a2 2 0 0 1 2 2v4"/><path d="M21 14H11"/><path d="m15 10-4 4 4 4"/></svg>',
+        export: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg>',
+        ai: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></svg>',
+        insertAbove: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 9-6-6-6 6"/><path d="M12 3v14"/><path d="M5 21h14"/></svg>',
+        insertBelow: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 3H5"/><path d="M12 21V7"/><path d="m6 15 6 6 6-6"/></svg>',
+        copyAs: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
+        markdown: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>',
+        copyAsImage: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>',
+        edit: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg>',
+        anno: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/></svg>',
+        askAi: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>',
+        delete: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+        continue: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 21h8"/><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>',
+        companion: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg>',
+        polish: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></svg>',
+        expand: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="m21 3-7 7"/><path d="m3 21 7-7"/><path d="M9 21H3v-6"/></svg>',
+        shorten: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 15 6 6m-6-6v4.8m0-4.8h4.8"/><path d="M9 19.8V15m0 0H4.2M9 15l-6 6"/><path d="M15 4.2V9m0 0h4.8M15 9l6-6"/><path d="M9 4.2V9m0 0H4.2M9 9 3 3"/></svg>',
+        grammar: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 16 6-12 6 12"/><path d="M8 12h8"/><path d="m16 20 2 2 4-4"/></svg>',
+        explain: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>',
+        translate: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>',
+        summarize: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>',
+        more: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>',
+        bulletList: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></svg>',
+        orderedList: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5h10"/><path d="M11 12h10"/><path d="M11 19h10"/><path d="M4 4h1v5"/><path d="M4 9h2"/><path d="M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02"/></svg>',
+        taskList: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><rect x="3" y="4" width="6" height="6" rx="1"/></svg>',
+        image: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>',
+        table: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>',
+        quote: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/></svg>',
+        mermaid: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>',
+        math: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 7V5a1 1 0 0 0-1-1H6.5a.5.5 0 0 0-.4.8l4.5 6a2 2 0 0 1 0 2.4l-4.5 6a.5.5 0 0 0 .4.8H17a1 1 0 0 0 1-1v-2"/></svg>',
+        hr: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg>',
+        heading: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h12"/><path d="M6 20V4"/><path d="M18 20V4"/></svg>',
+        link: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+        cloud: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>',
+        folder: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
+        columns: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M12 3v18"/></svg>',
+        date: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>',
+        media: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9.003a1 1 0 0 1 1.517-.859l4.997 2.997a1 1 0 0 1 0 1.718l-4.997 2.997A1 1 0 0 1 9 14.996z"/><circle cx="12" cy="12" r="10"/></svg>',
+        emoji: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10V9"/><path d="M16.472 15a6 6 0 01-8.943 0"/><path d="M9 10V9"/><circle cx="12" cy="12" r="10"/></svg>',
+        template: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="7" x="3" y="3" rx="1"/><rect width="9" height="7" x="3" y="14" rx="1"/><rect width="5" height="7" x="16" y="14" rx="1"/></svg>',
+        shield: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>',
+        whiteboard: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/></svg>',
+        mindmap: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6a9 9 0 0 0-9 9V3"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/></svg>',
+        flowchart: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>',
+        spreadsheet: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="3" x2="21" y1="15" y2="15"/><line x1="9" x2="9" y1="9" y2="21"/><line x1="15" x2="15" y1="9" y2="21"/></svg>',
+        multitable: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>',
+        menu: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg>'
+      };
+      module.exports = {
+        LUCIDE_ICONS,
+        LUCIDE_ICON_NAMES,
+        TOOLBAR_ICON_NAMES
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-menu-icons.js
+  var require_block_menu_icons = __commonJS({
+    "src/gui/renderer/editor/widgets/block-menu-icons.js"(exports, module) {
+      "use strict";
+      var { LUCIDE_ICONS } = require_lucide_icons_generated();
+      var ICONS = LUCIDE_ICONS;
+      function headingLevelIconHtml(level) {
+        const lv = Math.max(1, Math.min(6, level || 1));
+        const kind = "h" + lv;
+        return '<span class="mda-cm-block-type-icon mda-cm-heading-level-icon" aria-hidden="true" data-kind="' + kind + '"><span class="mda-cm-heading-level-label"><span class="mda-cm-heading-level-h">H</span><span class="mda-cm-heading-level-n">' + lv + "</span></span></span>";
+      }
+      var BLOCK_KIND_ICON = {
+        image: "image",
+        mermaid: "mermaid",
+        math: "math",
+        table: "table",
+        code: "code",
+        quote: "quote",
+        heading: "heading",
+        hr: "hr"
+      };
+      function menuIconHtml(name) {
+        const svg = ICONS[name] || "";
+        if (!svg) return "";
+        return '<span class="mda-menu-icon" aria-hidden="true">' + svg + "</span>";
+      }
+      function blockTypeIconHtml(blockKind) {
+        const hk = /^h([1-6])$/.exec(blockKind || "");
+        if (hk) return headingLevelIconHtml(parseInt(hk[1], 10));
+        const key = BLOCK_KIND_ICON[blockKind || ""] || "";
+        const svg = key ? ICONS[key] : "";
+        if (!svg) return "";
+        return '<span class="mda-cm-block-type-icon" aria-hidden="true" data-kind="' + (blockKind || "") + '">' + svg + "</span>";
+      }
+      module.exports = {
+        menuIconHtml,
+        blockTypeIconHtml,
+        headingLevelIconHtml,
+        BLOCK_KIND_ICON,
+        ICONS
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widget-editable-guard.js
+  var require_widget_editable_guard = __commonJS({
+    "src/gui/renderer/editor/widget-editable-guard.js"(exports, module) {
+      "use strict";
+      var { EditorState, EditorSelection, Transaction } = require_dist2();
+      var { EditorView } = require_dist4();
+      var widgetEditablePointerActive = false;
+      var docMouseUpBound = false;
+      var docFocusBound = false;
+      var lastWidgetEdit = null;
+      var WIDGET_EDIT_SELECTOR = '.mda-cm-table th[contenteditable="true"], .mda-cm-table td[contenteditable="true"],.mda-cm-code-input[contenteditable="true"],.mda-cm-mermaid-source-input[contenteditable="true"],.mda-cm-math-source-input[contenteditable="true"]';
+      function isWidgetInlineEditableTarget(target) {
+        if (!target || !target.closest) return false;
+        return !!target.closest(WIDGET_EDIT_SELECTOR);
+      }
+      function tableCellFromNode(node) {
+        if (!node) return null;
+        const el = node.nodeType === 1 ? (
+          /** @type {HTMLElement} */
+          node
+        ) : node.parentElement;
+        if (!el || !el.closest) return null;
+        const cell = el.closest("th[contenteditable], td[contenteditable]");
+        if (cell && cell.closest(".mda-cm-table")) return (
+          /** @type {HTMLElement} */
+          cell
+        );
+        return null;
+      }
+      function tableCellFromSelection() {
+        if (typeof window === "undefined" || !window.getSelection) return null;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount < 1) return null;
+        return tableCellFromNode(sel.anchorNode) || tableCellFromNode(sel.focusNode) || (sel.rangeCount ? tableCellFromNode(sel.getRangeAt(0).commonAncestorContainer) : null);
+      }
+      function snapshotCellSelection(cell) {
+        const empty = { range: null, visStart: 0, visEnd: 0 };
+        if (!cell || typeof window === "undefined" || !window.getSelection) return empty;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount < 1) return empty;
+        const range = sel.getRangeAt(0);
+        try {
+          if (!cell.contains(range.startContainer) || !cell.contains(range.endContainer)) return empty;
+          const pre = document.createRange();
+          pre.selectNodeContents(cell);
+          pre.setEnd(range.startContainer, range.startOffset);
+          const visStart = pre.toString().length;
+          return {
+            range: range.cloneRange(),
+            visStart,
+            visEnd: visStart + range.toString().length
+          };
+        } catch (_) {
+          return empty;
+        }
+      }
+      function classifyWidgetEditable(target) {
+        if (target && target.closest) {
+          const el = (
+            /** @type {HTMLElement} */
+            target
+          );
+          const code = el.closest('.mda-cm-code-input[contenteditable="true"]');
+          if (code) return { kind: "code", el: (
+            /** @type {HTMLElement} */
+            code
+          ) };
+          const mermaid = el.closest('.mda-cm-mermaid-source-input[contenteditable="true"]');
+          if (mermaid) return { kind: "mermaid", el: (
+            /** @type {HTMLElement} */
+            mermaid
+          ) };
+          const math = el.closest('.mda-cm-math-source-input[contenteditable="true"]');
+          if (math) return { kind: "math", el: (
+            /** @type {HTMLElement} */
+            math
+          ) };
+          const cell = tableCellFromNode(el);
+          if (cell) return { kind: "table-cell", el: cell };
+        }
+        const selCell = tableCellFromSelection();
+        if (selCell) return { kind: "table-cell", el: selCell };
+        return null;
+      }
+      function isFenceWidgetKind(kind) {
+        return kind === "code" || kind === "mermaid" || kind === "math";
+      }
+      function captureWidgetEditTarget() {
+        if (typeof document === "undefined") return lastWidgetEdit;
+        const live = classifyWidgetEditable(document.activeElement) || classifyWidgetEditable(tableCellFromSelection());
+        if (!live) return lastWidgetEdit;
+        if (live.kind === "table-cell") {
+          const snap = snapshotCellSelection(live.el);
+          lastWidgetEdit = {
+            kind: live.kind,
+            el: live.el,
+            range: snap.range,
+            visStart: snap.visStart,
+            visEnd: snap.visEnd
+          };
+          return lastWidgetEdit;
+        }
+        lastWidgetEdit = { kind: live.kind, el: live.el, range: null, visStart: 0, visEnd: 0 };
+        return lastWidgetEdit;
+      }
+      function getEffectiveWidgetEditTarget() {
+        if (typeof document !== "undefined") {
+          const live = classifyWidgetEditable(document.activeElement);
+          if (live) {
+            if (live.kind === "table-cell") {
+              const snap = snapshotCellSelection(live.el);
+              if (snap.visEnd > snap.visStart || snap.range) {
+                lastWidgetEdit = {
+                  kind: "table-cell",
+                  el: live.el,
+                  range: snap.range,
+                  visStart: snap.visStart,
+                  visEnd: snap.visEnd
+                };
+                return lastWidgetEdit;
+              }
+            }
+            return lastWidgetEdit && lastWidgetEdit.el === live.el ? lastWidgetEdit : { kind: live.kind, el: live.el, range: null, visStart: 0, visEnd: 0 };
+          }
+          const ae = document.activeElement;
+          if (ae && ae.closest && ae.closest(".mda-cm-edit-toolbar")) return lastWidgetEdit;
+        }
+        return lastWidgetEdit;
+      }
+      function focusInWidgetInlineEditable() {
+        if (typeof document === "undefined") return false;
+        const ae = document.activeElement;
+        if (!ae || !ae.closest) return false;
+        return isWidgetInlineEditableTarget(ae);
+      }
+      function shouldSuppressCm6Selection() {
+        return widgetEditablePointerActive || focusInWidgetInlineEditable();
+      }
+      function collapseCm6Selection(view) {
+        if (!view || view.destroyed) return;
+        const sel = view.state.selection.main;
+        if (sel.empty) return;
+        view.dispatch({
+          selection: { anchor: sel.head, head: sel.head },
+          annotations: Transaction.addToHistory.of(false)
+        });
+      }
+      function ensureDocMouseUpBound() {
+        if (docMouseUpBound || typeof document === "undefined") return;
+        docMouseUpBound = true;
+        document.addEventListener(
+          "mouseup",
+          function() {
+            widgetEditablePointerActive = false;
+          },
+          true
+        );
+      }
+      function ensureDocFocusBound() {
+        if (docFocusBound || typeof document === "undefined") return;
+        docFocusBound = true;
+        document.addEventListener(
+          "selectionchange",
+          function() {
+            const cell = tableCellFromSelection();
+            if (!cell) return;
+            const snap = snapshotCellSelection(cell);
+            lastWidgetEdit = {
+              kind: "table-cell",
+              el: cell,
+              range: snap.range,
+              visStart: snap.visStart,
+              visEnd: snap.visEnd
+            };
+          },
+          false
+        );
+        document.addEventListener(
+          "focusin",
+          function(e) {
+            const t = classifyWidgetEditable(e.target);
+            if (t) {
+              if (t.kind === "table-cell") {
+                const snap = snapshotCellSelection(t.el);
+                lastWidgetEdit = {
+                  kind: t.kind,
+                  el: t.el,
+                  range: snap.range,
+                  visStart: snap.visStart,
+                  visEnd: snap.visEnd
+                };
+              } else {
+                lastWidgetEdit = { kind: t.kind, el: t.el, range: null, visStart: 0, visEnd: 0 };
+              }
+              return;
+            }
+            const el = (
+              /** @type {HTMLElement} */
+              e.target
+            );
+            if (el && el.closest && el.closest(".mda-cm-edit-toolbar")) return;
+            lastWidgetEdit = null;
+          },
+          true
+        );
+      }
+      function attachWidgetEditablePointerIsolation(el) {
+        if (!el || el.dataset.mdaWidgetEditableIso === "1") return;
+        el.dataset.mdaWidgetEditableIso = "1";
+        ensureDocMouseUpBound();
+        el.addEventListener(
+          "mousedown",
+          function(e) {
+            if (e.button === 0) widgetEditablePointerActive = true;
+          },
+          true
+        );
+        el.addEventListener(
+          "mousemove",
+          function(e) {
+            if (e.buttons & 1) e.stopPropagation();
+          },
+          true
+        );
+        el.addEventListener(
+          "mouseup",
+          function(e) {
+            e.stopPropagation();
+            widgetEditablePointerActive = false;
+          },
+          true
+        );
+      }
+      function createWidgetEditableGuardExtension() {
+        ensureDocMouseUpBound();
+        ensureDocFocusBound();
+        return [
+          EditorState.transactionFilter.of(function(tr) {
+            if (!tr.selection || !shouldSuppressCm6Selection()) return tr;
+            const main = tr.selection.main;
+            if (main.empty) return tr;
+            const head = main.head;
+            if (main.anchor === head && main.from === head && main.to === head) return tr;
+            return {
+              ...tr,
+              selection: EditorSelection.single(head)
+            };
+          }),
+          EditorView.domEventHandlers({
+            mousedown: function(event, view) {
+              if (event.button !== 0) return false;
+              if (!isWidgetInlineEditableTarget(event.target)) {
+                return false;
+              }
+              widgetEditablePointerActive = true;
+              collapseCm6Selection(view);
+              return false;
+            }
+          })
+        ];
+      }
+      module.exports = {
+        isWidgetInlineEditableTarget,
+        classifyWidgetEditable,
+        isFenceWidgetKind,
+        captureWidgetEditTarget,
+        getEffectiveWidgetEditTarget,
+        focusInWidgetInlineEditable,
+        attachWidgetEditablePointerIsolation,
+        createWidgetEditableGuardExtension,
+        collapseCm6Selection
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/code-selection.js
+  var require_code_selection = __commonJS({
+    "src/gui/renderer/editor/widgets/code-selection.js"(exports, module) {
+      "use strict";
+      var {
+        setSelectedBlock,
+        getSelectedBlockOfKind,
+        clearSelectedBlock
+      } = require_block_selection();
+      function setSelectedCodeBlock(block) {
+        if (!block) {
+          clearSelectedBlock();
+          return;
+        }
+        setSelectedBlock({
+          kind: "code",
+          from: block.from,
+          to: block.to,
+          source: block.source || ""
+        });
+      }
+      function getSelectedCodeBlock() {
+        const mem = getSelectedBlockOfKind("code");
+        if (mem) {
+          return { from: mem.from, to: mem.to, source: mem.source };
+        }
+        const el = document.querySelector(".mda-cm-code-block.mda-cm-block-selected");
+        if (!el) return null;
+        const from = parseInt(el.getAttribute("data-mda-block-from") || "", 10);
+        const to = parseInt(el.getAttribute("data-mda-block-to") || "", 10);
+        if (!(from >= 0) || !(to > from)) return null;
+        const source = el.getAttribute("data-mda-block-source") || "";
+        return { from, to, source };
+      }
+      function clearSelectedCodeBlock() {
+        const mem = getSelectedBlockOfKind("code");
+        if (mem) clearSelectedBlock();
+        const nodes = document.querySelectorAll(".mda-cm-code-block.mda-cm-block-selected");
+        for (let i = 0; i < nodes.length; i++) {
+          nodes[i].classList.remove("mda-cm-block-selected");
+        }
+      }
+      module.exports = {
+        setSelectedCodeBlock,
+        getSelectedCodeBlock,
+        clearSelectedCodeBlock
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/model/anno-add-context.js
+  var require_anno_add_context = __commonJS({
+    "src/gui/renderer/editor/model/anno-add-context.js"(exports, module) {
+      "use strict";
+      var { expandGfmTableRange } = require_parse_table();
+      var { buildCodeFenceMask } = require_parse_math();
+      var { focusInWidgetInlineEditable } = require_widget_editable_guard();
+      var { getSelectedCodeBlock } = require_code_selection();
+      var { getSelectedMermaidBlock } = require_mermaid_selection();
+      var { getSelectedImageBlock } = require_image_selection();
+      var { getSelectedBlockOfKind } = require_block_selection();
+      var IMAGE_LINE_RE = /^\s*!\[[^\]]*\]\([^)]*\)\s*$/;
+      var HR_LINE_RE = /^\s*([-*_])(?:\s*\1){2,}\s*$/;
+      var BLOCK_ONLY_KINDS = {
+        code: true,
+        mermaid: true,
+        image: true,
+        hr: true,
+        table: true
+      };
+      function normalizeText(text) {
+        return String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      }
+      function lineIndexAtPos(text, pos) {
+        const t = normalizeText(text);
+        let line = 0;
+        const p = Math.max(0, Math.min(pos, t.length));
+        for (let i = 0; i < p; i++) {
+          if (t.charAt(i) === "\n") line++;
+        }
+        return line;
+      }
+      function findFenceOpenLine(lines, lineIdx) {
+        for (let i = lineIdx; i >= 0; i--) {
+          const m = lines[i].match(/^ {0,3}(`{3,}|~{3,})([^\n`~]*)/);
+          if (m) return { line: i, info: String(m[2] || "").trim() };
+        }
+        return null;
+      }
+      function blockKindAtPos(text, pos) {
+        const t = normalizeText(text);
+        const lines = t.split("\n");
+        const lineIdx = lineIndexAtPos(t, pos);
+        const line = lines[lineIdx] || "";
+        const mask = buildCodeFenceMask(lines);
+        if (mask[lineIdx]) {
+          const open = findFenceOpenLine(lines, lineIdx);
+          if (open && /^mermaid\b/i.test(open.info)) return "mermaid";
+          return "code";
+        }
+        if (IMAGE_LINE_RE.test(line)) return "image";
+        if (HR_LINE_RE.test(line)) return "hr";
+        if (/^\s*\|/.test(line)) {
+          try {
+            const table = expandGfmTableRange(t, pos, pos + 1);
+            if (table && pos >= table.from && pos < table.to) return "table";
+          } catch (_) {
+          }
+        }
+        if (/^\s*#{1,6}(?:\s|$)/.test(line)) return "heading";
+        return "prose";
+      }
+      function isBlockOnlyKind(kind) {
+        return !!BLOCK_ONLY_KINDS[kind];
+      }
+      function canUseSelectionAnnoForRange(text, from, to) {
+        if (!(from < to)) return false;
+        const t = normalizeText(text);
+        const end = Math.max(from, to - 1);
+        const kinds = [
+          blockKindAtPos(t, from),
+          blockKindAtPos(t, Math.floor((from + to) / 2)),
+          blockKindAtPos(t, end)
+        ];
+        for (let i = 0; i < kinds.length; i++) {
+          if (isBlockOnlyKind(kinds[i])) return false;
+        }
+        return true;
+      }
+      function line1AtPos(doc, pos) {
+        return doc.lineAt(Math.max(0, Math.min(pos, doc.length))).number;
+      }
+      function getSelectedBlockOnly() {
+        const mermaid = getSelectedMermaidBlock();
+        if (mermaid && mermaid.from != null) {
+          return { kind: "mermaid", from: mermaid.from, to: mermaid.to };
+        }
+        const code = getSelectedCodeBlock();
+        if (code && code.from != null) {
+          return { kind: "code", from: code.from, to: code.to };
+        }
+        const image = getSelectedImageBlock();
+        if (image && image.from != null) {
+          return { kind: "image", from: image.from, to: image.to };
+        }
+        const table = getSelectedBlockOfKind("table");
+        if (table) return { kind: "table", from: table.from, to: table.to };
+        const hr = getSelectedBlockOfKind("hr");
+        if (hr) return { kind: "hr", from: hr.from, to: hr.to };
+        return null;
+      }
+      function resolveCm6AnnoPanelContext(view) {
+        if (!view || !view.state) {
+          return { canPanelAdd: false, blockOnly: false, line: null, kind: null, reason: "no-view" };
+        }
+        if (focusInWidgetInlineEditable()) {
+          return {
+            canPanelAdd: false,
+            blockOnly: false,
+            line: null,
+            kind: null,
+            reason: "widget-editable"
+          };
+        }
+        const doc = view.state.doc;
+        const text = doc.toString();
+        const selBlock = getSelectedBlockOnly();
+        if (selBlock) {
+          return {
+            canPanelAdd: true,
+            blockOnly: true,
+            line: line1AtPos(doc, selBlock.from),
+            kind: selBlock.kind,
+            reason: null
+          };
+        }
+        const pos = view.state.selection.main.head;
+        const kind = blockKindAtPos(text, pos);
+        return {
+          canPanelAdd: true,
+          blockOnly: isBlockOnlyKind(kind),
+          line: line1AtPos(doc, pos),
+          kind,
+          reason: null
+        };
+      }
+      function blockAnnotationLine(view, block) {
+        if (!view || !view.state || !block || block.from == null) return null;
+        return line1AtPos(view.state.doc, block.from);
+      }
+      module.exports = {
+        BLOCK_ONLY_KINDS,
+        blockKindAtPos,
+        isBlockOnlyKind,
+        canUseSelectionAnnoForRange,
+        resolveCm6AnnoPanelContext,
+        blockAnnotationLine
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/insert-menu-items.js
+  var require_insert_menu_items = __commonJS({
+    "src/gui/renderer/editor/widgets/insert-menu-items.js"(exports, module) {
+      "use strict";
+      var INSERT_FORMAT_ITEMS = [
+        { id: "text", key: "insertMenuBodyText", gridLabel: "T", gridKind: "text" },
+        { id: "h1", key: "insertMenuHeading1", gridLabel: "1", gridKind: "heading" },
+        { id: "h2", key: "insertMenuHeading2", gridLabel: "2", gridKind: "heading" },
+        { id: "h3", key: "insertMenuHeading3", gridLabel: "3", gridKind: "heading" },
+        { id: "h4", key: "insertMenuHeading4", gridLabel: "4", gridKind: "heading" },
+        { id: "h5", key: "insertMenuHeading5", gridLabel: "5", gridKind: "heading" },
+        { id: "h6", key: "insertMenuHeading6", gridLabel: "6", gridKind: "heading" },
+        { id: "bullet", key: "insertMenuBulletList", gridKind: "icon", icon: "bulletList" },
+        { id: "ordered", key: "insertMenuOrderedList", gridKind: "icon", icon: "orderedList" },
+        { id: "task", key: "insertMenuTaskList", gridKind: "icon", icon: "taskList" }
+      ];
+      var FORMAT_GRID_ROWS = [
+        ["text", "h1", "h2", "h3", "h4"],
+        ["h5", "h6", "bullet", "ordered", "task"]
+      ];
+      var INSERT_GENERAL_ITEMS = [
+        { id: "image", key: "blockMenuInsertImage", icon: "image" },
+        { id: "table", key: "blockMenuInsertTable", icon: "table", hasSub: true },
+        { id: "code", key: "blockMenuInsertCode", icon: "code" },
+        { id: "quote", key: "blockMenuInsertQuote", icon: "quote" },
+        { id: "link", key: "insertMenuLink", icon: "link" },
+        { id: "hr", key: "blockMenuInsertHr", icon: "hr" }
+      ];
+      var INSERT_CHART_ITEMS = [
+        { id: "mermaid", key: "blockMenuInsertMermaid", icon: "mermaid" }
+      ];
+      var ITEM_MAP = /* @__PURE__ */ Object.create(null);
+      function indexItems(list) {
+        for (let i = 0; i < list.length; i++) {
+          ITEM_MAP[list[i].id] = list[i];
+        }
+      }
+      indexItems(INSERT_FORMAT_ITEMS);
+      indexItems(INSERT_GENERAL_ITEMS);
+      indexItems(INSERT_CHART_ITEMS);
+      function findInsertMenuItem(id) {
+        return ITEM_MAP[id] || null;
+      }
+      module.exports = {
+        INSERT_FORMAT_ITEMS,
+        INSERT_GENERAL_ITEMS,
+        INSERT_CHART_ITEMS,
+        FORMAT_GRID_ROWS,
+        findInsertMenuItem
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/insert-menu-panel.js
+  var require_insert_menu_panel = __commonJS({
+    "src/gui/renderer/editor/widgets/insert-menu-panel.js"(exports, module) {
+      "use strict";
+      var { uiT } = require_widget_common();
+      var { menuIconHtml } = require_block_menu_icons();
+      var {
+        FORMAT_GRID_ROWS,
+        findInsertMenuItem,
+        INSERT_GENERAL_ITEMS,
+        INSERT_CHART_ITEMS
+      } = require_insert_menu_items();
+      function addMenuSeparator(menu) {
+        const sep = document.createElement("div");
+        sep.className = "mda-menu-sep mda-insert-menu-sep";
+        sep.setAttribute("aria-hidden", "true");
+        menu.appendChild(sep);
+      }
+      function formatCellInner(it) {
+        if (it.gridKind === "text") {
+          return '<span class="mda-insert-text-label" aria-hidden="true">T</span>';
+        }
+        if (it.gridKind === "heading" && it.gridLabel) {
+          return '<span class="mda-insert-heading-chip" aria-hidden="true"><span class="mda-insert-heading-h">H</span><span class="mda-insert-heading-n">' + it.gridLabel + "</span></span>";
+        }
+        if (it.gridKind === "icon" && it.icon) {
+          return menuIconHtml(it.icon);
+        }
+        return "";
+      }
+      function appendInsertMenuSection(menu, labelKey, items, t) {
+        const sectionLabel = document.createElement("div");
+        sectionLabel.className = "mda-insert-menu-section-label";
+        sectionLabel.textContent = uiT(labelKey, t);
+        menu.appendChild(sectionLabel);
+        const list = document.createElement("div");
+        list.className = "mda-insert-menu-general";
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          const row = document.createElement("div");
+          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "");
+          row.setAttribute("role", "menuitem");
+          row.dataset.act = it.id;
+          row.dataset.soon = it.soon ? "1" : "0";
+          row.title = uiT(it.key, t);
+          const sub = it.hasSub ? '<span class="mda-insert-menu-sub" aria-hidden="true">\u203A</span>' : "";
+          row.innerHTML = menuIconHtml(it.icon || "") + '<span class="mda-menu-label">' + uiT(it.key, t) + "</span>" + sub;
+          list.appendChild(row);
+        }
+        menu.appendChild(list);
+      }
+      function appendInsertMenuPanel(menu, t, onPick) {
+        const gridWrap = document.createElement("div");
+        gridWrap.className = "mda-insert-format-grid-wrap";
+        gridWrap.setAttribute("role", "group");
+        const grid = document.createElement("div");
+        grid.className = "mda-insert-format-grid";
+        for (let r = 0; r < FORMAT_GRID_ROWS.length; r++) {
+          const rowIds = FORMAT_GRID_ROWS[r];
+          for (let c = 0; c < rowIds.length; c++) {
+            const id = rowIds[c];
+            if (!id) {
+              const spacer = document.createElement("span");
+              spacer.className = "mda-insert-format-spacer";
+              spacer.setAttribute("aria-hidden", "true");
+              grid.appendChild(spacer);
+              continue;
+            }
+            const it = findInsertMenuItem(id);
+            if (!it) continue;
+            const cell = document.createElement("button");
+            cell.type = "button";
+            cell.className = "mda-insert-format-cell";
+            cell.dataset.act = it.id;
+            cell.dataset.soon = "0";
+            cell.setAttribute("role", "menuitem");
+            cell.title = uiT(it.key, t);
+            cell.setAttribute("aria-label", uiT(it.key, t));
+            cell.innerHTML = formatCellInner(it);
+            grid.appendChild(cell);
+          }
+        }
+        gridWrap.appendChild(grid);
+        menu.appendChild(gridWrap);
+        addMenuSeparator(menu);
+        appendInsertMenuSection(menu, "insertMenuGeneral", INSERT_GENERAL_ITEMS, t);
+        addMenuSeparator(menu);
+        appendInsertMenuSection(menu, "insertMenuCharts", INSERT_CHART_ITEMS, t);
+        menu.addEventListener("click", function(e) {
+          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+          if (!item) return;
+          e.stopPropagation();
+          const id = item.dataset.act || "";
+          const soon = item.dataset.soon === "1";
+          onPick(id, soon);
+        });
+      }
+      module.exports = {
+        appendInsertMenuPanel,
+        addMenuSeparator
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/empty-line-insert-menu.js
+  var require_empty_line_insert_menu = __commonJS({
+    "src/gui/renderer/editor/widgets/empty-line-insert-menu.js"(exports, module) {
+      "use strict";
+      var { HOVER_LEAVE_MS } = require_widget_common();
+      var { appendInsertMenuPanel } = require_insert_menu_panel();
+      var activeMenu = null;
+      var menuAnchorEl = null;
+      var menuBlockRoot = null;
+      var dismissFn = null;
+      var escFn = null;
+      var menuGraceUntil = 0;
+      var MENU_GRACE_MS = 380;
+      function isInMenuCluster(target) {
+        if (!target) return false;
+        const el = (
+          /** @type {Node} */
+          target
+        );
+        if (activeMenu && activeMenu.contains(el)) return true;
+        if (menuAnchorEl && menuAnchorEl.contains(el)) return true;
+        if (menuBlockRoot && menuBlockRoot.contains(el)) return true;
+        return false;
+      }
+      function closeEmptyLineInsertMenu() {
+        const prevRoot = menuBlockRoot;
+        if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
+        activeMenu = null;
+        menuAnchorEl = null;
+        menuBlockRoot = null;
+        menuGraceUntil = 0;
+        if (prevRoot && !prevRoot.matches(":hover")) {
+          prevRoot.classList.remove("mda-cm-block-handle-show");
+        }
+        if (dismissFn) {
+          document.removeEventListener("mousedown", dismissFn, true);
+          document.removeEventListener("contextmenu", dismissFn, true);
+          window.removeEventListener("blur", dismissFn);
+          dismissFn = null;
+        }
+        if (escFn) {
+          document.removeEventListener("keydown", escFn, true);
+          escFn = null;
+        }
+      }
+      function isEmptyLineInsertMenuOpenFor(blockRoot) {
+        return !!(activeMenu && menuBlockRoot && blockRoot && menuBlockRoot === blockRoot);
+      }
+      function placeMenu(menu, x, y) {
+        menu.style.left = "0px";
+        menu.style.top = "0px";
+        document.body.appendChild(menu);
+        const pad = 6;
+        const w = menu.offsetWidth;
+        const h = menu.offsetHeight;
+        let left = x;
+        let top = y;
+        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
+        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
+        if (left < pad) left = pad;
+        if (top < pad) top = pad;
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+      }
+      function showEmptyLineInsertMenu(ctx) {
+        closeEmptyLineInsertMenu();
+        const { closeBlockHandleMenu } = require_block_handle_menu();
+        closeBlockHandleMenu();
+        const t = ctx.t;
+        const handlers = ctx.handlers || {};
+        const anchor = ctx.anchorEl;
+        menuAnchorEl = anchor || null;
+        menuBlockRoot = ctx.blockRoot || null;
+        menuGraceUntil = Date.now() + MENU_GRACE_MS;
+        if (menuBlockRoot) menuBlockRoot.classList.add("mda-cm-block-handle-show");
+        const menu = document.createElement("div");
+        menu.className = "mda-context-menu mda-empty-line-insert-menu mda-block-handle-submenu mda-insert-menu-panel";
+        menu.id = "mda-empty-line-insert-menu";
+        menu.setAttribute("role", "menu");
+        appendInsertMenuPanel(menu, t, function(id, soon) {
+          if (soon) {
+            if (typeof handlers.onSoon === "function") handlers.onSoon("insert-blank", id);
+            closeEmptyLineInsertMenu();
+            return;
+          }
+          if (typeof handlers.onBlankInsert === "function") {
+            handlers.onBlankInsert(id, ctx.block);
+          }
+          closeEmptyLineInsertMenu();
+        });
+        let placeX;
+        let placeY;
+        if (ctx.anchorRect) {
+          placeX = ctx.anchorRect.left;
+          placeY = ctx.anchorRect.bottom;
+        } else if (anchor) {
+          const rect = anchor.getBoundingClientRect();
+          placeX = rect.left;
+          placeY = rect.bottom;
+        } else {
+          placeX = 0;
+          placeY = 0;
+        }
+        placeMenu(menu, placeX, placeY + 2);
+        activeMenu = menu;
+        dismissFn = function(ev) {
+          if (Date.now() < menuGraceUntil) return;
+          if (ev && (ev.type === "mousedown" || ev.type === "contextmenu")) {
+            const target = (
+              /** @type {Node | null} */
+              ev.target
+            );
+            if (isInMenuCluster(target)) return;
+          }
+          closeEmptyLineInsertMenu();
+        };
+        escFn = function(ev) {
+          if (ev.key === "Escape") closeEmptyLineInsertMenu();
+        };
+        document.addEventListener("keydown", escFn, true);
+        window.setTimeout(function() {
+          if (!activeMenu) return;
+          document.addEventListener("mousedown", dismissFn, true);
+          document.addEventListener("contextmenu", dismissFn, true);
+          window.addEventListener("blur", dismissFn);
+        }, MENU_GRACE_MS);
+      }
+      module.exports = {
+        showEmptyLineInsertMenu,
+        closeEmptyLineInsertMenu,
+        isEmptyLineInsertMenuOpenFor
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/block-handle-menu.js
+  var require_block_handle_menu = __commonJS({
+    "src/gui/renderer/editor/widgets/block-handle-menu.js"(exports, module) {
+      "use strict";
+      var { uiT, HOVER_LEAVE_MS } = require_widget_common();
+      var { menuIconHtml } = require_block_menu_icons();
+      var { isBlockOnlyKind } = require_anno_add_context();
+      function canAddAnnoFromBlockHandle(blockKind) {
+        return isBlockOnlyKind(blockKind) || blockKind === "quote" || blockKind === "heading";
+      }
+      var activeMenu = null;
+      var activeSubmenu = null;
+      var menuAnchorEl = null;
+      var menuBlockRoot = null;
+      var dismissFn = null;
+      var subOpenTimer = 0;
+      var subCloseTimer = 0;
+      var escFn = null;
+      var menuCloseTimer = 0;
+      var menuGraceUntil = 0;
+      var MENU_GRACE_MS = 380;
+      var SUB_CLOSE_MS = HOVER_LEAVE_MS;
+      var MENU_CLOSE_MS = HOVER_LEAVE_MS;
+      var MOD_KEY = typeof navigator !== "undefined" && (navigator.platform || "").toLowerCase().indexOf("mac") >= 0 ? "\u2318" : "Ctrl+";
+      var COPY_AS_ITEMS = [
+        { id: "markdown", key: "blockMenuCopyAsMarkdown", icon: "markdown" },
+        { id: "image", key: "blockMenuCopyAsImage", icon: "copyAsImage" }
+      ];
+      var AI_ITEMS = [
+        { id: "continue", key: "blockMenuAiContinue", icon: "continue", soon: true },
+        { id: "companion", key: "blockMenuAiCompanion", icon: "companion", soon: true },
+        { id: "polish", key: "blockMenuAiPolish", icon: "polish", soon: true },
+        { id: "expand", key: "blockMenuAiExpand", icon: "expand", soon: true },
+        { id: "shorten", key: "blockMenuAiShorten", icon: "shorten", soon: true },
+        { id: "grammar", key: "blockMenuAiGrammar", icon: "grammar", soon: true },
+        { id: "explain", key: "blockMenuAiExplain", icon: "explain", soon: true },
+        { id: "translate", key: "blockMenuAiTranslate", icon: "translate", soon: true },
+        { id: "summarize", key: "blockMenuAiSummarize", icon: "summarize", soon: true },
+        { id: "more", key: "blockMenuAiMore", icon: "more", soon: true }
+      ];
+      function clearSubTimers() {
+        window.clearTimeout(subOpenTimer);
+        window.clearTimeout(subCloseTimer);
+        window.clearTimeout(menuCloseTimer);
+        subOpenTimer = 0;
+        subCloseTimer = 0;
+        menuCloseTimer = 0;
+      }
+      function closeActiveSubmenu() {
+        if (activeSubmenu && activeSubmenu.parentNode) {
+          activeSubmenu.parentNode.removeChild(activeSubmenu);
+        }
+        activeSubmenu = null;
+      }
+      function removeOrphanSubmenus() {
+        const nodes = document.querySelectorAll(".mda-block-handle-submenu");
+        for (let i = 0; i < nodes.length; i++) {
+          const el = nodes[i];
+          if (el.parentNode) el.parentNode.removeChild(el);
+        }
+      }
+      function isInMenuCluster(target) {
+        if (!target) return false;
+        const el = (
+          /** @type {Node} */
+          target
+        );
+        if (activeMenu && activeMenu.contains(el)) return true;
+        if (activeSubmenu && activeSubmenu.contains(el)) return true;
+        if (menuAnchorEl && menuAnchorEl.contains(el)) return true;
+        if (menuBlockRoot && menuBlockRoot.contains(el)) return true;
+        return false;
+      }
+      function closeBlockHandleMenu() {
+        clearSubTimers();
+        closeActiveSubmenu();
+        removeOrphanSubmenus();
+        const prevRoot = menuBlockRoot;
+        if (activeMenu && activeMenu.parentNode) activeMenu.parentNode.removeChild(activeMenu);
+        activeMenu = null;
+        menuAnchorEl = null;
+        menuBlockRoot = null;
+        menuGraceUntil = 0;
+        if (prevRoot && !prevRoot.matches(":hover")) {
+          const handle = prevRoot.querySelector(".mda-cm-block-drag-handle");
+          if (!handle || !handle.matches(":hover")) {
+            prevRoot.classList.remove("mda-cm-block-handle-show");
+          }
+        }
+        if (dismissFn) {
+          document.removeEventListener("mousedown", dismissFn, true);
+          document.removeEventListener("contextmenu", dismissFn, true);
+          window.removeEventListener("blur", dismissFn);
+          dismissFn = null;
+        }
+        if (escFn) {
+          document.removeEventListener("keydown", escFn, true);
+          escFn = null;
+        }
+      }
+      function isBlockHandleMenuOpenFor(blockRoot) {
+        return !!(activeMenu && menuBlockRoot && blockRoot && menuBlockRoot === blockRoot);
+      }
+      function addMenuSeparator(menu) {
+        const sep = document.createElement("div");
+        sep.className = "mda-menu-sep";
+        sep.setAttribute("aria-hidden", "true");
+        menu.appendChild(sep);
+      }
+      function menuItemInner(label, iconName, suffixHtml) {
+        return menuIconHtml(iconName || "") + '<span class="mda-menu-label">' + label + "</span>" + (suffixHtml || "");
+      }
+      function placeMenu(menu, x, y) {
+        menu.style.left = "0px";
+        menu.style.top = "0px";
+        document.body.appendChild(menu);
+        const pad = 6;
+        const w = menu.offsetWidth;
+        const h = menu.offsetHeight;
+        let left = x;
+        let top = y;
+        if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
+        if (top + h > window.innerHeight - pad) top = window.innerHeight - h - pad;
+        if (left < pad) left = pad;
+        if (top < pad) top = pad;
+        menu.style.left = left + "px";
+        menu.style.top = top + "px";
+      }
+      function placeSubmenu(parentItem, submenu) {
+        document.body.appendChild(submenu);
+        const pr = parentItem.getBoundingClientRect();
+        const pad = 6;
+        let left = pr.right - 4;
+        let top = pr.top - 4;
+        submenu.style.left = left + "px";
+        submenu.style.top = top + "px";
+        if (left + submenu.offsetWidth > window.innerWidth - pad) {
+          left = pr.left - submenu.offsetWidth + 4;
+          submenu.style.left = left + "px";
+        }
+        if (top + submenu.offsetHeight > window.innerHeight - pad) {
+          top = Math.max(pad, window.innerHeight - submenu.offsetHeight - pad);
+          submenu.style.top = top + "px";
+        }
+      }
+      function buildInsertSubmenu(t, onPick) {
+        const sub = document.createElement("div");
+        sub.className = "mda-context-menu mda-block-handle-submenu mda-insert-menu-panel";
+        sub.setAttribute("role", "menu");
+        const { appendInsertMenuPanel } = require_insert_menu_panel();
+        appendInsertMenuPanel(sub, t, function(id, soon) {
+          onPick(id, soon);
+          closeBlockHandleMenu();
+        });
+        sub.addEventListener("mouseenter", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = 0;
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = 0;
+        });
+        sub.addEventListener("mouseleave", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
+        });
+        return sub;
+      }
+      function buildSubmenu(t, items, onPick) {
+        const sub = document.createElement("div");
+        sub.className = "mda-context-menu mda-block-handle-submenu";
+        sub.setAttribute("role", "menu");
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          const row = document.createElement("div");
+          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "");
+          row.setAttribute("role", "menuitem");
+          row.dataset.act = it.id;
+          row.dataset.soon = it.soon ? "1" : "0";
+          row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
+          sub.appendChild(row);
+        }
+        sub.addEventListener("click", function(e) {
+          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+          if (!item) return;
+          e.stopPropagation();
+          onPick(item.dataset.act || "", item.dataset.soon === "1");
+          closeBlockHandleMenu();
+        });
+        sub.addEventListener("mouseenter", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = 0;
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = 0;
+        });
+        sub.addEventListener("mouseleave", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
+        });
+        return sub;
+      }
+      function addSubRow(menu, t, key, icon, submenuFactory) {
+        const row = document.createElement("div");
+        row.className = "mda-menu-item mda-menu-has-sub";
+        row.setAttribute("role", "menuitem");
+        row.innerHTML = menuItemInner(uiT(key, t), icon, '<span class="mda-menu-chevron" aria-hidden="true">\u203A</span>');
+        row.addEventListener("mouseenter", function() {
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = 0;
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = 0;
+          window.clearTimeout(subOpenTimer);
+          subOpenTimer = window.setTimeout(function() {
+            closeActiveSubmenu();
+            activeSubmenu = submenuFactory();
+            placeSubmenu(row, activeSubmenu);
+          }, 100);
+        });
+        row.addEventListener("mouseleave", function(e) {
+          window.clearTimeout(subOpenTimer);
+          subOpenTimer = 0;
+          const rt = e.relatedTarget;
+          if (activeSubmenu && rt && activeSubmenu.contains(
+            /** @type {Node} */
+            rt
+          )) return;
+          window.clearTimeout(subCloseTimer);
+          subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
+        });
+        menu.appendChild(row);
+      }
+      function showBlockHandleMenu(ctx) {
+        const { closeEmptyLineInsertMenu } = require_empty_line_insert_menu();
+        closeEmptyLineInsertMenu();
+        closeBlockHandleMenu();
+        const t = ctx.t;
+        const handlers = ctx.handlers || {};
+        const anchor = ctx.anchorEl;
+        const rect = anchor.getBoundingClientRect();
+        menuAnchorEl = anchor;
+        menuBlockRoot = ctx.blockRoot || null;
+        menuGraceUntil = Date.now() + MENU_GRACE_MS;
+        if (menuBlockRoot) menuBlockRoot.classList.add("mda-cm-block-handle-show");
+        const menu = document.createElement("div");
+        menu.className = "mda-context-menu mda-block-handle-menu";
+        menu.id = "mda-block-handle-menu";
+        menu.setAttribute("role", "menu");
+        const mod = ctx.modKey || MOD_KEY;
+        function addActionRow(spec) {
+          const row = document.createElement("div");
+          row.className = "mda-menu-item" + (spec.danger ? " mda-menu-danger" : "");
+          row.dataset.act = spec.act;
+          row.setAttribute("role", "menuitem");
+          row.innerHTML = menuItemInner(
+            uiT(spec.key, t),
+            spec.icon,
+            spec.shortcut ? '<span class="mda-menu-key">' + spec.shortcut + "</span>" : ""
+          );
+          menu.appendChild(row);
+        }
+        addSubRow(menu, t, "blockMenuAiEdit", "ai", function() {
+          return buildSubmenu(t, AI_ITEMS, function(id, soon) {
+            if (soon) {
+              if (typeof handlers.onSoon === "function") handlers.onSoon("ai", id);
+              return;
+            }
+            if (typeof handlers.onAi === "function") {
+              handlers.onAi(id, ctx.block, ctx.blockKind);
+            }
+          });
+        });
+        addMenuSeparator(menu);
+        addSubRow(menu, t, "blockMenuInsertAbove", "insertAbove", function() {
+          return buildInsertSubmenu(t, function(id, soon) {
+            if (soon) {
+              if (typeof handlers.onSoon === "function") handlers.onSoon("insert-above", id);
+              return;
+            }
+            if (typeof handlers.onInsert === "function") {
+              handlers.onInsert("above", id, ctx.block, ctx.blockKind);
+            }
+          });
+        });
+        addSubRow(menu, t, "blockMenuInsertBelow", "insertBelow", function() {
+          return buildInsertSubmenu(t, function(id, soon) {
+            if (soon) {
+              if (typeof handlers.onSoon === "function") handlers.onSoon("insert-below", id);
+              return;
+            }
+            if (typeof handlers.onInsert === "function") {
+              handlers.onInsert("below", id, ctx.block, ctx.blockKind);
+            }
+          });
+        });
+        if (ctx.blockKind && canAddAnnoFromBlockHandle(ctx.blockKind) && typeof handlers.onAddBlockAnnotation === "function") {
+          addActionRow({
+            act: "anno",
+            key: "addAnno",
+            icon: "anno"
+          });
+        }
+        addMenuSeparator(menu);
+        addActionRow({ act: "copy", key: "copyBtn", icon: "copy", shortcut: mod + "C" });
+        addActionRow({ act: "cut", key: "blockMenuCut", icon: "cut", shortcut: mod + "X" });
+        addSubRow(menu, t, "blockMenuCopyAs", "copyAs", function() {
+          return buildSubmenu(t, COPY_AS_ITEMS, function(id) {
+            if (typeof handlers.onCopyAs === "function") {
+              handlers.onCopyAs(ctx.block, ctx.blockKind, id);
+            }
+          });
+        });
+        addMenuSeparator(menu);
+        addActionRow({
+          act: "delete",
+          key: "blockMenuDelete",
+          icon: "delete",
+          shortcut: "Backspace",
+          danger: true
+        });
+        menu.addEventListener("click", function(e) {
+          const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
+          if (!item || item.classList.contains("mda-menu-has-sub")) return;
+          const act = item.dataset.act;
+          if (act === "copy" && typeof handlers.onCopy === "function") {
+            handlers.onCopy(ctx.block, ctx.blockKind);
+          } else if (act === "cut" && typeof handlers.onCut === "function") {
+            handlers.onCut(ctx.block, ctx.blockKind);
+          } else if (act === "anno" && typeof handlers.onAddBlockAnnotation === "function") {
+            handlers.onAddBlockAnnotation(ctx.block, ctx.blockKind);
+          } else if (act === "delete" && typeof handlers.onDelete === "function") {
+            handlers.onDelete(ctx.block, ctx.blockKind);
+          }
+          closeBlockHandleMenu();
+        });
+        menu.addEventListener("mouseenter", function() {
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = 0;
+        });
+        menu.addEventListener("mouseleave", function(e) {
+          const rt = e.relatedTarget;
+          if (activeSubmenu && rt && activeSubmenu.contains(
+            /** @type {Node} */
+            rt
+          )) return;
+          window.clearTimeout(menuCloseTimer);
+          menuCloseTimer = window.setTimeout(function() {
+            if (Date.now() < menuGraceUntil) return;
+            closeBlockHandleMenu();
+          }, MENU_CLOSE_MS);
+        });
+        placeMenu(menu, rect.left, rect.bottom + 2);
+        activeMenu = menu;
+        dismissFn = function(ev) {
+          if (Date.now() < menuGraceUntil) return;
+          if (ev && (ev.type === "mousedown" || ev.type === "contextmenu")) {
+            const target = (
+              /** @type {Node | null} */
+              ev.target
+            );
+            if (isInMenuCluster(target)) return;
+          }
+          closeBlockHandleMenu();
+        };
+        escFn = function(ev) {
+          if (ev.key === "Escape") closeBlockHandleMenu();
+        };
+        document.addEventListener("keydown", escFn, true);
+        window.setTimeout(function() {
+          if (!activeMenu) return;
+          document.addEventListener("mousedown", dismissFn, true);
+          document.addEventListener("contextmenu", dismissFn, true);
+          window.addEventListener("blur", dismissFn);
+        }, MENU_GRACE_MS);
+      }
+      module.exports = {
+        showBlockHandleMenu,
+        closeBlockHandleMenu,
+        isBlockHandleMenuOpenFor,
+        MOD_KEY
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/block-drag-handle.js
   var require_block_drag_handle = __commonJS({
     "src/gui/renderer/editor/widgets/block-drag-handle.js"(exports, module) {
@@ -50106,7 +48810,16 @@ var MDAEditorBundle = (() => {
       }
       function buildHandleInnerHtml(blockKind) {
         const typeIcon = blockTypeIconHtml(blockKind);
-        return typeIcon + '<span class="mda-cm-block-drag-grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>';
+        return typeIcon + '<span class="mda-cm-block-drag-grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="mda-cm-block-drag-tip"></span>';
+      }
+      function resolveBlockHighlightTargets(view, blockRoot, range, blockKind) {
+        if (blockKind === "image" || blockKind === "mermaid" || blockKind === "code" || blockRoot.classList.contains("mda-cm-image-block") || blockRoot.classList.contains("mda-cm-mermaid-block") || blockRoot.classList.contains("mda-cm-code-block")) {
+          return [];
+        }
+        if (blockRoot.classList.contains("mda-cm-quote-handle-anchor") || blockRoot.classList.contains("mda-cm-heading-handle-anchor")) {
+          return collectCmLinesInRange(view, range.from, range.to);
+        }
+        return blockRoot && blockRoot.isConnected ? [blockRoot] : [];
       }
       function collectCmLinesInRange(view, from, to) {
         const lines = [];
@@ -50154,18 +48867,36 @@ var MDAEditorBundle = (() => {
         if (opts.blockKind) handle.setAttribute("data-block-kind", opts.blockKind);
         handle.setAttribute("data-i18n-title", "widgetBlockDragHandle");
         handle.setAttribute("data-i18n-aria", "widgetBlockDragHandle");
+        handle.innerHTML = buildHandleInnerHtml(opts.blockKind);
         if (opts.t) {
           const { uiT } = require_widget_common();
-          handle.title = uiT("widgetBlockDragHandle", opts.t);
-          handle.setAttribute("aria-label", uiT("widgetBlockDragHandle", opts.t));
+          const label = uiT("widgetBlockDragHandle", opts.t);
+          handle.removeAttribute("title");
+          handle.setAttribute("aria-label", label);
+          const tipEl = handle.querySelector(".mda-cm-block-drag-tip");
+          if (tipEl) tipEl.textContent = label;
         }
-        handle.innerHTML = buildHandleInnerHtml(opts.blockKind);
         anchorEl.insertBefore(handle, anchorEl.firstChild);
         let pressTimer = 0;
         let dragging = false;
         let dropLine = null;
         let lastResolved = null;
         let hideTimer = 0;
+        let handleHover = false;
+        let highlightEls = [];
+        function setBlockHighlight(on) {
+          if (!on) {
+            for (let i = 0; i < highlightEls.length; i++) {
+              highlightEls[i].classList.remove("mda-cm-block-handle-highlight");
+            }
+            highlightEls = [];
+            return;
+          }
+          highlightEls = resolveBlockHighlightTargets(view, blockRoot, range, opts.blockKind);
+          for (let i = 0; i < highlightEls.length; i++) {
+            highlightEls[i].classList.add("mda-cm-block-handle-highlight");
+          }
+        }
         function showHandle() {
           window.clearTimeout(hideTimer);
           hideTimer = 0;
@@ -50175,15 +48906,29 @@ var MDAEditorBundle = (() => {
           window.clearTimeout(hideTimer);
           hideTimer = window.setTimeout(function() {
             hideTimer = 0;
+            if (handleHover) return;
             if (dragging || handle.classList.contains("mda-cm-block-drag-handle-active")) return;
             if (typeof document !== "undefined" && document.body.classList.contains("mda-cm-block-drag-active")) {
               return;
             }
             if (isBlockHandleMenuOpenFor(blockRoot)) return;
+            setBlockHighlight(false);
             blockRoot.classList.remove("mda-cm-block-handle-show");
           }, HANDLE_HIDE_MS);
         }
-        const hoverTargets = [blockRoot, handle];
+        function onHandleMouseEnter() {
+          handleHover = true;
+          handle.classList.add("mda-cm-block-drag-handle-hover");
+          setBlockHighlight(true);
+          showHandle();
+        }
+        function onHandleMouseLeave() {
+          handleHover = false;
+          handle.classList.remove("mda-cm-block-drag-handle-hover");
+          setBlockHighlight(false);
+          scheduleHideHandle();
+        }
+        const hoverTargets = [blockRoot];
         const boundHover = [];
         function bindHoverTarget(el) {
           if (!el || hoverTargets.indexOf(el) >= 0) return;
@@ -50196,15 +48941,17 @@ var MDAEditorBundle = (() => {
           hoverTargets[hi].addEventListener("mouseenter", showHandle);
           hoverTargets[hi].addEventListener("mouseleave", scheduleHideHandle);
         }
-        if (blockRoot.classList.contains("mda-cm-quote-handle-anchor")) {
-          const bindQuoteLines = function() {
+        handle.addEventListener("mouseenter", onHandleMouseEnter);
+        handle.addEventListener("mouseleave", onHandleMouseLeave);
+        if (blockRoot.classList.contains("mda-cm-quote-handle-anchor") || blockRoot.classList.contains("mda-cm-heading-handle-anchor")) {
+          const bindSideLines = function() {
             if (!blockRoot.isConnected) return;
             const line = blockRoot.closest(".cm-line");
             if (line) bindHoverTarget(line);
             const lines = collectCmLinesInRange(view, range.from, range.to);
             for (let i = 0; i < lines.length; i++) bindHoverTarget(lines[i]);
           };
-          requestAnimationFrame(bindQuoteLines);
+          requestAnimationFrame(bindSideLines);
         }
         function ensureDropLine() {
           if (dropLine && dropLine.parentNode) return dropLine;
@@ -50363,6 +49110,7 @@ var MDAEditorBundle = (() => {
         attachBlockDragHandle,
         buildHandleInnerHtml,
         collectCmLinesInRange,
+        resolveBlockHighlightTargets,
         LONG_PRESS_MS,
         HANDLE_HIDE_MS
       };
@@ -50971,28 +49719,3195 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor-assist.js
+  var require_editor_assist = __commonJS({
+    "src/gui/renderer/editor-assist.js"(exports, module) {
+      "use strict";
+      (function(global2) {
+        function splice(value, start, deleteCount, insert) {
+          return value.slice(0, start) + insert + value.slice(start + deleteCount);
+        }
+        function lineRange(value, start, end) {
+          var lineStart = value.lastIndexOf("\n", start - 1) + 1;
+          var lineEnd = value.indexOf("\n", end);
+          if (lineEnd === -1) lineEnd = value.length;
+          return { lineStart, lineEnd };
+        }
+        function lineIndexAt(value, pos) {
+          var n = 0;
+          for (var i = 0; i < pos && i < value.length; i++) {
+            if (value.charAt(i) === "\n") n++;
+          }
+          return n;
+        }
+        function cursorLineAt(value, pos) {
+          return lineIndexAt(value, pos) + 1;
+        }
+        function isInsideFence(fenceMask, lineIdx) {
+          return !!(fenceMask && fenceMask[lineIdx]);
+        }
+        function wrapSelection(value, start, end, before, after, placeholder) {
+          before = before || "";
+          after = after || "";
+          placeholder = placeholder == null ? "" : placeholder;
+          if (start === end) {
+            var ins = before + placeholder + after;
+            return {
+              value: splice(value, start, 0, ins),
+              selectionStart: start + before.length,
+              selectionEnd: start + before.length + placeholder.length
+            };
+          }
+          var selected = value.slice(start, end);
+          var wrapped = before + selected + after;
+          return {
+            value: splice(value, start, end - start, wrapped),
+            selectionStart: start + before.length,
+            selectionEnd: start + before.length + selected.length
+          };
+        }
+        var WRAP_ZWSP = "\u200B";
+        function toggleWrap(value, start, end, before, after) {
+          before = before || "";
+          after = after || "";
+          if (start === end) {
+            if (before && start >= before.length && value.slice(start - before.length, start) === before) {
+              if (value.slice(start, start + after.length) === after) {
+                return {
+                  value: splice(value, start - before.length, before.length + after.length, ""),
+                  selectionStart: start - before.length,
+                  selectionEnd: start - before.length
+                };
+              }
+              if (value.charAt(start) === WRAP_ZWSP && value.slice(start + 1, start + 1 + after.length) === after) {
+                return {
+                  value: splice(value, start - before.length, before.length + 1 + after.length, ""),
+                  selectionStart: start - before.length,
+                  selectionEnd: start - before.length
+                };
+              }
+            }
+            if (before && start >= before.length + 1 && value.charAt(start - 1) === WRAP_ZWSP && value.slice(start - 1 - before.length, start - 1) === before && value.slice(start, start + after.length) === after) {
+              return {
+                value: splice(value, start - 1 - before.length, before.length + 1 + after.length, ""),
+                selectionStart: start - 1 - before.length,
+                selectionEnd: start - 1 - before.length
+              };
+            }
+            return {
+              value: splice(value, start, 0, before + WRAP_ZWSP + after),
+              selectionStart: start + before.length,
+              selectionEnd: start + before.length + 1
+            };
+          }
+          var selected = value.slice(start, end);
+          if (selected.length >= before.length + after.length && selected.slice(0, before.length) === before && selected.slice(selected.length - after.length) === after) {
+            var inner = selected.slice(before.length, selected.length - after.length);
+            return {
+              value: splice(value, start, end - start, inner),
+              selectionStart: start,
+              selectionEnd: start + inner.length
+            };
+          }
+          if (before && start >= before.length && value.slice(start - before.length, start) === before && value.slice(end, end + after.length) === after) {
+            var unwrapped = splice(value, end, after.length, "");
+            unwrapped = splice(unwrapped, start - before.length, before.length, "");
+            return {
+              value: unwrapped,
+              selectionStart: start - before.length,
+              selectionEnd: end - before.length
+            };
+          }
+          return wrapSelection(value, start, end, before, after, "");
+        }
+        function unwrapEmphasisStars(text) {
+          var out = "";
+          var i = 0;
+          while (i < text.length) {
+            if (text.charAt(i) === "*" && text.charAt(i + 1) === "*") {
+              out += "**";
+              i += 2;
+              continue;
+            }
+            if (text.charAt(i) === "*") {
+              var close = -1;
+              var j = i + 1;
+              while (j < text.length) {
+                if (text.charAt(j) === "\n" || text.charAt(j) === "\r") break;
+                if (text.charAt(j) === "*" && text.charAt(j + 1) === "*") {
+                  j += 2;
+                  continue;
+                }
+                if (text.charAt(j) === "*") {
+                  close = j;
+                  break;
+                }
+                j += 1;
+              }
+              if (close > i) {
+                out += text.slice(i + 1, close);
+                i = close + 1;
+                continue;
+              }
+            }
+            out += text.charAt(i);
+            i += 1;
+          }
+          return out;
+        }
+        function unwrapThisDelim(text, before, after) {
+          if (before === "~" && after === "~") return unwrapSingleTilde(text);
+          if (before === "*") return unwrapEmphasisStars(text);
+          return unwrapDelim(text, before);
+        }
+        function tryUnwrapAround(value, start, end, before, after) {
+          var selected = value.slice(start, end);
+          if (before === "~" && after === "~") {
+            if (isSingleTildeWrapped(selected)) {
+              var innerT = selected.slice(1, selected.length - 1);
+              return {
+                value: splice(value, start, end - start, innerT),
+                selectionStart: start,
+                selectionEnd: start + innerT.length
+              };
+            }
+            if (start >= 1 && isSingleTildeAt(value, start - 1) && end < value.length && isSingleTildeAt(value, end)) {
+              var u = splice(value, end, 1, "");
+              u = splice(u, start - 1, 1, "");
+              return { value: u, selectionStart: start - 1, selectionEnd: end - 1 };
+            }
+            return null;
+          }
+          if (selected.length >= before.length + after.length && selected.slice(0, before.length) === before && selected.slice(selected.length - after.length) === after) {
+            var inner = selected.slice(before.length, selected.length - after.length);
+            return {
+              value: splice(value, start, end - start, inner),
+              selectionStart: start,
+              selectionEnd: start + inner.length
+            };
+          }
+          if (before && start >= before.length && value.slice(start - before.length, start) === before && value.slice(end, end + after.length) === after) {
+            var unwrapped = splice(value, end, after.length, "");
+            unwrapped = splice(unwrapped, start - before.length, before.length, "");
+            return {
+              value: unwrapped,
+              selectionStart: start - before.length,
+              selectionEnd: end - before.length
+            };
+          }
+          return null;
+        }
+        function applyOrToggleWrap(value, start, end, before, after, fullyOn) {
+          before = before || "";
+          after = after || "";
+          if (start === end) return null;
+          if (fullyOn) {
+            var around = tryUnwrapAround(value, start, end, before, after);
+            if (around) return around;
+          }
+          var selected = value.slice(start, end);
+          var lines = selected.split("\n");
+          var newLines = [];
+          for (var li = 0; li < lines.length; li++) {
+            var line = lines[li];
+            if (!line) {
+              newLines.push(line);
+              continue;
+            }
+            var inner = unwrapThisDelim(line, before, after);
+            newLines.push(fullyOn ? inner : before + inner + after);
+          }
+          var next = newLines.join("\n");
+          if (next === selected) return null;
+          return {
+            value: splice(value, start, end - start, next),
+            selectionStart: start,
+            selectionEnd: start + next.length
+          };
+        }
+        function applyOrToggleUnderline(value, start, end, fullyOn) {
+          return applyOrToggleWrap(value, start, end, "~", "~", fullyOn);
+        }
+        function isSingleTildeAt(value, pos) {
+          if (pos < 0 || pos >= value.length || value.charAt(pos) !== "~") return false;
+          if (pos > 0 && value.charAt(pos - 1) === "~") return false;
+          if (pos + 1 < value.length && value.charAt(pos + 1) === "~") return false;
+          return true;
+        }
+        function isSingleTildeWrapped(selected) {
+          var s = String(selected || "");
+          if (s.length < 2) return false;
+          if (s.charAt(0) !== "~" || s.charAt(s.length - 1) !== "~") return false;
+          if (s.charAt(1) === "~") return false;
+          if (s.length >= 3 && s.charAt(s.length - 2) === "~") return false;
+          return true;
+        }
+        function toggleUnderline(value, start, end) {
+          var before = "~";
+          var after = "~";
+          if (start === end) {
+            if (start >= 1 && isSingleTildeAt(value, start - 1) && start < value.length && isSingleTildeAt(value, start)) {
+              return {
+                value: splice(value, start - 1, 2, ""),
+                selectionStart: start - 1,
+                selectionEnd: start - 1
+              };
+            }
+            if (start >= 1 && isSingleTildeAt(value, start - 1) && value.charAt(start) === WRAP_ZWSP && start + 1 < value.length && isSingleTildeAt(value, start + 1)) {
+              return {
+                value: splice(value, start - 1, 3, ""),
+                selectionStart: start - 1,
+                selectionEnd: start - 1
+              };
+            }
+            if (start >= 2 && value.charAt(start - 1) === WRAP_ZWSP && isSingleTildeAt(value, start - 2) && start < value.length && isSingleTildeAt(value, start)) {
+              return {
+                value: splice(value, start - 2, 3, ""),
+                selectionStart: start - 2,
+                selectionEnd: start - 2
+              };
+            }
+            return {
+              value: splice(value, start, 0, before + WRAP_ZWSP + after),
+              selectionStart: start + 1,
+              selectionEnd: start + 2
+            };
+          }
+          var selected = value.slice(start, end);
+          if (isSingleTildeWrapped(selected)) {
+            var inner = selected.slice(1, selected.length - 1);
+            return {
+              value: splice(value, start, end - start, inner),
+              selectionStart: start,
+              selectionEnd: start + inner.length
+            };
+          }
+          if (start >= 1 && isSingleTildeAt(value, start - 1) && end < value.length && isSingleTildeAt(value, end)) {
+            var unwrapped = splice(value, end, 1, "");
+            unwrapped = splice(unwrapped, start - 1, 1, "");
+            return {
+              value: unwrapped,
+              selectionStart: start - 1,
+              selectionEnd: end - 1
+            };
+          }
+          return wrapSelection(value, start, end, before, after, "");
+        }
+        var LIST_PATTERNS = [
+          { type: "task", re: /^(\s*)[-*+]\s+\[[ xX]\]\s+/ },
+          { type: "ol", re: /^(\s*)\d+\.\s+/ },
+          { type: "ul", re: /^(\s*)[-*+]\s+/ }
+        ];
+        function stripListPrefix(line) {
+          for (var i = 0; i < LIST_PATTERNS.length; i++) {
+            var m = line.match(LIST_PATTERNS[i].re);
+            if (m) {
+              return { type: LIST_PATTERNS[i].type, indent: m[1], body: line.slice(m[0].length) };
+            }
+          }
+          var lead = line.match(/^(\s*)/);
+          var indent = lead ? lead[1] : "";
+          return { type: null, indent, body: line.slice(indent.length) };
+        }
+        function listPrefixFor(type) {
+          if (type === "ol") return "1. ";
+          if (type === "task") return "- [ ] ";
+          if (type === "ul") return "- ";
+          return "";
+        }
+        function stripHeadingPrefix(indent, body) {
+          var m = String(indent + body).match(/^( {0,3})(#{1,6})(\s+)(.*)$/);
+          if (!m) return { indent, body };
+          return { indent: m[1], body: m[4] };
+        }
+        function toggleListType(value, start, end, type, fenceMask) {
+          var prefix = listPrefixFor(type);
+          if (!prefix) return null;
+          var collapsed = start === end;
+          var lr = lineRange(value, start, end);
+          var chunk = value.slice(lr.lineStart, lr.lineEnd);
+          var lines = chunk.split("\n");
+          var baseLine = lineIndexAt(value, lr.lineStart);
+          var allSame = true;
+          var saw = false;
+          for (var i = 0; i < lines.length; i++) {
+            if (isInsideFence(fenceMask, baseLine + i)) continue;
+            if (!lines[i].trim()) {
+              if (collapsed) {
+                saw = true;
+                allSame = false;
+              }
+              continue;
+            }
+            saw = true;
+            if (stripListPrefix(lines[i]).type !== type) allSame = false;
+          }
+          var remove = saw && allSame;
+          return applyToLines(
+            value,
+            start,
+            end,
+            function(line) {
+              if (!line.trim()) {
+                if (collapsed && !remove) return prefix;
+                return line;
+              }
+              var info = stripListPrefix(line);
+              if (!info.type) {
+                var heading = stripHeadingPrefix(info.indent, info.body);
+                info = { type: null, indent: heading.indent, body: heading.body };
+              }
+              if (remove) return info.indent + info.body;
+              return info.indent + prefix + info.body;
+            },
+            fenceMask
+          );
+        }
+        function setHeadingLevelRange(value, start, end, level, fenceMask) {
+          var lv = level == null ? 0 : Math.max(0, Math.min(6, level));
+          var collapsed = start === end;
+          return applyToLines(
+            value,
+            start,
+            end,
+            function(line) {
+              if (!line.trim()) {
+                if (!collapsed) return line;
+                if (!lv) return line;
+                return "#".repeat(lv) + " ";
+              }
+              var m = line.match(/^( {0,3})(#{1,6})(\s+)(.*)$/);
+              var indent = "";
+              var body = line;
+              if (m) {
+                indent = m[1];
+                body = m[4];
+              } else {
+                var lead = line.match(/^( {0,3})/);
+                indent = lead ? lead[1] : "";
+                body = line.slice(indent.length);
+                var listed = stripListPrefix(indent + body);
+                indent = listed.indent;
+                body = listed.body;
+              }
+              if (!lv) return indent + body;
+              return indent + "#".repeat(lv) + (body ? " " + body : " ");
+            },
+            fenceMask
+          );
+        }
+        function applyToLines(value, start, end, lineFn, fenceMask) {
+          var lr = lineRange(value, start, end);
+          var chunk = value.slice(lr.lineStart, lr.lineEnd);
+          var lines = chunk.split("\n");
+          var baseLine = lineIndexAt(value, lr.lineStart);
+          var out = [];
+          var changed = false;
+          for (var i = 0; i < lines.length; i++) {
+            if (isInsideFence(fenceMask, baseLine + i)) {
+              out.push(lines[i]);
+              continue;
+            }
+            var nl = lineFn(lines[i], i);
+            if (nl !== lines[i]) changed = true;
+            out.push(nl);
+          }
+          if (!changed) return null;
+          var newChunk = out.join("\n");
+          return {
+            value: splice(value, lr.lineStart, lr.lineEnd - lr.lineStart, newChunk),
+            selectionStart: lr.lineStart,
+            selectionEnd: lr.lineStart + newChunk.length
+          };
+        }
+        function toggleHeadingLevel(value, cursorPos, delta, fenceMask) {
+          var lineIdx = lineIndexAt(value, cursorPos);
+          if (isInsideFence(fenceMask, lineIdx)) return null;
+          var lr = lineRange(value, cursorPos, cursorPos);
+          var line = value.slice(lr.lineStart, lr.lineEnd);
+          var cursorInLine = cursorPos - lr.lineStart;
+          var m = line.match(/^( {0,3})(#{1,6})(\s+)(.*)$/);
+          var prefix = "";
+          var level = 0;
+          var rest = line;
+          if (m) {
+            prefix = m[1];
+            level = m[2].length;
+            rest = m[4];
+          } else {
+            var lead = line.match(/^( {0,3})/);
+            prefix = lead ? lead[1] : "";
+            rest = line.slice(prefix.length);
+          }
+          var newLevel = level + delta;
+          if (newLevel < 0) newLevel = 0;
+          if (newLevel > 6) newLevel = 6;
+          var newLine;
+          if (newLevel === 0) {
+            newLine = prefix + rest;
+          } else {
+            newLine = prefix + "#".repeat(newLevel) + " " + rest.replace(/^#+\s*/, "");
+          }
+          var newCursor = lr.lineStart + Math.min(cursorInLine, newLine.length);
+          return {
+            value: splice(value, lr.lineStart, lr.lineEnd - lr.lineStart, newLine),
+            selectionStart: newCursor,
+            selectionEnd: newCursor
+          };
+        }
+        function setHeadingLevel(value, cursorPos, level, fenceMask) {
+          var lineIdx = lineIndexAt(value, cursorPos);
+          if (isInsideFence(fenceMask, lineIdx)) return null;
+          var lr = lineRange(value, cursorPos, cursorPos);
+          var line = value.slice(lr.lineStart, lr.lineEnd);
+          var cursorInLine = cursorPos - lr.lineStart;
+          var m = line.match(/^( {0,3})(#{0,6}\s*)(.*)$/);
+          if (!m) return null;
+          var lv = Math.max(1, Math.min(6, level));
+          var body = m[3].replace(/^#+\s*/, "");
+          var newLine = m[1] + "#".repeat(lv) + (body ? " " + body : " ");
+          var newCursor = lr.lineStart + Math.min(cursorInLine, newLine.length);
+          return {
+            value: splice(value, lr.lineStart, lr.lineEnd - lr.lineStart, newLine),
+            selectionStart: newCursor,
+            selectionEnd: newCursor
+          };
+        }
+        function toggleLinePrefix(value, start, end, prefix, fenceMask) {
+          return applyToLines(value, start, end, function(line) {
+            var m = line.match(/^( {0,3})(.*)$/);
+            var indent = m ? m[1] : "";
+            var body = m ? m[2] : line;
+            if (body.indexOf(prefix) === 0) return indent + body.slice(prefix.length);
+            return indent + prefix + body;
+          }, fenceMask);
+        }
+        function indentLines(value, start, end, deltaSpaces, fenceMask) {
+          if (!deltaSpaces) return null;
+          return applyToLines(value, start, end, function(line) {
+            if (!line.trim()) return line;
+            if (deltaSpaces > 0) return " ".repeat(deltaSpaces) + line;
+            var lead = (line.match(/^ */) || [""])[0].length;
+            var n = Math.min(-deltaSpaces, lead);
+            if (n > 0) return line.slice(n);
+            var info = stripListPrefix(line);
+            if (info.type) return info.indent + info.body;
+            return line;
+          }, fenceMask);
+        }
+        function unwrapDelim(text, delim) {
+          if (!delim) return text;
+          var dlen = delim.length;
+          var out = "";
+          var i = 0;
+          while (i < text.length) {
+            var open = text.indexOf(delim, i);
+            if (open < 0) {
+              out += text.slice(i);
+              break;
+            }
+            var close = text.indexOf(delim, open + dlen);
+            if (close < 0) {
+              out += text.slice(i);
+              break;
+            }
+            var nl = text.indexOf("\n", open);
+            if (nl >= 0 && nl < close) {
+              out += text.slice(i, open + dlen);
+              i = open + dlen;
+              continue;
+            }
+            out += text.slice(i, open) + text.slice(open + dlen, close);
+            i = close + dlen;
+          }
+          return out;
+        }
+        function unwrapSingleTilde(text) {
+          var out = "";
+          var i = 0;
+          while (i < text.length) {
+            if (text.charAt(i) === "~" && text.charAt(i + 1) === "~") {
+              out += "~~";
+              i += 2;
+              continue;
+            }
+            if (text.charAt(i) === "~") {
+              var close = -1;
+              var j = i + 1;
+              while (j < text.length) {
+                if (text.charAt(j) === "\n" || text.charAt(j) === "\r") break;
+                if (text.charAt(j) === "~" && text.charAt(j + 1) === "~") {
+                  j += 2;
+                  continue;
+                }
+                if (text.charAt(j) === "~") {
+                  close = j;
+                  break;
+                }
+                j += 1;
+              }
+              if (close > i) {
+                out += text.slice(i + 1, close);
+                i = close + 1;
+                continue;
+              }
+            }
+            out += text.charAt(i);
+            i += 1;
+          }
+          return out;
+        }
+        function stripInlineMarks(text) {
+          var next = unwrapDelim(text, "**");
+          next = unwrapDelim(next, "~~");
+          next = unwrapDelim(next, "`");
+          next = unwrapDelim(next, "*");
+          next = unwrapSingleTilde(next);
+          return next;
+        }
+        function stripBlockLine(line) {
+          if (!line.trim()) return line;
+          var m = line.match(/^( {0,3})(#{1,6})(\s+)(.*)$/);
+          var indent = "";
+          var body = line;
+          if (m) {
+            indent = m[1];
+            body = m[4];
+          }
+          var listed = stripListPrefix(indent + body);
+          return listed.indent + listed.body;
+        }
+        function clearFormats(value, start, end, fenceMask) {
+          if (start === end) return null;
+          var selected = value.slice(start, end);
+          var cleared = selected.split("\n").map(function(line) {
+            return stripInlineMarks(line);
+          }).join("\n");
+          var v2 = splice(value, start, end - start, cleared);
+          var newEnd = start + cleared.length;
+          var r2 = applyToLines(v2, start, newEnd, stripBlockLine, fenceMask);
+          if (r2) return r2;
+          if (cleared === selected) return null;
+          return { value: v2, selectionStart: start, selectionEnd: newEnd };
+        }
+        function insertLink(value, start, end) {
+          if (start === end) {
+            return wrapSelection(value, start, end, "[", "](url)", "text");
+          }
+          var selected = value.slice(start, end);
+          return wrapSelection(value, start, end, "[", "](" + selected + ")", "");
+        }
+        function wrapCodeFence(value, start, end, lang) {
+          lang = lang || "";
+          var lr = lineRange(value, start, end);
+          var chunk = value.slice(lr.lineStart, lr.lineEnd);
+          var block = "```" + lang + "\n" + chunk + "\n```";
+          return {
+            value: splice(value, lr.lineStart, lr.lineEnd - lr.lineStart, block),
+            selectionStart: lr.lineStart + 4 + lang.length,
+            selectionEnd: lr.lineStart + 4 + lang.length + chunk.length
+          };
+        }
+        function insertHorizontalRule(value, cursorPos, fenceMask) {
+          var lineIdx = lineIndexAt(value, cursorPos);
+          if (isInsideFence(fenceMask, lineIdx)) return null;
+          var lr = lineRange(value, cursorPos, cursorPos);
+          var ins = "---\n";
+          var atLineStart = lr.lineStart === cursorPos;
+          if (!atLineStart) ins = "\n" + ins;
+          return {
+            value: splice(value, cursorPos, 0, ins),
+            selectionStart: cursorPos + ins.length,
+            selectionEnd: cursorPos + ins.length
+          };
+        }
+        function moveLine(value, cursorPos, direction, fenceMask) {
+          var lineIdx = lineIndexAt(value, cursorPos);
+          if (isInsideFence(fenceMask, lineIdx)) return null;
+          var lr = lineRange(value, cursorPos, cursorPos);
+          var line = value.slice(lr.lineStart, lr.lineEnd);
+          var before = value.slice(0, lr.lineStart);
+          var after = value.slice(lr.lineEnd);
+          if (direction < 0) {
+            var prevEnd = before.replace(/\n$/, "").lastIndexOf("\n");
+            if (prevEnd < 0 && before.length === 0) return null;
+            var prevStart = prevEnd < 0 ? 0 : prevEnd + 1;
+            var prevLine = value.slice(prevStart, prevEnd < 0 ? before.length : prevEnd);
+            if (isInsideFence(fenceMask, lineIndexAt(value, prevStart))) return null;
+            var mid = prevLine + "\n" + line;
+            var nv = value.slice(0, prevStart) + line + "\n" + prevLine + after;
+            return { value: nv, selectionStart: prevStart, selectionEnd: prevStart + line.length };
+          }
+          var nextNl = after.indexOf("\n");
+          if (nextNl < 0 && !after.length) return null;
+          var nextLineEnd = nextNl < 0 ? value.length : lr.lineEnd + 1 + nextNl;
+          var nextLine = value.slice(lr.lineEnd + 1, nextLineEnd);
+          if (isInsideFence(fenceMask, lineIndexAt(value, lr.lineEnd + 1))) return null;
+          var nv2 = before + nextLine + "\n" + line + value.slice(nextLineEnd);
+          return { value: nv2, selectionStart: lr.lineStart + nextLine.length + 1, selectionEnd: lr.lineStart + nextLine.length + 1 + line.length };
+        }
+        function duplicateLine(value, cursorPos, fenceMask) {
+          var lineIdx = lineIndexAt(value, cursorPos);
+          if (isInsideFence(fenceMask, lineIdx)) return null;
+          var lr = lineRange(value, cursorPos, cursorPos);
+          var line = value.slice(lr.lineStart, lr.lineEnd);
+          var ins = line + "\n";
+          return {
+            value: splice(value, lr.lineEnd, 0, "\n" + line),
+            selectionStart: lr.lineEnd + 1,
+            selectionEnd: lr.lineEnd + 1 + line.length
+          };
+        }
+        function applyEdit(editor, result) {
+          if (!result || !editor) return false;
+          var oldVal = editor.value;
+          var newVal = result.value;
+          if (oldVal === newVal) return false;
+          var a = 0;
+          while (a < oldVal.length && a < newVal.length && oldVal.charAt(a) === newVal.charAt(a)) a++;
+          var b = 0;
+          while (b < oldVal.length - a && b < newVal.length - a && oldVal.charAt(oldVal.length - 1 - b) === newVal.charAt(newVal.length - 1 - b)) b++;
+          var delStart = a;
+          var delEnd = oldVal.length - b;
+          var inserted = newVal.slice(a, newVal.length - b);
+          editor.focus();
+          editor.setSelectionRange(delStart, delEnd);
+          var ok = false;
+          try {
+            ok = document.execCommand("insertText", false, inserted);
+          } catch (e) {
+          }
+          if (!ok) {
+            editor.value = newVal;
+          }
+          editor.selectionStart = result.selectionStart;
+          editor.selectionEnd = result.selectionEnd;
+          editor.dispatchEvent(new Event("input", { bubbles: true }));
+          return true;
+        }
+        var api = {
+          splice,
+          lineRange,
+          lineIndexAt,
+          cursorLineAt,
+          isInsideFence,
+          wrapSelection,
+          toggleWrap,
+          applyOrToggleWrap,
+          applyOrToggleUnderline,
+          toggleUnderline,
+          WRAP_ZWSP,
+          toggleHeadingLevel,
+          setHeadingLevel,
+          setHeadingLevelRange,
+          toggleLinePrefix,
+          toggleListType,
+          indentLines,
+          clearFormats,
+          insertLink,
+          wrapCodeFence,
+          insertHorizontalRule,
+          moveLine,
+          duplicateLine,
+          applyEdit
+        };
+        global2.MDAEditorAssist = api;
+        if (typeof module !== "undefined" && module.exports) module.exports = api;
+      })(typeof window !== "undefined" ? window : global);
+    }
+  });
+
+  // src/gui/renderer/editor/state/inline-mark-context.js
+  var require_inline_mark_context = __commonJS({
+    "src/gui/renderer/editor/state/inline-mark-context.js"(exports, module) {
+      "use strict";
+      var { syntaxTree } = require_dist7();
+      var { SYNTAX_RULES } = require_syntax_rules();
+      var { findUnderlineRanges } = require_underline();
+      var { buildCodeFenceMask } = require_parse_math();
+      var MARK_NODE = {
+        bold: "StrongEmphasis",
+        italic: "Emphasis",
+        strike: "Strikethrough",
+        code: "InlineCode"
+      };
+      var MARK_KEYS = ["bold", "italic", "underline", "strike", "code"];
+      function findLeadingMark(marks, content) {
+        let leading = null;
+        for (let i = 0; i < marks.length; i++) {
+          if (marks[i].to <= content.from) {
+            if (!leading || marks[i].from < leading.from) leading = marks[i];
+          }
+        }
+        return leading || (marks.length ? marks[0] : null);
+      }
+      function findTrailingMark(marks, content) {
+        let trailing = null;
+        for (let i = 0; i < marks.length; i++) {
+          if (marks[i].from >= content.to) {
+            if (!trailing || marks[i].to > trailing.to) trailing = marks[i];
+          }
+        }
+        return trailing;
+      }
+      function underlineExcludeRanges(state, window2) {
+        const text = state.doc.toString();
+        const lines = [];
+        for (let n = 1; n <= state.doc.lines; n++) lines.push(state.doc.line(n).text);
+        const fence = buildCodeFenceMask(lines);
+        const exclude = [];
+        for (let n = 1; n <= state.doc.lines; n++) {
+          if (!fence[n - 1]) continue;
+          const line = state.doc.line(n);
+          exclude.push({ from: line.from, to: line.to });
+        }
+        try {
+          const tree = syntaxTree(state);
+          tree.iterate({
+            from: window2 ? window2.from : void 0,
+            to: window2 ? window2.to : void 0,
+            enter: function(node) {
+              if (node.name === "InlineCode" || node.name === "Strikethrough" || node.name === "FencedCode" || node.name === "CodeBlock") {
+                exclude.push({ from: node.from, to: node.to });
+              }
+            }
+          });
+        } catch (_) {
+        }
+        return exclude;
+      }
+      function resolveSyntaxMarkRegion(state, pos, nodeName) {
+        const rule = SYNTAX_RULES[nodeName];
+        if (!rule || rule.class !== "R" || !rule.contentRange || !rule.markRanges) return null;
+        const doc = state.doc.toString();
+        let tree;
+        try {
+          tree = syntaxTree(state);
+        } catch (_) {
+          return null;
+        }
+        let hit = null;
+        tree.iterate({
+          enter: function(node) {
+            if (node.name !== nodeName) return;
+            if (pos < node.from || pos > node.to) return;
+            const adapted = { from: node.from, to: node.to, type: node.name };
+            const content = rule.contentRange(adapted, doc);
+            if (!content || content.from > content.to) return;
+            const marks = rule.markRanges(adapted, doc) || [];
+            const leading = findLeadingMark(marks, content);
+            const trailing = findTrailingMark(marks, content);
+            if (!leading || !trailing) return;
+            if (pos < leading.from || pos > trailing.to) return;
+            hit = { leading, trailing, content };
+            return false;
+          }
+        });
+        return hit;
+      }
+      function resolveUnderlineRegion(state, pos) {
+        const text = state.doc.toString();
+        const ranges = findUnderlineRanges(text, underlineExcludeRanges(state));
+        for (let i = 0; i < ranges.length; i++) {
+          const r = ranges[i];
+          if (pos >= r.from && pos <= r.to) {
+            return {
+              leading: { from: r.from, to: r.from + 1 },
+              trailing: { from: r.to - 1, to: r.to },
+              content: { from: r.from + 1, to: r.to - 1 }
+            };
+          }
+        }
+        return null;
+      }
+      function resolveMarkRegion(state, pos, markKey) {
+        if (markKey === "underline") return resolveUnderlineRegion(state, pos);
+        const nodeName = MARK_NODE[markKey];
+        if (!nodeName) return null;
+        return resolveSyntaxMarkRegion(state, pos, nodeName);
+      }
+      function posInMarkRegion(state, pos, markKey) {
+        return !!resolveMarkRegion(state, pos, markKey);
+      }
+      function getInlineFlagsAtPos(state, pos) {
+        return {
+          bold: posInMarkRegion(state, pos, "bold"),
+          italic: posInMarkRegion(state, pos, "italic"),
+          underline: posInMarkRegion(state, pos, "underline"),
+          strike: posInMarkRegion(state, pos, "strike"),
+          code: posInMarkRegion(state, pos, "code")
+        };
+      }
+      function isAdjacentGap(doc, from, to) {
+        if (to < from) return false;
+        if (from === to) return true;
+        return /^\s*$/.test(doc.slice(from, to));
+      }
+      function findMarkRegionAhead(state, pos, markKey) {
+        const doc = state.doc.toString();
+        if (markKey === "underline") {
+          const ranges = findUnderlineRanges(doc, underlineExcludeRanges(state));
+          let hit2 = null;
+          let best2 = Infinity;
+          for (let i = 0; i < ranges.length; i++) {
+            const r = ranges[i];
+            if (r.from < pos) continue;
+            if (!isAdjacentGap(doc, pos, r.from)) continue;
+            if (r.from >= best2) continue;
+            best2 = r.from;
+            hit2 = {
+              leading: { from: r.from, to: r.from + 1 },
+              trailing: { from: r.to - 1, to: r.to },
+              content: { from: r.from + 1, to: r.to - 1 }
+            };
+          }
+          return hit2;
+        }
+        const nodeName = MARK_NODE[markKey];
+        if (!nodeName) return null;
+        let tree;
+        try {
+          tree = syntaxTree(state);
+        } catch (_) {
+          return null;
+        }
+        let hit = null;
+        let best = Infinity;
+        tree.iterate({
+          enter: function(node) {
+            if (node.name !== nodeName) return;
+            const leadFrom = node.from;
+            if (leadFrom < pos) return;
+            if (!isAdjacentGap(doc, pos, leadFrom)) return;
+            if (leadFrom >= best) return;
+            const rule = SYNTAX_RULES[nodeName];
+            if (!rule || !rule.contentRange || !rule.markRanges) return;
+            const adapted = { from: node.from, to: node.to, type: node.name };
+            const content = rule.contentRange(adapted, doc);
+            if (!content || content.from > content.to) return;
+            const marks = rule.markRanges(adapted, doc) || [];
+            const leading = findLeadingMark(marks, content);
+            const trailing = findTrailingMark(marks, content);
+            if (!leading || !trailing) return;
+            best = leadFrom;
+            hit = { leading, trailing, content };
+          }
+        });
+        return hit;
+      }
+      function findMarkRegionBehind(state, pos, markKey) {
+        const doc = state.doc.toString();
+        if (markKey === "underline") {
+          const ranges = findUnderlineRanges(doc, underlineExcludeRanges(state));
+          let hit2 = null;
+          let best2 = -1;
+          for (let i = 0; i < ranges.length; i++) {
+            const r = ranges[i];
+            if (r.to > pos) continue;
+            if (!isAdjacentGap(doc, r.to, pos)) continue;
+            if (r.to <= best2) continue;
+            best2 = r.to;
+            hit2 = {
+              leading: { from: r.from, to: r.from + 1 },
+              trailing: { from: r.to - 1, to: r.to },
+              content: { from: r.from + 1, to: r.to - 1 }
+            };
+          }
+          return hit2;
+        }
+        const nodeName = MARK_NODE[markKey];
+        if (!nodeName) return null;
+        let tree;
+        try {
+          tree = syntaxTree(state);
+        } catch (_) {
+          return null;
+        }
+        let hit = null;
+        let best = -1;
+        tree.iterate({
+          enter: function(node) {
+            if (node.name !== nodeName) return;
+            const trailTo = node.to;
+            if (trailTo > pos) return;
+            if (!isAdjacentGap(doc, trailTo, pos)) return;
+            if (trailTo <= best) return;
+            const rule = SYNTAX_RULES[nodeName];
+            if (!rule || !rule.contentRange || !rule.markRanges) return;
+            const adapted = { from: node.from, to: node.to, type: node.name };
+            const content = rule.contentRange(adapted, doc);
+            if (!content || content.from > content.to) return;
+            const marks = rule.markRanges(adapted, doc) || [];
+            const leading = findLeadingMark(marks, content);
+            const trailing = findTrailingMark(marks, content);
+            if (!leading || !trailing) return;
+            best = trailTo;
+            hit = { leading, trailing, content };
+          }
+        });
+        return hit;
+      }
+      var LINK_NODES = ["Link", "Autolink"];
+      function collectMarkRegions(state, markKey, window2) {
+        const doc = state.doc.toString();
+        const lo = window2 ? window2.from : 0;
+        const hi = window2 ? window2.to : doc.length;
+        const out = [];
+        if (markKey === "underline") {
+          const ranges = findUnderlineRanges(doc, underlineExcludeRanges(state, window2));
+          for (let i = 0; i < ranges.length; i++) {
+            const r = ranges[i];
+            if (r.to <= lo || r.from >= hi) continue;
+            if (r.to - r.from < 2) continue;
+            out.push({
+              key: "underline",
+              open: { from: r.from, to: r.from + 1 },
+              content: { from: r.from + 1, to: r.to - 1 },
+              close: { from: r.to - 1, to: r.to }
+            });
+          }
+          return out;
+        }
+        const nodeName = MARK_NODE[markKey];
+        const rule = nodeName ? SYNTAX_RULES[nodeName] : null;
+        if (!rule || !rule.markRanges || !rule.contentRange) return out;
+        let tree;
+        try {
+          tree = syntaxTree(state);
+        } catch (_) {
+          return out;
+        }
+        tree.iterate({
+          from: lo,
+          to: hi,
+          enter: function(node) {
+            if (node.name !== nodeName) return;
+            const adapted = { from: node.from, to: node.to, type: node.name };
+            const content = rule.contentRange(adapted, doc);
+            if (!content || content.from > content.to) return;
+            const marks = rule.markRanges(adapted, doc) || [];
+            const leading = findLeadingMark(marks, content);
+            const trailing = findTrailingMark(marks, content);
+            if (!leading || !trailing) return;
+            out.push({ key: markKey, open: leading, content, close: trailing });
+          }
+        });
+        return out;
+      }
+      function collectAllMarkRegions(state, window2) {
+        let out = [];
+        for (let i = 0; i < MARK_KEYS.length; i++) {
+          out = out.concat(collectMarkRegions(state, MARK_KEYS[i], window2));
+        }
+        return out;
+      }
+      function collectDelimiterRuns(state, window2) {
+        const regions = collectAllMarkRegions(state, window2);
+        const runs = [];
+        for (let i = 0; i < regions.length; i++) {
+          runs.push(regions[i].open, regions[i].close);
+        }
+        const doc = state.doc.toString();
+        const lo = window2 ? window2.from : 0;
+        const hi = window2 ? window2.to : doc.length;
+        let tree;
+        try {
+          tree = syntaxTree(state);
+        } catch (_) {
+          return runs;
+        }
+        tree.iterate({
+          from: lo,
+          to: hi,
+          enter: function(node) {
+            if (LINK_NODES.indexOf(node.name) < 0) return;
+            const rule = SYNTAX_RULES[node.name];
+            if (!rule || !rule.markRanges) return;
+            const marks = rule.markRanges({ from: node.from, to: node.to, type: node.name }, doc) || [];
+            for (let m = 0; m < marks.length; m++) {
+              if (marks[m].to > marks[m].from) runs.push(marks[m]);
+            }
+          }
+        });
+        return runs;
+      }
+      function lineWindow(state, from, to) {
+        const a = state.doc.lineAt(Math.max(0, Math.min(from, state.doc.length)));
+        const b = state.doc.lineAt(Math.max(0, Math.min(to == null ? from : to, state.doc.length)));
+        return { from: a.from, to: b.to };
+      }
+      function classifyMarkZone(region, pos) {
+        if (!region) return "plain";
+        const leading = region.leading;
+        const trailing = region.trailing;
+        const content = region.content;
+        if (pos < leading.from) return "before";
+        if (pos < content.from) return pos === leading.from ? "head-out" : "open";
+        if (pos <= content.to) return "inside";
+        if (pos < trailing.to) return "close";
+        return "tail-out";
+      }
+      function canPassThroughPendingInput(state, pos, intended) {
+        for (let i = 0; i < MARK_KEYS.length; i++) {
+          const k = MARK_KEYS[i];
+          const intend = !!intended[k];
+          const current = posInMarkRegion(state, pos, k);
+          if (intend !== current) return false;
+          const region = resolveMarkRegion(state, pos, k);
+          if (intend) {
+            if (!region) return false;
+            if (classifyMarkZone(region, pos) !== "inside") return false;
+          } else if (region && classifyMarkZone(region, pos) === "inside") {
+            return false;
+          }
+        }
+        return true;
+      }
+      function needsPendingInputTransform(state, pos, intended) {
+        return !canPassThroughPendingInput(state, pos, intended);
+      }
+      function planMarkInsert(state, pos, markKey, intendOn) {
+        const region = resolveMarkRegion(state, pos, markKey);
+        if (!region) {
+          return { insertAt: pos, split: false };
+        }
+        const leading = region.leading;
+        const trailing = region.trailing;
+        const content = region.content;
+        if (intendOn) {
+          const zone = classifyMarkZone(region, pos);
+          if (zone === "head-out" || zone === "before" || zone === "open") {
+            return { insertAt: content.from, split: false };
+          }
+          if (zone === "close") return { insertAt: content.to, split: false };
+          if (zone === "tail-out") return { insertAt: content.to, split: false };
+          return { insertAt: pos, split: false };
+        }
+        if (pos <= content.from) return { insertAt: leading.from, split: false };
+        if (pos >= content.to) return { insertAt: trailing.to, split: false };
+        return { insertAt: pos, split: true };
+      }
+      function effectivePendingMark(pending, markKey, atCursor) {
+        if (pending && pending.armed && !!pending.marks[markKey] !== !!atCursor[markKey]) {
+          return !!pending.marks[markKey];
+        }
+        return !!atCursor[markKey];
+      }
+      function planPendingMarkToggle(state, pos, markKey, pending) {
+        const atCursor = getInlineFlagsAtPos(state, pos);
+        const base = {
+          bold: !!atCursor.bold,
+          italic: !!atCursor.italic,
+          underline: !!atCursor.underline,
+          strike: !!atCursor.strike,
+          code: !!atCursor.code
+        };
+        if (pending && pending.armed) {
+          for (let i = 0; i < MARK_KEYS.length; i++) {
+            const k = MARK_KEYS[i];
+            if (!!pending.marks[k] !== !!atCursor[k]) base[k] = !!pending.marks[k];
+          }
+        }
+        const region = resolveMarkRegion(state, pos, markKey);
+        if (region) {
+          const marks2 = Object.assign({}, base);
+          const content = region.content;
+          const leading = region.leading;
+          const trailing = region.trailing;
+          const zone = classifyMarkZone(region, pos);
+          const effOn = effectivePendingMark(pending, markKey, atCursor);
+          if (zone === "head-out") {
+            if (effOn) {
+              marks2[markKey] = false;
+              return { cursor: pos, marks: marks2 };
+            }
+            marks2[markKey] = true;
+            return { cursor: content.from, marks: marks2 };
+          }
+          if (zone === "open") {
+            marks2[markKey] = true;
+            return { cursor: content.from, marks: marks2 };
+          }
+          if (zone === "inside" && pos === content.from) {
+            if (effOn) {
+              marks2[markKey] = false;
+              return { cursor: leading.from, marks: marks2 };
+            }
+            marks2[markKey] = true;
+            return { cursor: pos, marks: marks2 };
+          }
+          if (zone === "tail-out") {
+            if (effOn) {
+              marks2[markKey] = false;
+              return { cursor: pos, marks: marks2 };
+            }
+            marks2[markKey] = true;
+            return { cursor: content.to, marks: marks2 };
+          }
+          if (zone === "close") {
+            marks2[markKey] = true;
+            return { cursor: content.to, marks: marks2 };
+          }
+          if (zone === "inside" && pos === content.to) {
+            if (effOn) {
+              marks2[markKey] = false;
+              return { cursor: trailing.to, marks: marks2 };
+            }
+            marks2[markKey] = true;
+            return { cursor: pos, marks: marks2 };
+          }
+          marks2[markKey] = !effOn;
+          return { cursor: pos, marks: marks2 };
+        }
+        const marks = Object.assign({}, base);
+        marks[markKey] = !marks[markKey];
+        return { cursor: pos, marks };
+      }
+      module.exports = {
+        MARK_KEYS,
+        collectMarkRegions,
+        collectAllMarkRegions,
+        collectDelimiterRuns,
+        lineWindow,
+        getInlineFlagsAtPos,
+        posInMarkRegion,
+        resolveMarkRegion,
+        findMarkRegionAhead,
+        findMarkRegionBehind,
+        classifyMarkZone,
+        canPassThroughPendingInput,
+        needsPendingInputTransform,
+        planMarkInsert,
+        planPendingMarkToggle
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/model/inline-delimiters.js
+  var require_inline_delimiters = __commonJS({
+    "src/gui/renderer/editor/model/inline-delimiters.js"(exports, module) {
+      "use strict";
+      var { ChangeSet } = require_dist2();
+      function sortChanges(changes) {
+        return changes.slice().sort(function(a, b) {
+          if (a.from !== b.from) return a.from - b.from;
+          return a.to - b.to;
+        });
+      }
+      function pruneNoopChanges(changes) {
+        const out = [];
+        for (let i = 0; i < changes.length; i++) {
+          const c = changes[i];
+          if (c.from === c.to && !c.insert) continue;
+          out.push(c);
+        }
+        return out;
+      }
+      function toChangeSet(changes, docLength) {
+        return ChangeSet.of(sortChanges(pruneNoopChanges(changes)), docLength);
+      }
+      function spanCoveredBy(spans, from, to) {
+        if (to <= from) return true;
+        let cur = from;
+        let moved = true;
+        while (moved && cur < to) {
+          moved = false;
+          for (let i = 0; i < spans.length; i++) {
+            const s = spans[i];
+            if (s.from <= cur && s.to > cur) {
+              cur = s.to;
+              moved = true;
+              break;
+            }
+          }
+        }
+        return cur >= to;
+      }
+      function snapOutOfDelimiters(runs, from, to) {
+        let a = from;
+        let b = to;
+        let moved = true;
+        while (moved) {
+          moved = false;
+          for (let i = 0; i < runs.length; i++) {
+            const r = runs[i];
+            if (r.from < a && a < r.to) {
+              a = r.from;
+              moved = true;
+            }
+            if (r.from < b && b < r.to) {
+              b = r.to;
+              moved = true;
+            }
+          }
+        }
+        return { from: a, to: b };
+      }
+      function pushClipped(out, span, lo, hi) {
+        if (!span) return;
+        const a = Math.max(lo, span.from);
+        const b = Math.min(hi, span.to);
+        if (b > a) out.push({ from: a, to: b });
+      }
+      function planDeleteRangePreservingPairs(regions, from, to, collapseEmptied) {
+        let lo = Math.min(from, to);
+        let hi = Math.max(from, to);
+        if (hi <= lo) return [];
+        const collapse = collapseEmptied !== false;
+        const list = [];
+        for (let i = 0; i < (regions || []).length; i++) {
+          const r = regions[i];
+          if (r && r.open && r.content && r.close) list.push(r);
+        }
+        let grew = collapse;
+        let guard = 0;
+        while (grew && guard++ < 16) {
+          grew = false;
+          for (let i = 0; i < list.length; i++) {
+            const r = list[i];
+            if (lo > r.content.from || r.content.to > hi) continue;
+            if (r.open.from < lo) {
+              lo = r.open.from;
+              grew = true;
+            }
+            if (r.close.to > hi) {
+              hi = r.close.to;
+              grew = true;
+            }
+          }
+        }
+        const keep = [];
+        for (let i = 0; i < list.length; i++) {
+          const r = list[i];
+          if (lo <= r.open.from && r.close.to <= hi) continue;
+          pushClipped(keep, r.open, lo, hi);
+          pushClipped(keep, r.close, lo, hi);
+        }
+        if (!keep.length) return [{ from: lo, to: hi }];
+        keep.sort(function(a, b) {
+          return a.from - b.from;
+        });
+        const out = [];
+        let cur = lo;
+        for (let i = 0; i < keep.length; i++) {
+          const k = keep[i];
+          if (k.from > cur) out.push({ from: cur, to: k.from });
+          if (k.to > cur) cur = k.to;
+        }
+        if (cur < hi) out.push({ from: cur, to: hi });
+        return out;
+      }
+      function planFusedWrap(text, regions, from, to, delim) {
+        if (to <= from || !delim) return null;
+        let lo = from;
+        let hi = to;
+        const absorbed = [];
+        const taken = [];
+        let grew = true;
+        while (grew) {
+          grew = false;
+          for (let i = 0; i < regions.length; i++) {
+            if (taken[i]) continue;
+            const r = regions[i];
+            if (r.close.to < lo || r.open.from > hi) continue;
+            taken[i] = true;
+            absorbed.push(r);
+            if (r.open.from < lo) lo = r.open.from;
+            if (r.close.to > hi) hi = r.close.to;
+            grew = true;
+          }
+        }
+        const drops = [];
+        for (let i = 0; i < absorbed.length; i++) {
+          drops.push(absorbed[i].open);
+          drops.push(absorbed[i].close);
+        }
+        drops.sort(function(a, b) {
+          return a.from - b.from;
+        });
+        let inner = "";
+        let cur = lo;
+        for (let i = 0; i < drops.length; i++) {
+          const d = drops[i];
+          if (d.to <= cur || d.from >= hi) continue;
+          if (d.from > cur) inner += text.slice(cur, d.from);
+          cur = d.to;
+        }
+        if (cur < hi) inner += text.slice(cur, hi);
+        if (!inner) return null;
+        const insert = delim + inner + delim;
+        if (insert === text.slice(lo, hi)) return null;
+        return {
+          changes: [{ from: lo, to: hi, insert }],
+          select: { from: lo + delim.length, to: lo + delim.length + inner.length }
+        };
+      }
+      function planSplitUnwrap(text, regions, from, to) {
+        if (to <= from) return null;
+        const changes = [];
+        for (let i = 0; i < regions.length; i++) {
+          const r = regions[i];
+          const wholeInside = r.open.from >= from && r.close.to <= to;
+          const contentHit = r.content.from < to && r.content.to > from;
+          if (!wholeInside && !contentHit) continue;
+          const a = Math.max(from, r.content.from);
+          const b = Math.min(to, r.content.to);
+          if (b <= a) continue;
+          const delim = text.slice(r.open.from, r.open.to);
+          const leftKeep = a > r.content.from;
+          const rightKeep = b < r.content.to;
+          if (leftKeep) changes.push({ from: a, to: a, insert: delim });
+          else changes.push({ from: r.open.from, to: r.open.to, insert: "" });
+          if (rightKeep) changes.push({ from: b, to: b, insert: delim });
+          else changes.push({ from: r.close.from, to: r.close.to, insert: "" });
+        }
+        if (!changes.length) return null;
+        const set = toChangeSet(changes, text.length);
+        return {
+          changes,
+          // 左侧闭合定界符插在 from 处 → 选区起点落到它之后；右侧开定界符插在 to 处 → 终点落到它之前
+          select: { from: set.mapPos(from, 1), to: set.mapPos(to, -1) }
+        };
+      }
+      function planRegionCleanup(regions) {
+        const drops = [];
+        const dead = [];
+        for (let i = 0; i < regions.length; i++) {
+          const r = regions[i];
+          if (!r || !r.open || !r.close) continue;
+          const openLen = r.open.to - r.open.from;
+          const closeLen = r.close.to - r.close.from;
+          const openMoved = r.openLen != null && openLen !== r.openLen;
+          const closeMoved = r.closeLen != null && closeLen !== r.closeLen;
+          if (openMoved || closeMoved) {
+            dead[i] = true;
+            continue;
+          }
+          if (openLen <= 0 || closeLen <= 0) {
+            dead[i] = true;
+            continue;
+          }
+          if (r.content.to <= r.content.from) {
+            drops.push(r.open, r.close);
+            dead[i] = true;
+          }
+        }
+        const byKey = {};
+        for (let i = 0; i < regions.length; i++) {
+          if (dead[i]) continue;
+          const r = regions[i];
+          if (!byKey[r.key]) byKey[r.key] = [];
+          byKey[r.key].push(r);
+        }
+        const keys = Object.keys(byKey);
+        for (let k = 0; k < keys.length; k++) {
+          const list = byKey[keys[k]].slice().sort(function(a, b) {
+            return a.open.from - b.open.from;
+          });
+          for (let i = 0; i + 1 < list.length; i++) {
+            const A = list[i];
+            const B = list[i + 1];
+            if (A.close.to - A.close.from !== B.open.to - B.open.from) continue;
+            if (!spanCoveredBy(drops, A.close.to, B.open.from)) continue;
+            drops.push(A.close, B.open);
+          }
+        }
+        const changes = [];
+        const seen = {};
+        for (let i = 0; i < drops.length; i++) {
+          const d = drops[i];
+          if (!d || d.to <= d.from) continue;
+          const id = d.from + ":" + d.to;
+          if (seen[id]) continue;
+          seen[id] = true;
+          changes.push({ from: d.from, to: d.to, insert: "" });
+        }
+        return sortChanges(changes);
+      }
+      function skipHiddenRuns(runs, pos, forward) {
+        let p = pos;
+        let moved = true;
+        let guard = 0;
+        while (moved && guard++ < 64) {
+          moved = false;
+          for (let i = 0; i < runs.length; i++) {
+            const r = runs[i];
+            if (r.to <= r.from) continue;
+            if (forward ? r.from === p : r.to === p) {
+              p = forward ? r.to : r.from;
+              moved = true;
+              break;
+            }
+          }
+        }
+        return p;
+      }
+      module.exports = {
+        sortChanges,
+        pruneNoopChanges,
+        toChangeSet,
+        snapOutOfDelimiters,
+        planDeleteRangePreservingPairs,
+        planFusedWrap,
+        planSplitUnwrap,
+        planRegionCleanup,
+        skipHiddenRuns,
+        spanCoveredBy
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/state/block-format.js
+  var require_block_format = __commonJS({
+    "src/gui/renderer/editor/state/block-format.js"(exports, module) {
+      "use strict";
+      var { syntaxTree } = require_dist7();
+      var { findUnderlineRanges } = require_underline();
+      var { buildCodeFenceMask } = require_parse_math();
+      var { getInlineFlagsAtPos, posInMarkRegion } = require_inline_mark_context();
+      function blockFormatOfLine(text) {
+        const atx = String(text || "").match(/^( {0,3})(#{1,6})(\s+)(.*)$/);
+        if (atx) return (
+          /** @type {'h1'} */
+          "h" + atx[2].length
+        );
+        const body = String(text || "").replace(/^( {0,3})/, "");
+        if (/^[-*+]\s+\[[ xX]\]\s+/.test(body)) return "task";
+        if (/^[-*+]\s+/.test(body)) return "bullet";
+        if (/^\d+\.\s+/.test(body)) return "ordered";
+        if (/^>\s?/.test(body)) return "quote";
+        return "paragraph";
+      }
+      function paragraphSelectOfLine(text) {
+        const fmt = blockFormatOfLine(text);
+        if (fmt.charAt(0) === "h" && fmt.length === 2) return (
+          /** @type {'h1'} */
+          fmt
+        );
+        return "paragraph";
+      }
+      function deriveBlockFormat(state) {
+        const pos = state.selection.main.head;
+        const line = state.doc.lineAt(pos);
+        return blockFormatOfLine(line.text);
+      }
+      function deriveParagraphSelect(state) {
+        const sel = state.selection.main;
+        const fromN = state.doc.lineAt(sel.from).number;
+        const toN = state.doc.lineAt(sel.to).number;
+        let first = null;
+        let mixed = false;
+        for (let n = fromN; n <= toN; n++) {
+          const text = state.doc.line(n).text;
+          if (!String(text).trim()) continue;
+          const para = paragraphSelectOfLine(text);
+          if (first == null) first = para;
+          else if (para !== first) mixed = true;
+        }
+        if (first == null) first = paragraphSelectOfLine(state.doc.lineAt(sel.head).text);
+        return { value: first, mixed };
+      }
+      function deriveListToolbarState(state) {
+        const sel = state.selection.main;
+        const fromN = state.doc.lineAt(sel.from).number;
+        const toN = state.doc.lineAt(sel.to).number;
+        let total = 0;
+        let bullet = 0;
+        let ordered = 0;
+        let task = 0;
+        for (let n = fromN; n <= toN; n++) {
+          const text = state.doc.line(n).text;
+          if (!String(text).trim()) continue;
+          total += 1;
+          const fmt = blockFormatOfLine(text);
+          if (fmt === "bullet") bullet += 1;
+          else if (fmt === "ordered") ordered += 1;
+          else if (fmt === "task") task += 1;
+        }
+        function flag(count) {
+          if (!total || count <= 0) return { on: false, mixed: false };
+          if (count >= total) return { on: true, mixed: false };
+          return { on: false, mixed: true };
+        }
+        return { ul: flag(bullet), ol: flag(ordered), task: flag(task) };
+      }
+      function selectionCanOutdent(state) {
+        const sel = state.selection.main;
+        const fromN = state.doc.lineAt(sel.from).number;
+        const toN = state.doc.lineAt(sel.to).number;
+        for (let n = fromN; n <= toN; n++) {
+          const text = state.doc.line(n).text;
+          if (!String(text).trim()) continue;
+          if (/^ /.test(text)) return true;
+          const fmt = blockFormatOfLine(text);
+          if (fmt === "bullet" || fmt === "ordered" || fmt === "task") return true;
+        }
+        return false;
+      }
+      function markCoverage(state, markName, from, to) {
+        if (from == null || to == null) {
+          const sel = state.selection.main;
+          from = sel.from;
+          to = sel.to;
+        }
+        let tree;
+        try {
+          tree = syntaxTree(state);
+        } catch (_) {
+          return { on: false, mixed: false };
+        }
+        if (from === to) {
+          const key = markName === "StrongEmphasis" ? "bold" : markName === "Emphasis" ? "italic" : markName === "Strikethrough" ? "strike" : markName === "InlineCode" ? "code" : "";
+          if (key && posInMarkRegion(state, from, key)) return { on: true, mixed: false };
+          let node = tree.resolveInner(from, 1);
+          while (node) {
+            if (node.name === markName) return { on: true, mixed: false };
+            node = node.parent;
+          }
+          node = tree.resolveInner(from, -1);
+          while (node) {
+            if (node.name === markName) return { on: true, mixed: false };
+            node = node.parent;
+          }
+          return { on: false, mixed: false };
+        }
+        let covered = 0;
+        tree.iterate({
+          from,
+          to,
+          enter: function(node) {
+            if (node.name === markName) {
+              const a = Math.max(from, node.from);
+              const b = Math.min(to, node.to);
+              if (b > a) covered += b - a;
+              return false;
+            }
+          }
+        });
+        const len = to - from;
+        if (covered <= 0) return { on: false, mixed: false };
+        if (covered >= len) return { on: true, mixed: false };
+        return { on: false, mixed: true };
+      }
+      function underlineCoverage(state, from, to) {
+        const text = state.doc.toString();
+        const lines = [];
+        for (let n = 1; n <= state.doc.lines; n++) lines.push(state.doc.line(n).text);
+        const fence = buildCodeFenceMask(lines);
+        const exclude = [];
+        for (let n = 1; n <= state.doc.lines; n++) {
+          if (!fence[n - 1]) continue;
+          const line = state.doc.line(n);
+          exclude.push({ from: line.from, to: line.to });
+        }
+        try {
+          const tree = syntaxTree(state);
+          tree.iterate({
+            enter: function(node) {
+              if (node.name === "InlineCode" || node.name === "Strikethrough" || node.name === "FencedCode" || node.name === "CodeBlock") {
+                exclude.push({ from: node.from, to: node.to });
+              }
+            }
+          });
+        } catch (_) {
+        }
+        const ranges = findUnderlineRanges(text, exclude);
+        const sel = state.selection.main;
+        if (from == null || to == null) {
+          from = sel.from;
+          to = sel.to;
+        }
+        if (from === to) {
+          const pos = from;
+          if (posInMarkRegion(state, pos, "underline")) return { on: true, mixed: false };
+          for (let i = 0; i < ranges.length; i++) {
+            if (pos > ranges[i].from && pos < ranges[i].to) return { on: true, mixed: false };
+          }
+          return { on: false, mixed: false };
+        }
+        let covered = 0;
+        for (let i = 0; i < ranges.length; i++) {
+          const a = Math.max(from, ranges[i].from);
+          const b = Math.min(to, ranges[i].to);
+          if (b > a) covered += b - a;
+        }
+        const len = to - from;
+        if (covered <= 0) return { on: false, mixed: false };
+        if (covered >= len) return { on: true, mixed: false };
+        return { on: false, mixed: true };
+      }
+      function getInlineToolbarState(state) {
+        const sel = state.selection.main;
+        return getInlineToolbarStateAt(state, sel.from, sel.to);
+      }
+      function getInlineToolbarStateAt(state, from, to) {
+        return {
+          bold: markCoverage(state, "StrongEmphasis", from, to),
+          italic: markCoverage(state, "Emphasis", from, to),
+          underline: underlineCoverage(state, from, to),
+          strike: markCoverage(state, "Strikethrough", from, to),
+          code: markCoverage(state, "InlineCode", from, to)
+        };
+      }
+      function getInlineFlagsAt(state, pos) {
+        return getInlineFlagsAtPos(state, pos);
+      }
+      function getInlineActive(state) {
+        const marks = getInlineToolbarState(state);
+        const active = {
+          bold: marks.bold.on,
+          italic: marks.italic.on,
+          underline: marks.underline.on,
+          strike: marks.strike.on,
+          code: marks.code.on,
+          link: false
+        };
+        const pos = state.selection.main.head;
+        let tree;
+        try {
+          tree = syntaxTree(state);
+        } catch (_) {
+          return active;
+        }
+        let node = tree.resolveInner(pos, 1);
+        while (node) {
+          if (node.name === "Link") active.link = true;
+          node = node.parent;
+        }
+        return active;
+      }
+      module.exports = {
+        blockFormatOfLine,
+        deriveBlockFormat,
+        deriveParagraphSelect,
+        deriveListToolbarState,
+        selectionCanOutdent,
+        getInlineActive,
+        getInlineToolbarState,
+        getInlineToolbarStateAt,
+        getInlineFlagsAt
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/state/inline-format-debug.js
+  var require_inline_format_debug = __commonJS({
+    "src/gui/renderer/editor/state/inline-format-debug.js"(exports, module) {
+      "use strict";
+      var editorConfig = require_config();
+      var LOG_PREFIX = "[mda-inline-format]";
+      var seq = 0;
+      function enabled() {
+        return editorConfig.inlineFormatDebugEnabled();
+      }
+      function snapDoc(state, pos, radius) {
+        if (!state || pos == null || pos < 0) return "";
+        radius = radius == null ? 14 : radius;
+        const from = Math.max(0, pos - radius);
+        const to = Math.min(state.doc.length, pos + radius);
+        const left = state.doc.sliceString(from, pos);
+        const right = state.doc.sliceString(pos, to);
+        return left + "|" + right;
+      }
+      function snapFlags(flags) {
+        if (!flags) return null;
+        return {
+          bold: !!flags.bold,
+          italic: !!flags.italic,
+          underline: !!flags.underline,
+          strike: !!flags.strike,
+          code: !!flags.code
+        };
+      }
+      function snapPos(state, pos) {
+        if (!state || pos == null) return { pos, line: null, col: null };
+        const line = state.doc.lineAt(Math.max(0, Math.min(pos, state.doc.length)));
+        return {
+          pos,
+          line: line.number,
+          col: pos - line.from + 1,
+          docSnap: snapDoc(state, pos)
+        };
+      }
+      function log(event, detail) {
+        if (!enabled()) return;
+        seq++;
+        const payload = Object.assign({ seq, event, ts: Date.now() }, detail || {});
+        if (payload.state && payload.pos != null) {
+          Object.assign(payload, snapPos(
+            /** @type {import('@codemirror/state').EditorState} */
+            payload.state,
+            /** @type {number} */
+            payload.pos
+          ));
+          delete payload.state;
+        }
+        if (payload.from != null && payload.stateFrom) {
+          Object.assign(payload, { fromCtx: snapPos(
+            /** @type {import('@codemirror/state').EditorState} */
+            payload.stateFrom,
+            /** @type {number} */
+            payload.from
+          ) });
+          delete payload.stateFrom;
+        }
+        if (payload.intended) payload.intended = snapFlags(
+          /** @type {Record<string, boolean>} */
+          payload.intended
+        );
+        if (payload.current) payload.current = snapFlags(
+          /** @type {Record<string, boolean>} */
+          payload.current
+        );
+        if (payload.marks) payload.marks = snapFlags(
+          /** @type {Record<string, boolean>} */
+          payload.marks
+        );
+        if (payload.pending && typeof payload.pending === "object") {
+          const p = (
+            /** @type {{ armed?: boolean, marks?: Record<string, boolean> }} */
+            payload.pending
+          );
+          payload.pending = { armed: !!p.armed, marks: snapFlags(p.marks) };
+        }
+        console.log(LOG_PREFIX, payload);
+      }
+      function installWindowApi() {
+        if (typeof window === "undefined") return;
+        const api = {
+          isEnabled: enabled,
+          enable: function() {
+            try {
+              localStorage.setItem("mda-editor-debug-inline-format", "1");
+            } catch (_) {
+            }
+            console.info(LOG_PREFIX, "\u5DF2\u5F00\u542F\uFF1B\u5237\u65B0\u9875\u9762\u540E\u5168\u7A0B\u8BB0\u5F55\u3002");
+          },
+          disable: function() {
+            try {
+              localStorage.setItem("mda-editor-debug-inline-format", "0");
+            } catch (_) {
+            }
+            console.info(LOG_PREFIX, "\u5DF2\u5173\u95ED\uFF1B\u5237\u65B0\u9875\u9762\u540E\u505C\u6B62\u8BB0\u5F55\u3002");
+          },
+          log
+        };
+        window.MDAInlineFormatDebug = api;
+      }
+      installWindowApi();
+      if (enabled()) {
+        console.info(
+          LOG_PREFIX,
+          "\u8C03\u8BD5\u5DF2\u5F00\u542F\u3002\u8BF7\u5728\u7F16\u8F91\u533A\u64CD\u4F5C\uFF08\u70B9\u683C\u5F0F\u6309\u94AE / \u8F93\u5165 / \u4E2D\u6587 IME\uFF09\uFF0C\u65E5\u5FD7\u5C06\u4EE5",
+          LOG_PREFIX,
+          '\u4E3A\u524D\u7F00\u8F93\u51FA\u3002\u5173\u95ED\uFF1AlocalStorage.setItem("mda-editor-debug-inline-format","0"); location.reload();'
+        );
+      }
+      module.exports = {
+        enabled,
+        log,
+        snapDoc,
+        snapFlags,
+        snapPos
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/state/inline-delimiter-ops.js
+  var require_inline_delimiter_ops = __commonJS({
+    "src/gui/renderer/editor/state/inline-delimiter-ops.js"(exports, module) {
+      "use strict";
+      var { EditorSelection, findClusterBreak } = require_dist2();
+      var {
+        collectMarkRegions,
+        collectAllMarkRegions,
+        collectDelimiterRuns,
+        lineWindow
+      } = require_inline_mark_context();
+      var {
+        planFusedWrap,
+        planSplitUnwrap,
+        planRegionCleanup,
+        snapOutOfDelimiters,
+        planDeleteRangePreservingPairs,
+        skipHiddenRuns,
+        toChangeSet
+      } = require_inline_delimiters();
+      var { getInlineToolbarStateAt } = require_block_format();
+      var { getEffectiveWidgetEditTarget } = require_widget_editable_guard();
+      var inlineDbg = require_inline_format_debug();
+      var DELIM = {
+        bold: "**",
+        italic: "*",
+        underline: "~",
+        strike: "~~",
+        code: "`"
+      };
+      function mapRegions(regions, set) {
+        const out = [];
+        for (let i = 0; i < regions.length; i++) {
+          const r = regions[i];
+          out.push({
+            key: r.key,
+            openLen: r.open.to - r.open.from,
+            closeLen: r.close.to - r.close.from,
+            open: { from: set.mapPos(r.open.from, -1), to: set.mapPos(r.open.to, -1) },
+            content: { from: set.mapPos(r.content.from, -1), to: set.mapPos(r.content.to, 1) },
+            close: { from: set.mapPos(r.close.from, 1), to: set.mapPos(r.close.to, 1) }
+          });
+        }
+        return out;
+      }
+      function dispatchPlannedChange(view, changes, select, userEvent) {
+        if (!changes || !changes.length) return false;
+        view.dispatch({
+          changes,
+          selection: EditorSelection.range(select.from, select.to),
+          userEvent: userEvent || "input",
+          scrollIntoView: true
+        });
+        try {
+          view.focus();
+        } catch (_) {
+        }
+        return true;
+      }
+      function dispatchWithDelimiterCleanup(view, changes, select, userEvent) {
+        const state = view.state;
+        if (!changes || !changes.length) return false;
+        let lo = changes[0].from;
+        let hi = changes[0].to;
+        for (let i = 1; i < changes.length; i++) {
+          if (changes[i].from < lo) lo = changes[i].from;
+          if (changes[i].to > hi) hi = changes[i].to;
+        }
+        const win = lineWindow(state, lo, hi);
+        const before = collectAllMarkRegions(state, win);
+        const set = toChangeSet(changes, state.doc.length);
+        const cleanup = planRegionCleanup(mapRegions(before, set));
+        const anchor = select ? select.from : set.mapPos(lo, 1);
+        const head = select ? select.to : anchor;
+        const specs = [
+          {
+            changes,
+            selection: EditorSelection.range(anchor, head),
+            userEvent: userEvent || "input",
+            scrollIntoView: true
+          }
+        ];
+        if (cleanup.length) {
+          const cleanupSet = toChangeSet(cleanup, set.newLength);
+          specs.push({
+            // sequential：坐标基于第一段变更之后的文档，否则 CM6 会按原文档解释
+            sequential: true,
+            changes: cleanup,
+            selection: EditorSelection.range(
+              cleanupSet.mapPos(anchor, 1),
+              cleanupSet.mapPos(head, -1)
+            )
+          });
+        }
+        inlineDbg.log("delim.dispatch", {
+          pos: anchor,
+          state,
+          changes,
+          cleanup
+        });
+        view.dispatch.apply(view, specs);
+        return true;
+      }
+      function lineSegments(state, from, to) {
+        const out = [];
+        const firstLine = state.doc.lineAt(from).number;
+        const lastLine = state.doc.lineAt(to).number;
+        for (let n = firstLine; n <= lastLine; n++) {
+          const line = state.doc.line(n);
+          const a = Math.max(from, line.from);
+          const b = Math.min(to, line.to);
+          if (b > a) out.push({ from: a, to: b });
+        }
+        return out;
+      }
+      function applyInlineMarkToSelection(view, markKey) {
+        if (!view) return false;
+        const delim = DELIM[markKey];
+        if (!delim) return false;
+        const state = view.state;
+        const sel = state.selection.main;
+        if (sel.empty) return false;
+        const text = state.doc.toString();
+        const win = lineWindow(state, sel.from, sel.to);
+        const runs = collectDelimiterRuns(state, win);
+        const snapped = snapOutOfDelimiters(runs, sel.from, sel.to);
+        if (snapped.to <= snapped.from) return false;
+        const regions = collectMarkRegions(state, markKey, win);
+        const cov = getInlineToolbarStateAt(state, snapped.from, snapped.to)[markKey];
+        const fullyOn = !!(cov && cov.on && !cov.mixed);
+        inlineDbg.log("delim.selection", {
+          pos: sel.head,
+          state,
+          mark: markKey,
+          selFrom: snapped.from,
+          selTo: snapped.to,
+          fullyOn,
+          regions: regions.length
+        });
+        if (fullyOn) {
+          const plan = planSplitUnwrap(text, regions, snapped.from, snapped.to);
+          if (!plan) return false;
+          return dispatchPlannedChange(view, plan.changes, plan.select, "input.format");
+        }
+        const segments = lineSegments(state, snapped.from, snapped.to);
+        let changes = [];
+        let selFrom = null;
+        let selTo = null;
+        let delta = 0;
+        for (let i = 0; i < segments.length; i++) {
+          const seg = segments[i];
+          const plan = planFusedWrap(text, regions, seg.from, seg.to, delim);
+          if (!plan) continue;
+          if (selFrom == null) selFrom = plan.select.from + delta;
+          selTo = plan.select.to + delta;
+          for (let c = 0; c < plan.changes.length; c++) {
+            const ch = plan.changes[c];
+            changes.push(ch);
+            delta += ch.insert.length - (ch.to - ch.from);
+          }
+        }
+        if (!changes.length) return false;
+        return dispatchPlannedChange(view, changes, { from: selFrom, to: selTo }, "input.format");
+      }
+      function snapRangeOutOfDelimiters(state, from, to) {
+        const a = Math.min(from, to);
+        const b = Math.max(from, to);
+        const win = lineWindow(state, a, b);
+        const runs = collectDelimiterRuns(state, win);
+        return snapOutOfDelimiters(runs, a, b);
+      }
+      function planPreservingDeleteRanges(state, from, to, collapseEmptied) {
+        const snapped = snapRangeOutOfDelimiters(state, from, to);
+        if (snapped.to <= snapped.from) return [];
+        const win = lineWindow(state, snapped.from, snapped.to);
+        const regions = collectAllMarkRegions(state, win);
+        return planDeleteRangePreservingPairs(regions, snapped.from, snapped.to, collapseEmptied);
+      }
+      function planClearInlineMarks(state, from, to) {
+        const snapped = snapRangeOutOfDelimiters(state, from, to);
+        if (snapped.to <= snapped.from) return null;
+        const win = lineWindow(state, snapped.from, snapped.to);
+        const regions = collectAllMarkRegions(state, win);
+        if (!regions.length) return null;
+        return planSplitUnwrap(state.doc.toString(), regions, snapped.from, snapped.to);
+      }
+      function replaceRangeWithCleanup(view, from, to, insert, userEvent) {
+        const text = insert || "";
+        const ranges = planPreservingDeleteRanges(view.state, from, to, !text);
+        if (!ranges.length) return false;
+        const changes = [];
+        for (let i = 0; i < ranges.length; i++) {
+          changes.push({ from: ranges[i].from, to: ranges[i].to, insert: i === 0 ? text : "" });
+        }
+        const caret = ranges[0].from + text.length;
+        return dispatchWithDelimiterCleanup(
+          view,
+          changes,
+          { from: caret, to: caret },
+          userEvent || "delete.selection"
+        );
+      }
+      function inLeadingWhitespace(state, pos) {
+        const line = state.doc.lineAt(pos);
+        const head = line.text.slice(0, pos - line.from);
+        return head.length > 0 && !/[^ \t]/.test(head);
+      }
+      function deleteAcrossDelimiters(view, forward) {
+        if (!view || view.state.readOnly) return false;
+        const state = view.state;
+        const sel = state.selection.main;
+        if (state.selection.ranges.length > 1) return false;
+        if (getEffectiveWidgetEditTarget()) return false;
+        const win = lineWindow(state, sel.from, sel.to);
+        const regions = collectAllMarkRegions(state, win);
+        if (!regions.length) return false;
+        if (sel.empty && !forward && inLeadingWhitespace(state, sel.head)) return false;
+        const runs = collectDelimiterRuns(state, win);
+        let from;
+        let to;
+        if (!sel.empty) {
+          const snapped = snapOutOfDelimiters(runs, sel.from, sel.to);
+          const ranges = planDeleteRangePreservingPairs(regions, snapped.from, snapped.to);
+          if (!ranges.length) return false;
+          const changes = [];
+          for (let i = 0; i < ranges.length; i++) {
+            changes.push({ from: ranges[i].from, to: ranges[i].to, insert: "" });
+          }
+          const caret = ranges[0].from;
+          return dispatchWithDelimiterCleanup(
+            view,
+            changes,
+            { from: caret, to: caret },
+            forward ? "delete.forward" : "delete.backward"
+          );
+        } else {
+          const p = skipHiddenRuns(runs, sel.head, forward);
+          const line = state.doc.lineAt(p);
+          if (forward) {
+            if (p >= state.doc.length) return false;
+            let target = p >= line.to ? p + 1 : line.from + findClusterBreak(line.text, p - line.from, true, true);
+            if (target <= p) target = p + 1;
+            from = p;
+            to = Math.min(target, state.doc.length);
+          } else {
+            if (p <= 0) return false;
+            let target = p <= line.from ? p - 1 : line.from + findClusterBreak(line.text, p - line.from, false, false);
+            if (target >= p) target = p - 1;
+            from = Math.max(0, target);
+            to = p;
+          }
+        }
+        if (to <= from) return false;
+        return dispatchWithDelimiterCleanup(
+          view,
+          [{ from, to, insert: "" }],
+          { from, to: from },
+          forward ? "delete.forward" : "delete.backward"
+        );
+      }
+      function handleInlineDelimiterBackspace(view) {
+        return deleteAcrossDelimiters(view, false);
+      }
+      function handleInlineDelimiterDelete(view) {
+        return deleteAcrossDelimiters(view, true);
+      }
+      function dispatchTypedInsertWithCleanup(view, change, cursor, effects) {
+        const state = view.state;
+        const win = lineWindow(state, change.from, change.to);
+        const before = collectAllMarkRegions(state, win);
+        const set = toChangeSet([change], state.doc.length);
+        const cleanup = planRegionCleanup(mapRegions(before, set));
+        const specs = [
+          {
+            changes: change,
+            selection: EditorSelection.cursor(cursor, -1),
+            userEvent: "input.type",
+            effects
+          }
+        ];
+        if (cleanup.length) {
+          const cleanupSet = toChangeSet(cleanup, set.newLength);
+          const next = cleanupSet.mapPos(cursor, -1);
+          specs.push({
+            sequential: true,
+            changes: cleanup,
+            selection: EditorSelection.cursor(next, -1)
+          });
+        }
+        view.dispatch.apply(view, specs);
+        return true;
+      }
+      module.exports = {
+        DELIM,
+        mapRegions,
+        lineSegments,
+        dispatchPlannedChange,
+        dispatchWithDelimiterCleanup,
+        snapRangeOutOfDelimiters,
+        planPreservingDeleteRanges,
+        planClearInlineMarks,
+        replaceRangeWithCleanup,
+        applyInlineMarkToSelection,
+        deleteAcrossDelimiters,
+        handleInlineDelimiterBackspace,
+        handleInlineDelimiterDelete,
+        dispatchTypedInsertWithCleanup
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/state/markdown-probe.js
+  var require_markdown_probe = __commonJS({
+    "src/gui/renderer/editor/state/markdown-probe.js"(exports, module) {
+      "use strict";
+      var { EditorState } = require_dist2();
+      var { markdown } = require_dist18();
+      var { GFM } = require_dist10();
+      var { ensureSyntaxTree } = require_dist7();
+      var { collectMarkRegions } = require_inline_mark_context();
+      function textState(text) {
+        const src = String(text || "");
+        const state = EditorState.create({
+          doc: src,
+          extensions: [markdown({ extensions: GFM })]
+        });
+        ensureSyntaxTree(state, src.length);
+        return state;
+      }
+      function textRangeHasMarks(text, from, to, expected, keys) {
+        const src = String(text || "");
+        const a = Math.max(0, Math.min(from, src.length));
+        const b = Math.max(a, Math.min(to, src.length));
+        if (b <= a) return true;
+        const state = textState(src);
+        for (let i = 0; i < keys.length; i++) {
+          const k = keys[i];
+          const regions = collectMarkRegions(state, k);
+          let covered = false;
+          for (let j = 0; j < regions.length; j++) {
+            const c = regions[j].content;
+            if (c.from <= a && c.to >= b) {
+              covered = true;
+              break;
+            }
+          }
+          if (covered !== !!expected[k]) return false;
+        }
+        return true;
+      }
+      module.exports = {
+        textState,
+        textRangeHasMarks
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/state/pending-inline-format.js
+  var require_pending_inline_format = __commonJS({
+    "src/gui/renderer/editor/state/pending-inline-format.js"(exports, module) {
+      "use strict";
+      var { StateField, StateEffect, Transaction } = require_dist2();
+      var { EditorView } = require_dist4();
+      var { getInlineFlagsAt } = require_block_format();
+      var {
+        getInlineFlagsAtPos,
+        planMarkInsert,
+        planPendingMarkToggle,
+        resolveMarkRegion,
+        classifyMarkZone,
+        canPassThroughPendingInput,
+        needsPendingInputTransform,
+        findMarkRegionAhead,
+        findMarkRegionBehind
+      } = require_inline_mark_context();
+      var { dispatchTypedInsertWithCleanup } = require_inline_delimiter_ops();
+      var { textRangeHasMarks } = require_markdown_probe();
+      var inlineDbg = require_inline_format_debug();
+      var MARK_KEYS = ["bold", "italic", "underline", "strike", "code"];
+      var DELIM = {
+        code: ["`", "`"],
+        underline: ["~", "~"],
+        strike: ["~~", "~~"],
+        italic: ["*", "*"],
+        bold: ["**", "**"]
+      };
+      var WRAP_ORDER = ["code", "underline", "strike", "italic", "bold"];
+      function emptyMarks() {
+        return {
+          bold: false,
+          italic: false,
+          underline: false,
+          strike: false,
+          code: false
+        };
+      }
+      function emptyPending() {
+        return { armed: false, marks: emptyMarks(), explicit: false };
+      }
+      function anyMarkOn(flags) {
+        if (!flags) return false;
+        for (let i = 0; i < MARK_KEYS.length; i++) {
+          if (flags[MARK_KEYS[i]]) return true;
+        }
+        return false;
+      }
+      function sameMarkContext(a, b) {
+        for (let i = 0; i < MARK_KEYS.length; i++) {
+          const k = MARK_KEYS[i];
+          if (!!a[k] !== !!b[k]) return false;
+        }
+        return true;
+      }
+      var pendingFormatEffect = StateEffect.define();
+      var pendingFormatField = StateField.define({
+        create: function() {
+          return emptyPending();
+        },
+        update: function(value, tr) {
+          for (let i = 0; i < tr.effects.length; i++) {
+            const e = tr.effects[i];
+            if (e.is(pendingFormatEffect)) {
+              inlineDbg.log("pending.effect", {
+                pending: e.value,
+                pos: tr.state.selection.main.head,
+                state: tr.state
+              });
+              return e.value;
+            }
+          }
+          const start = tr.startState.selection.main;
+          const cur = tr.state.selection.main;
+          const selMoved = !tr.docChanged && (start.from !== cur.from || start.to !== cur.to || start.anchor !== cur.anchor || start.head !== cur.head);
+          if (selMoved) {
+            if (cur.from === cur.to) {
+              const flags = getInlineFlagsAtPos(tr.state, cur.head);
+              if (anyMarkOn(flags)) {
+                const prevFlags = getInlineFlagsAtPos(tr.startState, start.head);
+                if (value.armed && value.explicit && sameMarkContext(prevFlags, flags)) {
+                  const next = Object.assign(emptyMarks(), flags);
+                  for (let i = 0; i < MARK_KEYS.length; i++) {
+                    const k = MARK_KEYS[i];
+                    if (!!value.marks[k] !== !!flags[k]) next[k] = value.marks[k];
+                  }
+                  inlineDbg.log("pending.selMove.keepOverride", {
+                    pos: cur.head,
+                    state: tr.state,
+                    current: flags,
+                    pending: { armed: true, marks: next }
+                  });
+                  return { armed: true, marks: next, explicit: true };
+                }
+                inlineDbg.log("pending.selMove.arm", {
+                  pos: cur.head,
+                  state: tr.state,
+                  current: flags,
+                  pending: { armed: true, marks: flags }
+                });
+                return { armed: true, marks: flags, explicit: false };
+              }
+            }
+            inlineDbg.log("pending.selMove.clear", {
+              pos: cur.head,
+              state: tr.state,
+              hadArmed: value.armed
+            });
+            return emptyPending();
+          }
+          return value;
+        }
+      });
+      var widgetPending = null;
+      var widgetComposition = null;
+      function clearWidgetPending() {
+        widgetPending = null;
+      }
+      var widgetPendingListener = null;
+      function setWidgetPendingListener(fn) {
+        widgetPendingListener = typeof fn === "function" ? fn : null;
+      }
+      function notifyWidgetPending() {
+        if (!widgetPendingListener) return;
+        try {
+          widgetPendingListener();
+        } catch (_) {
+        }
+      }
+      function getWidgetPending() {
+        if (!widgetPending || !widgetPending.armed) return null;
+        if (!widgetPending.el || !widgetPending.el.isConnected) {
+          widgetPending = null;
+          return null;
+        }
+        return widgetPending;
+      }
+      function toggleWidgetPendingMark(el, mark, base, pos) {
+        const baseFlags = Object.assign(emptyMarks(), base || emptyMarks());
+        const cur = widgetPending && widgetPending.armed && widgetPending.el === el ? widgetPending.marks : baseFlags;
+        const next = Object.assign(emptyMarks(), cur);
+        next[mark] = !next[mark];
+        widgetPending = {
+          armed: true,
+          marks: next,
+          el,
+          base: widgetPending && widgetPending.armed && widgetPending.el === el && widgetPending.base ? widgetPending.base : baseFlags,
+          pos: typeof pos === "number" ? pos : null
+        };
+        notifyWidgetPending();
+        return next;
+      }
+      function syncWidgetPendingForCaret(el, pos, flags) {
+        const wp = getWidgetPending();
+        if (!wp) return null;
+        if (wp.el !== el) {
+          widgetPending = null;
+          return null;
+        }
+        if (wp.pos == null || wp.pos === pos) return wp;
+        if (!sameMarkContext(wp.base || emptyMarks(), flags || emptyMarks())) {
+          widgetPending = null;
+          return null;
+        }
+        wp.pos = pos;
+        return wp;
+      }
+      function clearWidgetPendingMarks(el, base, pos) {
+        widgetPending = {
+          armed: true,
+          marks: emptyMarks(),
+          el: el || widgetPending && widgetPending.el,
+          base: Object.assign(emptyMarks(), base || emptyMarks()),
+          pos: typeof pos === "number" ? pos : null
+        };
+        if (!widgetPending.el) widgetPending = null;
+        notifyWidgetPending();
+      }
+      function getPending(state) {
+        try {
+          return state.field(pendingFormatField);
+        } catch (_) {
+          return emptyPending();
+        }
+      }
+      function overlayPendingInlineState(state, base) {
+        const pending = getPending(state);
+        const sel = state.selection.main;
+        if (!pending.armed || sel.from !== sel.to) return base;
+        function flag(on) {
+          return { on: !!on, mixed: false };
+        }
+        return {
+          bold: flag(pending.marks.bold),
+          italic: flag(pending.marks.italic),
+          underline: flag(pending.marks.underline),
+          strike: flag(pending.marks.strike),
+          code: flag(pending.marks.code)
+        };
+      }
+      function hasPendingInputFormat(state) {
+        const sel = state.selection.main;
+        if (sel.from !== sel.to) return true;
+        const wp = getWidgetPending();
+        if (wp && wp.armed) return anyMarkOn(wp.marks);
+        const pending = getPending(state);
+        if (pending.armed) return anyMarkOn(pending.marks);
+        return anyMarkOn(getInlineFlagsAt(state, sel.head));
+      }
+      function togglePendingInlineMark(view, mark) {
+        if (!view || !MARK_KEYS.includes(mark)) return false;
+        const state = view.state;
+        const head = state.selection.main.head;
+        const atCursor = getInlineFlagsAt(state, head);
+        const pending = getPending(state);
+        const planned = planPendingMarkToggle(state, head, mark, pending);
+        const next = Object.assign(emptyMarks(), planned.marks);
+        inlineDbg.log("pending.toggle", {
+          pos: head,
+          state,
+          mark,
+          atCursor,
+          before: pending,
+          after: { armed: true, marks: next },
+          cursor: planned.cursor
+        });
+        view.dispatch({
+          effects: pendingFormatEffect.of({ armed: true, marks: next, explicit: true }),
+          selection: { anchor: planned.cursor, head: planned.cursor },
+          annotations: Transaction.addToHistory.of(false)
+        });
+        try {
+          view.focus();
+        } catch (_) {
+        }
+        return true;
+      }
+      function clearPendingInlineFormat(view) {
+        if (!view) return false;
+        view.dispatch({
+          effects: pendingFormatEffect.of({ armed: true, marks: emptyMarks(), explicit: true })
+        });
+        try {
+          view.focus();
+        } catch (_) {
+        }
+        return true;
+      }
+      function wrapWithAdds(text, adds) {
+        let s = text;
+        for (let i = 0; i < WRAP_ORDER.length; i++) {
+          const k = WRAP_ORDER[i];
+          if (adds[k]) {
+            const d = DELIM[k];
+            s = d[0] + s + d[1];
+          }
+        }
+        return s;
+      }
+      function addedOpenLen(adds) {
+        let n = 0;
+        for (let i = 0; i < WRAP_ORDER.length; i++) {
+          const k = WRAP_ORDER[i];
+          if (adds[k]) n += DELIM[k][0].length;
+        }
+        return n;
+      }
+      var pendingImeActive = false;
+      var imeComposeAnchor = null;
+      var skipNextInputText = null;
+      var MAX_IME_COMPOSE_LEN = 48;
+      function findCommittedText(state, head, data) {
+        if (!data) return null;
+        if (head >= data.length && state.doc.sliceString(head - data.length, head) === data) {
+          return { start: head - data.length, end: head };
+        }
+        return null;
+      }
+      function resolveImeDeleteRange(state, head, data, composeAnchor) {
+        const committed = findCommittedText(state, head, data);
+        if (!committed) return null;
+        const commitStart = committed.start;
+        let deleteFrom = commitStart;
+        if (typeof composeAnchor === "number" && composeAnchor < commitStart) {
+          const between = state.doc.sliceString(composeAnchor, commitStart);
+          if (/^[a-z'`:]+$/i.test(between)) deleteFrom = composeAnchor;
+        }
+        const tail = state.doc.sliceString(commitStart, head);
+        if (tail.length > data.length && tail.endsWith(data)) {
+          const prefix = tail.slice(0, tail.length - data.length);
+          if (/^[a-z'`:]+$/i.test(prefix)) deleteFrom = commitStart;
+        }
+        const deleteTo = head;
+        if (deleteTo < deleteFrom || deleteTo - deleteFrom > MAX_IME_COMPOSE_LEN) return null;
+        return { deleteFrom, deleteTo, commitStart };
+      }
+      function planCompositionEndReplace(state, head, data, intended, composeAnchor) {
+        if (!data) return null;
+        const anchor = typeof composeAnchor === "number" ? composeAnchor : imeComposeAnchor != null ? imeComposeAnchor : null;
+        const range = resolveImeDeleteRange(state, head, data, anchor);
+        if (!range) {
+          inlineDbg.log("compose.plan.reject", {
+            pos: head,
+            reason: "noCommittedTextOrRange",
+            anchor
+          });
+          return null;
+        }
+        const deleteFrom = range.deleteFrom;
+        const deleteTo = range.deleteTo;
+        const composed = state.doc.sliceString(deleteFrom, deleteTo);
+        const plan = planTypedReplace(state, deleteFrom, deleteTo, data, intended);
+        if (!plan) return null;
+        inlineDbg.log("compose.plan", {
+          pos: head,
+          state,
+          data,
+          intended,
+          composeAnchor: anchor,
+          commitStart: range.commitStart,
+          deleteFrom,
+          deleteTo,
+          composed,
+          plan
+        });
+        if (state.doc.sliceString(plan.from, plan.to) === plan.insert) return null;
+        inlineDbg.log("compose.apply.transform", { plan });
+        return plan;
+      }
+      function planTypedReplace(state, from, to, text, intended) {
+        if (to <= from) return buildPendingTypedInsert(state, from, from, text, intended);
+        const cleanState = state.update({ changes: { from, to, insert: "" } }).state;
+        const spec = buildPendingTypedInsert(cleanState, from, from, text, intended);
+        if (!spec) return null;
+        const lo = Math.min(spec.from, from);
+        const hi = Math.max(spec.to, from);
+        return {
+          from: lo,
+          to: hi > from ? hi + (to - from) : to,
+          insert: cleanState.doc.sliceString(lo, spec.from) + spec.insert + cleanState.doc.sliceString(spec.to, hi),
+          cursor: spec.cursor
+        };
+      }
+      function typedReplaceBasis(state, from, to) {
+        if (to <= from) return state;
+        return state.update({ changes: { from, to, insert: "" } }).state;
+      }
+      function repairUnrenderableSplit(state, spec, splits, marks, parts) {
+        if (splits.length !== 1 || !splits[0].region) return null;
+        const key = splits[0].key;
+        const region = splits[0].region;
+        const line = state.doc.lineAt(spec.from);
+        const lineText = line.text;
+        const at = spec.from;
+        const leftText = state.doc.sliceString(region.leading.to, at);
+        const rightText = state.doc.sliceString(at, region.trailing.from);
+        const on = Object.assign(emptyMarks(), marks);
+        on[key] = true;
+        function evaluate(unwrapLeft, unwrapRight) {
+          const head = unwrapLeft ? leftText : parts.prefix;
+          const tail = unwrapRight ? rightText : parts.suffix;
+          const cFrom = unwrapLeft ? region.leading.from : at;
+          const cTo = unwrapRight ? region.trailing.to : at;
+          const insert = head + parts.wrapped + tail;
+          const relFrom = cFrom - line.from;
+          const nextLine = lineText.slice(0, relFrom) + insert + lineText.slice(cTo - line.from);
+          const textFrom = relFrom + head.length + parts.textOffset;
+          let ok = textRangeHasMarks(nextLine, textFrom, textFrom + parts.textLen, marks, [key]);
+          if (ok && !unwrapLeft && leftText) {
+            const lf = region.leading.to - line.from;
+            ok = textRangeHasMarks(nextLine, lf, relFrom, on, [key]);
+          }
+          if (ok && !unwrapRight && rightText) {
+            const rf = relFrom + insert.length;
+            ok = textRangeHasMarks(nextLine, rf, rf + rightText.length, on, [key]);
+          }
+          if (!ok) return null;
+          return {
+            from: cFrom,
+            to: cTo,
+            insert,
+            cursor: cFrom + head.length + parts.textOffset + parts.textLen
+          };
+        }
+        const variants = [
+          [false, false],
+          [true, false],
+          [false, true],
+          [true, true]
+        ];
+        for (let i = 0; i < variants.length; i++) {
+          const fixed = evaluate(variants[i][0], variants[i][1]);
+          if (!fixed) continue;
+          return i === 0 ? null : fixed;
+        }
+        return null;
+      }
+      function buildPendingTypedInsert(state, from, to, text, intended) {
+        if (text == null || text === "") return null;
+        const current = getInlineFlagsAt(state, from);
+        const marks = intended || emptyMarks();
+        const adds = emptyMarks();
+        let insertAt = from;
+        let prefix = "";
+        let suffix = "";
+        const splits = [];
+        for (let i = 0; i < WRAP_ORDER.length; i++) {
+          const k = WRAP_ORDER[i];
+          const region = resolveMarkRegion(state, insertAt, k);
+          const zone = classifyMarkZone(region, insertAt);
+          if (marks[k] && region && (zone === "head-out" || zone === "before")) {
+            insertAt = region.content.from;
+            continue;
+          }
+          if (marks[k] && region && zone === "open") {
+            insertAt = region.content.from;
+            continue;
+          }
+          if (marks[k] && region && zone === "tail-out") {
+            insertAt = region.content.to;
+            continue;
+          }
+          if (marks[k] && !region) {
+            const ahead = findMarkRegionAhead(state, insertAt, k);
+            if (ahead) {
+              insertAt = ahead.content.from;
+              continue;
+            }
+            const behind = findMarkRegionBehind(state, insertAt, k);
+            if (behind) {
+              insertAt = behind.content.to;
+              continue;
+            }
+          }
+          if (marks[k] && !current[k]) adds[k] = true;
+          if (!marks[k] && current[k]) {
+            const plan = planMarkInsert(state, insertAt, k, false);
+            insertAt = plan.insertAt;
+            if (plan.split) {
+              const d = DELIM[k];
+              prefix += d[1];
+              suffix = d[0] + suffix;
+              splits.push({ key: k, region: resolveMarkRegion(state, insertAt, k) });
+            }
+          } else if (marks[k]) {
+            const plan = planMarkInsert(state, insertAt, k, true);
+            insertAt = plan.insertAt;
+          }
+        }
+        const wrapped = wrapWithAdds(text, adds);
+        const insert = prefix + wrapped + suffix;
+        const cursor = insertAt + prefix.length + addedOpenLen(adds) + text.length;
+        let spec = { from: insertAt, to: insertAt, insert, cursor };
+        const repaired = repairUnrenderableSplit(state, spec, splits, marks, {
+          prefix,
+          suffix,
+          wrapped,
+          textLen: text.length,
+          textOffset: addedOpenLen(adds)
+        });
+        if (repaired) spec = repaired;
+        inlineDbg.log("buildInsert", {
+          pos: from,
+          state,
+          text,
+          intended: marks,
+          current,
+          adds,
+          insertAt,
+          prefix,
+          suffix,
+          spec
+        });
+        return spec;
+      }
+      function applyPendingTypedInsert(view, from, to, text) {
+        const pending = getPending(view.state);
+        if (!pending.armed) return false;
+        if (!text || text === "\n" || text === "\r\n") {
+          view.dispatch({ effects: pendingFormatEffect.of(emptyPending()) });
+          return false;
+        }
+        const plan = planTypedReplace(view.state, from, to, text, pending.marks);
+        if (!plan) return false;
+        inlineDbg.log("input.apply", {
+          pos: from,
+          state: view.state,
+          from,
+          to,
+          text,
+          pending,
+          plan
+        });
+        dispatchTypedInsertWithCleanup(
+          view,
+          { from: plan.from, to: plan.to, insert: plan.insert },
+          plan.cursor,
+          [pendingFormatEffect.of({ armed: true, marks: Object.assign(emptyMarks(), pending.marks) })]
+        );
+        return true;
+      }
+      function handlePendingInput(view, from, to, text) {
+        if (skipNextInputText != null && text === skipNextInputText) {
+          inlineDbg.log("input.skip", { reason: "compositionHandled", pos: from, text });
+          skipNextInputText = null;
+          return false;
+        }
+        if (view.composing || pendingImeActive) {
+          inlineDbg.log("input.skip", {
+            reason: view.composing ? "composing" : "pendingImeActive",
+            pos: from,
+            state: view.state,
+            text
+          });
+          return false;
+        }
+        const pending = getPending(view.state);
+        if (!pending.armed) {
+          inlineDbg.log("input.skip", { reason: "notArmed", pos: from, state: view.state, text });
+          return false;
+        }
+        const basis = typedReplaceBasis(view.state, from, to);
+        const current = getInlineFlagsAt(basis, from);
+        const needs = !canPassThroughPendingInput(basis, from, pending.marks);
+        inlineDbg.log("input.check", {
+          pos: from,
+          state: view.state,
+          from,
+          to,
+          text,
+          pending,
+          current,
+          needsTransform: needs
+        });
+        if (!needs) {
+          inlineDbg.log("input.pass", {
+            reason: "marksMatch",
+            pos: from,
+            state: view.state,
+            text,
+            note: "\u5EF6\u7EED\u6837\u5F0F\uFF1A\u4EA4\u7ED9 CM6/IME\uFF0C\u82E5\u672B\u5C3E\u672A\u5305\u6837\u5F0F\u8BF7\u67E5 docSnap"
+          });
+          return false;
+        }
+        if (text === "\n" || text === "\r\n") {
+          view.dispatch({ effects: pendingFormatEffect.of(emptyPending()) });
+          return false;
+        }
+        return applyPendingTypedInsert(view, from, to, text);
+      }
+      function handleCompositionEnd(event, view) {
+        const pending = getPending(view.state);
+        const data = event && event.data ? event.data : "";
+        const head = view.state.selection.main.head;
+        inlineDbg.log("compose.end", {
+          pos: head,
+          state: view.state,
+          data,
+          pending,
+          armed: pending.armed
+        });
+        if (!pending.armed) return false;
+        if (!data) return false;
+        const anchor = imeComposeAnchor;
+        const plan = planCompositionEndReplace(view.state, head, data, pending.marks, anchor);
+        if (!plan) {
+          inlineDbg.log("compose.skip", {
+            reason: "noPlan",
+            pos: head,
+            state: view.state,
+            data,
+            anchor
+          });
+          return false;
+        }
+        inlineDbg.log("compose.dispatch", { plan });
+        skipNextInputText = data;
+        dispatchTypedInsertWithCleanup(
+          view,
+          { from: plan.from, to: plan.to, insert: plan.insert },
+          plan.cursor,
+          [pendingFormatEffect.of({ armed: true, marks: Object.assign(emptyMarks(), pending.marks) })]
+        );
+        return true;
+      }
+      function handleCompositionStart(_event, view) {
+        pendingImeActive = true;
+        skipNextInputText = null;
+        if (view) {
+          imeComposeAnchor = view.state.selection.main.head;
+          inlineDbg.log("compose.start", {
+            pos: imeComposeAnchor,
+            state: view.state,
+            pending: getPending(view.state)
+          });
+        } else {
+          imeComposeAnchor = null;
+        }
+        return false;
+      }
+      function handleBeforeInput(event) {
+        if (!event || !event.inputType) return false;
+        const t = String(event.inputType);
+        if (t.indexOf("Composition") >= 0 || t === "insertFromComposition") {
+          pendingImeActive = true;
+          inlineDbg.log("beforeinput.composition", { inputType: t });
+        }
+        return false;
+      }
+      function handleCompositionEndWrapper(event, view) {
+        let handled = false;
+        try {
+          handled = handleCompositionEnd(event, view);
+        } finally {
+          pendingImeActive = false;
+          imeComposeAnchor = null;
+        }
+        return handled;
+      }
+      function createPendingInlineFormatExtension() {
+        return [
+          pendingFormatField,
+          EditorView.inputHandler.of(handlePendingInput),
+          EditorView.domEventHandlers({
+            beforeinput: handleBeforeInput,
+            compositionstart: handleCompositionStart,
+            compositionend: handleCompositionEndWrapper
+          })
+        ];
+      }
+      function cellFromEventTarget(target) {
+        if (!target) return null;
+        const node = (
+          /** @type {Node} */
+          target
+        );
+        const el = node.nodeType === 1 ? (
+          /** @type {HTMLElement} */
+          node
+        ) : (
+          /** @type {any} */
+          node.parentElement
+        );
+        if (!el || !el.closest) return null;
+        return el.closest("th[contenteditable], td[contenteditable]");
+      }
+      function readCellTypingContext(el) {
+        let table;
+        let plan;
+        let cellFlags;
+        try {
+          table = require_table_cell_content();
+          plan = require_inline_string_ops().planTypedInsertInText;
+          cellFlags = table.getCellInlineFlags(el);
+        } catch (_) {
+          return null;
+        }
+        const wp = getWidgetPending();
+        const armed = !!(wp && wp.armed && wp.el === el);
+        const marks = armed ? wp.marks : cellFlags ? cellFlags.flags : emptyMarks();
+        const md = table.getCellMarkdownContent(el);
+        const visStart = cellFlags ? cellFlags.pos : (el.textContent || "").length;
+        return {
+          table,
+          plan,
+          md,
+          mdPos: table.visibleToMarkdownOffset(md, visStart),
+          marks,
+          armed
+        };
+      }
+      function applyCellPlannedInsert(el, ctx, text, force) {
+        const md = ctx.md;
+        const mdPos = ctx.mdPos;
+        let next;
+        let cursorMd;
+        const planned = ctx.plan ? ctx.plan(md, mdPos, text, ctx.marks) : null;
+        if (planned) {
+          next = planned.value;
+          cursorMd = planned.cursor;
+        } else {
+          next = md.slice(0, mdPos) + wrapWithAdds(text, ctx.marks) + md.slice(mdPos);
+          cursorMd = mdPos + addedOpenLen(ctx.marks) + text.length;
+        }
+        const naive = md.slice(0, mdPos) + text + md.slice(mdPos);
+        inlineDbg.log("cell.typedInsert", {
+          md,
+          mdPos,
+          text,
+          marks: ctx.marks,
+          armed: !!ctx.armed,
+          next,
+          takeover: force || next !== naive
+        });
+        if (!force && next === naive) return false;
+        ctx.table.setCellMarkdownContent(el, next);
+        const cursorVis = ctx.table.markdownToVisibleOffset(next, cursorMd);
+        try {
+          el.focus();
+        } catch (_) {
+        }
+        if (typeof ctx.table.setCellVisibleSelection === "function") {
+          ctx.table.setCellVisibleSelection(el, cursorVis, cursorVis);
+        }
+        if (ctx.armed) {
+          const after = ctx.table.getCellInlineFlags(el);
+          widgetPending = {
+            armed: true,
+            marks: Object.assign(emptyMarks(), ctx.marks),
+            el,
+            base: after ? Object.assign(emptyMarks(), after.flags) : emptyMarks(),
+            pos: after ? after.pos : cursorVis,
+            explicit: true
+          };
+        } else {
+          widgetPending = null;
+        }
+        notifyWidgetPending();
+        try {
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+        } catch (_) {
+        }
+        return true;
+      }
+      function onWidgetBeforeInput(e) {
+        if (e.isComposing || e.inputType === "insertCompositionText") return;
+        const el = cellFromEventTarget(e.target);
+        if (!el) return;
+        if (!e.inputType || String(e.inputType).indexOf("insert") !== 0) return;
+        const text = e.data;
+        if (!text || text === "\n") return;
+        const ctx = readCellTypingContext(el);
+        if (!ctx) return;
+        if (!ctx.armed && !anyMarkOn(ctx.marks)) return;
+        const saveDefault = applyCellPlannedInsert(el, ctx, text, ctx.armed);
+        if (!saveDefault) return;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      function onWidgetCompositionStart(e) {
+        widgetComposition = null;
+        const el = cellFromEventTarget(e.target);
+        if (!el) return;
+        const ctx = readCellTypingContext(el);
+        if (!ctx) return;
+        if (!ctx.armed && !anyMarkOn(ctx.marks)) return;
+        widgetComposition = { el, ctx, armed: ctx.armed };
+      }
+      function onWidgetCompositionEnd(e) {
+        const comp = widgetComposition;
+        widgetComposition = null;
+        if (!comp || comp.el !== cellFromEventTarget(e.target)) return;
+        const text = e.data;
+        if (!text || text === "\n") return;
+        applyCellPlannedInsert(comp.el, comp.ctx, text, comp.armed);
+      }
+      if (typeof document !== "undefined" && document.addEventListener) {
+        document.addEventListener("beforeinput", onWidgetBeforeInput, true);
+        document.addEventListener("compositionstart", onWidgetCompositionStart, true);
+        document.addEventListener("compositionend", onWidgetCompositionEnd, true);
+      }
+      module.exports = {
+        MARK_KEYS,
+        emptyMarks,
+        emptyPending,
+        anyMarkOn,
+        pendingFormatEffect,
+        pendingFormatField,
+        getPending,
+        overlayPendingInlineState,
+        hasPendingInputFormat,
+        togglePendingInlineMark,
+        clearPendingInlineFormat,
+        buildPendingTypedInsert,
+        canPassThroughPendingInput,
+        needsPendingInputTransform,
+        planCompositionEndReplace,
+        planTypedReplace,
+        createPendingInlineFormatExtension,
+        getWidgetPending,
+        clearWidgetPending,
+        toggleWidgetPendingMark,
+        syncWidgetPendingForCaret,
+        setWidgetPendingListener,
+        clearWidgetPendingMarks,
+        wrapWithAdds
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/state/inline-string-ops.js
+  var require_inline_string_ops = __commonJS({
+    "src/gui/renderer/editor/state/inline-string-ops.js"(exports, module) {
+      "use strict";
+      var { EditorState, Text } = require_dist2();
+      var { markdown } = require_dist18();
+      var { GFM } = require_dist10();
+      var { ensureSyntaxTree } = require_dist7();
+      var {
+        collectMarkRegions,
+        collectAllMarkRegions,
+        collectDelimiterRuns
+      } = require_inline_mark_context();
+      var {
+        planFusedWrap,
+        planSplitUnwrap,
+        planRegionCleanup,
+        snapOutOfDelimiters,
+        toChangeSet
+      } = require_inline_delimiters();
+      var { getInlineToolbarStateAt } = require_block_format();
+      var { mapRegions } = require_inline_delimiter_ops();
+      var { buildPendingTypedInsert } = require_pending_inline_format();
+      var DELIM = {
+        bold: "**",
+        italic: "*",
+        underline: "~",
+        strike: "~~",
+        code: "`"
+      };
+      function markKeyForDelims(before, after) {
+        if (before !== after) return null;
+        const keys = Object.keys(DELIM);
+        for (let i = 0; i < keys.length; i++) {
+          if (DELIM[keys[i]] === before) return keys[i];
+        }
+        return null;
+      }
+      function textState(text) {
+        const state = EditorState.create({
+          doc: String(text || ""),
+          extensions: [markdown({ extensions: GFM })]
+        });
+        ensureSyntaxTree(state, state.doc.length);
+        return state;
+      }
+      function applyChanges(text, changes) {
+        const set = toChangeSet(changes, text.length);
+        return { value: set.apply(Text.of(String(text).split("\n"))).toString(), set };
+      }
+      function toggleInlineMarkInText(text, from, to, markKey) {
+        const delim = DELIM[markKey];
+        if (!delim) return null;
+        const src = String(text || "");
+        const a = Math.max(0, Math.min(Math.min(from, to), src.length));
+        const b = Math.max(0, Math.min(Math.max(from, to), src.length));
+        const state = textState(src);
+        const snapped = snapOutOfDelimiters(collectDelimiterRuns(state), a, b);
+        if (snapped.to <= snapped.from) return null;
+        const regions = collectMarkRegions(state, markKey);
+        const cov = getInlineToolbarStateAt(state, snapped.from, snapped.to)[markKey];
+        const fullyOn = !!(cov && cov.on && !cov.mixed);
+        const plan = fullyOn ? planSplitUnwrap(src, regions, snapped.from, snapped.to) : planFusedWrap(src, regions, snapped.from, snapped.to, delim);
+        if (!plan) return null;
+        const applied = applyChanges(src, plan.changes);
+        return {
+          value: applied.value,
+          selectionStart: plan.select.from,
+          selectionEnd: plan.select.to
+        };
+      }
+      function planTypedInsertInText(text, pos, insert, marks) {
+        if (!insert) return null;
+        const src = String(text || "");
+        const at = Math.max(0, Math.min(pos, src.length));
+        const state = textState(src);
+        const spec = buildPendingTypedInsert(state, at, at, insert, marks);
+        if (!spec) return null;
+        const before = collectAllMarkRegions(state);
+        const applied = applyChanges(src, [
+          { from: spec.from, to: spec.to, insert: spec.insert }
+        ]);
+        const cleanup = planRegionCleanup(mapRegions(before, applied.set));
+        if (!cleanup.length) return { value: applied.value, cursor: spec.cursor };
+        const cleaned = applyChanges(applied.value, cleanup);
+        return { value: cleaned.value, cursor: cleaned.set.mapPos(spec.cursor, -1) };
+      }
+      function inlineStateInText(text, from, to) {
+        const src = String(text || "");
+        const a = Math.max(0, Math.min(Math.min(from, to), src.length));
+        const b = Math.max(0, Math.min(Math.max(from, to), src.length));
+        return getInlineToolbarStateAt(textState(src), a, b);
+      }
+      module.exports = {
+        DELIM,
+        markKeyForDelims,
+        textState,
+        toggleInlineMarkInText,
+        planTypedInsertInText,
+        inlineStateInText
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/table-cell-content.js
   var require_table_cell_content = __commonJS({
     "src/gui/renderer/editor/widgets/table-cell-content.js"(exports, module) {
       "use strict";
+      var { parser: mdParser, GFM } = require_dist10();
       var { findMathRanges } = require_parse_math();
       var { findImageRanges, serializeImageMarkdown } = require_parse_image();
+      var { collectSyntaxNodes } = require_build_specs();
+      var { SYNTAX_RULES } = require_syntax_rules();
       var { renderKatexHtml } = require_math();
       var { resolveImagesIn } = require_md_surface();
+      var assist = require_editor_assist();
+      var {
+        markKeyForDelims,
+        toggleInlineMarkInText,
+        inlineStateInText
+      } = require_inline_string_ops();
+      var cellMdParser = mdParser.configure(GFM);
+      var CELL_SYNTAX_TYPES = {
+        StrongEmphasis: 1,
+        Emphasis: 1,
+        Underline: 1,
+        Strikethrough: 1,
+        InlineCode: 1,
+        Link: 1,
+        Autolink: 1,
+        URL: 1
+      };
+      function rangesOverlap(a, b) {
+        return a.from < b.to && a.to > b.from;
+      }
+      function pickNonOverlapping(ranges) {
+        const sorted = ranges.slice().sort(function(a, b) {
+          const la = a.to - a.from;
+          const lb = b.to - b.from;
+          return lb - la || a.from - b.from;
+        });
+        const picked = [];
+        for (let i = 0; i < sorted.length; i++) {
+          const r = sorted[i];
+          let overlap = false;
+          for (let j = 0; j < picked.length; j++) {
+            if (rangesOverlap(r, picked[j])) {
+              overlap = true;
+              break;
+            }
+          }
+          if (!overlap) picked.push(r);
+        }
+        return picked.sort(function(a, b) {
+          return a.from - b.from;
+        });
+      }
+      function findSyntaxInlineRanges(raw) {
+        const text = String(raw || "");
+        if (!text) return [];
+        const tree = cellMdParser.parse(text);
+        const nodes = collectSyntaxNodes(tree, text);
+        const syntax = [];
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i];
+          if (!CELL_SYNTAX_TYPES[n.type]) continue;
+          syntax.push({ kind: "syntax", type: n.type, from: n.from, to: n.to });
+        }
+        return pickNonOverlapping(syntax);
+      }
       function findCellInlineRanges(raw) {
-        const math = findMathRanges(raw).filter(function(r) {
+        const text = String(raw || "");
+        const math = findMathRanges(text).filter(function(r) {
           return r.kind === "math-inline";
         });
-        const images = findImageRanges(raw).filter(function(img) {
+        const images = findImageRanges(text).filter(function(img) {
           for (let i = 0; i < math.length; i++) {
-            const m = math[i];
-            if (img.from < m.to && img.to > m.from) return false;
+            if (rangesOverlap(img, math[i])) return false;
           }
           return true;
         });
-        return math.concat(images).sort(function(a, b) {
+        const syntax = findSyntaxInlineRanges(text).filter(function(s) {
+          for (let i = 0; i < math.length; i++) {
+            if (rangesOverlap(s, math[i])) return false;
+          }
+          for (let j = 0; j < images.length; j++) {
+            if (rangesOverlap(s, images[j])) return false;
+          }
+          return true;
+        });
+        return math.concat(images).concat(syntax).sort(function(a, b) {
           return a.from - b.from;
         });
+      }
+      function wrapInlineCode(text) {
+        let fence = "`";
+        while (String(text).indexOf(fence) >= 0) fence += "`";
+        return fence + text + fence;
+      }
+      function serializeInlineStyledElement(el) {
+        if (!el || !el.getAttribute) return null;
+        const text = el.textContent || "";
+        const source = el.getAttribute("data-mda-inline-source");
+        if (source) {
+          const rendered = el.getAttribute("data-mda-inline-text");
+          if (rendered == null || rendered === text) return source;
+        }
+        if (!el.classList) return null;
+        if (!text) {
+          return el.classList.contains("mda-cm-strong") || el.classList.contains("mda-cm-em") || el.classList.contains("mda-cm-underline") || el.classList.contains("mda-cm-strike") || el.classList.contains("mda-cm-code") || el.classList.contains("mda-cm-link") ? "" : null;
+        }
+        if (el.classList.contains("mda-cm-strong")) return "**" + text + "**";
+        if (el.classList.contains("mda-cm-em")) return "*" + text + "*";
+        if (el.classList.contains("mda-cm-underline")) return "~" + text + "~";
+        if (el.classList.contains("mda-cm-strike")) return "~~" + text + "~~";
+        if (el.classList.contains("mda-cm-code")) return wrapInlineCode(text);
+        if (el.classList.contains("mda-cm-link")) {
+          const href = el.getAttribute("href") || "";
+          return "[" + text + "](" + href + ")";
+        }
+        return null;
+      }
+      function appendSyntaxInline(cell, r, raw) {
+        const rule = SYNTAX_RULES[r.type];
+        if (!rule) return;
+        const node = { from: r.from, to: r.to, type: r.type };
+        const source = raw.slice(r.from, r.to);
+        const contentRange = typeof rule.contentRange === "function" ? rule.contentRange(node, raw) : null;
+        const visible = contentRange ? raw.slice(contentRange.from, contentRange.to) : source;
+        const cls = rule.cls || "";
+        if (r.type === "Link" || r.type === "Autolink" || r.type === "URL") {
+          const a = document.createElement("a");
+          a.className = cls;
+          a.setAttribute("href", typeof rule.hrefOf === "function" ? rule.hrefOf(node, raw) : visible);
+          a.setAttribute("data-mda-inline-source", source);
+          a.setAttribute("data-mda-inline-text", visible);
+          a.setAttribute("draggable", "false");
+          a.textContent = visible;
+          cell.appendChild(a);
+          return;
+        }
+        const span = document.createElement("span");
+        span.className = "mda-cm-table-inline " + cls;
+        span.setAttribute("data-mda-inline-source", source);
+        span.setAttribute("data-mda-inline-text", visible);
+        span.textContent = visible;
+        cell.appendChild(span);
       }
       function setCellMarkdownContent(cell, text, opts) {
         if (!cell) return;
@@ -51035,6 +52950,8 @@ var MDAEditorBundle = (() => {
             if (r.title) img.setAttribute("title", r.title);
             wrap.appendChild(img);
             cell.appendChild(wrap);
+          } else if (r.kind === "syntax") {
+            appendSyntaxInline(cell, r, raw);
           }
           pos = r.to;
         }
@@ -51043,45 +52960,57 @@ var MDAEditorBundle = (() => {
         }
         resolveImagesIn(cell, opts.resolveImageUrl);
       }
-      function getCellMarkdownContent(cell) {
-        if (!cell) return "";
-        let out = "";
-        function walk(node) {
-          if (!node) return;
-          if (node.nodeType === 3) {
-            out += node.nodeValue || "";
-            return;
-          }
-          if (node.nodeType !== 1) return;
-          const el = (
-            /** @type {HTMLElement} */
-            node
-          );
-          if (el.getAttribute && el.getAttribute("data-mda-math-source")) {
-            out += el.getAttribute("data-mda-math-source") || "";
-            return;
-          }
-          if (el.getAttribute && el.hasAttribute("data-mda-math-tex")) {
-            out += "$" + (el.getAttribute("data-mda-math-tex") || "") + "$";
-            return;
-          }
-          if (el.getAttribute && el.getAttribute("data-mda-image-source")) {
-            out += el.getAttribute("data-mda-image-source") || "";
-            return;
-          }
-          if (el.classList && el.classList.contains("mda-cm-table-img") && el.getAttribute) {
-            out += serializeImageMarkdown({
+      function walkCellMarkdownNode(node, emit) {
+        if (!node) return;
+        if (node.nodeType === 3) {
+          emit(node.nodeValue || "");
+          return;
+        }
+        if (node.nodeType !== 1) return;
+        const el = (
+          /** @type {HTMLElement} */
+          node
+        );
+        if (el.getAttribute && el.getAttribute("data-mda-math-source")) {
+          emit(el.getAttribute("data-mda-math-source") || "");
+          return;
+        }
+        if (el.getAttribute && el.hasAttribute("data-mda-math-tex")) {
+          emit("$" + (el.getAttribute("data-mda-math-tex") || "") + "$");
+          return;
+        }
+        if (el.getAttribute && el.getAttribute("data-mda-image-source")) {
+          emit(el.getAttribute("data-mda-image-source") || "");
+          return;
+        }
+        if (el.classList && el.classList.contains("mda-cm-table-img") && el.getAttribute) {
+          emit(
+            serializeImageMarkdown({
               alt: el.getAttribute("data-mda-image-alt") || "",
               src: el.getAttribute("data-mda-image-src") || "",
               title: el.getAttribute("data-mda-image-title") || ""
-            });
-            return;
-          }
-          const children = el.childNodes;
-          for (let i = 0; i < children.length; i++) walk(children[i]);
+            })
+          );
+          return;
         }
-        walk(cell);
+        const inline = serializeInlineStyledElement(el);
+        if (inline != null) {
+          emit(inline);
+          return;
+        }
+        const children = el.childNodes;
+        for (let i = 0; i < children.length; i++) walkCellMarkdownNode(children[i], emit);
+      }
+      function serializeTableCellDom(cell) {
+        if (!cell) return "";
+        let out = "";
+        walkCellMarkdownNode(cell, function(chunk) {
+          out += chunk;
+        });
         return String(out).replace(/\u00a0/g, " ").replace(/\r\n/g, "\n");
+      }
+      function getCellMarkdownContent(cell) {
+        return serializeTableCellDom(cell);
       }
       function selectTableMathAtom(atomEl) {
         if (!atomEl || !window.getSelection) return;
@@ -51193,13 +53122,2481 @@ var MDAEditorBundle = (() => {
         abs = String(abs).replace(/\\/g, "/");
         return serializeImageMarkdown({ alt, src: abs, title });
       }
+      function syntaxVisibleRange(r, raw) {
+        if (r.kind !== "syntax") return null;
+        const rule = SYNTAX_RULES[r.type];
+        const node = { from: r.from, to: r.to, type: r.type };
+        const cr = rule && typeof rule.contentRange === "function" ? rule.contentRange(node, raw) : null;
+        if (cr && cr.to >= cr.from) return cr;
+        return { from: r.from, to: r.to };
+      }
+      function visibleToMarkdownOffset(raw, visPos) {
+        raw = String(raw || "");
+        visPos = Math.max(0, visPos | 0);
+        const ranges = findCellInlineRanges(raw);
+        let v = 0;
+        let m = 0;
+        let ri = 0;
+        while (true) {
+          const r = ranges[ri];
+          if (r && m === r.from) {
+            const cr = syntaxVisibleRange(r, raw);
+            if (cr) {
+              const visLen = cr.to - cr.from;
+              if (visPos <= v + visLen) return cr.from + (visPos - v);
+              v += visLen;
+            } else {
+              if (visPos <= v + 1) return visPos === v ? r.from : r.to;
+              v += 1;
+            }
+            m = r.to;
+            ri += 1;
+            continue;
+          }
+          const next = r ? r.from : raw.length;
+          const plain = next - m;
+          if (visPos <= v + plain) return m + (visPos - v);
+          v += plain;
+          m = next;
+          if (!r) return raw.length;
+        }
+      }
+      function markdownToVisibleOffset(raw, mdPos) {
+        raw = String(raw || "");
+        mdPos = Math.max(0, Math.min(mdPos | 0, raw.length));
+        const ranges = findCellInlineRanges(raw);
+        let v = 0;
+        let m = 0;
+        let ri = 0;
+        while (true) {
+          const r = ranges[ri];
+          if (r && m === r.from) {
+            const cr = syntaxVisibleRange(r, raw);
+            if (cr) {
+              if (mdPos <= cr.from) return v;
+              if (mdPos <= cr.to) return v + (mdPos - cr.from);
+              v += cr.to - cr.from;
+              if (mdPos < r.to) return v;
+            } else {
+              if (mdPos <= r.from) return v;
+              if (mdPos < r.to) return v;
+              v += 1;
+            }
+            m = r.to;
+            ri += 1;
+            continue;
+          }
+          const next = r ? r.from : raw.length;
+          if (mdPos <= next) return v + (mdPos - m);
+          v += next - m;
+          m = next;
+          if (!r) return v;
+        }
+      }
+      function rangeStillInCell(range, cell) {
+        if (!range || !cell) return false;
+        try {
+          return cell.contains(range.startContainer) && cell.contains(range.endContainer);
+        } catch (_) {
+          return false;
+        }
+      }
+      function getRangeVisibleOffsets(cell, range) {
+        const pre = document.createRange();
+        pre.selectNodeContents(cell);
+        pre.setEnd(range.startContainer, range.startOffset);
+        const start = pre.toString().length;
+        return { start, end: start + range.toString().length };
+      }
+      function setCellVisibleSelection(cell, visStart, visEnd) {
+        if (!cell || typeof document === "undefined") return;
+        visStart = Math.max(0, visStart | 0);
+        visEnd = Math.max(visStart, visEnd | 0);
+        const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT, null);
+        let pos = 0;
+        let startNode = null;
+        let startOff = 0;
+        let endNode = null;
+        let endOff = 0;
+        let n = walker.nextNode();
+        while (n) {
+          const len = (n.nodeValue || "").length;
+          if (!startNode && visStart <= pos + len) {
+            startNode = n;
+            startOff = visStart - pos;
+          }
+          if (visEnd <= pos + len) {
+            endNode = n;
+            endOff = visEnd - pos;
+            break;
+          }
+          pos += len;
+          n = walker.nextNode();
+        }
+        if (!startNode) return;
+        if (!endNode) {
+          endNode = startNode;
+          endOff = (startNode.nodeValue || "").length;
+        }
+        const maxS = (startNode.nodeValue || "").length;
+        const maxE = (endNode.nodeValue || "").length;
+        try {
+          const range = document.createRange();
+          range.setStart(startNode, Math.max(0, Math.min(startOff, maxS)));
+          range.setEnd(endNode, Math.max(0, Math.min(endOff, maxE)));
+          const sel = window.getSelection();
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        } catch (_) {
+        }
+      }
+      function applyInlineFormatToTableCell(cell, before, after, savedRange, visHint) {
+        if (!cell) return false;
+        const md = serializeTableCellDom(cell);
+        let visStart;
+        let visEnd;
+        if (visHint && typeof visHint.visStart === "number" && typeof visHint.visEnd === "number" && visHint.visEnd >= visHint.visStart) {
+          visStart = visHint.visStart;
+          visEnd = visHint.visEnd;
+        } else {
+          let range = savedRange && rangeStillInCell(savedRange, cell) ? savedRange : null;
+          if (!range && typeof window !== "undefined" && window.getSelection) {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+              const live = sel.getRangeAt(0);
+              if (rangeStillInCell(live, cell)) range = live;
+            }
+          }
+          if (range) {
+            const off = getRangeVisibleOffsets(cell, range);
+            visStart = off.start;
+            visEnd = off.end;
+          } else {
+            visStart = visEnd = (cell.textContent || "").length;
+          }
+        }
+        const mdA = visibleToMarkdownOffset(md, visStart);
+        const mdB = visibleToMarkdownOffset(md, visEnd);
+        const markKey = markKeyForDelims(before, after);
+        const planned = markKey ? toggleInlineMarkInText(md, mdA, mdB, markKey) : null;
+        const result = planned || (before === "~" && after === "~" ? assist.toggleUnderline(md, mdA, mdB) : assist.toggleWrap(md, mdA, mdB, before, after));
+        if (!result) return false;
+        setCellMarkdownContent(cell, result.value);
+        const newVisStart = markdownToVisibleOffset(result.value, result.selectionStart);
+        const newVisEnd = markdownToVisibleOffset(result.value, result.selectionEnd);
+        function restore() {
+          if (!cell.isConnected) return;
+          try {
+            cell.focus();
+          } catch (_) {
+          }
+          setCellVisibleSelection(cell, newVisStart, newVisEnd);
+        }
+        restore();
+        if (typeof requestAnimationFrame === "function") {
+          requestAnimationFrame(restore);
+        }
+        try {
+          cell.dispatchEvent(new Event("input", { bubbles: true }));
+        } catch (_) {
+        }
+        return true;
+      }
+      function resolveCellVisRange(cell, visHint) {
+        if (!cell) return null;
+        if (visHint && typeof visHint.visStart === "number" && typeof visHint.visEnd === "number" && visHint.visEnd >= visHint.visStart) {
+          return { start: visHint.visStart, end: visHint.visEnd };
+        }
+        if (typeof window === "undefined" || !window.getSelection) return null;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount < 1) return null;
+        const range = sel.getRangeAt(0);
+        if (!rangeStillInCell(range, cell)) return null;
+        return getRangeVisibleOffsets(cell, range);
+      }
+      function getCellInlineState(cell, visHint) {
+        const vis = resolveCellVisRange(cell, visHint);
+        if (!vis) return null;
+        const md = serializeTableCellDom(cell);
+        return inlineStateInText(
+          md,
+          visibleToMarkdownOffset(md, vis.start),
+          visibleToMarkdownOffset(md, vis.end)
+        );
+      }
+      function getCellInlineFlags(cell, visHint) {
+        const vis = resolveCellVisRange(cell, visHint);
+        if (!vis) return null;
+        const md = serializeTableCellDom(cell);
+        const at = visibleToMarkdownOffset(md, vis.start);
+        const st = inlineStateInText(md, at, at);
+        const flags = {};
+        for (const k in st) {
+          if (!Object.prototype.hasOwnProperty.call(st, k)) continue;
+          flags[k] = !!(st[k] && st[k].on && !st[k].mixed);
+        }
+        return { pos: vis.start, flags };
+      }
       module.exports = {
         setCellMarkdownContent,
         getCellMarkdownContent,
+        getCellInlineState,
+        getCellInlineFlags,
+        getCellVisibleSelection: resolveCellVisRange,
+        serializeTableCellDom,
+        serializeInlineStyledElement,
+        wrapInlineCode,
+        findSyntaxInlineRanges,
         selectTableMathAtom,
         handleTableMathDeleteKey,
         findCellInlineRanges,
-        tableCellImageMarkdownAbs
+        tableCellImageMarkdownAbs,
+        applyInlineFormatToTableCell,
+        setCellVisibleSelection,
+        visibleToMarkdownOffset,
+        markdownToVisibleOffset
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/model/parse-table.js
+  var require_parse_table = __commonJS({
+    "src/gui/renderer/editor/model/parse-table.js"(exports, module) {
+      "use strict";
+      var { serializeTableCellDom } = require_table_cell_content();
+      var MAX_TABLE_COL_WIDTH = 4e3;
+      var MAX_TABLE_ROW_HEIGHT = 600;
+      var MAX_TABLE_WIDGET_HEIGHT = 12e3;
+      function sanitizeLayoutNumbers(arr, max) {
+        if (!Array.isArray(arr)) return [];
+        return arr.map(function(v) {
+          const n = Number(v);
+          if (!Number.isFinite(n) || n <= 0) return 0;
+          return Math.min(Math.round(n), max);
+        });
+      }
+      function alignHintLineRange(text, from, to, len) {
+        let start = Math.max(0, Math.min(from, len));
+        while (start > 0 && text.charAt(start - 1) !== "\n") start -= 1;
+        let end = Math.max(start, Math.min(to, len));
+        while (end < len && text.charAt(end) !== "\n") end += 1;
+        if (end < len) end += 1;
+        return { from: start, to: end };
+      }
+      function splitRow(line) {
+        let s = line.trim();
+        if (s.charAt(0) === "|") s = s.slice(1);
+        if (s.charAt(s.length - 1) === "|") s = s.slice(0, -1);
+        const cells = [];
+        let cur = "";
+        for (let i = 0; i < s.length; i++) {
+          const ch = s.charAt(i);
+          if (ch === "\\" && i + 1 < s.length) {
+            const next = s.charAt(i + 1);
+            if (next === "|" || next === "\\") {
+              cur += next;
+              i += 1;
+              continue;
+            }
+            cur += ch;
+            continue;
+          }
+          if (ch === "|") {
+            cells.push(cur.trim());
+            cur = "";
+            continue;
+          }
+          cur += ch;
+        }
+        cells.push(cur.trim());
+        return cells;
+      }
+      function escapeCell(text) {
+        return String(text || "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, " ");
+      }
+      function isSepRow(line) {
+        const cells = splitRow(line);
+        if (!cells.length) return false;
+        return cells.every(function(c) {
+          return /^:?-+:?$/.test(c);
+        });
+      }
+      function alignOf(sep) {
+        const left = sep.charAt(0) === ":";
+        const right = sep.charAt(sep.length - 1) === ":";
+        if (left && right) return "center";
+        if (right) return "right";
+        return "left";
+      }
+      function parseGfmTable(tableText) {
+        const lines = String(tableText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(function(l, i, arr) {
+          return l.length > 0 || i < arr.length - 1;
+        }).filter(function(l) {
+          return l.trim().length > 0;
+        });
+        if (lines.length < 2) return null;
+        if (!isSepRow(lines[1])) return null;
+        const headers = splitRow(lines[0]);
+        const aligns = splitRow(lines[1]).map(alignOf);
+        while (aligns.length < headers.length) aligns.push("left");
+        const rows = [];
+        for (let i = 2; i < lines.length; i++) {
+          const cells = splitRow(lines[i]);
+          while (cells.length < headers.length) cells.push("");
+          rows.push(cells.slice(0, headers.length));
+        }
+        return { headers, aligns: aligns.slice(0, headers.length), rows };
+      }
+      function alignSep(align) {
+        if (align === "center") return ":---:";
+        if (align === "right") return "---:";
+        return "---";
+      }
+      function formatRow(cells) {
+        return "| " + cells.map(escapeCell).join(" | ") + " |";
+      }
+      function formatSepRow(aligns) {
+        return "| " + aligns.map(alignSep).join(" | ") + " |";
+      }
+      function serializeGfmTable(parsed) {
+        const headers = parsed.headers || [];
+        const aligns = parsed.aligns || [];
+        const rows = parsed.rows || [];
+        const lines = [formatRow(headers), formatSepRow(aligns)];
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i].slice(0, headers.length);
+          while (row.length < headers.length) row.push("");
+          lines.push(formatRow(row));
+        }
+        return lines.join("\n");
+      }
+      var TABLE_META_RE = /^\[comment\]:\s*<>\s*\(@mda-table\s+(\{.+?\})\)\s*$/;
+      function parseTableMetaLine(line) {
+        const m = String(line || "").trim().match(TABLE_META_RE);
+        if (!m) return null;
+        try {
+          const meta = JSON.parse(m[1]);
+          return meta && typeof meta === "object" ? meta : null;
+        } catch (_) {
+          return null;
+        }
+      }
+      function hasTableLayoutMeta(parsed) {
+        if (!parsed) return false;
+        const cw = parsed.colWidths || [];
+        const rh = parsed.rowHeights || [];
+        return cw.some(function(w) {
+          return w > 0;
+        }) || rh.some(function(h) {
+          return h > 0;
+        });
+      }
+      function serializeGfmTableBlock(parsed) {
+        const body = serializeGfmTable(parsed);
+        if (!hasTableLayoutMeta(parsed)) return body;
+        const meta = {};
+        if (parsed.colWidths && parsed.colWidths.length) meta.colWidths = parsed.colWidths;
+        if (parsed.rowHeights && parsed.rowHeights.length) meta.rowHeights = parsed.rowHeights;
+        return "[comment]: <> (@mda-table " + JSON.stringify(meta) + ")\n" + body;
+      }
+      function parseGfmTableBlock(blockText) {
+        const lines = String(blockText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(function(l, i, arr) {
+          return l.length > 0 || i < arr.length - 1;
+        });
+        let start = 0;
+        let meta = null;
+        if (lines.length > 0) {
+          meta = parseTableMetaLine(lines[0]);
+          if (meta) start = 1;
+        }
+        const parsed = parseGfmTable(lines.slice(start).join("\n"));
+        if (!parsed) return null;
+        if (meta) {
+          if (Array.isArray(meta.colWidths)) {
+            parsed.colWidths = sanitizeLayoutNumbers(meta.colWidths, MAX_TABLE_COL_WIDTH);
+          }
+          if (Array.isArray(meta.rowHeights)) {
+            parsed.rowHeights = sanitizeLayoutNumbers(meta.rowHeights, MAX_TABLE_ROW_HEIGHT);
+          }
+        }
+        return parsed;
+      }
+      function tableLayoutEqual(a, b) {
+        const cwA = a && a.colWidths ? a.colWidths : [];
+        const cwB = b && b.colWidths ? b.colWidths : [];
+        const rhA = a && a.rowHeights ? a.rowHeights : [];
+        const rhB = b && b.rowHeights ? b.rowHeights : [];
+        if (cwA.length !== cwB.length || rhA.length !== rhB.length) return false;
+        for (let i = 0; i < cwA.length; i++) {
+          if ((cwA[i] || 0) !== (cwB[i] || 0)) return false;
+        }
+        for (let i = 0; i < rhA.length; i++) {
+          if ((rhA[i] || 0) !== (rhB[i] || 0)) return false;
+        }
+        return true;
+      }
+      function normalizeCellText(text) {
+        return String(text || "").replace(/\u00a0/g, " ").replace(/\r\n/g, "\n");
+      }
+      function tablesEqual(a, b) {
+        if (!a || !b) return false;
+        if (a.headers.length !== b.headers.length) return false;
+        for (let i = 0; i < a.headers.length; i++) {
+          if (a.headers[i] !== b.headers[i]) return false;
+          const al = a.aligns[i] || "left";
+          const bl = b.aligns[i] || "left";
+          if (al !== bl) return false;
+        }
+        if (a.rows.length !== b.rows.length) return false;
+        for (let r = 0; r < a.rows.length; r++) {
+          const rowA = a.rows[r];
+          const rowB = b.rows[r];
+          for (let c = 0; c < a.headers.length; c++) {
+            if ((rowA[c] || "") !== (rowB[c] || "")) return false;
+          }
+        }
+        return true;
+      }
+      function readTableFromDom(table) {
+        if (!table) return null;
+        const headers = [];
+        const ths = table.querySelectorAll("thead th");
+        const colWidths = [];
+        for (let i = 0; i < ths.length; i++) {
+          headers.push(serializeTableCellMarkdown(ths[i]).trim());
+          const w = parseInt(ths[i].style.width || "", 10);
+          colWidths.push(w > 0 ? w : 0);
+        }
+        if (!headers.length) return null;
+        const aligns = [];
+        for (let i = 0; i < headers.length; i++) {
+          const th = ths[i];
+          const align = th && th.style.textAlign ? th.style.textAlign : "left";
+          aligns.push(align === "center" || align === "right" ? align : "left");
+        }
+        const rows = [];
+        const rowHeights = [];
+        const headerRow = table.querySelector("thead tr");
+        if (headerRow) {
+          const hh = parseInt(headerRow.style.height || "", 10);
+          rowHeights.push(hh > 0 ? hh : 0);
+        }
+        const trs = table.querySelectorAll("tbody tr");
+        for (let r = 0; r < trs.length; r++) {
+          const cells = [];
+          const tds = trs[r].querySelectorAll("td");
+          for (let c = 0; c < headers.length; c++) {
+            cells.push(tds[c] ? serializeTableCellMarkdown(tds[c]).trim() : "");
+          }
+          rows.push(cells);
+          const rh = parseInt(trs[r].style.height || "", 10);
+          rowHeights.push(rh > 0 ? rh : 0);
+        }
+        const out = { headers, aligns, rows };
+        if (table.getAttribute("data-mda-layout") === "fixed") {
+          if (colWidths.some(function(w) {
+            return w > 0;
+          })) out.colWidths = colWidths;
+          if (rowHeights.some(function(h) {
+            return h > 0;
+          })) out.rowHeights = rowHeights;
+        }
+        return out;
+      }
+      function serializeTableCellMarkdown(cell) {
+        return normalizeCellText(serializeTableCellDom(cell));
+      }
+      function isTableLine(line) {
+        const t = String(line || "").trim();
+        return t.length > 0 && t.charAt(0) === "|";
+      }
+      function clampGfmTableRangeByParse(text, start, end) {
+        const len = text.length;
+        const block = text.slice(start, end);
+        const parsed = parseGfmTable(block);
+        if (!parsed) return null;
+        const needLines = 2 + parsed.rows.length;
+        let counted = 0;
+        let pos = start;
+        let tableEnd = start;
+        while (pos < end && counted < needLines) {
+          const lineFrom = pos;
+          const nextNl = text.indexOf("\n", lineFrom);
+          const lineTo = nextNl < 0 ? len : nextNl;
+          const line = text.slice(lineFrom, lineTo);
+          if (!line.trim()) break;
+          if (!isTableLine(line)) break;
+          counted += 1;
+          tableEnd = nextNl < 0 ? len : nextNl + 1;
+          pos = tableEnd;
+        }
+        if (counted < needLines) return null;
+        return { from: start, to: tableEnd };
+      }
+      function expandGfmTableRange(text, from, to) {
+        const len = text.length;
+        let start = Math.max(0, Math.min(from, len));
+        while (start > 0 && text.charAt(start - 1) !== "\n") start -= 1;
+        let seed = start;
+        if (!isTableLine(text.slice(seed, text.indexOf("\n", seed) < 0 ? len : text.indexOf("\n", seed)))) {
+          let pos = seed;
+          let found = false;
+          for (let i = 0; i < 4 && pos < len; i++) {
+            const lineFrom = pos;
+            const nextNl = text.indexOf("\n", lineFrom);
+            const lineTo = nextNl < 0 ? len : nextNl;
+            if (isTableLine(text.slice(lineFrom, lineTo))) {
+              seed = lineFrom;
+              found = true;
+              break;
+            }
+            pos = nextNl < 0 ? len : nextNl + 1;
+          }
+          if (!found) {
+            return alignHintLineRange(text, from, to, len);
+          }
+        }
+        start = seed;
+        let scan = start;
+        while (scan > 0) {
+          const prev = text.lastIndexOf("\n", scan - 1);
+          const lineFrom = prev < 0 ? 0 : prev + 1;
+          const line = text.slice(lineFrom, scan);
+          if (!isTableLine(line)) break;
+          start = lineFrom;
+          scan = lineFrom;
+        }
+        let end = start;
+        while (end < len) {
+          const lineFrom = end;
+          const nextNl = text.indexOf("\n", lineFrom);
+          const lineTo = nextNl < 0 ? len : nextNl;
+          const line = text.slice(lineFrom, lineTo);
+          if (!line.trim()) break;
+          if (!isTableLine(line)) break;
+          end = nextNl < 0 ? len : nextNl + 1;
+        }
+        const clamped = clampGfmTableRangeByParse(text, start, end);
+        if (clamped) return clamped;
+        return alignHintLineRange(text, from, to, len);
+      }
+      function expandTableBlockRange(text, from, to) {
+        const gfm = expandGfmTableRange(text, from, to);
+        let blockFrom = gfm.from;
+        if (blockFrom > 0) {
+          const lineEnd = blockFrom - 1;
+          const lineStart = lineEnd > 0 ? text.lastIndexOf("\n", lineEnd - 1) + 1 : 0;
+          const line = text.slice(lineStart, lineEnd);
+          if (parseTableMetaLine(line)) blockFrom = lineStart;
+        }
+        return { from: blockFrom, to: gfm.to };
+      }
+      module.exports = {
+        MAX_TABLE_COL_WIDTH,
+        MAX_TABLE_ROW_HEIGHT,
+        MAX_TABLE_WIDGET_HEIGHT,
+        parseGfmTable,
+        parseGfmTableBlock,
+        serializeGfmTable,
+        serializeGfmTableBlock,
+        parseTableMetaLine,
+        hasTableLayoutMeta,
+        tableLayoutEqual,
+        readTableFromDom,
+        serializeTableCellMarkdown,
+        expandGfmTableRange,
+        expandTableBlockRange,
+        splitRow,
+        escapeCell,
+        tablesEqual,
+        normalizeCellText,
+        sanitizeLayoutNumbers
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/model/table-model.js
+  var require_table_model = __commonJS({
+    "src/gui/renderer/editor/model/table-model.js"(exports, module) {
+      "use strict";
+      function cloneTableData(parsed) {
+        const out = {
+          headers: parsed.headers.slice(),
+          aligns: (parsed.aligns || []).slice(),
+          rows: parsed.rows.map(function(row) {
+            return row.slice();
+          })
+        };
+        if (parsed.colWidths) out.colWidths = parsed.colWidths.slice();
+        if (parsed.rowHeights) out.rowHeights = parsed.rowHeights.slice();
+        return out;
+      }
+      function emptyRow(parsed) {
+        return parsed.headers.map(function() {
+          return "";
+        });
+      }
+      function insertTableRow(parsed, bodyIndex, position) {
+        const row = emptyRow(parsed);
+        const idx = position === "before" ? bodyIndex : bodyIndex + 1;
+        parsed.rows.splice(Math.max(0, Math.min(idx, parsed.rows.length)), 0, row);
+        if (parsed.rowHeights) {
+          const at = Math.max(0, Math.min(idx, parsed.rows.length - 1)) + 1;
+          parsed.rowHeights.splice(at, 0, 0);
+        }
+      }
+      function insertTableColumn(parsed, colIndex, position) {
+        const idx = position === "before" ? colIndex : colIndex + 1;
+        const at = Math.max(0, Math.min(idx, parsed.headers.length));
+        parsed.headers.splice(at, 0, "");
+        parsed.aligns.splice(at, 0, "left");
+        if (parsed.colWidths) parsed.colWidths.splice(at, 0, 0);
+        for (let r = 0; r < parsed.rows.length; r++) {
+          parsed.rows[r].splice(at, 0, "");
+        }
+      }
+      function deleteTableRow(parsed, bodyIndex) {
+        if (bodyIndex < 0 || bodyIndex >= parsed.rows.length) return;
+        parsed.rows.splice(bodyIndex, 1);
+        if (parsed.rowHeights && parsed.rowHeights.length > bodyIndex + 1) {
+          parsed.rowHeights.splice(bodyIndex + 1, 1);
+        }
+      }
+      function deleteTableColumn(parsed, colIndex) {
+        if (parsed.headers.length <= 1) return;
+        if (colIndex < 0 || colIndex >= parsed.headers.length) return;
+        parsed.headers.splice(colIndex, 1);
+        parsed.aligns.splice(colIndex, 1);
+        if (parsed.colWidths) parsed.colWidths.splice(colIndex, 1);
+        for (let r = 0; r < parsed.rows.length; r++) {
+          parsed.rows[r].splice(colIndex, 1);
+        }
+      }
+      function cellAt(parsed, row, col) {
+        if (col < 0 || col >= parsed.headers.length) return "";
+        if (row === -1) return parsed.headers[col] || "";
+        if (row < 0 || row >= parsed.rows.length) return "";
+        return parsed.rows[row][col] || "";
+      }
+      function setCellAt(parsed, row, col, value) {
+        if (col < 0 || col >= parsed.headers.length) return;
+        if (row === -1) {
+          parsed.headers[col] = value;
+          return;
+        }
+        if (row < 0 || row >= parsed.rows.length) return;
+        parsed.rows[row][col] = value;
+      }
+      function selectionBounds(sel) {
+        if (!sel || sel.kind === "none") return null;
+        if (sel.kind === "cell") {
+          return { row1: sel.row, col1: sel.col, row2: sel.row, col2: sel.col };
+        }
+        if (sel.kind === "row") {
+          return {
+            row1: sel.row,
+            col1: 0,
+            row2: sel.row,
+            col2: Number.MAX_SAFE_INTEGER
+          };
+        }
+        if (sel.kind === "col") {
+          return {
+            row1: -1,
+            col1: sel.col,
+            row2: Number.MAX_SAFE_INTEGER,
+            col2: sel.col
+          };
+        }
+        if (sel.kind === "rect") {
+          return {
+            row1: Math.min(sel.row1, sel.row2),
+            col1: Math.min(sel.col1, sel.col2),
+            row2: Math.max(sel.row1, sel.row2),
+            col2: Math.max(sel.col1, sel.col2)
+          };
+        }
+        return null;
+      }
+      function isFullColumnSelection(sel) {
+        const b = selectionBounds(sel);
+        if (!b) return false;
+        return b.row1 === -1 && b.row2 === Number.MAX_SAFE_INTEGER;
+      }
+      function isFullRowSelection(sel) {
+        const b = selectionBounds(sel);
+        if (!b) return false;
+        return b.col1 === 0 && b.col2 === Number.MAX_SAFE_INTEGER;
+      }
+      function isEntireTableSelection(parsed, sel) {
+        if (!parsed || !parsed.headers || !parsed.headers.length) return false;
+        const b = selectionBounds(sel);
+        if (!b) return false;
+        const maxCol = parsed.headers.length - 1;
+        const maxRow = Math.max(0, (parsed.rows || []).length - 1);
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        if (b.row1 !== -1) return false;
+        if (b.col1 > 0 || col2 < maxCol) return false;
+        if ((parsed.rows || []).length === 0) return col2 >= maxCol;
+        return row2 >= maxRow;
+      }
+      function escapeHtmlCell(s) {
+        return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+      function escapeMdCell(cell) {
+        return String(cell == null ? "" : cell).replace(/\|/g, "\\|").replace(/\n/g, " ");
+      }
+      function formatMdRow(cells) {
+        return "| " + cells.map(escapeMdCell).join(" | ") + " |";
+      }
+      function formatMdSep(aligns) {
+        return "| " + aligns.map(function(a) {
+          if (a === "center") return ":---:";
+          if (a === "right") return "---:";
+          return "---";
+        }).join(" | ") + " |";
+      }
+      function extractTableMarkdown(parsed, sel) {
+        const b = selectionBounds(sel);
+        if (!b) return "";
+        const maxRow = parsed.rows.length - 1;
+        const maxCol = parsed.headers.length - 1;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        const cols = [];
+        for (let c = b.col1; c <= col2; c++) cols.push(c);
+        if (!cols.length) return "";
+        let headers;
+        let aligns;
+        const body = [];
+        if (b.row1 === -1) {
+          headers = cols.map(function(c) {
+            return cellAt(parsed, -1, c);
+          });
+          aligns = cols.map(function(c) {
+            return parsed.aligns && parsed.aligns[c] || "left";
+          });
+          for (let r = 0; r <= row2; r++) {
+            body.push(
+              cols.map(function(c) {
+                return cellAt(parsed, r, c);
+              })
+            );
+          }
+        } else {
+          headers = cols.map(function() {
+            return "";
+          });
+          aligns = cols.map(function(c) {
+            return parsed.aligns && parsed.aligns[c] || "left";
+          });
+          for (let r = b.row1; r <= row2; r++) {
+            body.push(
+              cols.map(function(c) {
+                return cellAt(parsed, r, c);
+              })
+            );
+          }
+        }
+        const lines = [formatMdRow(headers), formatMdSep(aligns)];
+        for (let i = 0; i < body.length; i++) lines.push(formatMdRow(body[i]));
+        return lines.join("\n");
+      }
+      function extractTableHtml(parsed, sel) {
+        const b = selectionBounds(sel);
+        if (!b) return "";
+        const maxRow = parsed.rows.length - 1;
+        const maxCol = parsed.headers.length - 1;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        const parts = ["<table>"];
+        for (let r = b.row1; r <= row2; r++) {
+          parts.push("<tr>");
+          for (let c = b.col1; c <= col2; c++) {
+            const tag = r === -1 ? "th" : "td";
+            parts.push("<" + tag + ">" + escapeHtmlCell(cellAt(parsed, r, c)) + "</" + tag + ">");
+          }
+          parts.push("</tr>");
+        }
+        parts.push("</table>");
+        return parts.join("");
+      }
+      function clearTableSelection(parsed, sel) {
+        const b = selectionBounds(sel);
+        if (!b) return;
+        const maxRow = parsed.rows.length - 1;
+        const maxCol = parsed.headers.length - 1;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        for (let r = b.row1; r <= row2; r++) {
+          for (let c = b.col1; c <= col2; c++) {
+            setCellAt(parsed, r, c, "");
+          }
+        }
+      }
+      function extractTableTSV(parsed, sel) {
+        const b = selectionBounds(sel);
+        if (!b) return "";
+        const maxRow = parsed.rows.length - 1;
+        const maxCol = parsed.headers.length - 1;
+        const row2 = b.row2 === Number.MAX_SAFE_INTEGER ? maxRow : b.row2;
+        const col2 = b.col2 === Number.MAX_SAFE_INTEGER ? maxCol : b.col2;
+        const lines = [];
+        for (let r = b.row1; r <= row2; r++) {
+          const cells = [];
+          for (let c = b.col1; c <= col2; c++) {
+            cells.push(cellAt(parsed, r, c));
+          }
+          lines.push(cells.join("	"));
+        }
+        return lines.join("\n");
+      }
+      function parseClipboardTable(tsvOrMd) {
+        const text = String(tsvOrMd || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+        if (!text) return [];
+        const mdLines = text.split("\n").filter(function(l) {
+          return l.trim().length > 0;
+        });
+        if (mdLines.length >= 2 && /^\s*\|/.test(mdLines[0]) && /^\s*\|?\s*:?-{3,}/.test(mdLines[1].replace(/\|/g, "|"))) {
+          const sepLooks = mdLines[1].indexOf("---") >= 0 || mdLines[1].indexOf(":--") >= 0 || mdLines[1].indexOf("--:") >= 0;
+          if (sepLooks) {
+            const splitMd = function(line) {
+              let s = String(line || "").trim();
+              if (s.charAt(0) === "|") s = s.slice(1);
+              if (s.charAt(s.length - 1) === "|") s = s.slice(0, -1);
+              return s.split("|").map(function(c) {
+                return c.replace(/^\s+|\s+$/g, "").replace(/\\\|/g, "|");
+              });
+            };
+            const headers = splitMd(mdLines[0]);
+            const out2 = [headers];
+            for (let i = 2; i < mdLines.length; i++) {
+              const cells = splitMd(mdLines[i]);
+              while (cells.length < headers.length) cells.push("");
+              out2.push(cells.slice(0, Math.max(headers.length, cells.length)));
+            }
+            return out2;
+          }
+        }
+        const lines = text.split("\n");
+        const out = [];
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].indexOf("	") >= 0) {
+            out.push(lines[i].split("	"));
+          } else {
+            out.push([lines[i]]);
+          }
+        }
+        return out;
+      }
+      function pasteTableTSV(parsed, startRow, startCol, tsv) {
+        const grid = parseClipboardTable(tsv);
+        if (!grid.length) return;
+        for (let r = 0; r < grid.length; r++) {
+          const targetRow = startRow + r;
+          if (targetRow >= 0) {
+            while (parsed.rows.length <= targetRow) {
+              insertTableRow(parsed, parsed.rows.length, "before");
+            }
+          }
+          for (let c = 0; c < grid[r].length; c++) {
+            const targetCol = startCol + c;
+            while (parsed.headers.length <= targetCol) {
+              insertTableColumn(parsed, parsed.headers.length, "before");
+            }
+            setCellAt(parsed, targetRow, targetCol, grid[r][c]);
+          }
+        }
+      }
+      function selectionAnchor(sel) {
+        const b = selectionBounds(sel);
+        if (!b) return null;
+        return { row: b.row1, col: b.col1 };
+      }
+      function clipboardLooksLikeGfmTable(text) {
+        const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n").filter(function(l) {
+          return l.trim().length > 0;
+        });
+        if (lines.length < 2) return false;
+        if (!/^\s*\|/.test(lines[0])) return false;
+        return lines[1].indexOf("---") >= 0;
+      }
+      function createTableMarkdownPasteHandler() {
+        return function(event, view) {
+          if (!event || !view || !event.clipboardData) return false;
+          const plain = event.clipboardData.getData("text/plain") || "";
+          if (!clipboardLooksLikeGfmTable(plain)) return false;
+          event.preventDefault();
+          const insert = String(plain).replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/^\n+|\n+$/g, "");
+          const sel = view.state.selection.main;
+          const before = sel.from > 0 ? view.state.doc.sliceString(sel.from - 1, sel.from) : "\n";
+          const after = sel.to < view.state.doc.length ? view.state.doc.sliceString(sel.to, sel.to + 1) : "\n";
+          const prefix = before === "\n" ? "" : "\n";
+          const suffix = after === "\n" ? "\n" : "\n\n";
+          const text = prefix + insert + suffix;
+          view.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: text },
+            selection: { anchor: sel.from + text.length },
+            userEvent: "input.paste"
+          });
+          return true;
+        };
+      }
+      module.exports = {
+        cloneTableData,
+        insertTableRow,
+        insertTableColumn,
+        deleteTableRow,
+        deleteTableColumn,
+        clearTableSelection,
+        extractTableTSV,
+        extractTableHtml,
+        extractTableMarkdown,
+        pasteTableTSV,
+        parseClipboardTable,
+        selectionBounds,
+        selectionAnchor,
+        isFullColumnSelection,
+        isFullRowSelection,
+        isEntireTableSelection,
+        clipboardLooksLikeGfmTable,
+        createTableMarkdownPasteHandler,
+        cellAt,
+        setCellAt
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/state/block-focus.js
+  var require_block_focus = __commonJS({
+    "src/gui/renderer/editor/state/block-focus.js"(exports, module) {
+      "use strict";
+      var { StateField, StateEffect } = require_dist2();
+      var setBlockFocusEffect = StateEffect.define();
+      function createBlockFocusField() {
+        return StateField.define({
+          create: function() {
+            return null;
+          },
+          update: function(value, tr) {
+            for (let i = 0; i < tr.effects.length; i++) {
+              const e = tr.effects[i];
+              if (e.is(setBlockFocusEffect)) return e.value;
+            }
+            if (!value || !tr.docChanged) return value;
+            const from = tr.changes.mapPos(value.from, 1);
+            const to = tr.changes.mapPos(value.to, -1);
+            if (from >= to) return null;
+            return { from, to, kind: value.kind };
+          }
+        });
+      }
+      function setBlockFocus(view, block) {
+        view.dispatch({ effects: setBlockFocusEffect.of(block) });
+      }
+      function readBlockFocus(state, field) {
+        try {
+          return state.field(field);
+        } catch (_) {
+          return null;
+        }
+      }
+      module.exports = {
+        setBlockFocusEffect,
+        createBlockFocusField,
+        setBlockFocus,
+        readBlockFocus
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/caret-syntax-adjust.js
+  var require_caret_syntax_adjust = __commonJS({
+    "src/gui/renderer/editor/caret-syntax-adjust.js"(exports, module) {
+      "use strict";
+      var { syntaxTree } = require_dist7();
+      var { SYNTAX_RULES } = require_syntax_rules();
+      var ATX_LINE_RE = /^( {0,3})(#{1,6})(\s*)(.*)$/;
+      function adaptSyntaxNode(node) {
+        return { from: node.from, to: node.to, type: node.name };
+      }
+      function findLeadingMark(marks, content) {
+        var leading = null;
+        for (var i = 0; i < marks.length; i++) {
+          if (marks[i].to <= content.from) {
+            if (!leading || marks[i].from < leading.from) leading = marks[i];
+          }
+        }
+        return leading || (marks.length ? marks[0] : null);
+      }
+      function findTrailingMark(marks, content) {
+        var trailing = null;
+        for (var i = 0; i < marks.length; i++) {
+          if (marks[i].from >= content.to) {
+            if (!trailing || marks[i].to > trailing.to) trailing = marks[i];
+          }
+        }
+        return trailing;
+      }
+      function adjustCaretForHiddenMarks(state, pos) {
+        if (pos == null || pos < 0) return pos;
+        const tree = syntaxTree(state);
+        if (!tree) return pos;
+        const doc = state.doc.toString();
+        const len = doc.length;
+        if (pos > len) return len;
+        var snapLeft = null;
+        var snapRight = null;
+        var bestLeftSpan = Infinity;
+        var bestRightSpan = Infinity;
+        tree.iterate({
+          enter: function(node) {
+            const rule = SYNTAX_RULES[node.name];
+            if (!rule || rule.class !== "R" || typeof rule.contentRange !== "function") return;
+            if (pos < node.from || pos > node.to) return;
+            const adapted = adaptSyntaxNode(node);
+            const content = rule.contentRange(adapted, doc);
+            if (!content || content.from > content.to) return;
+            const marks = typeof rule.markRanges === "function" ? rule.markRanges(adapted, doc) || [] : [];
+            if (!marks.length) return;
+            const leading = findLeadingMark(marks, content);
+            const trailing = findTrailingMark(marks, content);
+            const span = Math.max(0, content.to - content.from);
+            if (leading && pos > leading.from && pos <= content.from) {
+              if (span < bestLeftSpan) {
+                bestLeftSpan = span;
+                snapLeft = /^ATXHeading/.test(node.name) ? content.from : leading.from;
+              }
+            }
+            if (trailing && pos >= content.to && pos < trailing.to) {
+              if (span < bestRightSpan) {
+                bestRightSpan = span;
+                snapRight = content.to;
+              }
+            }
+          }
+        });
+        var result = pos;
+        if (snapLeft != null && snapRight != null) {
+          result = bestLeftSpan <= bestRightSpan ? snapLeft : snapRight;
+        } else if (snapLeft != null) {
+          result = snapLeft;
+        } else if (snapRight != null) {
+          result = snapRight;
+        }
+        return adjustCaretForHeadingClick(state, result);
+      }
+      function adjustCaretForHeadingClick(state, pos) {
+        if (pos == null || pos < 0) return pos;
+        const doc = state.doc;
+        if (pos > doc.length) return doc.length;
+        const line = doc.lineAt(pos);
+        const m = ATX_LINE_RE.exec(line.text);
+        if (!m) return pos;
+        const contentStart = line.from + m[1].length + m[2].length + m[3].length;
+        if (contentStart <= line.to && pos < contentStart) return contentStart;
+        return pos;
+      }
+      function adjustCaretForKeyboardNav(state, pos) {
+        if (pos == null || pos < 0) return pos;
+        const doc = state.doc;
+        if (pos > doc.length) return doc.length;
+        const line = doc.lineAt(pos);
+        const m = ATX_LINE_RE.exec(line.text);
+        if (m) {
+          const contentStart = line.from + m[1].length + m[2].length + m[3].length;
+          if (contentStart <= line.to) {
+            if (pos < contentStart) return contentStart;
+            if (pos <= line.to) return pos;
+          }
+        }
+        return adjustCaretForHiddenMarks(state, pos);
+      }
+      function clampSelectionBleed(state, pos, other) {
+        if (pos == null || pos < 0) return pos;
+        const doc = state.doc;
+        if (pos > doc.length) return doc.length;
+        const line = doc.lineAt(pos);
+        const m = ATX_LINE_RE.exec(line.text);
+        if (!m) return pos;
+        const prefixEnd = line.from + m[1].length + m[2].length + m[3].length;
+        if (pos > prefixEnd) return pos;
+        const otherLine = doc.lineAt(other);
+        if (otherLine.number < line.number && line.number > 1) {
+          return doc.line(line.number - 1).to;
+        }
+        return pos;
+      }
+      function clampEmptyLineSelectionBleed(state, pos, other) {
+        if (pos == null || pos < 0) return pos;
+        const doc = state.doc;
+        const line = doc.lineAt(pos);
+        if (line.text.trim() !== "") return pos;
+        if (pos !== line.from) return pos;
+        const otherLine = doc.lineAt(other);
+        if (otherLine.number !== line.number - 1) return pos;
+        return otherLine.to;
+      }
+      function adjustSelectionForHiddenMarks(state, anchor, head) {
+        let a = clampSelectionBleed(state, anchor, head);
+        let h = clampSelectionBleed(state, head, anchor);
+        a = clampEmptyLineSelectionBleed(state, a, h);
+        h = clampEmptyLineSelectionBleed(state, h, a);
+        return {
+          anchor: adjustCaretForHiddenMarks(state, a),
+          head: adjustCaretForHiddenMarks(state, h)
+        };
+      }
+      module.exports = {
+        ATX_LINE_RE,
+        findLeadingMark,
+        findTrailingMark,
+        clampSelectionBleed,
+        clampEmptyLineSelectionBleed,
+        adjustCaretForHiddenMarks,
+        adjustCaretForHeadingClick,
+        adjustCaretForKeyboardNav,
+        adjustSelectionForHiddenMarks
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/click-collapse.js
+  var require_click_collapse = __commonJS({
+    "src/gui/renderer/editor/click-collapse.js"(exports, module) {
+      "use strict";
+      var { EditorView } = require_dist4();
+      var { EditorSelection } = require_dist2();
+      var { adjustCaretForHiddenMarks, adjustSelectionForHiddenMarks } = require_caret_syntax_adjust();
+      var DRAG_PX = 4;
+      var REFINE_DIST_PX = 10;
+      var mouseDown = null;
+      var docPointerEndBound = false;
+      function takeMouseDownForView(view) {
+        if (!mouseDown || mouseDown.view !== view) return null;
+        const start = mouseDown;
+        mouseDown = null;
+        return start;
+      }
+      function takeAnyMouseDown() {
+        if (!mouseDown) return null;
+        const start = mouseDown;
+        mouseDown = null;
+        return start;
+      }
+      function ensureDocPointerEndListeners() {
+        if (docPointerEndBound || typeof document === "undefined") return;
+        docPointerEndBound = true;
+        document.addEventListener(
+          "mouseup",
+          function(event) {
+            if (event.button !== 0) return;
+            const start = takeAnyMouseDown();
+            if (!start || start.view.destroyed) return;
+            finalizePointerUp(start.view, start, event.clientX, event.clientY, event.detail);
+          },
+          true
+        );
+      }
+      function finalizePointerUp(view, start, clientX, clientY, detail, options) {
+        if (!view || view.destroyed || start.shiftKey) return;
+        if (start.handledMultiClick || detail >= 2) return;
+        const dx = clientX - start.x;
+        const dy = clientY - start.y;
+        const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
+        if (moved) {
+          const pointer = {
+            startX: start.x,
+            startY: start.y,
+            endX: clientX,
+            endY: clientY
+          };
+          adjustDragSelection(view, pointer);
+          requestAnimationFrame(function() {
+            adjustDragSelection(view, pointer);
+          });
+          return;
+        }
+        if (options && options.skipClickCaret) return;
+        placeCaret(view, clientX, clientY);
+        requestAnimationFrame(function() {
+          if (!view || view.destroyed) return;
+          placeCaret(view, clientX, clientY);
+        });
+      }
+      function isBlockWidgetTarget(target) {
+        if (!target || !target.closest) return false;
+        return !!target.closest(
+          ".mda-cm-image-block, .mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-math-block, .mda-cm-hr-block, .mda-cm-math-inline"
+        );
+      }
+      function caretNodeFromPoint(clientX, clientY) {
+        if (typeof document === "undefined") return null;
+        if (typeof document.caretRangeFromPoint === "function") {
+          try {
+            const range = document.caretRangeFromPoint(clientX, clientY);
+            if (range && range.startContainer) {
+              return { node: range.startContainer, offset: range.startOffset };
+            }
+          } catch (_) {
+          }
+        }
+        if (typeof document.caretPositionFromPoint === "function") {
+          try {
+            const pos = document.caretPositionFromPoint(clientX, clientY);
+            if (pos && pos.offsetNode) {
+              return { node: pos.offsetNode, offset: pos.offset };
+            }
+          } catch (_) {
+          }
+        }
+        return null;
+      }
+      function posAtClickFromDom(view, clientX, clientY) {
+        const hit = typeof document !== "undefined" && document.elementFromPoint ? document.elementFromPoint(clientX, clientY) : null;
+        if (isBlockWidgetTarget(hit)) return null;
+        if (hit && hit.closest && !hit.closest(".cm-content")) return null;
+        const caret = caretNodeFromPoint(clientX, clientY);
+        if (!caret) return null;
+        if (isBlockWidgetTarget(caret.node.nodeType === 1 ? caret.node : caret.node.parentElement)) {
+          return null;
+        }
+        try {
+          const pos = view.posAtDOM(caret.node, caret.offset);
+          if (pos == null || pos < 0) return null;
+          if (pos > view.state.doc.length) return view.state.doc.length;
+          return pos;
+        } catch (_) {
+          return null;
+        }
+      }
+      function lineElementAt(view, pos) {
+        try {
+          const at = view.domAtPos(pos, 1);
+          let node = at && at.node;
+          if (!node) return null;
+          if (node.nodeType === 3) node = node.parentElement;
+          return node && node.closest ? (
+            /** @type {HTMLElement} */
+            node.closest(".cm-line")
+          ) : null;
+        } catch (_) {
+          return null;
+        }
+      }
+      function cmLineElementAtPoint(view, clientX, clientY) {
+        if (typeof document === "undefined" || !view || !view.dom) return null;
+        const caret = caretNodeFromPoint(clientX, clientY);
+        if (caret) {
+          const el = caret.node.nodeType === 3 ? caret.node.parentElement : caret.node;
+          if (el && el.closest) {
+            const hit = el.closest(".cm-line");
+            if (hit && view.dom.contains(hit)) return (
+              /** @type {HTMLElement} */
+              hit
+            );
+          }
+        }
+        const target = document.elementFromPoint(clientX, clientY);
+        if (!target || !view.dom.contains(target)) return null;
+        if (target.closest) {
+          const hit = target.closest(".cm-line");
+          if (hit) return (
+            /** @type {HTMLElement} */
+            hit
+          );
+        }
+        let best = null;
+        let bestDy = Infinity;
+        const lines = view.contentDOM.querySelectorAll(".cm-line");
+        for (let i = 0; i < lines.length; i++) {
+          const el = (
+            /** @type {HTMLElement} */
+            lines[i]
+          );
+          const rect = el.getBoundingClientRect();
+          if (clientY < rect.top - 2 || clientY > rect.bottom + 2 || clientX < rect.left - 12 || clientX > rect.right + 12) {
+            continue;
+          }
+          const midY = (rect.top + rect.bottom) / 2;
+          const dy = Math.abs(midY - clientY);
+          if (dy < bestDy) {
+            bestDy = dy;
+            best = el;
+          }
+        }
+        return best;
+      }
+      function docLineAtClick(view, clientX, clientY) {
+        if (!view || view.destroyed) return null;
+        const lineEl = cmLineElementAtPoint(view, clientX, clientY);
+        if (lineEl) {
+          try {
+            const base = view.posAtDOM(lineEl, 0);
+            return view.state.doc.lineAt(base);
+          } catch (_) {
+          }
+        }
+        const raw = posAtClick(view, clientX, clientY);
+        if (raw == null) return null;
+        return view.state.doc.lineAt(caretPosForClick(view, raw));
+      }
+      function lineSelectionRange(state, line) {
+        let from = adjustCaretForHiddenMarks(state, line.from);
+        const to = line.to;
+        if (state.doc.lineAt(from).number < line.number) from = line.from;
+        return { from: Math.min(from, to), to: Math.max(from, to) };
+      }
+      function posFromCmLineAtPoint(view, clientX, clientY) {
+        const lineEl = cmLineElementAtPoint(view, clientX, clientY);
+        if (!lineEl) return null;
+        const caret = caretNodeFromPoint(clientX, clientY);
+        if (caret) {
+          try {
+            const node = caret.node;
+            const el = node.nodeType === 3 ? node.parentElement : node;
+            if (el && lineEl.contains(el)) {
+              const pos = view.posAtDOM(caret.node, caret.offset);
+              if (pos != null && pos >= 0 && pos <= view.state.doc.length) return pos;
+            }
+          } catch (_) {
+          }
+        }
+        try {
+          const base = view.posAtDOM(lineEl, 0);
+          const line = view.state.doc.lineAt(base);
+          if (clientX <= lineEl.getBoundingClientRect().left + 4) return line.from;
+          return line.to;
+        } catch (_) {
+          return null;
+        }
+      }
+      function lineVerticalBand(view, line) {
+        const lineEl = lineElementAt(view, line.from);
+        if (lineEl) {
+          const rect = lineEl.getBoundingClientRect();
+          if (rect.bottom >= rect.top) {
+            return { top: rect.top, bottom: rect.bottom };
+          }
+        }
+        let top = Infinity;
+        let bottom = -Infinity;
+        const positions = [line.from];
+        if (line.to > line.from) {
+          positions.push(line.from + Math.floor((line.to - line.from) / 2));
+          positions.push(Math.max(line.from, line.to - 1));
+        }
+        for (let i = 0; i < positions.length; i++) {
+          const c1 = view.coordsAtPos(positions[i], 1);
+          const c2 = view.coordsAtPos(positions[i], -1);
+          if (c1) {
+            top = Math.min(top, c1.top);
+            bottom = Math.max(bottom, c1.bottom);
+          }
+          if (c2) {
+            top = Math.min(top, c2.top);
+            bottom = Math.max(bottom, c2.bottom);
+          }
+        }
+        if (!isFinite(top) || !isFinite(bottom) || bottom < top) return null;
+        if (bottom - top < 12) bottom = top + 26;
+        return { top, bottom };
+      }
+      function posOnLineAtX(view, line, clientX) {
+        const band = lineVerticalBand(view, line);
+        if (!band) return line.from;
+        const midY = (band.top + band.bottom) / 2;
+        let p = view.posAtCoords({ x: clientX, y: midY }, 1);
+        if (p == null) p = view.posAtCoords({ x: clientX, y: midY }, -1);
+        if (p == null) return line.from;
+        if (p < line.from) return line.from;
+        if (p > line.to) return line.to;
+        return p;
+      }
+      function refinePosAtClick(view, clientX, clientY, hintPos) {
+        const cmPos = posFromCmLineAtPoint(view, clientX, clientY);
+        if (cmPos != null) return cmPos;
+        const doc = view.state.doc;
+        const hintLine = doc.lineAt(hintPos);
+        let bestPos = hintPos;
+        let bestScore = Infinity;
+        let foundInY = false;
+        const fromN = Math.max(1, hintLine.number - 2);
+        const toN = Math.min(doc.lines, hintLine.number + 2);
+        for (let n = fromN; n <= toN; n++) {
+          const line = doc.line(n);
+          const band = lineVerticalBand(view, line);
+          if (!band) continue;
+          const inY = clientY >= band.top - 2 && clientY <= band.bottom + 2;
+          if (!inY) continue;
+          foundInY = true;
+          const p = posOnLineAtX(view, line, clientX);
+          const caret = view.coordsAtPos(p, p <= line.from ? 1 : -1);
+          if (!caret) continue;
+          const dx = caret.left - clientX;
+          const dy = (caret.top + caret.bottom) / 2 - clientY;
+          const score = dx * dx * 0.2 + dy * dy;
+          if (score < bestScore) {
+            bestScore = score;
+            bestPos = p;
+          }
+        }
+        return foundInY ? bestPos : hintPos;
+      }
+      function clickScoreAtPos(view, pos, clientX, clientY) {
+        const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+        if (!caret) return Infinity;
+        const dx = caret.left - clientX;
+        const dy = (caret.top + caret.bottom) / 2 - clientY;
+        return dx * dx + dy * dy;
+      }
+      function posAtClick(view, clientX, clientY) {
+        if (typeof document !== "undefined" && document.elementFromPoint) {
+          const el = document.elementFromPoint(clientX, clientY);
+          if (isBlockWidgetTarget(el)) return null;
+        }
+        const cmPos = posFromCmLineAtPoint(view, clientX, clientY);
+        const fromDom = posAtClickFromDom(view, clientX, clientY);
+        let fromCoords = view.posAtCoords({ x: clientX, y: clientY }, 1);
+        if (fromCoords == null) fromCoords = view.posAtCoords({ x: clientX, y: clientY }, -1);
+        const doc = view.state.doc;
+        if (cmPos != null) {
+          if (fromCoords != null) {
+            const cmLn = doc.lineAt(cmPos);
+            const coLn = doc.lineAt(fromCoords);
+            if (cmLn.number < coLn.number) return cmPos;
+          }
+          return cmPos;
+        }
+        if (fromDom != null && fromCoords != null && fromDom !== fromCoords) {
+          const domLine = doc.lineAt(fromDom);
+          const coLine = doc.lineAt(fromCoords);
+          if (coLine.number > domLine.number) return fromDom;
+          if (domLine.number > coLine.number) return fromCoords;
+          const sDom = clickScoreAtPos(view, fromDom, clientX, clientY);
+          const sCo = clickScoreAtPos(view, fromCoords, clientX, clientY);
+          if (sCo + 9 < sDom) {
+            return refineIfFar(view, clientX, clientY, fromCoords);
+          }
+          return fromDom;
+        }
+        if (fromDom != null) return fromDom;
+        if (fromCoords == null) return null;
+        return refineIfFar(view, clientX, clientY, fromCoords);
+      }
+      function refineIfFar(view, clientX, clientY, pos) {
+        const caret = view.coordsAtPos(pos, 1) || view.coordsAtPos(pos, -1);
+        if (caret) {
+          const dx = caret.left - clientX;
+          const dy = (caret.top + caret.bottom) / 2 - clientY;
+          if (Math.abs(dy) > REFINE_DIST_PX) {
+            return refinePosAtClick(view, clientX, clientY, pos);
+          }
+          return pos;
+        }
+        return refinePosAtClick(view, clientX, clientY, pos);
+      }
+      function caretPosForClick(view, raw) {
+        const pos = adjustCaretForHiddenMarks(view.state, raw);
+        if (pos === raw) return pos;
+        const doc = view.state.doc;
+        const rawLine = doc.lineAt(raw);
+        const posLine = doc.lineAt(pos);
+        if (posLine.number > rawLine.number && posLine.text.trim() === "") {
+          return raw;
+        }
+        return pos;
+      }
+      function setSelectionAtClick(view, clientX, clientY) {
+        if (!view || view.destroyed) return false;
+        if (typeof document !== "undefined" && document.elementFromPoint) {
+          const el = document.elementFromPoint(clientX, clientY);
+          if (isBlockWidgetTarget(el)) return false;
+        }
+        const raw = posAtClick(view, clientX, clientY);
+        if (raw == null) return false;
+        const pos = caretPosForClick(view, raw);
+        const sel = view.state.selection.main;
+        if (sel.from === sel.to && sel.anchor === pos && sel.head === pos) return true;
+        view.dispatch({
+          selection: { anchor: pos, head: pos },
+          scrollIntoView: false
+        });
+        return true;
+      }
+      function placeCaret(view, clientX, clientY) {
+        setSelectionAtClick(view, clientX, clientY);
+      }
+      function selectWordAtClick(view, clientX, clientY) {
+        if (!view || view.destroyed) return false;
+        if (typeof document !== "undefined" && document.elementFromPoint) {
+          const el = document.elementFromPoint(clientX, clientY);
+          if (isBlockWidgetTarget(el)) return false;
+        }
+        const raw = posAtClick(view, clientX, clientY);
+        if (raw == null) return false;
+        const pos = caretPosForClick(view, raw);
+        const word = view.state.wordAt(pos);
+        const from = word ? word.from : pos;
+        const to = word ? word.to : pos;
+        const next = adjustSelectionForHiddenMarks(view.state, from, to);
+        view.dispatch({
+          selection: EditorSelection.range(next.anchor, next.head),
+          scrollIntoView: false
+        });
+        return true;
+      }
+      function selectLineAtClick(view, clientX, clientY) {
+        if (!view || view.destroyed) return false;
+        if (typeof document !== "undefined" && document.elementFromPoint) {
+          const el = document.elementFromPoint(clientX, clientY);
+          if (isBlockWidgetTarget(el)) return false;
+        }
+        const line = docLineAtClick(view, clientX, clientY);
+        if (!line) return false;
+        const range = lineSelectionRange(view.state, line);
+        view.dispatch({
+          selection: EditorSelection.range(range.from, range.to),
+          scrollIntoView: false
+        });
+        return true;
+      }
+      function adjustDragSelection(view, pointer) {
+        if (!view || view.destroyed) return;
+        const sel = view.state.selection.main;
+        if (sel.empty) return;
+        let anchor = sel.anchor;
+        let head = sel.head;
+        const ptr = pointer || {};
+        if (ptr.startX != null && ptr.startY != null) {
+          const mapped = posAtClick(view, ptr.startX, ptr.startY);
+          if (mapped != null) anchor = mapped;
+        }
+        if (ptr.endX != null && ptr.endY != null) {
+          const mapped = posAtClick(view, ptr.endX, ptr.endY);
+          if (mapped != null) head = mapped;
+        }
+        const next = adjustSelectionForHiddenMarks(view.state, anchor, head);
+        if (next.anchor === sel.anchor && next.head === sel.head) return;
+        view.dispatch({
+          selection: { anchor: next.anchor, head: next.head },
+          scrollIntoView: false
+        });
+      }
+      function applyDragSelectionAt(view, anchorX, anchorY, headX, headY) {
+        if (!view || view.destroyed) return false;
+        const anchorPos = posAtClick(view, anchorX, anchorY);
+        const headPos = posAtClick(view, headX, headY);
+        if (anchorPos == null || headPos == null) return false;
+        const next = adjustSelectionForHiddenMarks(view.state, anchorPos, headPos);
+        const main = view.state.selection.main;
+        if (main.anchor === next.anchor && main.head === next.head) return false;
+        view.dispatch({
+          selection: { anchor: next.anchor, head: next.head },
+          scrollIntoView: false
+        });
+        return true;
+      }
+      function createClickCollapseExtension() {
+        ensureDocPointerEndListeners();
+        return EditorView.domEventHandlers({
+          mousedown: function(event, view) {
+            if (event.button !== 0) return false;
+            if (isBlockWidgetTarget(event.target)) return false;
+            mouseDown = {
+              x: event.clientX,
+              y: event.clientY,
+              shiftKey: !!event.shiftKey,
+              dragging: false,
+              handledMultiClick: false,
+              view
+            };
+            if (event.shiftKey) return false;
+            if (event.detail >= 3) {
+              mouseDown.handledMultiClick = selectLineAtClick(view, event.clientX, event.clientY);
+              try {
+                view.focus();
+              } catch (_) {
+              }
+              return mouseDown.handledMultiClick;
+            }
+            if (event.detail === 2) {
+              mouseDown.handledMultiClick = selectWordAtClick(view, event.clientX, event.clientY);
+              try {
+                view.focus();
+              } catch (_) {
+              }
+              return mouseDown.handledMultiClick;
+            }
+            setSelectionAtClick(view, event.clientX, event.clientY);
+            try {
+              view.focus();
+            } catch (_) {
+            }
+            return true;
+          },
+          mousemove: function(event, view) {
+            if (!mouseDown || mouseDown.shiftKey || mouseDown.view !== view) return false;
+            if ((event.buttons & 1) === 0) {
+              const start = takeMouseDownForView(view);
+              if (start) {
+                finalizePointerUp(view, start, event.clientX, event.clientY, 1);
+              }
+              return false;
+            }
+            const dx = event.clientX - mouseDown.x;
+            const dy = event.clientY - mouseDown.y;
+            if (!mouseDown.dragging) {
+              if (dx * dx + dy * dy > DRAG_PX * DRAG_PX) {
+                mouseDown.dragging = true;
+              } else {
+                return false;
+              }
+            }
+            if (isBlockWidgetTarget(event.target)) return false;
+            applyDragSelectionAt(view, mouseDown.x, mouseDown.y, event.clientX, event.clientY);
+            return true;
+          },
+          mouseup: function(event, view) {
+            if (event.button !== 0) return false;
+            const start = takeMouseDownForView(view);
+            if (!start) return false;
+            if (start.shiftKey || event.shiftKey) return false;
+            if (start.handledMultiClick || event.detail >= 2) return true;
+            const blockAtUp = isBlockWidgetTarget(event.target);
+            const dx = event.clientX - start.x;
+            const dy = event.clientY - start.y;
+            const moved = start.dragging || dx * dx + dy * dy > DRAG_PX * DRAG_PX;
+            if (blockAtUp && !moved) return false;
+            finalizePointerUp(view, start, event.clientX, event.clientY, event.detail, {
+              skipClickCaret: blockAtUp
+            });
+            return false;
+          }
+        });
+      }
+      module.exports = {
+        createClickCollapseExtension,
+        posAtClick,
+        posAtClickFromDom,
+        placeCaret,
+        setSelectionAtClick,
+        selectWordAtClick,
+        selectLineAtClick,
+        docLineAtClick,
+        lineSelectionRange,
+        caretPosForClick,
+        adjustDragSelection,
+        applyDragSelectionAt,
+        refinePosAtClick,
+        posFromCmLineAtPoint,
+        refineIfFar,
+        isBlockWidgetTarget
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/context-selection.js
+  var require_context_selection = __commonJS({
+    "src/gui/renderer/editor/context-selection.js"(exports, module) {
+      "use strict";
+      var { Transaction } = require_dist2();
+      var { posAtClick, docLineAtClick } = require_click_collapse();
+      function getDomSelectionText(root) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return "";
+        const range = sel.getRangeAt(0);
+        if (!root.contains(range.commonAncestorContainer)) return "";
+        return sel.toString();
+      }
+      function logicalOffsetInRoot(root, container, offset) {
+        const probe = document.createRange();
+        probe.setStart(container, offset);
+        probe.collapse(true);
+        if (!root.contains(probe.startContainer)) return 0;
+        const pre = document.createRange();
+        pre.selectNodeContents(root);
+        pre.setEnd(probe.startContainer, probe.startOffset);
+        return pre.toString().replace(/\u200b/g, "").replace(/\u00a0/g, " ").length;
+      }
+      function snapshotDomSelection(root) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+        const range = sel.getRangeAt(0);
+        if (!root.contains(range.commonAncestorContainer)) return null;
+        const text = sel.toString();
+        if (!text) return null;
+        let start;
+        let end;
+        if (typeof root._mdaLogicalOffsetFromPoint === "function") {
+          start = root._mdaLogicalOffsetFromPoint(range.startContainer, range.startOffset);
+          end = root._mdaLogicalOffsetFromPoint(range.endContainer, range.endOffset);
+        } else {
+          start = logicalOffsetInRoot(root, range.startContainer, range.startOffset);
+          end = logicalOffsetInRoot(root, range.endContainer, range.endOffset);
+        }
+        return {
+          dom: {
+            root,
+            text,
+            range: range.cloneRange(),
+            start: Math.min(start, end),
+            end: Math.max(start, end)
+          }
+        };
+      }
+      function domRangeClientBounds(range) {
+        const rects = range.getClientRects();
+        if (rects.length) {
+          let left = Infinity;
+          let right = -Infinity;
+          let top = Infinity;
+          let bottom = -Infinity;
+          for (let i = 0; i < rects.length; i++) {
+            const r = rects[i];
+            left = Math.min(left, r.left);
+            right = Math.max(right, r.right);
+            top = Math.min(top, r.top);
+            bottom = Math.max(bottom, r.bottom);
+          }
+          if (isFinite(left) && isFinite(right)) {
+            return { left, right, top, bottom };
+          }
+        }
+        const box = range.getBoundingClientRect();
+        if (box.width || box.height) {
+          return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+        }
+        return null;
+      }
+      function domPointInRangeBounds(range, clientX, clientY) {
+        const pad = 2;
+        const rects = range.getClientRects();
+        for (let i = 0; i < rects.length; i++) {
+          const r = rects[i];
+          if (clientX >= r.left - pad && clientX <= r.right + pad && clientY >= r.top - pad && clientY <= r.bottom + pad) {
+            return true;
+          }
+        }
+        const bounds = domRangeClientBounds(range);
+        if (!bounds) return false;
+        return clientX >= bounds.left - pad && clientX <= bounds.right + pad && clientY >= bounds.top - pad && clientY <= bounds.bottom + pad;
+      }
+      function domClickInSelection(root, clientX, clientY) {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+        const range = sel.getRangeAt(0);
+        if (!root.contains(range.commonAncestorContainer)) return false;
+        if (!sel.toString()) return false;
+        if (domPointInRangeBounds(range, clientX, clientY)) return true;
+        let hit = document.elementFromPoint(clientX, clientY);
+        while (hit && hit !== root) {
+          if (hit.nodeType === Node.TEXT_NODE) {
+            try {
+              const probe = document.createRange();
+              probe.setStart(hit, 0);
+              probe.collapse(true);
+              if (range.compareBoundaryPoints(Range.END_TO_START, probe) < 0 && range.compareBoundaryPoints(Range.START_TO_END, probe) > 0) {
+                return true;
+              }
+            } catch (_) {
+            }
+          } else {
+            try {
+              if (range.intersectsNode(hit) && !hit.querySelector("*")) {
+                return true;
+              }
+            } catch (_) {
+            }
+          }
+          hit = hit.parentElement;
+        }
+        return false;
+      }
+      function shouldPreserveDomSelection(root, clientX, clientY) {
+        if (!snapshotDomSelection(root)) return false;
+        return domClickInSelection(root, clientX, clientY);
+      }
+      function selectionSegmentOnLine(doc, from, to, clickLine) {
+        const selStartLine = doc.lineAt(from);
+        const selEndLine = doc.lineAt(to);
+        if (clickLine.number < selStartLine.number || clickLine.number > selEndLine.number) {
+          return null;
+        }
+        let segFrom = clickLine.from;
+        let segTo = clickLine.to;
+        if (clickLine.number === selStartLine.number) segFrom = from;
+        if (clickLine.number === selEndLine.number) segTo = to;
+        return { from: segFrom, to: segTo };
+      }
+      function selectionSegmentBounds(view, segFrom, segTo) {
+        const startCoords = view.coordsAtPos(segFrom, 1);
+        const endCoords = view.coordsAtPos(segTo, -1);
+        if (!startCoords || !endCoords) return null;
+        return {
+          left: Math.min(startCoords.left, endCoords.left),
+          right: Math.max(startCoords.right, endCoords.right),
+          top: Math.min(startCoords.top, endCoords.top),
+          bottom: Math.max(startCoords.bottom, endCoords.bottom)
+        };
+      }
+      function selectionSegmentBoundsDom(view, segFrom, segTo) {
+        if (typeof document === "undefined" || segFrom >= segTo) return null;
+        try {
+          const a = view.domAtPos(segFrom);
+          const b = view.domAtPos(segTo);
+          if (!a || !b || !a.node || !b.node) return null;
+          const range = document.createRange();
+          range.setStart(a.node, a.offset);
+          range.setEnd(b.node, b.offset);
+          return domRangeClientBounds(range);
+        } catch (_) {
+          return null;
+        }
+      }
+      function cmClickInSelection(view, clientX, clientY) {
+        const sel = view.state.selection.main;
+        if (sel.empty) return false;
+        const from = Math.min(sel.from, sel.to);
+        const to = Math.max(sel.from, sel.to);
+        const doc = view.state.doc;
+        let clickPos = posAtClick(view, clientX, clientY);
+        if (clickPos == null) {
+          clickPos = view.posAtCoords({ x: clientX, y: clientY, exact: false });
+        }
+        if (clickPos != null && clickPos >= from && clickPos <= to) return true;
+        const clickLine = docLineAtClick(view, clientX, clientY) || (clickPos != null ? doc.lineAt(clickPos) : null);
+        if (!clickLine) return false;
+        const seg = selectionSegmentOnLine(doc, from, to, clickLine);
+        if (!seg) return false;
+        const bounds = selectionSegmentBoundsDom(view, seg.from, seg.to) || selectionSegmentBounds(view, seg.from, seg.to);
+        if (!bounds) return false;
+        if (clientY < bounds.top - 2 || clientY > bounds.bottom + 2) return false;
+        if (clientX < bounds.left - 2 || clientX > bounds.right + 2) return false;
+        return true;
+      }
+      function snapshotCmSelection(view) {
+        const sel = view.state.selection.main;
+        if (sel.empty) return null;
+        return {
+          cm: {
+            anchor: sel.anchor,
+            head: sel.head,
+            from: sel.from,
+            to: sel.to
+          }
+        };
+      }
+      function restoreCmSelection(view, snap) {
+        if (!view || view.destroyed || !snap) return;
+        const cur = view.state.selection.main;
+        if (cur.from === snap.from && cur.to === snap.to) return;
+        view.dispatch({
+          selection: { anchor: snap.anchor, head: snap.head },
+          annotations: Transaction.addToHistory.of(false)
+        });
+      }
+      function restoreDomSelection(snap) {
+        if (!snap || !snap.root) return;
+        const sel = window.getSelection();
+        if (!sel) return;
+        let restored = false;
+        if (snap.range) {
+          try {
+            if (snap.root.isConnected && snap.root.contains(snap.range.startContainer)) {
+              sel.removeAllRanges();
+              sel.addRange(snap.range.cloneRange());
+              restored = true;
+            }
+          } catch (_) {
+            restored = false;
+          }
+        }
+        if (!restored && typeof snap.start === "number" && typeof snap.end === "number" && snap.end > snap.start) {
+          const restoreRoot = typeof snap.root._mdaRestoreLogicalSelection === "function" ? snap.root : snap.root.closest ? snap.root.closest(".mda-cm-code-block") : null;
+          if (restoreRoot && typeof restoreRoot._mdaRestoreLogicalSelection === "function") {
+            try {
+              restoreRoot._mdaRestoreLogicalSelection(snap.start, snap.end);
+              restored = true;
+            } catch (_) {
+              restored = false;
+            }
+          }
+        }
+        if (!restored) return;
+        try {
+          snap.root.focus({ preventScroll: true });
+        } catch (_) {
+          try {
+            snap.root.focus();
+          } catch (_2) {
+          }
+        }
+      }
+      function collapseCmAtClick(view, clientX, clientY) {
+        let pos = view.posAtCoords({ x: clientX, y: clientY, exact: true });
+        if (pos == null) {
+          const loose = view.posAtCoords({ x: clientX, y: clientY, exact: false });
+          if (loose == null) return;
+          const line = view.state.doc.lineAt(loose);
+          const endCoords = view.coordsAtPos(line.to, -1);
+          if (endCoords && clientX > endCoords.right + 2) {
+            pos = line.to;
+          } else {
+            pos = loose;
+          }
+        }
+        view.dispatch({
+          selection: { anchor: pos, head: pos },
+          annotations: Transaction.addToHistory.of(false)
+        });
+      }
+      function clearCmSelectionIfAny(view) {
+        if (!view || view.destroyed) return;
+        const sel = view.state.selection.main;
+        if (sel.empty) return;
+        view.dispatch({
+          selection: { anchor: sel.head, head: sel.head },
+          annotations: Transaction.addToHistory.of(false)
+        });
+      }
+      function caretRangeAtPointInRoot(root, clientX, clientY) {
+        if (!root) return null;
+        let range = null;
+        if (typeof document.caretRangeFromPoint === "function") {
+          range = document.caretRangeFromPoint(clientX, clientY);
+        } else if (typeof document.caretPositionFromPoint === "function") {
+          const pos = document.caretPositionFromPoint(clientX, clientY);
+          if (pos) {
+            range = document.createRange();
+            range.setStart(pos.offsetNode, pos.offset);
+            range.collapse(true);
+          }
+        }
+        if (!range || !root.contains(range.startContainer)) return null;
+        return range;
+      }
+      function collapseWidgetDomAt(root, clientX, clientY) {
+        if (!root) return null;
+        const sel = window.getSelection();
+        if (!sel) return null;
+        let range = null;
+        if (typeof clientX === "number" && typeof clientY === "number") {
+          range = caretRangeAtPointInRoot(root, clientX, clientY);
+        }
+        if (!range) {
+          range = document.createRange();
+          range.selectNodeContents(root);
+          range.collapse(false);
+        }
+        const applied = range.cloneRange();
+        sel.removeAllRanges();
+        try {
+          sel.addRange(range);
+        } catch (_) {
+        }
+        try {
+          root.focus({ preventScroll: true });
+        } catch (_) {
+          try {
+            root.focus();
+          } catch (_2) {
+          }
+        }
+        return applied;
+      }
+      function restoreWidgetDomCaret(root, range) {
+        if (!root || !range) return;
+        const sel = window.getSelection();
+        if (!sel) return;
+        try {
+          if (!root.contains(range.startContainer)) return;
+          sel.removeAllRanges();
+          sel.addRange(range.cloneRange());
+        } catch (_) {
+          return;
+        }
+        try {
+          root.focus({ preventScroll: true });
+        } catch (_) {
+          try {
+            root.focus();
+          } catch (_2) {
+          }
+        }
+      }
+      function clearWidgetDomSelection(root) {
+        collapseWidgetDomAt(root);
+      }
+      function shouldPreserveCmSelection(view, clientX, clientY) {
+        if (!view || view.state.selection.main.empty) return false;
+        return cmClickInSelection(view, clientX, clientY);
+      }
+      module.exports = {
+        getDomSelectionText,
+        snapshotDomSelection,
+        domClickInSelection,
+        domPointInRangeBounds,
+        shouldPreserveDomSelection,
+        cmClickInSelection,
+        snapshotCmSelection,
+        restoreCmSelection,
+        restoreDomSelection,
+        collapseCmAtClick,
+        clearCmSelectionIfAny,
+        clearWidgetDomSelection,
+        collapseWidgetDomAt,
+        restoreWidgetDomCaret,
+        shouldPreserveCmSelection
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widget-context-menu-guard.js
+  var require_widget_context_menu_guard = __commonJS({
+    "src/gui/renderer/editor/widget-context-menu-guard.js"(exports, module) {
+      "use strict";
+      var widgetDomMenuGuard = false;
+      function setWidgetDomMenuGuard(on) {
+        widgetDomMenuGuard = !!on;
+      }
+      function isWidgetDomMenuGuard() {
+        return widgetDomMenuGuard;
+      }
+      module.exports = {
+        setWidgetDomMenuGuard,
+        isWidgetDomMenuGuard
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/table-resize.js
+  var require_table_resize = __commonJS({
+    "src/gui/renderer/editor/widgets/table-resize.js"(exports, module) {
+      "use strict";
+      var { hasTableLayoutMeta, MAX_TABLE_COL_WIDTH, MAX_TABLE_ROW_HEIGHT } = require_parse_table();
+      var { uiT } = require_widget_common();
+      var MIN_COL_WIDTH = 48;
+      var MIN_ROW_HEIGHT = 28;
+      var TABLE_WRAP_BORDER_X = 2;
+      var RESIZE_HANDLE_HIT = 8;
+      var RESIZE_HANDLE_HALF = RESIZE_HANDLE_HIT / 2;
+      function getWrapContentOrigin(wrap) {
+        const rect = wrap.getBoundingClientRect();
+        const cs = window.getComputedStyle(wrap);
+        return {
+          left: rect.left + (parseFloat(cs.borderLeftWidth) || 0),
+          top: rect.top + (parseFloat(cs.borderTopWidth) || 0)
+        };
+      }
+      function capLayout(n, max) {
+        const v = Number(n);
+        if (!Number.isFinite(v) || v <= 0) return 0;
+        return Math.min(Math.round(v), max);
+      }
+      function ensureLayoutArrays(parsed) {
+        if (!parsed.colWidths) parsed.colWidths = [];
+        if (!parsed.rowHeights) parsed.rowHeights = [];
+        const ncol = parsed.headers.length;
+        const nrow = 1 + parsed.rows.length;
+        while (parsed.colWidths.length < ncol) parsed.colWidths.push(0);
+        while (parsed.rowHeights.length < nrow) parsed.rowHeights.push(0);
+        if (parsed.colWidths.length > ncol) parsed.colWidths.length = ncol;
+        if (parsed.rowHeights.length > nrow) parsed.rowHeights.length = nrow;
+      }
+      function clearTableWrapLayout(wrap) {
+        if (!wrap) return;
+        wrap.removeAttribute("data-mda-snap");
+        wrap.removeAttribute("data-mda-overflow");
+        wrap.classList.remove("mda-cm-table-resizing-active");
+        wrap.style.width = "";
+        wrap.style.maxWidth = "";
+      }
+      function syncTableWrapLayout(wrap, table, totalW) {
+        if (!wrap || !table) return;
+        wrap.setAttribute("data-mda-snap", "1");
+        const parent = wrap.parentElement;
+        const limit = parent ? parent.clientWidth : 0;
+        if (limit > 0 && totalW > limit + 1) {
+          wrap.setAttribute("data-mda-overflow", "1");
+          wrap.style.width = "100%";
+          wrap.style.maxWidth = "100%";
+        } else {
+          wrap.removeAttribute("data-mda-overflow");
+          wrap.style.width = totalW + TABLE_WRAP_BORDER_X + "px";
+          wrap.style.maxWidth = limit > 0 ? limit + "px" : "100%";
+        }
+      }
+      function clearTableLayout(table, wrap) {
+        if (!table) return;
+        table.style.tableLayout = "";
+        table.style.width = "";
+        table.style.height = "";
+        table.style.minWidth = "";
+        table.style.maxWidth = "";
+        table.removeAttribute("data-mda-layout");
+        const cells = table.querySelectorAll("th, td");
+        for (let i = 0; i < cells.length; i++) {
+          cells[i].style.width = "";
+          cells[i].style.minWidth = "";
+          cells[i].style.maxWidth = "";
+          cells[i].style.height = "";
+          cells[i].style.boxSizing = "";
+        }
+        const rows = table.querySelectorAll("tr");
+        for (let r = 0; r < rows.length; r++) rows[r].style.height = "";
+        clearTableWrapLayout(wrap || table.parentElement);
+      }
+      function captureLayoutFromTable(table, parsed) {
+        if (!table || !parsed) return;
+        ensureLayoutArrays(parsed);
+        const ths = table.querySelectorAll("thead th");
+        for (let c = 0; c < ths.length; c++) {
+          parsed.colWidths[c] = capLayout(
+            Math.max(MIN_COL_WIDTH, ths[c].getBoundingClientRect().width),
+            MAX_TABLE_COL_WIDTH
+          );
+        }
+        const headerRow = table.querySelector("thead tr");
+        const bodyRows = table.querySelectorAll("tbody tr");
+        const visualRows = [];
+        if (headerRow) visualRows.push(headerRow);
+        for (let i = 0; i < bodyRows.length; i++) visualRows.push(bodyRows[i]);
+        for (let r = 0; r < visualRows.length; r++) {
+          parsed.rowHeights[r] = capLayout(
+            Math.max(MIN_ROW_HEIGHT, visualRows[r].getBoundingClientRect().height),
+            MAX_TABLE_ROW_HEIGHT
+          );
+        }
+        table.setAttribute("data-mda-layout", "fixed");
+      }
+      function applyTableLayout(table, parsed, wrap) {
+        wrap = wrap || table.parentElement;
+        if (!table || !parsed || !hasTableLayoutMeta(parsed)) {
+          clearTableLayout(table, wrap);
+          return 0;
+        }
+        ensureLayoutArrays(parsed);
+        table.setAttribute("data-mda-layout", "fixed");
+        table.style.tableLayout = "fixed";
+        table.style.width = "auto";
+        table.style.minWidth = "0";
+        table.style.maxWidth = "none";
+        const ths = table.querySelectorAll("thead th");
+        let totalW = 0;
+        for (let c = 0; c < ths.length; c++) {
+          const w = capLayout(Math.max(MIN_COL_WIDTH, parsed.colWidths[c] || MIN_COL_WIDTH), MAX_TABLE_COL_WIDTH);
+          parsed.colWidths[c] = w;
+          totalW += w;
+          const cells = table.querySelectorAll(
+            'thead th[data-mda-col="' + c + '"], tbody td[data-mda-col="' + c + '"]'
+          );
+          for (let i = 0; i < cells.length; i++) {
+            cells[i].style.width = w + "px";
+            cells[i].style.minWidth = w + "px";
+            cells[i].style.maxWidth = w + "px";
+            cells[i].style.boxSizing = "border-box";
+          }
+        }
+        table.style.width = totalW + "px";
+        const headerRow = table.querySelector("thead tr");
+        const bodyRows = table.querySelectorAll("tbody tr");
+        const visualRows = [];
+        if (headerRow) visualRows.push(headerRow);
+        for (let i = 0; i < bodyRows.length; i++) visualRows.push(bodyRows[i]);
+        let totalH = 0;
+        for (let r = 0; r < visualRows.length; r++) {
+          const h = capLayout(Math.max(MIN_ROW_HEIGHT, parsed.rowHeights[r] || MIN_ROW_HEIGHT), MAX_TABLE_ROW_HEIGHT);
+          parsed.rowHeights[r] = h;
+          totalH += h;
+          const row = visualRows[r];
+          row.style.height = h + "px";
+          const cells = row.querySelectorAll("th, td");
+          for (let i = 0; i < cells.length; i++) {
+            cells[i].style.height = h + "px";
+            cells[i].style.boxSizing = "border-box";
+          }
+        }
+        table.style.height = totalH + "px";
+        syncTableWrapLayout(wrap, table, totalW);
+        return totalW;
+      }
+      function createTableAddBtn(kind, t) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "mda-cm-table-add-btn";
+        btn.textContent = "+";
+        const i18nKey = kind === "col" ? "widgetTableAddCol" : "widgetTableAddRow";
+        btn.setAttribute("data-i18n-title", i18nKey);
+        if (t) btn.title = uiT(i18nKey, t);
+        btn.addEventListener("mousedown", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+        return btn;
+      }
+      function refreshTableAddBtnI18n(wrap, t) {
+        if (!wrap || !t) return;
+        const colBtns = wrap.querySelectorAll(".mda-cm-table-col-resize-handle .mda-cm-table-add-btn");
+        for (let i = 0; i < colBtns.length; i++) {
+          colBtns[i].title = uiT("widgetTableAddCol", t);
+        }
+        const rowBtns = wrap.querySelectorAll(".mda-cm-table-row-resize-handle .mda-cm-table-add-btn");
+        for (let j = 0; j < rowBtns.length; j++) {
+          rowBtns[j].title = uiT("widgetTableAddRow", t);
+        }
+      }
+      function attachTableGridResize(wrap, table, ctx) {
+        const overlay = document.createElement("div");
+        overlay.className = "mda-cm-table-resize-layer";
+        overlay.setAttribute("aria-hidden", "true");
+        wrap.appendChild(overlay);
+        let dragging = null;
+        let layoutCaptured = false;
+        let activeHandle = null;
+        function rebuildHandles() {
+          overlay.innerHTML = "";
+          if (!table.isConnected || !wrap.isConnected) return;
+          const origin = getWrapContentOrigin(wrap);
+          const tableRect = table.getBoundingClientRect();
+          const tableTop = tableRect.top - origin.top;
+          const tableLeft = tableRect.left - origin.left;
+          const tableW = table.offsetWidth;
+          const tableH = table.offsetHeight;
+          const ths = table.querySelectorAll("thead th");
+          for (let c = 0; c < ths.length; c++) {
+            const rect = ths[c].getBoundingClientRect();
+            const borderX = rect.right - origin.left;
+            const handle = document.createElement("div");
+            handle.className = "mda-cm-table-col-resize-handle";
+            handle.dataset.col = String(c);
+            handle.setAttribute("data-i18n-title", "widgetTableResizeCol");
+            if (ctx.t) handle.title = ctx.t("widgetTableResizeCol");
+            handle.style.left = Math.round(borderX - RESIZE_HANDLE_HALF) + "px";
+            handle.style.top = Math.round(tableTop) + "px";
+            handle.style.height = tableH + "px";
+            const addBtn = createTableAddBtn("col", ctx.t);
+            addBtn.addEventListener("click", function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (typeof ctx.onAddColumn === "function") ctx.onAddColumn(c);
+            });
+            handle.appendChild(addBtn);
+            overlay.appendChild(handle);
+          }
+          const rows = table.querySelectorAll("tr");
+          for (let r = 0; r < rows.length; r++) {
+            const rect = rows[r].getBoundingClientRect();
+            const borderY = rect.bottom - origin.top;
+            const handle = document.createElement("div");
+            handle.className = "mda-cm-table-row-resize-handle";
+            handle.dataset.row = String(r);
+            handle.setAttribute("data-i18n-title", "widgetTableResizeRow");
+            if (ctx.t) handle.title = ctx.t("widgetTableResizeRow");
+            handle.style.top = Math.round(borderY - RESIZE_HANDLE_HALF) + "px";
+            handle.style.left = Math.round(tableLeft) + "px";
+            handle.style.width = tableW + "px";
+            const addBtn = createTableAddBtn("row", ctx.t);
+            addBtn.addEventListener("click", function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (typeof ctx.onAddRow === "function") ctx.onAddRow(r);
+            });
+            handle.appendChild(addBtn);
+            overlay.appendChild(handle);
+          }
+        }
+        function ensureCaptured() {
+          if (layoutCaptured) return;
+          const parsed = ctx.getParsed();
+          captureLayoutFromTable(table, parsed);
+          applyTableLayout(table, parsed, wrap);
+          layoutCaptured = true;
+          rebuildHandles();
+        }
+        overlay.addEventListener("mousedown", function(e) {
+          if (e.button !== 0) return;
+          if (e.target && e.target.closest && e.target.closest(".mda-cm-table-add-btn")) return;
+          const colHandle = e.target && e.target.closest ? e.target.closest(".mda-cm-table-col-resize-handle") : null;
+          const rowHandle = e.target && e.target.closest ? e.target.closest(".mda-cm-table-row-resize-handle") : null;
+          if (!colHandle && !rowHandle) return;
+          e.preventDefault();
+          e.stopPropagation();
+          ensureCaptured();
+          const parsed = ctx.getParsed();
+          wrap.classList.add("mda-cm-table-resizing-active");
+          if (colHandle) {
+            const col = parseInt(colHandle.getAttribute("data-col") || "0", 10);
+            activeHandle = colHandle;
+            activeHandle.classList.add("mda-cm-table-resize-dragging");
+            const th = table.querySelectorAll("thead th")[col];
+            const startW = th ? th.getBoundingClientRect().width : parsed.colWidths[col] || MIN_COL_WIDTH;
+            dragging = { kind: "col", col, startX: e.clientX, startW };
+            document.body.classList.add("mda-cm-table-resizing-col");
+          } else if (rowHandle) {
+            const row = parseInt(rowHandle.getAttribute("data-row") || "0", 10);
+            activeHandle = rowHandle;
+            activeHandle.classList.add("mda-cm-table-resize-dragging");
+            const tr = table.querySelectorAll("tr")[row];
+            const startH = tr ? tr.getBoundingClientRect().height : parsed.rowHeights[row] || MIN_ROW_HEIGHT;
+            dragging = { kind: "row", row, startY: e.clientY, startH };
+            document.body.classList.add("mda-cm-table-resizing-row");
+          }
+          document.body.classList.add("mda-cm-table-resizing");
+        });
+        function onMove(e) {
+          if (!dragging) return;
+          const parsed = ctx.getParsed();
+          if (dragging.kind === "col") {
+            const nw = Math.max(
+              MIN_COL_WIDTH,
+              Math.round(dragging.startW + (e.clientX - dragging.startX))
+            );
+            parsed.colWidths[dragging.col] = nw;
+            applyTableLayout(table, parsed, wrap);
+            rebuildHandles();
+            if (activeHandle) activeHandle.classList.add("mda-cm-table-resize-dragging");
+          } else {
+            const nh = Math.max(
+              MIN_ROW_HEIGHT,
+              Math.round(dragging.startH + (e.clientY - dragging.startY))
+            );
+            parsed.rowHeights[dragging.row] = nh;
+            applyTableLayout(table, parsed, wrap);
+            rebuildHandles();
+            if (activeHandle) activeHandle.classList.add("mda-cm-table-resize-dragging");
+          }
+        }
+        function endDrag() {
+          if (activeHandle) {
+            activeHandle.classList.remove("mda-cm-table-resize-dragging");
+            activeHandle = null;
+          }
+          wrap.classList.remove("mda-cm-table-resizing-active");
+          document.body.classList.remove("mda-cm-table-resizing");
+          document.body.classList.remove("mda-cm-table-resizing-col", "mda-cm-table-resizing-row");
+        }
+        function onUp() {
+          if (!dragging) return;
+          dragging = null;
+          endDrag();
+          if (typeof ctx.onLayoutCommit === "function") {
+            ctx.onLayoutCommit(ctx.getParsed());
+          }
+        }
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+        return {
+          applyLayout: function(parsed) {
+            layoutCaptured = hasTableLayoutMeta(parsed);
+            if (layoutCaptured) applyTableLayout(table, parsed, wrap);
+            else clearTableLayout(table, wrap);
+            rebuildHandles();
+          },
+          rebuildHandles,
+          refreshAddBtnI18n: function(tFn) {
+            refreshTableAddBtnI18n(wrap, tFn);
+          },
+          dispose: function() {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            endDrag();
+            if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+          }
+        };
+      }
+      module.exports = {
+        attachTableGridResize,
+        applyTableLayout,
+        clearTableLayout,
+        clearTableWrapLayout,
+        syncTableWrapLayout,
+        captureLayoutFromTable,
+        ensureLayoutArrays,
+        refreshTableAddBtnI18n
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/table-layout-session.js
+  var require_table_layout_session = __commonJS({
+    "src/gui/renderer/editor/widgets/table-layout-session.js"(exports, module) {
+      "use strict";
+      var { hasTableLayoutMeta } = require_parse_table();
+      var sessions = /* @__PURE__ */ new Map();
+      function normalizeSessionKey(source) {
+        return String(source || "").replace(/\r\n/g, "\n").replace(/\n$/, "");
+      }
+      function getTableLayoutSession(source) {
+        const key = normalizeSessionKey(source);
+        if (!key) return null;
+        const sess = sessions.get(key);
+        if (!sess) return null;
+        return {
+          colWidths: sess.colWidths.slice(),
+          rowHeights: sess.rowHeights.slice()
+        };
+      }
+      function setTableLayoutSession(source, parsed) {
+        const key = normalizeSessionKey(source);
+        if (!key || !parsed || !hasTableLayoutMeta(parsed)) {
+          if (key) sessions.delete(key);
+          return;
+        }
+        sessions.set(key, {
+          colWidths: (parsed.colWidths || []).slice(),
+          rowHeights: (parsed.rowHeights || []).slice()
+        });
+      }
+      function migrateTableLayoutSession(oldSource, newSource) {
+        const oldKey = normalizeSessionKey(oldSource);
+        const newKey = normalizeSessionKey(newSource);
+        if (!oldKey || !newKey || oldKey === newKey) return;
+        const sess = sessions.get(oldKey);
+        if (!sess) return;
+        sessions.set(newKey, {
+          colWidths: sess.colWidths.slice(),
+          rowHeights: sess.rowHeights.slice()
+        });
+        sessions.delete(oldKey);
+      }
+      function mergeTableLayoutSession(parsed, sess) {
+        if (!parsed || !sess) return;
+        const ncol = parsed.headers.length;
+        const nrow = 1 + parsed.rows.length;
+        if (sess.colWidths.length) {
+          const cw = sess.colWidths.slice();
+          while (cw.length < ncol) cw.push(0);
+          if (cw.length > ncol) cw.length = ncol;
+          parsed.colWidths = cw;
+        }
+        if (sess.rowHeights.length) {
+          const rh = sess.rowHeights.slice();
+          while (rh.length < nrow) rh.push(0);
+          if (rh.length > nrow) rh.length = nrow;
+          parsed.rowHeights = rh;
+        }
+      }
+      function applyTableLayoutSession(source, parsed) {
+        if (!parsed) return;
+        const sess = getTableLayoutSession(source);
+        if (!sess) return;
+        mergeTableLayoutSession(parsed, sess);
+      }
+      function clearTableLayoutSession(source) {
+        const key = normalizeSessionKey(source);
+        if (key) sessions.delete(key);
+      }
+      module.exports = {
+        getTableLayoutSession,
+        setTableLayoutSession,
+        applyTableLayoutSession,
+        migrateTableLayoutSession,
+        mergeTableLayoutSession,
+        clearTableLayoutSession
       };
     }
   });
@@ -51247,7 +55644,9 @@ var MDAEditorBundle = (() => {
         setCellMarkdownContent,
         selectTableMathAtom,
         handleTableMathDeleteKey,
-        tableCellImageMarkdownAbs
+        tableCellImageMarkdownAbs,
+        applyInlineFormatToTableCell,
+        getCellInlineFlags
       } = require_table_cell_content();
       var { undo, redo } = require_dist8();
       var { attachBlockDragHandle } = require_block_drag_handle();
@@ -51255,6 +55654,7 @@ var MDAEditorBundle = (() => {
       var { clearSelectedImageBlock } = require_image_selection();
       var { clearSelectedMermaidBlock } = require_mermaid_selection();
       var { clearSelectedInlineMath } = require_inline_math_selection();
+      var { toggleWidgetPendingMark } = require_pending_inline_format();
       var internalClipboard = "";
       var activeTableSubmenu = null;
       var tableSubOpenTimer = 0;
@@ -51277,6 +55677,14 @@ var MDAEditorBundle = (() => {
             source: w.source || ctx.blockSource || ""
           });
         }
+      }
+      function isCellSelectionCollapsed(cell) {
+        if (typeof window === "undefined" || !window.getSelection) return true;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount < 1 || sel.isCollapsed) return true;
+        const range = sel.getRangeAt(0);
+        if (!cell.contains(range.startContainer) || !cell.contains(range.endContainer)) return true;
+        return range.toString().length === 0;
       }
       function renderTableElement(parsed, opts) {
         opts = opts || {};
@@ -51625,9 +56033,9 @@ var MDAEditorBundle = (() => {
           setSelection({ kind: "none" });
         }
         function mutate(fn) {
+          syncFromDomIfNeeded();
           mutating = true;
           try {
-            syncFromDomIfNeeded();
             applyTableLayoutSession(blockSource, parsed);
             if (hasTableLayoutMeta(parsed)) ensureLayoutArrays(parsed);
             fn(parsed);
@@ -52137,6 +56545,43 @@ var MDAEditorBundle = (() => {
             cell.addEventListener("keydown", function(e) {
               if ((e.ctrlKey || e.metaKey) && !e.altKey) {
                 const key = e.key;
+                if (key === "b" || key === "B" || key === "i" || key === "I" || key === "u" || key === "U" || key === "`" || (key === "x" || key === "X") && e.shiftKey) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  let before = "**";
+                  let after = "**";
+                  let mark = "bold";
+                  if (key === "i" || key === "I") {
+                    before = "*";
+                    after = "*";
+                    mark = "italic";
+                  } else if (key === "u" || key === "U") {
+                    before = "~";
+                    after = "~";
+                    mark = "underline";
+                  } else if (key === "x" || key === "X") {
+                    before = "~~";
+                    after = "~~";
+                    mark = "strike";
+                  } else if (key === "`") {
+                    before = "`";
+                    after = "`";
+                    mark = "code";
+                  }
+                  if (isCellSelectionCollapsed(cell)) {
+                    const caret = getCellInlineFlags(cell);
+                    toggleWidgetPendingMark(
+                      cell,
+                      mark,
+                      caret ? caret.flags : null,
+                      caret ? caret.pos : null
+                    );
+                    return;
+                  }
+                  applyInlineFormatToTableCell(cell, before, after, null);
+                  cellContentDirty = true;
+                  return;
+                }
                 if (key === "z" || key === "Z") {
                   e.preventDefault();
                   e.stopPropagation();
@@ -52239,6 +56684,8 @@ var MDAEditorBundle = (() => {
               requestAnimationFrame(function() {
                 if (mutating) return;
                 if (!cellContentDirty) return;
+                const ae = document.activeElement;
+                if (ae && ae.closest && ae.closest(".mda-cm-edit-toolbar")) return;
                 cellContentDirty = false;
                 if (!ctx.root.isConnected || !table.isConnected) return;
                 if (table.contains(document.activeElement)) return;
@@ -52453,6 +56900,7 @@ var MDAEditorBundle = (() => {
           }
           if (e.button === 2) return;
           if (e.target && stage.contains(e.target)) return;
+          if (e.target && e.target.closest && e.target.closest(".mda-cm-edit-toolbar")) return;
           clearTableInteraction();
         }
         document.addEventListener("mousedown", onDocPointer, true);
@@ -52622,6 +57070,10 @@ var MDAEditorBundle = (() => {
       } = require_parse_table();
       var { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require_block_widget_base();
       var { mountTableChrome, closeTableMenu } = require_table_chrome();
+      var {
+        getCellVisibleSelection,
+        setCellVisibleSelection
+      } = require_table_cell_content();
       var { deleteBlockRange } = require_image_block_ops();
       var { applyTableLayoutSession } = require_table_layout_session();
       var { attachTableBlockLayout, detachTableBlockLayout } = require_table_layout_width();
@@ -52718,9 +57170,51 @@ var MDAEditorBundle = (() => {
           userEvent: "input"
         });
       }
+      function captureFocusedCellPos(view) {
+        if (typeof document === "undefined") return null;
+        const cell = document.activeElement;
+        if (!cell || !cell.closest) return null;
+        const td = cell.closest("td, th");
+        if (!td || !view.dom.contains(td)) return null;
+        const root = td.closest(".mda-cm-table-block");
+        if (!root) return null;
+        const roots = Array.prototype.slice.call(view.dom.querySelectorAll(".mda-cm-table-block"));
+        const tr = td.parentElement;
+        if (!tr) return null;
+        const rows = Array.prototype.slice.call(
+          (td.closest("table") || root).querySelectorAll("tr")
+        );
+        const off = getCellVisibleSelection(td);
+        if (!off) return null;
+        return {
+          block: roots.indexOf(root),
+          row: rows.indexOf(tr),
+          col: Array.prototype.slice.call(tr.children).indexOf(td),
+          start: off.start,
+          end: off.end
+        };
+      }
+      function restoreFocusedCellPos(view, pos) {
+        if (!pos || pos.block < 0 || pos.row < 0 || pos.col < 0) return;
+        const roots = view.dom.querySelectorAll(".mda-cm-table-block");
+        const root = roots[pos.block];
+        if (!root) return;
+        const table = root.querySelector("table");
+        if (!table) return;
+        const tr = table.querySelectorAll("tr")[pos.row];
+        if (!tr) return;
+        const td = tr.children[pos.col];
+        if (!td) return;
+        try {
+          td.focus();
+        } catch (_) {
+        }
+        setCellVisibleSelection(td, pos.start, pos.end);
+      }
       function flushAllTableWidgets(view) {
         if (!view || !view.dom) return;
         closeTableMenu();
+        const focused = captureFocusedCellPos(view);
         const roots = view.dom.querySelectorAll(".mda-cm-table-block");
         for (let i = 0; i < roots.length; i++) {
           const chrome = roots[i]._mdaTableChrome;
@@ -52728,6 +57222,7 @@ var MDAEditorBundle = (() => {
             chrome.flush();
           }
         }
+        if (focused) restoreFocusedCellPos(view, focused);
       }
       var TableWidget = class _TableWidget extends BlockReplaceWidget {
         /**
@@ -52966,10 +57461,10 @@ var MDAEditorBundle = (() => {
             blockMenuHandlers: opts.blockMenuHandlers,
             t,
             onMoveBlock: opts.onMoveQuoteBlock,
-            onHandleClick: function(handle2, block) {
+            onHandleClick: function(handle, block) {
               selectAnchor();
               showBlockHandleMenu({
-                anchorEl: handle2,
+                anchorEl: handle,
                 blockRoot: wrap,
                 view,
                 block,
@@ -52979,11 +57474,6 @@ var MDAEditorBundle = (() => {
               });
             }
           });
-          const handle = wrap.querySelector(".mda-cm-block-drag-handle");
-          if (handle && t) {
-            handle.title = uiT("widgetBlockDragHandle", t);
-            handle.setAttribute("aria-label", uiT("widgetBlockDragHandle", t));
-          }
           wrap.addEventListener("mousedown", function(e) {
             if (e.button !== 0) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) {
@@ -53021,6 +57511,126 @@ var MDAEditorBundle = (() => {
       module.exports = {
         QuoteHandleWidget,
         isEmptyQuoteLineText
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widgets/heading-handle.js
+  var require_heading_handle = __commonJS({
+    "src/gui/renderer/editor/widgets/heading-handle.js"(exports, module) {
+      "use strict";
+      var { WidgetType } = require_dist4();
+      var { attachBlockDragHandle } = require_block_drag_handle();
+      var { showBlockHandleMenu } = require_block_handle_menu();
+      var { clearBlockWidgetSelection, clearMediaSelection, uiT } = require_widget_common();
+      var { setSelectedBlock } = require_block_selection();
+      var { clearSelectedImageBlock } = require_image_selection();
+      var { clearSelectedMermaidBlock } = require_mermaid_selection();
+      var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
+      var { Transaction } = require_dist2();
+      var HeadingHandleWidget = class _HeadingHandleWidget extends WidgetType {
+        /**
+         * @param {{
+         *   from: number,
+         *   to: number,
+         *   source?: string,
+         *   t?: Function,
+         *   blockMenuHandlers?: object,
+         *   headingLevel?: number,
+         *   onMoveHeadingBlock?: Function,
+         * }} opts
+         */
+        constructor(opts) {
+          super();
+          opts = opts || {};
+          this.from = opts.from;
+          this.to = opts.to;
+          this.headingLevel = opts.headingLevel != null ? opts.headingLevel : 1;
+          this.source = opts.source || "";
+          this.opts = opts;
+        }
+        eq(other) {
+          return other instanceof _HeadingHandleWidget && other.from === this.from && other.to === this.to && other.headingLevel === this.headingLevel && other.source === this.source;
+        }
+        toDOM(view) {
+          const self2 = this;
+          const opts = this.opts;
+          const wrap = document.createElement("span");
+          wrap.className = "mda-cm-heading-handle-anchor mda-cm-heading-handle-h" + Math.max(1, Math.min(6, self2.headingLevel || 1));
+          wrap.setAttribute("contenteditable", "false");
+          wrap.setAttribute("data-mda-block-from", String(this.from));
+          wrap.setAttribute("data-mda-block-to", String(this.to));
+          if (this.source) wrap.setAttribute("data-mda-block-source", this.source);
+          wrap.setAttribute("data-mda-block-kind", "heading");
+          const t = opts.t;
+          const range = { from: self2.from, to: self2.to, source: self2.source };
+          function selectAnchor() {
+            clearMediaSelection(view.dom);
+            clearBlockWidgetSelection(view.dom);
+            clearSelectedImageBlock();
+            clearSelectedMermaidBlock();
+            clearSelectedInlineMath();
+            clearInlineMathSelectedClass(view.dom);
+            wrap.classList.add("mda-cm-block-selected");
+            setSelectedBlock({
+              kind: "heading",
+              from: self2.from,
+              to: self2.to,
+              source: self2.source
+            });
+            try {
+              if (self2.from != null) {
+                const pos = Math.max(0, Math.min(self2.from, view.state.doc.length));
+                const sel = view.state.selection.main;
+                if (sel.from !== pos || sel.to !== pos) {
+                  view.dispatch({
+                    selection: { anchor: pos, head: pos },
+                    annotations: Transaction.addToHistory.of(false)
+                  });
+                }
+                view.focus();
+              }
+            } catch (_) {
+            }
+          }
+          attachBlockDragHandle(wrap, view, range, {
+            blockRoot: wrap,
+            blockSelector: ".mda-cm-heading-handle-anchor",
+            replaceOnHover: false,
+            blockKind: "h" + Math.max(1, Math.min(6, self2.headingLevel || 1)),
+            blockMenuHandlers: opts.blockMenuHandlers,
+            t,
+            onMoveBlock: opts.onMoveHeadingBlock,
+            onHandleClick: function(handle, block) {
+              selectAnchor();
+              showBlockHandleMenu({
+                anchorEl: handle,
+                blockRoot: wrap,
+                view,
+                block,
+                blockKind: "heading",
+                t,
+                handlers: opts.blockMenuHandlers
+              });
+            }
+          });
+          wrap.addEventListener("mousedown", function(e) {
+            if (e.button !== 0) return;
+            if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) {
+              selectAnchor();
+            }
+          });
+          return wrap;
+        }
+        ignoreEvent() {
+          return true;
+        }
+        get estimatedHeight() {
+          return 0;
+        }
+      };
+      module.exports = {
+        HeadingHandleWidget
       };
     }
   });
@@ -53953,56 +58563,6 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/widgets/code-selection.js
-  var require_code_selection = __commonJS({
-    "src/gui/renderer/editor/widgets/code-selection.js"(exports, module) {
-      "use strict";
-      var {
-        setSelectedBlock,
-        getSelectedBlockOfKind,
-        clearSelectedBlock
-      } = require_block_selection();
-      function setSelectedCodeBlock(block) {
-        if (!block) {
-          clearSelectedBlock();
-          return;
-        }
-        setSelectedBlock({
-          kind: "code",
-          from: block.from,
-          to: block.to,
-          source: block.source || ""
-        });
-      }
-      function getSelectedCodeBlock() {
-        const mem = getSelectedBlockOfKind("code");
-        if (mem) {
-          return { from: mem.from, to: mem.to, source: mem.source };
-        }
-        const el = document.querySelector(".mda-cm-code-block.mda-cm-block-selected");
-        if (!el) return null;
-        const from = parseInt(el.getAttribute("data-mda-block-from") || "", 10);
-        const to = parseInt(el.getAttribute("data-mda-block-to") || "", 10);
-        if (!(from >= 0) || !(to > from)) return null;
-        const source = el.getAttribute("data-mda-block-source") || "";
-        return { from, to, source };
-      }
-      function clearSelectedCodeBlock() {
-        const mem = getSelectedBlockOfKind("code");
-        if (mem) clearSelectedBlock();
-        const nodes = document.querySelectorAll(".mda-cm-code-block.mda-cm-block-selected");
-        for (let i = 0; i < nodes.length; i++) {
-          nodes[i].classList.remove("mda-cm-block-selected");
-        }
-      }
-      module.exports = {
-        setSelectedCodeBlock,
-        getSelectedCodeBlock,
-        clearSelectedCodeBlock
-      };
-    }
-  });
-
   // src/gui/renderer/editor/widgets/code.js
   var require_code = __commonJS({
     "src/gui/renderer/editor/widgets/code.js"(exports, module) {
@@ -54812,6 +59372,10 @@ var MDAEditorBundle = (() => {
           codeInput.addEventListener("keydown", function(e) {
             e.stopPropagation();
             const mod = e.ctrlKey || e.metaKey;
+            if (mod && !e.altKey && (e.key === "b" || e.key === "B" || e.key === "i" || e.key === "I" || e.key === "`" || (e.key === "x" || e.key === "X") && e.shiftKey)) {
+              e.preventDefault();
+              return;
+            }
             if (mod && !e.altKey && (e.key === "z" || e.key === "Z")) {
               e.preventDefault();
               if (e.shiftKey) redoLocal();
@@ -55379,8 +59943,17 @@ var MDAEditorBundle = (() => {
   var require_anno_gutter = __commonJS({
     "src/gui/renderer/editor/anno-gutter.js"(exports, module) {
       "use strict";
-      var { StateField, RangeSetBuilder } = require_dist2();
-      var { EditorView, Decoration } = require_dist4();
+      var { StateField, RangeSetBuilder, StateEffect } = require_dist2();
+      var { EditorView, Decoration, gutter, GutterMarker } = require_dist4();
+      var { findAnnotationHideRanges } = require_anno_lines();
+      var AnnoGutterRefresh = StateEffect.define();
+      function needsAnnoGutterRecompute(tr) {
+        if (tr.docChanged) return true;
+        for (let i = 0; i < tr.effects.length; i++) {
+          if (tr.effects[i].is(AnnoGutterRefresh)) return true;
+        }
+        return false;
+      }
       function mostSevereAnno(annos, levelSeverity) {
         if (!annos || !annos.length) return null;
         let best = annos[0];
@@ -55390,7 +59963,7 @@ var MDAEditorBundle = (() => {
         }
         return best;
       }
-      function buildAnnoGutterMarks(text, scan, levelColors, levelSeverity) {
+      function buildAnnoGutterMarks(text, scan, levelColors, levelSeverity, filterAnnotation) {
         const paragraphs = scan && scan.paragraphs || [];
         const colors = levelColors || {};
         const severity = levelSeverity || {};
@@ -55398,8 +59971,12 @@ var MDAEditorBundle = (() => {
         const seen = /* @__PURE__ */ Object.create(null);
         for (let i = 0; i < paragraphs.length; i++) {
           const p = paragraphs[i];
-          const annos = p && p.annotations;
+          let annos = p && p.annotations;
           if (!annos || !annos.length) continue;
+          if (typeof filterAnnotation === "function") {
+            annos = annos.filter(filterAnnotation);
+            if (!annos.length) continue;
+          }
           const line = p.startLine;
           if (!(line >= 1) || seen[line]) continue;
           const top = mostSevereAnno(annos, severity);
@@ -55409,6 +59986,45 @@ var MDAEditorBundle = (() => {
           out.push({ line, color });
         }
         return out;
+      }
+      function lineStartOffsets(text) {
+        const starts = [0];
+        for (let i = 0; i < text.length; i++) {
+          if (text.charAt(i) === "\n") starts.push(i + 1);
+        }
+        return starts;
+      }
+      function appendAnnoLineDecorations(text, lineDecos, liveOpts, LineDeco) {
+        if (!liveOpts || typeof liveOpts.parseAnnotations !== "function" || !LineDeco) return;
+        try {
+          const scan = liveOpts.parseAnnotations(text) || {};
+          const marks = buildAnnoGutterMarks(
+            text,
+            scan,
+            liveOpts.levelColors || {},
+            liveOpts.levelSeverity || {},
+            liveOpts.filterAnnotation
+          );
+          if (!marks.length) return;
+          const starts = lineStartOffsets(text);
+          for (let i = 0; i < marks.length; i++) {
+            const m = marks[i];
+            const idx = m.line - 1;
+            if (idx < 0 || idx >= starts.length) continue;
+            const from = starts[idx];
+            lineDecos.push({
+              from,
+              to: from,
+              deco: LineDeco.line({
+                class: "mda-anno-block-line",
+                attributes: {
+                  style: "--mda-anno-bar: " + m.color + ";"
+                }
+              })
+            });
+          }
+        } catch (_) {
+        }
       }
       function marksToLineDecoSet(state, marks) {
         const sorted = marks.slice().sort(function(a, b) {
@@ -55425,7 +60041,7 @@ var MDAEditorBundle = (() => {
             Decoration.line({
               class: "mda-anno-block-line",
               attributes: {
-                style: "border-left: 4px solid " + m.color + "; padding-left: 10px;"
+                style: "--mda-anno-bar: " + m.color + ";"
               }
             })
           );
@@ -55460,7 +60076,7 @@ var MDAEditorBundle = (() => {
             return compute(state);
           },
           update: function(deco, tr) {
-            if (!tr.docChanged) return deco;
+            if (!needsAnnoGutterRecompute(tr)) return deco;
             return compute(tr.state);
           },
           provide: function(field) {
@@ -55468,10 +60084,97 @@ var MDAEditorBundle = (() => {
           }
         });
       }
+      function refreshAnnoGutter(view) {
+        if (!view || typeof view.dispatch !== "function") return;
+        view.dispatch({ effects: AnnoGutterRefresh.of(null) });
+      }
+      var MalformedAnnoGutterMarker = class extends GutterMarker {
+        toDOM() {
+          const el = document.createElement("span");
+          el.className = "mda-anno-malformed-gutter";
+          el.textContent = "!";
+          el.setAttribute("aria-hidden", "true");
+          return el;
+        }
+      };
+      var malformedAnnoMarker = new MalformedAnnoGutterMarker();
+      function createAnnoMalformedGutter() {
+        const field = StateField.define({
+          create: function(state) {
+            return buildMalformedGutterSet(state);
+          },
+          update: function(set, tr) {
+            if (!needsAnnoGutterRecompute(tr)) return set;
+            return buildMalformedGutterSet(tr.state);
+          }
+        });
+        return [
+          field,
+          gutter({
+            class: "cm-mda-anno-malformed-gutter",
+            markers: function(view) {
+              return view.state.field(field);
+            },
+            initialSpacer: function() {
+              return malformedAnnoMarker;
+            }
+          })
+        ];
+      }
+      function buildMalformedGutterSet(state) {
+        const text = state.doc.toString();
+        const ranges = findAnnotationHideRanges(text);
+        const builder = new RangeSetBuilder();
+        for (let i = 0; i < ranges.length; i++) {
+          const ar = ranges[i];
+          if (!ar.malformed) continue;
+          const line = state.doc.lineAt(ar.from);
+          builder.add(line.from, line.from, malformedAnnoMarker);
+        }
+        return builder.finish();
+      }
       module.exports = {
         mostSevereAnno,
         buildAnnoGutterMarks,
-        createAnnoGutterField
+        appendAnnoLineDecorations,
+        createAnnoGutterField,
+        createAnnoMalformedGutter,
+        refreshAnnoGutter
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/anno-paragraph-sync.js
+  var require_anno_paragraph_sync = __commonJS({
+    "src/gui/renderer/editor/anno-paragraph-sync.js"(exports, module) {
+      "use strict";
+      var { EditorView } = require_dist4();
+      function createAnnoParagraphSyncExtension(onParagraphClick) {
+        if (typeof onParagraphClick !== "function") return [];
+        return EditorView.domEventHandlers({
+          mouseup: function(event, view) {
+            if (event.button !== 0) return false;
+            if (event.target && event.target.closest) {
+              if (event.target.closest(
+                ".mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-image-block, .mda-cm-math-block, .mda-cm-hr-block, .mda-cm-block-handle, .mda-cm-block-handle-menu, .mda-context-menu, .mda-block-handle-menu"
+              )) {
+                return false;
+              }
+            }
+            requestAnimationFrame(function() {
+              if (!view || view.destroyed) return;
+              const sel = view.state.selection.main;
+              if (sel.from !== sel.to) return;
+              const line = view.state.doc.lineAt(sel.head);
+              if (!line) return;
+              onParagraphClick(line.number);
+            });
+            return false;
+          }
+        });
+      }
+      module.exports = {
+        createAnnoParagraphSyncExtension
       };
     }
   });
@@ -55596,10 +60299,13 @@ var MDAEditorBundle = (() => {
         if (!slice) return false;
         event.clipboardData.setData("text/plain", slice.text);
         event.preventDefault();
-        view.dispatch({
-          changes: { from: slice.from, to: slice.to, insert: "" },
-          selection: { anchor: slice.from, head: slice.from }
-        });
+        require_inline_delimiter_ops().replaceRangeWithCleanup(
+          view,
+          slice.from,
+          slice.to,
+          "",
+          "delete.cut"
+        );
         return true;
       }
       function normalizePasteForHeading(state, pos, text) {
@@ -55617,10 +60323,13 @@ var MDAEditorBundle = (() => {
         const next = normalizePasteForHeading(view.state, pos, plain);
         if (next === plain) return false;
         event.preventDefault();
-        view.dispatch({
-          changes: { from: sel.from, to: sel.to, insert: next },
-          userEvent: "input.paste"
-        });
+        require_inline_delimiter_ops().replaceRangeWithCleanup(
+          view,
+          sel.from,
+          sel.to,
+          next,
+          "input.paste"
+        );
         return true;
       }
       module.exports = {
@@ -55637,14 +60346,74 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/model/anchor-from-sel.js
+  var require_anchor_from_sel = __commonJS({
+    "src/gui/renderer/editor/model/anchor-from-sel.js"(exports, module) {
+      "use strict";
+      var { findAnnotationHideRanges } = require_anno_lines();
+      var QUOTE_MAX = 200;
+      function skipHiddenAt(text, pos, dir, hidden) {
+        let p = pos;
+        const len = text.length;
+        for (let guard = 0; guard < 4096 && p >= 0 && p <= len; guard++) {
+          let inside = false;
+          for (let i = 0; i < hidden.length; i++) {
+            const h = hidden[i];
+            if (p >= h.from && p < h.to) {
+              inside = true;
+              p = dir > 0 ? h.to : h.from - 1;
+              break;
+            }
+          }
+          if (!inside) break;
+        }
+        return Math.max(0, Math.min(len, p));
+      }
+      function trimEndpoint(text, from, to, dir, hidden) {
+        let p = dir > 0 ? from : Math.max(from, to - 1);
+        const end = dir > 0 ? to : from;
+        while (p !== end) {
+          p = skipHiddenAt(text, p, dir, hidden);
+          const ch = text.charAt(p);
+          if (!ch || !/\s/.test(ch)) break;
+          p += dir;
+        }
+        p = skipHiddenAt(text, p, dir, hidden);
+        return Math.max(0, Math.min(text.length, p));
+      }
+      function anchorFromSelection(state) {
+        if (!state || !state.selection) return null;
+        const r = state.selection.main;
+        if (!r || r.empty) return null;
+        const text = state.doc.toString();
+        const hidden = findAnnotationHideRanges(text).map(function(x) {
+          return { from: x.from, to: x.to };
+        });
+        let from = trimEndpoint(text, r.from, r.to, 1, hidden);
+        let endIdx = trimEndpoint(text, r.from, r.to, -1, hidden);
+        if (from > endIdx) return null;
+        const endPos = endIdx + 1;
+        let quote = text.slice(from, endPos);
+        if (quote.length > QUOTE_MAX) quote = quote.slice(0, QUOTE_MAX);
+        return { start: from, end: endPos, quote };
+      }
+      module.exports = {
+        anchorFromSelection,
+        QUOTE_MAX
+      };
+    }
+  });
+
   // src/gui/renderer/editor/empty-line-insert.js
   var require_empty_line_insert = __commonJS({
     "src/gui/renderer/editor/empty-line-insert.js"(exports, module) {
       "use strict";
-      var { Transaction } = require_dist2();
-      var { EditorView, ViewPlugin, WidgetType, Decoration } = require_dist4();
+      var { Transaction, Prec } = require_dist2();
+      var { EditorView, ViewPlugin, WidgetType, Decoration, keymap } = require_dist4();
       var { showEmptyLineInsertMenu, isEmptyLineInsertMenuOpenFor } = require_empty_line_insert_menu();
       var { HOVER_LEAVE_MS, uiT } = require_widget_common();
+      var { ATX_LINE_RE } = require_caret_syntax_adjust();
+      var { focusInWidgetInlineEditable } = require_widget_editable_guard();
       var HIDE_MS = HOVER_LEAVE_MS;
       var BLOCK_CHILD_SEL = ".mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-image-block, .mda-cm-math-block, .mda-cm-hr-block";
       function lineElementAt(view, pos) {
@@ -55717,17 +60486,23 @@ var MDAEditorBundle = (() => {
       var EmptyLinePlaceholderWidget = class _EmptyLinePlaceholderWidget extends WidgetType {
         /**
          * @param {string} label
+         * @param {number} [headingLevel] 1–6 时空标题占位沿用对应标题字号
          */
-        constructor(label) {
+        constructor(label, headingLevel) {
           super();
           this.label = label;
+          this.headingLevel = headingLevel || 0;
         }
         eq(other) {
-          return other instanceof _EmptyLinePlaceholderWidget && other.label === this.label;
+          return other instanceof _EmptyLinePlaceholderWidget && other.label === this.label && other.headingLevel === this.headingLevel;
         }
         toDOM() {
           const el = document.createElement("span");
-          el.className = "mda-cm-empty-line-placeholder";
+          let cls = "mda-cm-empty-line-placeholder";
+          if (this.headingLevel >= 1 && this.headingLevel <= 6) {
+            cls += " mda-cm-h" + this.headingLevel;
+          }
+          el.className = cls;
           el.textContent = this.label;
           el.setAttribute("aria-hidden", "true");
           return el;
@@ -55736,11 +60511,31 @@ var MDAEditorBundle = (() => {
           return true;
         }
       };
+      function parseEmptyHeadingLine(line) {
+        const m = ATX_LINE_RE.exec(line.text);
+        if (!m) return null;
+        const body = m[4] || "";
+        if (body.trim() !== "") return null;
+        const contentStart = line.from + m[1].length + m[2].length + m[3].length;
+        const level = m[2].length;
+        if (!(level >= 1 && level <= 6)) return null;
+        return { level, contentStart };
+      }
       function buildPlaceholderDecorations(view, t) {
         if (!view.hasFocus) return Decoration.none;
         const sel = view.state.selection.main;
         if (sel.from !== sel.to) return Decoration.none;
         const line = view.state.doc.lineAt(sel.head);
+        const emptyHeading = parseEmptyHeadingLine(line);
+        if (emptyHeading) {
+          const label2 = uiT("emptyHeadingPlaceholder" + emptyHeading.level, t);
+          return Decoration.set([
+            Decoration.widget({
+              widget: new EmptyLinePlaceholderWidget(label2, emptyHeading.level),
+              side: 1
+            }).range(emptyHeading.contentStart)
+          ]);
+        }
         if (!isBlankProseLine(view, line)) return Decoration.none;
         const label = uiT("emptyLinePlaceholder", t);
         return Decoration.set([
@@ -55751,6 +60546,58 @@ var MDAEditorBundle = (() => {
         ]);
       }
       var emptyLineViewRef = null;
+      function openBlankLineInsertMenu(view, line, lineEl, opts) {
+        opts = opts || {};
+        const block = { from: line.from, to: line.to, source: line.text };
+        try {
+          view.dispatch({
+            selection: { anchor: line.from, head: line.from },
+            annotations: Transaction.addToHistory.of(false)
+          });
+          view.focus();
+        } catch (_) {
+        }
+        lineEl.classList.add("mda-cm-block-handle-show");
+        showEmptyLineInsertMenu({
+          anchorEl: opts.anchorEl,
+          anchorRect: opts.anchorRect,
+          blockRoot: lineEl,
+          view,
+          block,
+          t: opts.t,
+          handlers: opts.blockMenuHandlers
+        });
+      }
+      function handleBlankLineSlashOpen(view, opts) {
+        opts = opts || {};
+        if (!view || view.destroyed) return false;
+        if (focusInWidgetInlineEditable()) return false;
+        const sel = view.state.selection.main;
+        if (!sel.empty) return false;
+        const line = view.state.doc.lineAt(sel.head);
+        if (!isBlankProseLine(view, line)) return false;
+        const lineEl = lineElementAt(view, line.from);
+        if (!lineEl) return false;
+        let anchorRect;
+        try {
+          const coords = view.coordsAtPos(sel.head);
+          if (coords) {
+            anchorRect = {
+              left: coords.left,
+              top: coords.top,
+              right: coords.right,
+              bottom: coords.bottom
+            };
+          }
+        } catch (_) {
+        }
+        openBlankLineInsertMenu(view, line, lineEl, {
+          t: opts.t,
+          blockMenuHandlers: opts.blockMenuHandlers,
+          anchorRect
+        });
+        return true;
+      }
       function createEmptyLineInsertExtension(opts) {
         opts = opts || {};
         emptyLineTFn = opts.t;
@@ -55985,23 +60832,10 @@ var MDAEditorBundle = (() => {
               const view = this.view;
               if (!this.lineNo || !this.lineEl) return;
               const line = view.state.doc.line(this.lineNo);
-              const block = { from: line.from, to: line.to, source: line.text };
-              try {
-                view.dispatch({
-                  selection: { anchor: line.from, head: line.from },
-                  annotations: Transaction.addToHistory.of(false)
-                });
-                view.focus();
-              } catch (_) {
-              }
-              this.lineEl.classList.add("mda-cm-block-handle-show");
-              showEmptyLineInsertMenu({
-                anchorEl: this.btn,
-                blockRoot: this.lineEl,
-                view,
-                block,
+              openBlankLineInsertMenu(view, line, this.lineEl, {
                 t: tFn(),
-                handlers: opts.blockMenuHandlers
+                blockMenuHandlers: opts.blockMenuHandlers,
+                anchorEl: this.btn
               });
             }
             destroy() {
@@ -56028,8 +60862,21 @@ var MDAEditorBundle = (() => {
             }
           }
         );
+        const slashKeymap = Prec.high(
+          keymap.of([
+            {
+              key: "/",
+              run: function(view) {
+                return handleBlankLineSlashOpen(view, {
+                  t: tFn(),
+                  blockMenuHandlers: opts.blockMenuHandlers
+                });
+              }
+            }
+          ])
+        );
         return {
-          extensions: [placeholderPlugin, hoverPlugin]
+          extensions: [placeholderPlugin, hoverPlugin, slashKeymap]
         };
       }
       var emptyLineTFn;
@@ -56055,7 +60902,10 @@ var MDAEditorBundle = (() => {
         createEmptyLineInsertExtension,
         refreshEmptyLineInsertI18n,
         isBlankProseLine,
-        hitBlankLineAt
+        parseEmptyHeadingLine,
+        hitBlankLineAt,
+        openBlankLineInsertMenu,
+        handleBlankLineSlashOpen
       };
     }
   });
@@ -56169,6 +61019,12 @@ var MDAEditorBundle = (() => {
       var { ViewPlugin } = require_dist4();
       var { syntaxTree } = require_dist7();
       var { sliceDocForClipboard } = require_syntax_clipboard();
+      var { anchorFromSelection } = require_anchor_from_sel();
+      var {
+        canUseSelectionAnnoForRange,
+        isBlockOnlyKind,
+        blockAnnotationLine
+      } = require_anno_add_context();
       var { hitBlankLineAt } = require_empty_line_insert();
       var {
         snapshotDomSelection,
@@ -56677,6 +61533,47 @@ var MDAEditorBundle = (() => {
         view.focus();
         return true;
       }
+      function hasCmMenuSelection(view) {
+        const snap = activeMenuSelection && activeMenuSelection.cm;
+        if (snap && snap.from < snap.to) return true;
+        const sel = view.state.selection.main;
+        return sel.from !== sel.to;
+      }
+      function addSelectionAnnoRow(menu, t, view, liveOpts) {
+        if (typeof liveOpts.onAddSelectionAnnotation !== "function") return;
+        const hasSel = hasCmMenuSelection(view);
+        let selAllowed = hasSel;
+        if (hasSel) {
+          const sel = view.state.selection.main;
+          const text = view.state.doc.toString();
+          selAllowed = canUseSelectionAnnoForRange(text, sel.from, sel.to);
+        }
+        const row = document.createElement("div");
+        row.className = "mda-menu-item" + (selAllowed ? "" : " disabled");
+        row.setAttribute("role", "menuitem");
+        row.innerHTML = menuItemInner(t("addSelAnno"), "anno");
+        row.addEventListener("click", function(ev) {
+          ev.stopPropagation();
+          if (!hasCmMenuSelection(view)) return;
+          const sel = view.state.selection.main;
+          if (!canUseSelectionAnnoForRange(view.state.doc.toString(), sel.from, sel.to)) {
+            if (typeof liveOpts.alert === "function") liveOpts.alert(t("alertAnnoProseOnly"));
+            return;
+          }
+          if (activeMenuSelection && activeMenuSelection.cm) {
+            restoreCmSelection(view, activeMenuSelection.cm);
+          }
+          const anchor = anchorFromSelection(view.state);
+          closeContextMenu();
+          if (!anchor) {
+            if (typeof liveOpts.alert === "function") liveOpts.alert(t("alertBadSelectionEditor"));
+            return;
+          }
+          liveOpts.onAddSelectionAnnotation(anchor);
+          view.focus();
+        });
+        menu.appendChild(row);
+      }
       function copyDomFromMenu(liveOpts) {
         const snap = activeMenuSelection && activeMenuSelection.dom;
         const root = snap && snap.root;
@@ -56780,6 +61677,12 @@ var MDAEditorBundle = (() => {
               handlers.onCopyAs(block, kind, id);
             });
           });
+          if (isBlockOnlyKind(kind) && typeof liveOpts.onAddBlockAnnotation === "function") {
+            addActionRow(menu, t("addAnno"), "anno", function() {
+              liveOpts.onAddBlockAnnotation(block, kind);
+              view.focus();
+            });
+          }
         } else if (ctx.type === "link") {
           const link = ctx.link;
           addClipboardRows(
@@ -56890,6 +61793,7 @@ var MDAEditorBundle = (() => {
               pasteCmSelection(view);
             }
           );
+          addSelectionAnnoRow(menu, t, view, liveOpts);
           addActionRow(menu, t("blockMenuAiEdit"), "ai", function() {
             aiSoon(liveOpts);
           });
@@ -57102,6 +62006,16 @@ var MDAEditorBundle = (() => {
     "src/gui/renderer/editor/widgets/block-insert-snippets.js"(exports, module) {
       "use strict";
       var INSERT_SNIPPETS = {
+        text: "",
+        h1: "# ",
+        h2: "## ",
+        h3: "### ",
+        h4: "#### ",
+        h5: "##### ",
+        h6: "###### ",
+        bullet: "- ",
+        ordered: "1. ",
+        task: "- [ ] ",
         code: "```\n\n```",
         mermaid: "```mermaid\ngraph TD\n  A-->B\n```",
         // 行末保留空格：hide-mark 不藏「仅空格」行，便于落点输入
@@ -57111,7 +62025,8 @@ var MDAEditorBundle = (() => {
         image: "![](path/to/image.png)"
       };
       function getInsertSnippet(type) {
-        return Object.prototype.hasOwnProperty.call(INSERT_SNIPPETS, type) ? INSERT_SNIPPETS[type] : null;
+        if (!Object.prototype.hasOwnProperty.call(INSERT_SNIPPETS, type)) return null;
+        return INSERT_SNIPPETS[type];
       }
       function caretOffsetInSnippet(type, snippet) {
         const s = String(snippet || "");
@@ -57123,12 +62038,90 @@ var MDAEditorBundle = (() => {
           const cell = s.indexOf("|  |");
           return cell >= 0 ? cell + 2 : s.length;
         }
+        if (type === "ordered") {
+          return 3;
+        }
+        if (type === "task") {
+          return 6;
+        }
         return s.length;
+      }
+      var LINE_ORIENTED_INSERT_TYPES = {
+        text: true,
+        h1: true,
+        h2: true,
+        h3: true,
+        h4: true,
+        h5: true,
+        h6: true,
+        bullet: true,
+        ordered: true,
+        task: true
+      };
+      function isLineOrientedInsertType(type) {
+        return !!LINE_ORIENTED_INSERT_TYPES[type];
+      }
+      function planLineOrientedInsert(where, lineFrom, lineTo, type, snippet) {
+        const off = caretOffsetInSnippet(type, snippet);
+        if (where === "above") {
+          const insert2 = snippet + "\n";
+          return { pos: lineFrom, insert: insert2, caret: lineFrom + off };
+        }
+        const insert = "\n" + snippet;
+        return { pos: lineTo, insert, caret: lineTo + 1 + off };
+      }
+      function hrLeadingNewline(doc, pos) {
+        if (pos <= 0) return "";
+        const line = doc.lineAt(pos);
+        if (line.number < 2) return "";
+        const prev = doc.line(line.number - 1);
+        if (String(prev.text || "").trim() === "") return "";
+        if (line.from === pos && String(line.text || "").trim() === "") {
+          return "\n";
+        }
+        if (typeof doc.sliceString === "function") {
+          const gap = doc.sliceString(prev.to, pos);
+          if (/\n\s*\n/.test(gap)) return "";
+        }
+        if (pos <= prev.to) return "\n";
+        return "\n";
+      }
+      function formatBlankLineInsert(type, snippet, doc, line) {
+        let insert = snippet;
+        if (type === "hr") {
+          const lead = hrLeadingNewline(doc, line.from);
+          insert = lead + snippet;
+          if (lead) {
+            return { insert, caretOffset: 0 };
+          }
+        }
+        return {
+          insert,
+          caretOffset: caretOffsetInSnippet(type, snippet)
+        };
+      }
+      function planHrInsertCaret(doc, pos, insert, snippet) {
+        const lead = hrLeadingNewline(doc, pos);
+        let next = insert;
+        if (lead && !next.startsWith(lead)) {
+          next = lead + next;
+          return { insert: next, caret: pos };
+        }
+        const snippetStart = pos + next.indexOf(snippet);
+        return {
+          insert: next,
+          caret: snippetStart + caretOffsetInSnippet("hr", snippet)
+        };
       }
       module.exports = {
         INSERT_SNIPPETS,
         getInsertSnippet,
-        caretOffsetInSnippet
+        caretOffsetInSnippet,
+        isLineOrientedInsertType,
+        planLineOrientedInsert,
+        hrLeadingNewline,
+        formatBlankLineInsert,
+        planHrInsertCaret
       };
     }
   });
@@ -57143,7 +62136,7 @@ var MDAEditorBundle = (() => {
         deleteBlockRange,
         expandBlockRange
       } = require_image_block_ops();
-      var { getInsertSnippet, caretOffsetInSnippet } = require_block_insert_snippets();
+      var { getInsertSnippet, caretOffsetInSnippet, isLineOrientedInsertType, planLineOrientedInsert, formatBlankLineInsert, planHrInsertCaret } = require_block_insert_snippets();
       var { copyText } = require_widget_common();
       function getBlockSource(view, block) {
         if (!view) return "";
@@ -57172,13 +62165,14 @@ var MDAEditorBundle = (() => {
       function insertSnippetAtBlankLine(view, block, type) {
         if (!view) return false;
         const snippet = getInsertSnippet(type);
-        if (!snippet) return false;
+        if (snippet == null) return false;
         const line = view.state.doc.lineAt(block && block.from != null ? block.from : 0);
         if (String(line.text || "").trim() !== "") return false;
-        const caret = line.from + caretOffsetInSnippet(type, snippet);
+        const formatted = formatBlankLineInsert(type, snippet, view.state.doc, line);
+        const caret = line.from + formatted.caretOffset;
         pinSelectionForHistory(view, line.from);
         view.dispatch({
-          changes: { from: line.from, to: line.to, insert: snippet },
+          changes: { from: line.from, to: line.to, insert: formatted.insert },
           selection: { anchor: caret, head: caret },
           userEvent: "input"
         });
@@ -57199,9 +62193,32 @@ var MDAEditorBundle = (() => {
       function insertSnippetNearBlock(view, block, where, type) {
         if (!view) return false;
         const snippet = getInsertSnippet(type);
-        if (!snippet) return false;
+        if (snippet == null) return false;
         const range = resolveBlockRange(view, block || {});
         if (!range) return false;
+        if (isLineOrientedInsertType(type)) {
+          const doc2 = view.state.doc;
+          const firstLine = doc2.lineAt(range.from);
+          const lastLine = doc2.lineAt(Math.max(range.from, Math.min(range.to, doc2.length) - 1));
+          const plan = planLineOrientedInsert(
+            where,
+            firstLine.from,
+            lastLine.to,
+            type,
+            snippet
+          );
+          pinSelectionForHistory(view, plan.pos);
+          view.dispatch({
+            changes: { from: plan.pos, to: plan.pos, insert: plan.insert },
+            selection: { anchor: plan.caret, head: plan.caret },
+            userEvent: "input"
+          });
+          try {
+            view.focus();
+          } catch (_) {
+          }
+          return true;
+        }
         const doc = view.state.doc.toString();
         const pos = where === "above" ? range.from : range.to;
         let insert = snippet;
@@ -57212,9 +62229,15 @@ var MDAEditorBundle = (() => {
           if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
           if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
         }
+        let hrCaret = null;
+        if (type === "hr") {
+          const planned = planHrInsertCaret(view.state.doc, pos, insert, snippet);
+          insert = planned.insert;
+          hrCaret = planned.caret;
+        }
         const lead = insert.indexOf(snippet);
         const snippetStart = pos + (lead >= 0 ? lead : 0);
-        const caret = snippetStart + caretOffsetInSnippet(type, snippet);
+        const caret = hrCaret != null ? hrCaret : snippetStart + caretOffsetInSnippet(type, snippet);
         pinSelectionForHistory(view, pos);
         view.dispatch({
           changes: { from: pos, to: pos, insert },
@@ -57425,6 +62448,11 @@ var MDAEditorBundle = (() => {
         function onSoon(ctx, id) {
           if (typeof opts.onSoon === "function") opts.onSoon(ctx, id);
         }
+        function onAddBlockAnnotation(block, kind) {
+          if (typeof opts.onAddBlockAnnotation === "function") {
+            opts.onAddBlockAnnotation(block, kind);
+          }
+        }
         return {
           onCopy,
           onCut,
@@ -57433,7 +62461,8 @@ var MDAEditorBundle = (() => {
           onInsert,
           onBlankInsert,
           onAi,
-          onSoon
+          onSoon,
+          onAddBlockAnnotation
         };
       }
       module.exports = {
@@ -57835,6 +62864,7 @@ var MDAEditorBundle = (() => {
                 if (blockContainsTarget(self2.view, blockSel, "mda-cm-math-block", target)) return;
                 if (blockContainsTarget(self2.view, blockSel, "mda-cm-table-block", target)) return;
                 if (blockContainsTarget(self2.view, blockSel, "mda-cm-quote-handle-anchor", target)) return;
+                if (blockContainsTarget(self2.view, blockSel, "mda-cm-heading-handle-anchor", target)) return;
                 if (blockContainsTarget(self2.view, blockSel, "mda-cm-hr-block", target)) return;
                 if (target && target.closest && target.closest(".mda-cm-math-inline-selected")) return;
                 if (target && target.closest && target.closest(".mda-cm-math-inline")) return;
@@ -58001,6 +63031,7 @@ var MDAEditorBundle = (() => {
   var require_heading_enter = __commonJS({
     "src/gui/renderer/editor/heading-enter.js"(exports, module) {
       "use strict";
+      var { ATX_LINE_RE } = require_caret_syntax_adjust();
       var ATX_HEADING_RE = /^( {0,3})(#{1,6})(\s+)(.*)$/;
       function planHeadingEnter(lineText, offsetInLine) {
         var m = ATX_HEADING_RE.exec(lineText);
@@ -58035,10 +63066,172 @@ var MDAEditorBundle = (() => {
         });
         return true;
       }
+      function shouldDeleteEmptyHeadingLine(lineText, offsetInLine) {
+        const m = ATX_LINE_RE.exec(lineText);
+        if (!m) return false;
+        const body = m[4] || "";
+        if (body.trim() !== "") return false;
+        const prefixEnd = m[1].length + m[2].length + m[3].length;
+        const off = Math.max(0, Math.min(offsetInLine, lineText.length));
+        return off >= prefixEnd;
+      }
+      function planEmptyHeadingLineDelete(doc, line) {
+        const from = line.from;
+        let to;
+        if (line.number < doc.lines) {
+          to = doc.line(line.number + 1).from;
+        } else {
+          to = line.to;
+        }
+        const cursor = line.number > 1 ? doc.line(line.number - 1).to : from;
+        return { from, to, cursor };
+      }
+      function handlePreviewHeadingBackspace(view) {
+        const state = view.state;
+        const sel = state.selection.main;
+        if (!sel.empty || sel.from !== sel.to) return false;
+        const pos = sel.from;
+        const line = state.doc.lineAt(pos);
+        if (!shouldDeleteEmptyHeadingLine(line.text, pos - line.from)) return false;
+        const plan = planEmptyHeadingLineDelete(state.doc, line);
+        view.dispatch({
+          changes: { from: plan.from, to: plan.to, insert: "" },
+          selection: { anchor: plan.cursor, head: plan.cursor }
+        });
+        return true;
+      }
       module.exports = {
         ATX_HEADING_RE,
         planHeadingEnter,
-        handlePreviewHeadingEnter
+        handlePreviewHeadingEnter,
+        shouldDeleteEmptyHeadingLine,
+        planEmptyHeadingLineDelete,
+        handlePreviewHeadingBackspace
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/doc-line-cursor.js
+  var require_doc_line_cursor = __commonJS({
+    "src/gui/renderer/editor/doc-line-cursor.js"(exports, module) {
+      "use strict";
+      var { keymap } = require_dist4();
+      var { Prec } = require_dist2();
+      var editorConfig = require_config();
+      var { focusInWidgetInlineEditable } = require_widget_editable_guard();
+      var { adjustCaretForKeyboardNav } = require_caret_syntax_adjust();
+      function findBlockContaining(pos, ranges) {
+        for (let i = 0; i < ranges.length; i++) {
+          const r = ranges[i];
+          if (pos >= r.from && pos < r.to) return r;
+        }
+        return null;
+      }
+      function collectBlockReplaceRanges(view, blockDecoField) {
+        if (!blockDecoField) return [];
+        let val;
+        try {
+          val = view.state.field(blockDecoField);
+        } catch (_) {
+          return [];
+        }
+        const deco = val && val.deco;
+        if (!deco || typeof deco.between !== "function") return [];
+        const ranges = [];
+        const len = view.state.doc.length;
+        deco.between(0, len, function(from, to) {
+          if (to > from) ranges.push({ from, to });
+        });
+        return ranges;
+      }
+      function resolveDocLineMove(doc, head, delta, blockRanges) {
+        const line = doc.lineAt(head);
+        const col = head - line.from;
+        const inside = findBlockContaining(head, blockRanges);
+        if (inside) {
+          if (delta < 0) {
+            const prevN = doc.lineAt(inside.from).number - 1;
+            if (prevN < 1) return null;
+            const prevLine = doc.line(prevN);
+            return Math.min(prevLine.from + col, prevLine.to);
+          }
+          const endLine = doc.lineAt(Math.max(inside.from, inside.to - 1));
+          const nextN = endLine.number + 1;
+          if (nextN > doc.lines) return null;
+          const nextLine = doc.line(nextN);
+          return Math.min(nextLine.from + col, nextLine.to);
+        }
+        const targetN = line.number + delta;
+        if (targetN < 1 || targetN > doc.lines) return null;
+        const targetLine = doc.line(targetN);
+        let pos = Math.min(targetLine.from + col, targetLine.to);
+        const targetInside = findBlockContaining(pos, blockRanges);
+        if (targetInside) {
+          if (delta > 0) {
+            pos = targetInside.from;
+          } else {
+            const endLine = doc.lineAt(Math.max(targetInside.from, targetInside.to - 1));
+            pos = endLine.from;
+          }
+        }
+        return pos;
+      }
+      function moveCursorByDocLine(view, delta, extend, blockDecoField) {
+        const state = view.state;
+        const doc = state.doc;
+        const sel = state.selection.main;
+        const head = sel.head;
+        const blockRanges = collectBlockReplaceRanges(view, blockDecoField);
+        const rawPos = resolveDocLineMove(doc, head, delta, blockRanges);
+        if (rawPos == null) return false;
+        const pos = adjustCaretForKeyboardNav(state, rawPos);
+        const anchor = extend ? sel.anchor : pos;
+        view.dispatch({
+          selection: { anchor, head: pos },
+          scrollIntoView: true
+        });
+        return true;
+      }
+      function runDocLineMove(view, forward, extend, blockDecoField) {
+        if (!editorConfig.blockWidgetsEnabled()) return false;
+        if (focusInWidgetInlineEditable()) return false;
+        return moveCursorByDocLine(view, forward ? 1 : -1, extend, blockDecoField);
+      }
+      function createDocLineCursorKeymap(blockDecoField) {
+        return Prec.high(
+          keymap.of([
+            {
+              key: "ArrowUp",
+              run: function(view) {
+                return runDocLineMove(view, false, false, blockDecoField);
+              }
+            },
+            {
+              key: "ArrowDown",
+              run: function(view) {
+                return runDocLineMove(view, true, false, blockDecoField);
+              }
+            },
+            {
+              key: "Shift-ArrowUp",
+              run: function(view) {
+                return runDocLineMove(view, false, true, blockDecoField);
+              }
+            },
+            {
+              key: "Shift-ArrowDown",
+              run: function(view) {
+                return runDocLineMove(view, true, true, blockDecoField);
+              }
+            }
+          ])
+        );
+      }
+      module.exports = {
+        findBlockContaining,
+        resolveDocLineMove,
+        moveCursorByDocLine,
+        createDocLineCursorKeymap
       };
     }
   });
@@ -58053,7 +63246,7 @@ var MDAEditorBundle = (() => {
       var Decoration = cmView.Decoration;
       var ViewPlugin = cmView.ViewPlugin;
       var WidgetType = cmView.WidgetType;
-      var { RangeSetBuilder, StateField, Transaction, Prec } = require_dist2();
+      var { RangeSetBuilder, StateField, StateEffect, Transaction, Prec } = require_dist2();
       var { syntaxTree, ensureSyntaxTree } = require_dist7();
       var { buildDecorationSpecs, collectSyntaxNodes } = require_build_specs();
       var { HiddenLineWidget, HIDE_MARK_WIDGET } = require_hidden_line();
@@ -58073,11 +63266,13 @@ var MDAEditorBundle = (() => {
       } = require_block_focus();
       var { TableWidget } = require_table();
       var { QuoteHandleWidget } = require_quote_handle();
+      var { HeadingHandleWidget } = require_heading_handle();
       var { ImageWidget } = require_image();
       var { CodeFenceWidget } = require_code();
       var { MermaidWidget } = require_mermaid();
       var { InlineMathWidget, BlockMathWidget } = require_math();
-      var { createAnnoGutterField } = require_anno_gutter();
+      var { createAnnoMalformedGutter, appendAnnoLineDecorations } = require_anno_gutter();
+      var { createAnnoParagraphSyncExtension } = require_anno_paragraph_sync();
       var { createClickCollapseExtension } = require_click_collapse();
       var { createContextMenuExtension } = require_context_menu();
       var { createWidgetEditableGuardExtension } = require_widget_editable_guard();
@@ -58116,7 +63311,12 @@ var MDAEditorBundle = (() => {
         handleMarkdownSyntaxCut,
         handleMarkdownSyntaxPaste
       } = require_syntax_clipboard();
-      var { handlePreviewHeadingEnter } = require_heading_enter();
+      var { handlePreviewHeadingEnter, handlePreviewHeadingBackspace } = require_heading_enter();
+      var {
+        handleInlineDelimiterBackspace,
+        handleInlineDelimiterDelete
+      } = require_inline_delimiter_ops();
+      var { createDocLineCursorKeymap } = require_doc_line_cursor();
       var { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require_block_widget_base();
       var { attachBlockDragHandle } = require_block_drag_handle();
       var {
@@ -58362,8 +63562,8 @@ var MDAEditorBundle = (() => {
         if (kind === "math-inline" || kind === "math-block") {
           return editorConfig.mathWidgetEnabled(kind);
         }
-        if (kind === "quote-handle") {
-          return editorConfig.blockWidgetEnabled("quote-handle");
+        if (kind === "quote-handle" || kind === "heading-handle") {
+          return editorConfig.blockWidgetEnabled(kind);
         }
         return editorConfig.blockWidgetEnabled(kind);
       }
@@ -58414,6 +63614,7 @@ var MDAEditorBundle = (() => {
           onMoveMathBlock: liveOpts.onMoveMathBlock,
           onMoveTableBlock: liveOpts.onMoveTableBlock,
           onMoveQuoteBlock: liveOpts.onMoveQuoteBlock,
+          onMoveHeadingBlock: liveOpts.onMoveHeadingBlock,
           onMoveHrBlock: liveOpts.onMoveHrBlock,
           onSwitchSource: liveOpts.onSwitchSource,
           blockMenuHandlers: liveOpts.blockMenuHandlers,
@@ -58455,10 +63656,12 @@ var MDAEditorBundle = (() => {
               hideLines.push({
                 from: br.from,
                 to: br.to,
-                deco: cmView.Decoration.replace({
-                  widget: new HiddenLineWidget(),
-                  block: true
-                })
+                deco: blockReplaceDeco(new HiddenLineWidget())
+              });
+              lines.push({
+                from: br.from,
+                to: br.from,
+                deco: cmView.Decoration.line({ class: "mda-cm-anno-hide-line" })
               });
             }
             continue;
@@ -58504,6 +63707,30 @@ var MDAEditorBundle = (() => {
                     t: widgetOpts.t,
                     blockMenuHandlers: widgetOpts.blockMenuHandlers,
                     onMoveQuoteBlock: widgetOpts.onMoveQuoteBlock
+                  }),
+                  side: -1
+                })
+              });
+              continue;
+            }
+            if (s.widget === "heading-handle") {
+              if (!widgetEnabled("heading-handle")) continue;
+              const hFrom = s.blockFrom != null ? s.blockFrom : s.from;
+              const hTo = s.blockTo != null ? s.blockTo : s.to;
+              const hAnchor = s.from;
+              const hLevel = s.headingLevel != null ? s.headingLevel : 1;
+              widgets.push({
+                from: hAnchor,
+                to: hAnchor,
+                deco: cmView.Decoration.widget({
+                  widget: new HeadingHandleWidget({
+                    from: hFrom,
+                    to: hTo,
+                    headingLevel: hLevel,
+                    source: s.source || text.slice(hFrom, hTo),
+                    t: widgetOpts.t,
+                    blockMenuHandlers: widgetOpts.blockMenuHandlers,
+                    onMoveHeadingBlock: widgetOpts.onMoveHeadingBlock
                   }),
                   side: -1
                 })
@@ -58613,6 +63840,7 @@ var MDAEditorBundle = (() => {
             if (deco) widgets.push({ from, to, deco });
           }
         }
+        appendAnnoLineDecorations(text, lines, liveOpts, cmView.Decoration);
         return {
           block: addSortedNonOverlapping(hideLines.concat(blockWidgets)),
           hideBlock: addSortedNonOverlapping(hideLines),
@@ -58652,7 +63880,7 @@ var MDAEditorBundle = (() => {
           const text = state.doc.toString();
           const upto = viewHints.viewportTo != null ? Math.min(state.doc.length, viewHints.viewportTo + 4e3) : state.doc.length;
           const tree = parseTreeForState(state, upto);
-          const nodes = collectSyntaxNodes(tree);
+          const nodes = collectSyntaxNodes(tree, text);
           const specs = buildDecorationSpecs(text, nodes, {
             widgetEnabled: function(kind) {
               return widgetEnabled(kind);
@@ -58745,11 +63973,29 @@ var MDAEditorBundle = (() => {
         return "";
       }
       var layerBuildCache = { doc: null, fp: "", result: null, opts: null };
+      var AnnoFilterRefresh = StateEffect.define();
+      function annoDecorCacheKey(liveOpts) {
+        if (liveOpts && typeof liveOpts.getAnnoFilterRevision === "function") {
+          return String(liveOpts.getAnnoFilterRevision());
+        }
+        return "0";
+      }
+      function transactionHasAnnoFilterRefresh(tr) {
+        for (let i = 0; i < tr.effects.length; i++) {
+          if (tr.effects[i].is(AnnoFilterRefresh)) return true;
+        }
+        return false;
+      }
+      function invalidateLayerBuildCache() {
+        layerBuildCache.doc = null;
+        layerBuildCache.fp = "";
+        layerBuildCache.result = null;
+      }
       function getBuiltLayers(view, liveOpts, blockFocusField) {
         const fp = view.viewport.from + ":" + view.viewport.to + ":" + (view.composing ? "1" : "0") + ":" + parseTreeForState(view.state, view.state.doc.length).length;
         const focus = blockFocusField ? readBlockFocus(view.state, blockFocusField) : null;
         const focusKey2 = focus ? focus.from + "-" + focus.to + "-" + (focus.kind || "") : "";
-        const fpFull = fp + ":" + focusKey2;
+        const fpFull = fp + ":" + focusKey2 + ":" + annoDecorCacheKey(liveOpts);
         if (layerBuildCache.doc === view.state.doc && layerBuildCache.fp === fpFull && layerBuildCache.opts === liveOpts && layerBuildCache.result) {
           return layerBuildCache.result;
         }
@@ -58788,7 +64034,15 @@ var MDAEditorBundle = (() => {
               const treeGrew = treeLen > this._treeLen;
               const focusKeyNow = blockFocusField ? focusKey(readBlockFocus(update.state, blockFocusField)) : "";
               const focusChanged = focusKeyNow !== this._lastFocusKey;
-              if (!(this._imePending || update.docChanged || update.viewportChanged || treeGrew || focusChanged)) {
+              const cacheInvalid = layerBuildCache.doc === null;
+              let annoFilterChanged = false;
+              for (let ti = 0; ti < update.transactions.length; ti++) {
+                if (transactionHasAnnoFilterRefresh(update.transactions[ti])) {
+                  annoFilterChanged = true;
+                  break;
+                }
+              }
+              if (!(this._imePending || update.docChanged || update.viewportChanged || treeGrew || focusChanged || cacheInvalid || annoFilterChanged)) {
                 return;
               }
               this._imePending = false;
@@ -58874,7 +64128,8 @@ var MDAEditorBundle = (() => {
           onCopyBlockAsMarkdown: opts.onCopyBlockAsMarkdown,
           onPickImageInsert: opts.onPickImageInsert,
           onSoon: opts.onBlockMenuSoon,
-          onAiAction: opts.onBlockMenuAi
+          onAiAction: opts.onBlockMenuAi,
+          onAddBlockAnnotation: opts.onAddBlockAnnotation
         });
         const liveOpts = Object.assign({}, opts, {
           blockMenuHandlers,
@@ -58898,11 +64153,11 @@ var MDAEditorBundle = (() => {
           }
         );
         const blockDecoField = createBlockDecoField(liveOpts, blockFocusField);
-        const annoGutterField = createAnnoGutterField(liveOpts);
+        const annoMalformedGutter = createAnnoMalformedGutter();
         const readonlyFilter = createReadonlyChangeFilter(function(state) {
           const text = state.doc.toString();
           const tree = parseTreeForState(state, state.doc.length);
-          const nodes = collectSyntaxNodes(tree);
+          const nodes = collectSyntaxNodes(tree, text);
           return collectReadonlyRanges(text, nodes);
         }, opts.onReadonlyBlocked);
         const linkClick = EditorView.domEventHandlers({
@@ -58910,7 +64165,7 @@ var MDAEditorBundle = (() => {
             const target = event.target;
             if (target && target.closest) {
               if (target.closest(
-                ".mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-image-block, .mda-cm-math-block, .mda-cm-quote-handle-anchor, .mda-cm-hr-block"
+                ".mda-cm-table-block, .mda-cm-code-block, .mda-cm-mermaid-block, .mda-cm-image-block, .mda-cm-math-block, .mda-cm-quote-handle-anchor, .mda-cm-heading-handle-anchor, .mda-cm-hr-block"
               )) {
                 return false;
               }
@@ -58969,13 +64224,21 @@ var MDAEditorBundle = (() => {
             return !editorConfig.blockWidgetsEnabled();
           })
         ].concat(makeLayerPlugin("hide", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("style", liveOpts, {}, blockFocusField)).concat(makeLayerPlugin("widget", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("line", liveOpts, {}, blockFocusField)).concat([
+          createDocLineCursorKeymap(blockDecoField),
           linkClick,
           createClickCollapseExtension(),
           createContextMenuExtension(liveOpts),
           createOutlineClickSyncExtension(liveOpts.onHeadingClick),
+          createAnnoParagraphSyncExtension(liveOpts.onParagraphClick),
           theme,
           Prec.high(
-            keymap.of([{ key: "Enter", run: handlePreviewHeadingEnter }])
+            keymap.of([
+              { key: "Enter", run: handlePreviewHeadingEnter },
+              { key: "Backspace", run: handlePreviewHeadingBackspace },
+              // 定界符隐藏时删除须作用到可见字符，并清掉被删空的定界符对
+              { key: "Backspace", run: handleInlineDelimiterBackspace },
+              { key: "Delete", run: handleInlineDelimiterDelete }
+            ])
           ),
           EditorView.domEventHandlers({
             paste: function(event, view) {
@@ -59006,17 +64269,21 @@ var MDAEditorBundle = (() => {
           ext.push(createInlineMathSelectionSyncPlugin());
         }
         ext.push(createBlockSelectionSyncPlugin());
-        if (editorConfig.blockWidgetEnabled("image") || editorConfig.blockWidgetEnabled("mermaid") || editorConfig.blockWidgetEnabled("code") || editorConfig.blockWidgetEnabled("table") || editorConfig.blockWidgetEnabled("quote-handle") || editorConfig.blockWidgetEnabled("hr") || editorConfig.mathWidgetEnabled("math-inline")) {
+        if (editorConfig.blockWidgetEnabled("image") || editorConfig.blockWidgetEnabled("mermaid") || editorConfig.blockWidgetEnabled("code") || editorConfig.blockWidgetEnabled("table") || editorConfig.blockWidgetEnabled("quote-handle") || editorConfig.blockWidgetEnabled("heading-handle") || editorConfig.blockWidgetEnabled("hr") || editorConfig.mathWidgetEnabled("math-inline")) {
           ext.push(createMediaOutsideClickPlugin());
         }
-        if (annoGutterField) {
-          if (Array.isArray(annoGutterField)) {
-            for (let i = 0; i < annoGutterField.length; i++) ext.push(annoGutterField[i]);
-          } else {
-            ext.push(annoGutterField);
-          }
+        if (annoMalformedGutter && annoMalformedGutter.length) {
+          for (let m = 0; m < annoMalformedGutter.length; m++) ext.push(annoMalformedGutter[m]);
         }
         return ext;
+      }
+      function notifyAnnoFilterChanged(view) {
+        if (!view || typeof view.dispatch !== "function") return;
+        invalidateLayerBuildCache();
+        view.dispatch({
+          effects: AnnoFilterRefresh.of(null),
+          annotations: Transaction.addToHistory.of(false)
+        });
       }
       module.exports = {
         livePreview,
@@ -59026,7 +64293,9 @@ var MDAEditorBundle = (() => {
         blockReplaceDeco,
         createBlockDecoField,
         parseTreeForState,
-        syntaxTreeBudget
+        syntaxTreeBudget,
+        invalidateLayerBuildCache,
+        notifyAnnoFilterChanged
       };
     }
   });
@@ -59610,6 +64879,1500 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/toolbar-icons.js
+  var require_toolbar_icons = __commonJS({
+    "src/gui/renderer/editor/toolbar-icons.js"(exports, module) {
+      "use strict";
+      var {
+        LUCIDE_ICONS,
+        TOOLBAR_ICON_NAMES
+      } = require_lucide_icons_generated();
+      function toolbarIconHtml(name) {
+        const svg = LUCIDE_ICONS[name] || "";
+        if (!svg) return "";
+        return '<span class="mda-cm-tb-icon" aria-hidden="true">' + svg + "</span>";
+      }
+      module.exports = {
+        toolbarIconHtml,
+        TOOLBAR_ICON_NAMES,
+        TOOLBAR_ICONS: LUCIDE_ICONS
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/state/format-availability.js
+  var require_format_availability = __commonJS({
+    "src/gui/renderer/editor/state/format-availability.js"(exports, module) {
+      "use strict";
+      var { syntaxTree } = require_dist7();
+      var { blockFormatOfLine } = require_block_format();
+      var { buildCodeFenceMask } = require_parse_math();
+      var { detectFrontMatter } = require_readonly_blocks();
+      var { getSelectedBlockOfKind } = require_block_selection();
+      var { getSelectedImageBlock } = require_image_selection();
+      var { getSelectedMermaidBlock } = require_mermaid_selection();
+      var { getSelectedInlineMath } = require_inline_math_selection();
+      var HEADING_NODES = {
+        ATXHeading1: 1,
+        ATXHeading2: 1,
+        ATXHeading3: 1,
+        ATXHeading4: 1,
+        ATXHeading5: 1,
+        ATXHeading6: 1,
+        SetextHeading1: 1,
+        SetextHeading2: 1
+      };
+      function selectionTouchesFenceLocal(state) {
+        const lines = [];
+        for (let i = 1; i <= state.doc.lines; i++) lines.push(state.doc.line(i).text);
+        const mask = buildCodeFenceMask(lines);
+        const sel = state.selection.main;
+        const fromLine = state.doc.lineAt(sel.from).number - 1;
+        const toLine = state.doc.lineAt(Math.max(sel.from, sel.to)).number - 1;
+        for (let i = fromLine; i <= toLine; i++) {
+          if (mask[i]) return true;
+        }
+        return false;
+      }
+      function selectionTouchesReadonlyLocal(state) {
+        const text = state.doc.toString();
+        const fm = detectFrontMatter(text);
+        if (!fm) return false;
+        const sel = state.selection.main;
+        return sel.from < fm.to && sel.to > fm.from;
+      }
+      function posInNamed(state, pos, names) {
+        let tree;
+        try {
+          tree = syntaxTree(state);
+        } catch (_) {
+          return false;
+        }
+        let node = tree.resolveInner(pos, 1);
+        while (node) {
+          if (names[node.name]) return true;
+          node = node.parent;
+        }
+        return false;
+      }
+      function rangeTouchesNamed(state, from, to, names) {
+        if (from === to) return posInNamed(state, from, names);
+        let tree;
+        try {
+          tree = syntaxTree(state);
+        } catch (_) {
+          return false;
+        }
+        let hit = false;
+        tree.iterate({
+          from,
+          to,
+          enter: function(node) {
+            if (names[node.name]) {
+              hit = true;
+              return false;
+            }
+          }
+        });
+        if (hit) return true;
+        return posInNamed(state, from, names) || posInNamed(state, Math.max(from, to - 1), names);
+      }
+      function selectionTouchesHeading(state) {
+        const sel = state.selection.main;
+        if (rangeTouchesNamed(state, sel.from, sel.to, HEADING_NODES)) return true;
+        const fromN = state.doc.lineAt(sel.from).number;
+        const toN = state.doc.lineAt(sel.to).number;
+        for (let n = fromN; n <= toN; n++) {
+          const text = state.doc.line(n).text;
+          if (!String(text).trim()) continue;
+          const fmt = blockFormatOfLine(text);
+          if (fmt.charAt(0) === "h" && fmt.length === 2) return true;
+        }
+        return false;
+      }
+      function selectionHasMixedParagraphFormats(state) {
+        const sel = state.selection.main;
+        const fromN = state.doc.lineAt(sel.from).number;
+        const toN = state.doc.lineAt(sel.to).number;
+        let first = null;
+        for (let n = fromN; n <= toN; n++) {
+          const text = state.doc.line(n).text;
+          if (!String(text).trim()) continue;
+          const fmt = blockFormatOfLine(text);
+          if (first == null) first = fmt;
+          else if (fmt !== first) return true;
+        }
+        return false;
+      }
+      function deriveFormatAvailability(state) {
+        const denied = {
+          bold: false,
+          italic: false,
+          underline: false,
+          strike: false,
+          code: false,
+          list: false,
+          inHeading: false,
+          mediaOrFence: true
+        };
+        if (!state) return denied;
+        if (selectionTouchesReadonlyLocal(state)) return denied;
+        const inFence = selectionTouchesFenceLocal(state);
+        const imgSel = !!getSelectedImageBlock();
+        const merSel = !!getSelectedMermaidBlock();
+        const mathSel = !!getSelectedBlockOfKind("math");
+        const codeBlockSel = !!getSelectedBlockOfKind("code");
+        const hrSel = !!getSelectedBlockOfKind("hr");
+        let inlineMathSel = false;
+        try {
+          inlineMathSel = !!getSelectedInlineMath();
+        } catch (_) {
+          inlineMathSel = false;
+        }
+        const mediaOrFence = inFence || imgSel || merSel || mathSel || codeBlockSel || hrSel || inlineMathSel;
+        const sel = state.selection.main;
+        const inHeading = selectionTouchesHeading(state);
+        if (mediaOrFence) {
+          return {
+            bold: false,
+            italic: false,
+            underline: false,
+            strike: false,
+            code: false,
+            list: false,
+            inHeading,
+            mediaOrFence: true
+          };
+        }
+        const bold = !inHeading;
+        const markOk = true;
+        const code = true;
+        const list = true;
+        return {
+          bold,
+          italic: markOk,
+          underline: markOk,
+          strike: markOk,
+          code,
+          list,
+          inHeading,
+          mediaOrFence: false
+        };
+      }
+      function isFormatCmdAvailable(cmd, avail) {
+        if (!avail) return false;
+        if (cmd === "bold") return !!avail.bold;
+        if (cmd === "italic") return !!avail.italic;
+        if (cmd === "underline") return !!avail.underline;
+        if (cmd === "strike") return !!avail.strike;
+        if (cmd === "code") return !!avail.code;
+        if (cmd === "ul" || cmd === "ol" || cmd === "task") return !!avail.list;
+        return true;
+      }
+      module.exports = {
+        deriveFormatAvailability,
+        isFormatCmdAvailable,
+        rangeTouchesNamed,
+        selectionTouchesHeading,
+        selectionHasMixedParagraphFormats
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/format-commands.js
+  var require_format_commands = __commonJS({
+    "src/gui/renderer/editor/format-commands.js"(exports, module) {
+      "use strict";
+      var { undo, redo, undoDepth, redoDepth } = require_dist8();
+      var { ChangeSet, Prec, Transaction } = require_dist2();
+      var { keymap } = require_dist4();
+      var assist = require_editor_assist();
+      var { buildCodeFenceMask } = require_parse_math();
+      var { detectFrontMatter } = require_readonly_blocks();
+      var { showLinkEditPopover } = require_link_edit_popover();
+      var {
+        insertSnippetAtBlankLine,
+        insertSnippetNearBlock
+      } = require_block_handle_ops();
+      var {
+        captureWidgetEditTarget,
+        getEffectiveWidgetEditTarget,
+        isFenceWidgetKind
+      } = require_widget_editable_guard();
+      var {
+        applyInlineFormatToTableCell,
+        getCellMarkdownContent,
+        setCellMarkdownContent,
+        getCellInlineFlags
+      } = require_table_cell_content();
+      var { getSelectedBlockOfKind } = require_block_selection();
+      var {
+        deriveFormatAvailability,
+        isFormatCmdAvailable
+      } = require_format_availability();
+      var { getInlineToolbarState, getInlineFlagsAt } = require_block_format();
+      var {
+        togglePendingInlineMark,
+        clearPendingInlineFormat,
+        toggleWidgetPendingMark,
+        clearWidgetPendingMarks
+      } = require_pending_inline_format();
+      var {
+        applyInlineMarkToSelection,
+        planClearInlineMarks
+      } = require_inline_delimiter_ops();
+      var inlineDbg = require_inline_format_debug();
+      function fenceMaskForDoc(doc) {
+        const lines = [];
+        const n = doc.lines;
+        for (let i = 1; i <= n; i++) lines.push(doc.line(i).text);
+        return buildCodeFenceMask(lines);
+      }
+      function selectionTouchesFence(state) {
+        if (!state) return false;
+        const mask = fenceMaskForDoc(state.doc);
+        const sel = state.selection.main;
+        const fromLine = state.doc.lineAt(sel.from).number - 1;
+        const toLine = state.doc.lineAt(Math.max(sel.from, sel.to)).number - 1;
+        for (let i = fromLine; i <= toLine; i++) {
+          if (mask[i]) return true;
+        }
+        return false;
+      }
+      function diffReplace(oldVal, newVal, sel) {
+        let a = 0;
+        while (a < oldVal.length && a < newVal.length && oldVal.charAt(a) === newVal.charAt(a)) a++;
+        let b = 0;
+        while (b < oldVal.length - a && b < newVal.length - a && oldVal.charAt(oldVal.length - 1 - b) === newVal.charAt(newVal.length - 1 - b)) {
+          b++;
+        }
+        return {
+          from: a,
+          to: oldVal.length - b,
+          insert: newVal.slice(a, newVal.length - b),
+          anchor: sel.selectionStart,
+          head: sel.selectionEnd
+        };
+      }
+      function applyAssistResult(view, result) {
+        if (!result || !view) return false;
+        const oldVal = view.state.doc.toString();
+        if (result.value === oldVal) return false;
+        const patch = diffReplace(oldVal, result.value, result);
+        view.dispatch({
+          changes: { from: patch.from, to: patch.to, insert: patch.insert },
+          selection: { anchor: patch.anchor, head: patch.head }
+        });
+        try {
+          view.focus();
+        } catch (_) {
+        }
+        return true;
+      }
+      function runAssist(view, fn) {
+        const state = view.state;
+        const sel = state.selection.main;
+        const val = state.doc.toString();
+        const mask = fenceMaskForDoc(state.doc);
+        const result = fn(val, sel.from, sel.to, mask);
+        return applyAssistResult(view, result);
+      }
+      function insertTypeAtCursor(view, type, opts) {
+        if (!view || !type) return false;
+        opts = opts || {};
+        const lineFormat = {
+          text: "paragraph",
+          h1: "h1",
+          h2: "h2",
+          h3: "h3",
+          h4: "h4",
+          h5: "h5",
+          h6: "h6",
+          bullet: "ul",
+          ordered: "ol",
+          task: "task"
+        };
+        if (Object.prototype.hasOwnProperty.call(lineFormat, type)) {
+          return runFormatCommand(view, lineFormat[type], opts);
+        }
+        if (type === "image" && typeof opts.onPickImageInsert === "function") {
+          const line2 = view.state.doc.lineAt(view.state.selection.main.head);
+          opts.onPickImageInsert("blank", { from: line2.from, to: line2.to, source: line2.text });
+          return true;
+        }
+        const line = view.state.doc.lineAt(view.state.selection.main.head);
+        const block = { from: line.from, to: line.to, source: line.text };
+        if (String(line.text || "").trim() === "") {
+          return insertSnippetAtBlankLine(view, block, type);
+        }
+        const tail = { from: line.to, to: line.to, source: "" };
+        return insertSnippetNearBlock(view, tail, "below", type);
+      }
+      function selectionTouchesReadonly(state) {
+        if (!state) return false;
+        const fm = detectFrontMatter(state.doc.toString());
+        if (!fm) return false;
+        const sel = state.selection.main;
+        return sel.from < fm.to && sel.to > fm.from;
+      }
+      var FENCE_BLOCKED_CMDS = {
+        bold: 1,
+        italic: 1,
+        underline: 1,
+        strike: 1,
+        code: 1,
+        link: 1,
+        ul: 1,
+        ol: 1,
+        task: 1,
+        quote: 1,
+        paragraph: 1,
+        h1: 1,
+        h2: 1,
+        h3: 1,
+        h4: 1,
+        h5: 1,
+        h6: 1,
+        "indent-in": 1,
+        "indent-out": 1,
+        "clear-format": 1
+      };
+      var INLINE_WRAP_CMDS = {
+        bold: ["**", "**"],
+        italic: ["*", "*"],
+        underline: ["~", "~"],
+        strike: ["~~", "~~"],
+        code: ["`", "`"]
+      };
+      var CMD_TO_MARK = {
+        bold: "bold",
+        italic: "italic",
+        underline: "underline",
+        strike: "strike",
+        code: "code"
+      };
+      function marksDiffer(a, b) {
+        return !!a.bold !== !!b.bold || !!a.italic !== !!b.italic || !!a.underline !== !!b.underline || !!a.strike !== !!b.strike || !!a.code !== !!b.code;
+      }
+      function collapseInlineSelectionToHead(view) {
+        const sel = view.state.selection.main;
+        if (sel.empty) return;
+        view.dispatch({
+          selection: { anchor: sel.head, head: sel.head },
+          annotations: Transaction.addToHistory.of(false)
+        });
+      }
+      function runClearFormatCommand(view) {
+        const state = view.state;
+        const sel = state.selection.main;
+        if (sel.empty) {
+          collapseInlineSelectionToHead(view);
+          return clearPendingInlineFormat(view);
+        }
+        const plan = planClearInlineMarks(state, sel.from, sel.to);
+        if (!plan || !plan.changes.length) {
+          return runAssist(view, function(v, a, b, m) {
+            return assist.clearFormats(v, a, b, m);
+          });
+        }
+        const set = ChangeSet.of(plan.changes, state.doc.length);
+        const text = set.apply(state.doc).toString();
+        const from = plan.select ? plan.select.from : set.mapPos(sel.from, 1);
+        const to = plan.select ? plan.select.to : set.mapPos(sel.to, -1);
+        const specs = [
+          {
+            changes: plan.changes,
+            selection: { anchor: from, head: to },
+            userEvent: "input.format"
+          }
+        ];
+        const block = assist.clearFormats(text, from, to, buildCodeFenceMask(text.split("\n")));
+        if (block && block.value !== text) {
+          const patch = diffReplace(text, block.value, block);
+          specs.push({
+            sequential: true,
+            changes: { from: patch.from, to: patch.to, insert: patch.insert },
+            selection: { anchor: patch.anchor, head: patch.head }
+          });
+        }
+        view.dispatch.apply(view, specs);
+        try {
+          view.focus();
+        } catch (_) {
+        }
+        return true;
+      }
+      function runInlineMarkCommand(view, markKey) {
+        const sel = view.state.selection.main;
+        if (sel.empty) return togglePendingInlineMark(view, markKey);
+        if (applyInlineMarkToSelection(view, markKey)) return true;
+        logAssistInline(view, markKey);
+        const pair = INLINE_WRAP_CMDS[markKey];
+        return runAssist(view, function(v, a, b) {
+          const cov = getInlineToolbarState(view.state)[markKey];
+          const fullyOn = !!(cov.on && !cov.mixed);
+          if (markKey === "underline") return assist.applyOrToggleUnderline(v, a, b, fullyOn);
+          return assist.applyOrToggleWrap(v, a, b, pair[0], pair[1], fullyOn);
+        });
+      }
+      function logAssistInline(view, cmd) {
+        const sel = view.state.selection.main;
+        inlineDbg.log("cmd.assist", {
+          cmd,
+          pos: sel.head,
+          state: view.state,
+          selFrom: sel.from,
+          selTo: sel.to,
+          coverage: getInlineToolbarState(view.state)
+        });
+      }
+      function prepareInlineFormatToolbar(view) {
+        if (!view) return;
+        const sel = view.state.selection.main;
+        if (sel.empty) return;
+        const endPos = Math.max(sel.from, sel.to - 1);
+        if (marksDiffer(getInlineFlagsAt(view.state, sel.from), getInlineFlagsAt(view.state, endPos))) {
+          inlineDbg.log("toolbar.crossMarkSelection", {
+            pos: sel.head,
+            state: view.state,
+            selFrom: sel.from,
+            selTo: sel.to
+          });
+        }
+      }
+      function isCollapsedWidgetTarget(target) {
+        if (!target) return true;
+        if (typeof target.visStart === "number" && typeof target.visEnd === "number") {
+          return target.visEnd <= target.visStart;
+        }
+        return true;
+      }
+      function tryWidgetFormatCommand(cmd) {
+        const target = getEffectiveWidgetEditTarget() || captureWidgetEditTarget();
+        if (!target || !target.el) return null;
+        if (isFenceWidgetKind(target.kind)) {
+          if (FENCE_BLOCKED_CMDS[cmd] || INLINE_WRAP_CMDS[cmd]) return true;
+          return null;
+        }
+        if (target.kind !== "table-cell") return null;
+        const pair = INLINE_WRAP_CMDS[cmd];
+        const collapsed = isCollapsedWidgetTarget(target);
+        const mark = CMD_TO_MARK[cmd];
+        if (pair && collapsed) {
+          const caret = getCellInlineFlags(target.el, target);
+          toggleWidgetPendingMark(
+            target.el,
+            mark,
+            caret ? caret.flags : null,
+            caret ? caret.pos : null
+          );
+          return true;
+        }
+        if (pair) {
+          applyInlineFormatToTableCell(target.el, pair[0], pair[1], target.range || null, target);
+          return true;
+        }
+        if (cmd === "clear-format") {
+          if (collapsed) {
+            const caret = getCellInlineFlags(target.el, target);
+            clearWidgetPendingMarks(target.el, caret ? caret.flags : null, caret ? caret.pos : null);
+            return true;
+          }
+          const md = getCellMarkdownContent(target.el);
+          const result = assist.clearFormats(md, 0, md.length, null);
+          if (result) setCellMarkdownContent(target.el, result.value);
+          try {
+            target.el.dispatchEvent(new Event("input", { bubbles: true }));
+          } catch (_) {
+          }
+          return true;
+        }
+        if (FENCE_BLOCKED_CMDS[cmd]) return true;
+        return null;
+      }
+      function runFormatCommand(view, cmd, opts) {
+        if (!view) return false;
+        opts = opts || {};
+        const widgetHandled = tryWidgetFormatCommand(cmd);
+        if (widgetHandled !== null) return widgetHandled;
+        if (cmd !== "undo" && cmd !== "redo") {
+          const blocked = !!FENCE_BLOCKED_CMDS[cmd] || cmd && cmd.indexOf("insert:") === 0;
+          if (blocked && (selectionTouchesFence(view.state) || selectionTouchesReadonly(view.state))) {
+            return false;
+          }
+        }
+        if (getSelectedBlockOfKind("hr")) {
+          if (cmd === "undo" || cmd === "redo" || cmd === "clear-format" || FENCE_BLOCKED_CMDS[cmd] || cmd === "paragraph") {
+            return false;
+          }
+        }
+        if (cmd === "bold" || cmd === "italic" || cmd === "underline" || cmd === "strike" || cmd === "code" || cmd === "ul" || cmd === "ol" || cmd === "task") {
+          const widgetTarget = getEffectiveWidgetEditTarget() || captureWidgetEditTarget();
+          const inTableCell = !!(widgetTarget && widgetTarget.kind === "table-cell");
+          if (!inTableCell) {
+            const avail = deriveFormatAvailability(view.state);
+            if (!isFormatCmdAvailable(cmd, avail)) return false;
+          }
+        }
+        switch (cmd) {
+          case "undo":
+            return undo(view);
+          case "redo":
+            return redo(view);
+          case "bold":
+          case "italic":
+          case "underline":
+          case "strike":
+          case "code":
+            return runInlineMarkCommand(view, cmd);
+          case "link": {
+            const sel = view.state.selection.main;
+            const val = view.state.doc.toString();
+            const selected = sel.from === sel.to ? "" : val.slice(sel.from, sel.to);
+            try {
+              const coords = view.coordsAtPos(sel.head);
+              if (coords) {
+                showLinkEditPopover({
+                  x: coords.left,
+                  y: coords.bottom + 4,
+                  text: selected || "text",
+                  href: selected || "url",
+                  t: opts.t,
+                  onConfirm: function(text, href) {
+                    const from = view.state.selection.main.from;
+                    const to = view.state.selection.main.to;
+                    const cur = view.state.doc.toString();
+                    const wrapped = "[" + text + "](" + href + ")";
+                    let insert = wrapped;
+                    let anchor = from;
+                    let head = from + wrapped.length;
+                    if (from !== to) {
+                      insert = wrapped;
+                      anchor = from;
+                      head = from + wrapped.length;
+                    }
+                    view.dispatch({
+                      changes: { from, to, insert },
+                      selection: { anchor, head }
+                    });
+                    view.focus();
+                  }
+                });
+                return true;
+              }
+            } catch (_) {
+            }
+            return runAssist(view, function(v, a, b) {
+              return assist.insertLink(v, a, b);
+            });
+          }
+          case "ul":
+            return runAssist(view, function(v, a, b, m) {
+              return assist.toggleListType(v, a, b, "ul", m);
+            });
+          case "ol":
+            return runAssist(view, function(v, a, b, m) {
+              return assist.toggleListType(v, a, b, "ol", m);
+            });
+          case "task":
+            return runAssist(view, function(v, a, b, m) {
+              return assist.toggleListType(v, a, b, "task", m);
+            });
+          case "quote":
+            return runAssist(view, function(v, a, b, m) {
+              return assist.toggleLinePrefix(v, a, b, "> ", m);
+            });
+          case "indent-in":
+            return runAssist(view, function(v, a, b, m) {
+              return assist.indentLines(v, a, b, 2, m);
+            });
+          case "indent-out":
+            return runAssist(view, function(v, a, b, m) {
+              return assist.indentLines(v, a, b, -2, m);
+            });
+          case "clear-format":
+            return runClearFormatCommand(view);
+          case "hr":
+            return runAssist(view, function(v, p, _e, m) {
+              return assist.insertHorizontalRule(v, p, m);
+            });
+          case "paragraph":
+            return runAssist(view, function(v, a, b, m) {
+              return assist.setHeadingLevelRange(v, a, b, 0, m);
+            });
+          case "h1":
+          case "h2":
+          case "h3":
+          case "h4":
+          case "h5":
+          case "h6":
+            return runAssist(view, function(v, a, b, m) {
+              return assist.setHeadingLevelRange(v, a, b, parseInt(cmd.slice(1), 10), m);
+            });
+          default:
+            if (cmd.indexOf("insert:") === 0) {
+              const type = cmd.slice(7);
+              return insertTypeAtCursor(view, type, opts);
+            }
+            return false;
+        }
+      }
+      function createFormatKeymap(opts) {
+        opts = opts || {};
+        return Prec.high(
+          keymap.of([
+            { key: "Mod-b", run: function(v) {
+              return runFormatCommand(v, "bold", opts);
+            } },
+            { key: "Mod-i", run: function(v) {
+              return runFormatCommand(v, "italic", opts);
+            } },
+            { key: "Mod-u", run: function(v) {
+              return runFormatCommand(v, "underline", opts);
+            } },
+            { key: "Mod-k", run: function(v) {
+              return runFormatCommand(v, "link", opts);
+            } },
+            {
+              key: "Mod-Shift-c",
+              run: function(v) {
+                return runFormatCommand(v, "code", opts);
+              }
+            },
+            {
+              key: "Mod-Shift-s",
+              run: function(v) {
+                return runFormatCommand(v, "strike", opts);
+              }
+            },
+            {
+              key: "Mod-Shift-y",
+              run: function(v) {
+                return runFormatCommand(v, "task", opts);
+              }
+            },
+            {
+              key: "Mod-Shift-u",
+              run: function(v) {
+                return runFormatCommand(v, "ol", opts);
+              }
+            },
+            {
+              key: "Mod-Shift-i",
+              run: function(v) {
+                return runFormatCommand(v, "ul", opts);
+              }
+            },
+            {
+              key: "Mod-Shift-z",
+              run: function(v) {
+                return redo(v);
+              }
+            },
+            {
+              key: "Mod-y",
+              run: function(v) {
+                return redo(v);
+              }
+            }
+          ])
+        );
+      }
+      module.exports = {
+        applyAssistResult,
+        prepareInlineFormatToolbar,
+        runFormatCommand,
+        runInlineMarkCommand,
+        insertTypeAtCursor,
+        createFormatKeymap,
+        fenceMaskForDoc,
+        selectionTouchesFence,
+        selectionTouchesReadonly,
+        undoDepth,
+        redoDepth
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/toolbar.js
+  var require_toolbar = __commonJS({
+    "src/gui/renderer/editor/toolbar.js"(exports, module) {
+      "use strict";
+      var { uiT } = require_widget_common();
+      var { toolbarIconHtml } = require_toolbar_icons();
+      var {
+        getInlineToolbarState,
+        deriveParagraphSelect,
+        deriveListToolbarState
+      } = require_block_format();
+      var {
+        deriveFormatAvailability,
+        isFormatCmdAvailable
+      } = require_format_availability();
+      var {
+        overlayPendingInlineState,
+        hasPendingInputFormat,
+        getWidgetPending,
+        clearWidgetPending,
+        syncWidgetPendingForCaret,
+        setWidgetPendingListener
+      } = require_pending_inline_format();
+      var {
+        runFormatCommand,
+        insertTypeAtCursor,
+        selectionTouchesFence,
+        selectionTouchesReadonly,
+        undoDepth,
+        redoDepth,
+        prepareInlineFormatToolbar
+      } = require_format_commands();
+      var { appendInsertMenuPanel } = require_insert_menu_panel();
+      var { getCellInlineState, getCellInlineFlags } = require_table_cell_content();
+      var {
+        captureWidgetEditTarget,
+        getEffectiveWidgetEditTarget,
+        focusInWidgetInlineEditable,
+        isFenceWidgetKind
+      } = require_widget_editable_guard();
+      var {
+        getSelectedBlockOfKind,
+        setBlockSelectionListener,
+        clearSelectedBlock
+      } = require_block_selection();
+      var NEEDS_EDITOR_ACTIVATION = {
+        undo: 1,
+        redo: 1,
+        "clear-format": 1,
+        bold: 1,
+        italic: 1,
+        underline: 1,
+        strike: 1,
+        code: 1,
+        paragraph: 1,
+        ul: 1,
+        ol: 1,
+        task: 1
+      };
+      var activeInsertMenu = null;
+      var activeExportMenu = null;
+      var insertDismissFn = null;
+      var exportDismissFn = null;
+      function unbindToolbarPopupDismiss(fn) {
+        if (!fn || typeof document === "undefined") return;
+        document.removeEventListener("mousedown", fn, true);
+        document.removeEventListener("keydown", fn, true);
+      }
+      function closeToolbarInsertMenu(opts) {
+        unbindToolbarPopupDismiss(insertDismissFn);
+        insertDismissFn = null;
+        if (activeInsertMenu && activeInsertMenu.parentNode) {
+          activeInsertMenu.parentNode.removeChild(activeInsertMenu);
+        }
+        activeInsertMenu = null;
+        const expanded = document.querySelectorAll('.mda-cm-tb-insert[aria-expanded="true"]');
+        for (let i = 0; i < expanded.length; i++) {
+          expanded[i].setAttribute("aria-expanded", "false");
+        }
+        if (opts && opts.restoreFocus) {
+          const btn = document.querySelector(".mda-cm-tb-insert");
+          if (btn && typeof btn.focus === "function") btn.focus();
+        }
+      }
+      function closeToolbarExportMenu(opts) {
+        unbindToolbarPopupDismiss(exportDismissFn);
+        exportDismissFn = null;
+        if (activeExportMenu && activeExportMenu.parentNode) {
+          activeExportMenu.parentNode.removeChild(activeExportMenu);
+        }
+        activeExportMenu = null;
+        const expanded = document.querySelectorAll('.mda-cm-tb-export[aria-expanded="true"]');
+        for (let i = 0; i < expanded.length; i++) {
+          expanded[i].setAttribute("aria-expanded", "false");
+        }
+        if (opts && opts.restoreFocus) {
+          const btn = document.querySelector(".mda-cm-tb-export");
+          if (btn && typeof btn.focus === "function") btn.focus();
+        }
+      }
+      function tbButtonHtml(cmd, spec) {
+        spec = spec || {};
+        const cls = "mda-cm-tb-btn" + (spec.toggle ? " mda-cm-tb-toggle" : "") + (spec.soon ? " mda-cm-tb-soon" : "") + (spec.extraClass ? " " + spec.extraClass : "");
+        const inner = spec.icon ? toolbarIconHtml(spec.icon) : spec.label ? spec.label : "";
+        const btn = '<button type="button" class="' + cls + '" data-cmd="' + cmd + '"' + (spec.soon ? ' data-soon="1"' : "") + (spec.pressed ? ' aria-pressed="false"' : "") + (spec.keyshortcuts ? ' aria-keyshortcuts="' + spec.keyshortcuts + '"' : "") + ' title="">' + inner + "</button>";
+        if (spec.tip) {
+          return '<span class="mda-cm-tb-tip-host" data-tip-cmd="' + cmd + '">' + btn + "</span>";
+        }
+        return btn;
+      }
+      function createEditorToolbar(host, view, opts) {
+        opts = opts || {};
+        const t = typeof opts.t === "function" ? opts.t : function(k) {
+          return uiT(k, opts.t);
+        };
+        const bar = document.createElement("div");
+        bar.className = "mda-cm-edit-toolbar";
+        bar.setAttribute("role", "toolbar");
+        bar.setAttribute("aria-orientation", "horizontal");
+        bar.innerHTML = '<div class="mda-cm-tb-main"><div class="mda-cm-tb-group" data-group="history">' + tbButtonHtml("undo", { icon: "undo", keyshortcuts: "Control+Z", tip: true }) + tbButtonHtml("redo", { icon: "redo", keyshortcuts: "Control+Y", tip: true }) + tbButtonHtml("clear-format", { icon: "clearFormat", tip: true }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="paragraph"><span class="mda-cm-tb-tip-host" data-tip-cmd="paragraph"><select class="mda-cm-tb-select" data-cmd="paragraph" aria-label=""></select></span></div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="inline">' + tbButtonHtml("bold", {
+          toggle: true,
+          pressed: true,
+          icon: "bold",
+          keyshortcuts: "Control+B",
+          tip: true
+        }) + tbButtonHtml("italic", {
+          toggle: true,
+          pressed: true,
+          icon: "italic",
+          keyshortcuts: "Control+I",
+          tip: true
+        }) + tbButtonHtml("underline", {
+          toggle: true,
+          pressed: true,
+          icon: "underline",
+          keyshortcuts: "Control+U",
+          tip: true
+        }) + tbButtonHtml("strike", {
+          toggle: true,
+          pressed: true,
+          icon: "strike",
+          keyshortcuts: "Control+Shift+S",
+          tip: true
+        }) + tbButtonHtml("code", {
+          toggle: true,
+          pressed: true,
+          icon: "code",
+          keyshortcuts: "Control+Shift+C",
+          tip: true
+        }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="list">' + tbButtonHtml("task", {
+          toggle: true,
+          pressed: true,
+          icon: "task",
+          keyshortcuts: "Control+Shift+Y",
+          tip: true
+        }) + tbButtonHtml("ul", {
+          toggle: true,
+          pressed: true,
+          icon: "ul",
+          keyshortcuts: "Control+Shift+I",
+          tip: true
+        }) + tbButtonHtml("ol", {
+          toggle: true,
+          pressed: true,
+          icon: "ol",
+          keyshortcuts: "Control+Shift+U",
+          tip: true
+        }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="utility">' + tbButtonHtml("save", { icon: "save" }) + tbButtonHtml("copy-preview", { icon: "copyPreview", keyshortcuts: "Control+Alt+C" }) + '<button type="button" class="mda-cm-tb-btn mda-cm-tb-export" data-cmd="export-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-export-menu" title="">' + toolbarIconHtml("export") + '<span class="mda-cm-tb-export-label"></span><span class="mda-cm-tb-export-caret" aria-hidden="true">\u25BE</span></button>' + tbButtonHtml("find", { icon: "find" }) + tbButtonHtml("comment", { icon: "comment", pressed: true }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="insert"><button type="button" class="mda-cm-tb-btn mda-cm-tb-insert" data-cmd="insert-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-insert-menu" title=""><span class="mda-cm-tb-insert-plus" aria-hidden="true">+</span><span class="mda-cm-tb-insert-label"></span></button><button type="button" class="mda-cm-tb-btn mda-cm-tb-ai" data-cmd="ai" data-soon="1" title="">' + toolbarIconHtml("ai") + '<span class="mda-cm-tb-ai-text"></span><span class="mda-cm-tb-ai-caret" aria-hidden="true">\u25BE</span></button></div></div>';
+        host.appendChild(bar);
+        const paraSelect = (
+          /** @type {HTMLSelectElement} */
+          bar.querySelector('[data-cmd="paragraph"]')
+        );
+        const paraOptions = [
+          { v: "paragraph", k: "insertMenuBodyText" },
+          { v: "h1", k: "insertMenuHeading1" },
+          { v: "h2", k: "insertMenuHeading2" },
+          { v: "h3", k: "insertMenuHeading3" },
+          { v: "h4", k: "insertMenuHeading4" },
+          { v: "h5", k: "insertMenuHeading5" },
+          { v: "h6", k: "insertMenuHeading6" }
+        ];
+        const labels = {
+          undo: "tbUndo",
+          redo: "tbRedo",
+          "clear-format": "tbClearFormat",
+          bold: "tbBold",
+          italic: "tbItalic",
+          underline: "tbUnderline",
+          strike: "tbStrike",
+          code: "tbInlineCode",
+          ul: "tbUl",
+          ol: "tbOl",
+          task: "tbTask",
+          save: "tbSave",
+          "copy-preview": "tbCopyPreview",
+          "export-open": "tbExport",
+          find: "tbFind",
+          comment: "tbComment",
+          "insert-open": "tbInsert",
+          ai: "tbAi"
+        };
+        const tipPairs = {
+          undo: ["tbTipUndo", "tbTipUndoWhere"],
+          redo: ["tbTipRedo", "tbTipRedoWhere"],
+          "clear-format": ["tbTipClearFormat", "tbTipClearFormatWhere"],
+          paragraph: ["tbTipParagraph", "tbTipParagraphWhere"],
+          bold: ["tbTipBold", "tbTipBoldWhere"],
+          italic: ["tbTipItalic", "tbTipItalicWhere"],
+          underline: ["tbTipUnderline", "tbTipUnderlineWhere"],
+          strike: ["tbTipStrike", "tbTipStrikeWhere"],
+          code: ["tbTipCode", "tbTipCodeWhere"],
+          task: ["tbTipTask", "tbTipTaskWhere"],
+          ul: ["tbTipUl", "tbTipUlWhere"],
+          ol: ["tbTipOl", "tbTipOlWhere"]
+        };
+        function applyLabels() {
+          const prev = paraSelect.value;
+          paraSelect.innerHTML = "";
+          for (let i = 0; i < paraOptions.length; i++) {
+            const o = document.createElement("option");
+            o.value = paraOptions[i].v;
+            o.textContent = t(paraOptions[i].k);
+            paraSelect.appendChild(o);
+          }
+          if (prev) paraSelect.value = prev;
+          paraSelect.setAttribute("aria-label", t("tbParagraph"));
+          bar.setAttribute("aria-label", t("tbToolbar"));
+          bar.querySelectorAll("[data-cmd]").forEach(function(el) {
+            const cmd = el.getAttribute("data-cmd");
+            if (!cmd) return;
+            const tip = tipPairs[cmd];
+            const host2 = (el.parentElement && el.parentElement.classList.contains("mda-cm-tb-tip-host") ? el.parentElement : null) || el;
+            if (tip) {
+              const line1 = t(tip[0]);
+              const line2 = t(tip[1]);
+              el.removeAttribute("title");
+              el.setAttribute("aria-label", line1);
+              host2.setAttribute("data-tip", line1 + "\n" + line2);
+              return;
+            }
+            const key = labels[cmd];
+            if (key) {
+              const label = t(key);
+              el.setAttribute("title", label);
+              el.setAttribute("aria-label", label);
+              if (host2 !== el) host2.removeAttribute("data-tip");
+            }
+          });
+          const insertLabel = bar.querySelector(".mda-cm-tb-insert-label");
+          if (insertLabel) insertLabel.textContent = t("tbInsert");
+          const exportLabel = bar.querySelector(".mda-cm-tb-export-label");
+          if (exportLabel) exportLabel.textContent = t("tbExport");
+          const aiText = bar.querySelector(".mda-cm-tb-ai-text");
+          if (aiText) aiText.textContent = t("tbAi");
+        }
+        applyLabels();
+        let floatingTip = null;
+        let tipAnchor = null;
+        function ensureFloatingTip() {
+          if (floatingTip && floatingTip.isConnected) return floatingTip;
+          floatingTip = document.createElement("div");
+          floatingTip.className = "mda-cm-tb-floating-tip";
+          floatingTip.setAttribute("role", "tooltip");
+          document.body.appendChild(floatingTip);
+          return floatingTip;
+        }
+        function hideFloatingTip() {
+          tipAnchor = null;
+          if (floatingTip) floatingTip.classList.remove("is-visible");
+        }
+        function showFloatingTip(host2) {
+          const text = host2.getAttribute("data-tip");
+          if (!text) return;
+          const tip = ensureFloatingTip();
+          tip.textContent = text;
+          tipAnchor = host2;
+          tip.classList.add("is-visible");
+          const rect = host2.getBoundingClientRect();
+          const tipRect = tip.getBoundingClientRect();
+          let left = rect.left + rect.width / 2 - tipRect.width / 2;
+          left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+          let top = rect.bottom + 6;
+          if (top + tipRect.height > window.innerHeight - 8) {
+            top = Math.max(8, rect.top - tipRect.height - 6);
+          }
+          tip.style.left = Math.round(left) + "px";
+          tip.style.top = Math.round(top) + "px";
+        }
+        bar.addEventListener("mouseover", function(e) {
+          const tgel = e.target;
+          if (!tgel || !tgel.closest) return;
+          const host2 = tgel.closest(".mda-cm-tb-tip-host");
+          if (!host2 || !bar.contains(host2)) return;
+          showFloatingTip(host2);
+        });
+        bar.addEventListener("mouseout", function(e) {
+          const related = e.relatedTarget;
+          if (tipAnchor && related && tipAnchor.contains(related)) return;
+          if (related && related.closest && related.closest(".mda-cm-tb-tip-host") === tipAnchor) return;
+          hideFloatingTip();
+        });
+        bar.addEventListener("focusin", function(e) {
+          const tgel = e.target;
+          if (!tgel || !tgel.closest) return;
+          const host2 = tgel.closest(".mda-cm-tb-tip-host");
+          if (host2 && bar.contains(host2)) showFloatingTip(host2);
+        });
+        bar.addEventListener("focusout", function() {
+          hideFloatingTip();
+        });
+        function toolbarControls() {
+          return Array.prototype.slice.call(bar.querySelectorAll("button[data-cmd], select[data-cmd]"));
+        }
+        function enabledControls() {
+          return toolbarControls().filter(function(el) {
+            return !el.disabled;
+          });
+        }
+        function setRovingTabindex(focusEl) {
+          const items = toolbarControls();
+          let fallback = null;
+          for (let i = 0; i < items.length; i++) {
+            if (!fallback && !items[i].disabled) fallback = items[i];
+          }
+          const active = focusEl && !focusEl.disabled ? focusEl : fallback;
+          for (let i = 0; i < items.length; i++) {
+            items[i].tabIndex = items[i] === active ? 0 : -1;
+          }
+        }
+        function moveToolbarFocus(current, delta) {
+          const items = enabledControls();
+          if (!items.length) return;
+          let idx = items.indexOf(current);
+          if (idx < 0) idx = 0;
+          idx = (idx + delta + items.length) % items.length;
+          setRovingTabindex(items[idx]);
+          items[idx].focus();
+        }
+        bar.addEventListener("keydown", function(e) {
+          const target = e.target;
+          if (!target || !bar.contains(target)) return;
+          if (target.tagName === "SELECT" && (e.key === "ArrowDown" || e.key === "ArrowUp")) return;
+          if (e.key === "ArrowRight") {
+            e.preventDefault();
+            moveToolbarFocus(target, 1);
+          } else if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            moveToolbarFocus(target, -1);
+          } else if (e.key === "Home") {
+            e.preventDefault();
+            const items = enabledControls();
+            if (items[0]) {
+              setRovingTabindex(items[0]);
+              items[0].focus();
+            }
+          } else if (e.key === "End") {
+            e.preventDefault();
+            const items = enabledControls();
+            const last = items[items.length - 1];
+            if (last) {
+              setRovingTabindex(last);
+              last.focus();
+            }
+          }
+        });
+        bar.addEventListener("focusin", function(e) {
+          const target = e.target && e.target.closest ? e.target.closest("[data-cmd]") : null;
+          if (target && bar.contains(target)) setRovingTabindex(target);
+        });
+        setRovingTabindex(null);
+        let skipNextToolbarClick = false;
+        const CELL_FORMAT_CMDS = { bold: 1, italic: 1, underline: 1, strike: 1, code: 1, "clear-format": 1 };
+        const INLINE_FORMAT_CMDS = { bold: 1, italic: 1, underline: 1, strike: 1, code: 1, "clear-format": 1 };
+        bar.addEventListener(
+          "mousedown",
+          function(e) {
+            if (e.button !== 0) return;
+            const hit = e.target && e.target.closest ? e.target.closest("[data-cmd]") : null;
+            const cmd = hit && hit.getAttribute("data-cmd");
+            if (!cmd) return;
+            const target = captureWidgetEditTarget();
+            if (target && target.kind === "table-cell" && CELL_FORMAT_CMDS[cmd]) {
+              e.preventDefault();
+              e.stopPropagation();
+              skipNextToolbarClick = true;
+              runFormatCommand(view, cmd, formatOpts());
+              refresh();
+              return;
+            }
+            if (INLINE_FORMAT_CMDS[cmd]) {
+              e.preventDefault();
+              prepareInlineFormatToolbar(view);
+            }
+          },
+          true
+        );
+        function onDocFocusIn() {
+          refresh();
+        }
+        document.addEventListener("focusin", onDocFocusIn);
+        let selRefreshRaf = 0;
+        function onDocSelectionChange() {
+          if (selRefreshRaf || !focusInWidgetInlineEditable()) return;
+          selRefreshRaf = requestAnimationFrame(function() {
+            selRefreshRaf = 0;
+            refresh();
+          });
+        }
+        document.addEventListener("selectionchange", onDocSelectionChange);
+        function formatOpts() {
+          return {
+            t,
+            onPickImageInsert: opts.onPickImageInsert
+          };
+        }
+        function handleSoon(cmd) {
+          if (typeof opts.onSoon === "function") opts.onSoon("toolbar", cmd);
+        }
+        let editorActivated = false;
+        function notifyDocOpened() {
+          editorActivated = false;
+          clearSelectedBlock();
+          refresh();
+        }
+        function refresh() {
+          if (!view || view.destroyed) return;
+          if (view.hasFocus || focusInWidgetInlineEditable()) {
+            editorActivated = true;
+          }
+          const hrSelected = !!getSelectedBlockOfKind("hr");
+          const formatLocked = !editorActivated || hrSelected;
+          const state = view.state;
+          const para = deriveParagraphSelect(state);
+          const lists = deriveListToolbarState(state);
+          let inline = overlayPendingInlineState(state, getInlineToolbarState(state));
+          const avail = deriveFormatAvailability(state);
+          const widgetTarget = getEffectiveWidgetEditTarget();
+          const inFence = selectionTouchesFence(state) || widgetTarget && isFenceWidgetKind(widgetTarget.kind);
+          const inTableCell = !!(widgetTarget && widgetTarget.kind === "table-cell");
+          if (!inTableCell) clearWidgetPending();
+          const wp = inTableCell ? getWidgetPending() : null;
+          if (inTableCell) {
+            const cellInline = getCellInlineState(widgetTarget.el, widgetTarget);
+            if (cellInline) inline = cellInline;
+            const caret = getCellInlineFlags(widgetTarget.el, widgetTarget);
+            const liveWp = caret ? syncWidgetPendingForCaret(widgetTarget.el, caret.pos, caret.flags) : wp;
+            const collapsed = widgetTarget.visEnd === widgetTarget.visStart;
+            if (liveWp && liveWp.armed && collapsed) {
+              let markFlag = function(on) {
+                return { on: !!on, mixed: false };
+              };
+              inline = {
+                bold: markFlag(liveWp.marks.bold),
+                italic: markFlag(liveWp.marks.italic),
+                underline: markFlag(liveWp.marks.underline),
+                strike: markFlag(liveWp.marks.strike),
+                code: markFlag(liveWp.marks.code)
+              };
+            }
+          }
+          const TABLE_CELL_ALLOWED = {
+            bold: 1,
+            italic: 1,
+            underline: 1,
+            strike: 1,
+            code: 1,
+            "clear-format": 1
+          };
+          const AVAIL_CHECK_CMDS = {
+            bold: 1,
+            italic: 1,
+            underline: 1,
+            strike: 1,
+            code: 1,
+            ul: 1,
+            ol: 1,
+            task: 1
+          };
+          let readonly = typeof opts.isReadonly === "function" ? !!opts.isReadonly() : false;
+          if (!readonly) readonly = selectionTouchesReadonly(state);
+          const mixedOpt = paraSelect.querySelector('option[data-mixed="1"]');
+          if (para.mixed) {
+            if (!mixedOpt) {
+              const o = document.createElement("option");
+              o.value = "";
+              o.dataset.mixed = "1";
+              o.textContent = t("tbParagraphMixed");
+              paraSelect.insertBefore(o, paraSelect.firstChild);
+            } else {
+              mixedOpt.textContent = t("tbParagraphMixed");
+            }
+            paraSelect.value = "";
+          } else {
+            if (mixedOpt) paraSelect.removeChild(mixedOpt);
+            paraSelect.value = para.value;
+          }
+          const canUndo = undoDepth(state) > 0;
+          const canRedo = redoDepth(state) > 0;
+          const undoBtn = bar.querySelector('[data-cmd="undo"]');
+          const redoBtn = bar.querySelector('[data-cmd="redo"]');
+          if (undoBtn) undoBtn.disabled = readonly || formatLocked || !canUndo;
+          if (redoBtn) redoBtn.disabled = readonly || formatLocked || !canRedo;
+          toolbarControls().forEach(function(el) {
+            const cmd = el.getAttribute("data-cmd");
+            if (!cmd || cmd === "find" || cmd === "comment" || cmd === "copy-preview" || cmd === "export-open") {
+              return;
+            }
+            if (cmd === "undo" || cmd === "redo") return;
+            if (cmd === "save") {
+              el.disabled = readonly;
+              return;
+            }
+            let disabled = readonly || formatLocked && !!NEEDS_EDITOR_ACTIVATION[cmd] || inFence || inTableCell && !TABLE_CELL_ALLOWED[cmd];
+            if (!disabled && AVAIL_CHECK_CMDS[cmd] && !inTableCell) {
+              disabled = !isFormatCmdAvailable(cmd, avail);
+            }
+            if (!disabled && cmd === "clear-format") {
+              disabled = !hasPendingInputFormat(state);
+            }
+            el.disabled = !!disabled;
+          });
+          bar.querySelectorAll(".mda-cm-tb-toggle[data-cmd]").forEach(function(btn) {
+            const cmd = btn.getAttribute("data-cmd");
+            let flag = { on: false, mixed: false };
+            if (!formatLocked && !btn.disabled) {
+              if (cmd === "bold") flag = inline.bold;
+              else if (cmd === "italic") flag = inline.italic;
+              else if (cmd === "underline") flag = inline.underline;
+              else if (cmd === "strike") flag = inline.strike;
+              else if (cmd === "code") flag = inline.code;
+              else if (cmd === "ul") flag = lists.ul;
+              else if (cmd === "ol") flag = lists.ol;
+              else if (cmd === "task") flag = lists.task;
+            }
+            btn.classList.toggle("is-active", !!flag.on);
+            btn.classList.toggle("is-mixed", !!flag.mixed);
+            if (btn.hasAttribute("aria-pressed")) {
+              btn.setAttribute("aria-pressed", flag.mixed ? "mixed" : flag.on ? "true" : "false");
+            }
+          });
+          const commentBtn = bar.querySelector('[data-cmd="comment"]');
+          if (commentBtn && typeof opts.getPanelVisible === "function") {
+            const vis = !!opts.getPanelVisible();
+            commentBtn.classList.toggle("is-active", vis);
+            commentBtn.setAttribute("aria-pressed", vis ? "true" : "false");
+          }
+          const focused = bar.querySelector('[tabindex="0"]');
+          setRovingTabindex(focused && !focused.disabled ? focused : null);
+        }
+        function placeToolbarPopup(menu, anchorEl) {
+          menu.style.left = "0px";
+          menu.style.top = "0px";
+          document.body.appendChild(menu);
+          const rect = anchorEl.getBoundingClientRect();
+          const pad = 6;
+          let left = rect.left;
+          let top = rect.bottom + 2;
+          const w = menu.offsetWidth;
+          const h = menu.offsetHeight;
+          if (left + w > window.innerWidth - pad) left = window.innerWidth - w - pad;
+          if (top + h > window.innerHeight - pad) top = rect.top - h - 2;
+          if (left < pad) left = pad;
+          if (top < pad) top = pad;
+          menu.style.left = left + "px";
+          menu.style.top = top + "px";
+        }
+        function bindToolbarPopupDismiss(menu, anchorEl, closeFn, kind) {
+          unbindToolbarPopupDismiss(kind === "export" ? exportDismissFn : insertDismissFn);
+          const dismiss = function(ev) {
+            if (kind === "export" && activeExportMenu !== menu) {
+              unbindToolbarPopupDismiss(dismiss);
+              return;
+            }
+            if (kind === "insert" && activeInsertMenu !== menu) {
+              unbindToolbarPopupDismiss(dismiss);
+              return;
+            }
+            if (ev && ev.type === "keydown") {
+              if (ev.key !== "Escape") return;
+              ev.preventDefault();
+              closeFn({ restoreFocus: true });
+              return;
+            }
+            const target = ev && ev.target;
+            if (target && menu.contains(
+              /** @type {Node} */
+              target
+            )) return;
+            if (target && anchorEl.contains(
+              /** @type {Node} */
+              target
+            )) return;
+            closeFn();
+          };
+          if (kind === "export") exportDismissFn = dismiss;
+          else insertDismissFn = dismiss;
+          window.setTimeout(function() {
+            if (kind === "export" && activeExportMenu !== menu) return;
+            if (kind === "insert" && activeInsertMenu !== menu) return;
+            document.addEventListener("mousedown", dismiss, true);
+            document.addEventListener("keydown", dismiss, true);
+          }, 0);
+        }
+        function openInsertMenu(anchorEl) {
+          closeToolbarExportMenu();
+          closeToolbarInsertMenu();
+          const menu = document.createElement("div");
+          menu.className = "mda-context-menu mda-empty-line-insert-menu mda-block-handle-submenu mda-insert-menu-panel";
+          menu.id = "mda-toolbar-insert-menu";
+          menu.setAttribute("role", "menu");
+          appendInsertMenuPanel(menu, t, function(id, soon) {
+            closeToolbarInsertMenu();
+            if (soon) {
+              handleSoon(id);
+              return;
+            }
+            if (id === "link") {
+              runFormatCommand(view, "link", formatOpts());
+              refresh();
+              return;
+            }
+            insertTypeAtCursor(view, id, formatOpts());
+            refresh();
+          });
+          const insertBtn = bar.querySelector('[data-cmd="insert-open"]');
+          if (insertBtn) insertBtn.setAttribute("aria-expanded", "true");
+          menu.setAttribute("aria-label", t("tbInsert"));
+          placeToolbarPopup(menu, anchorEl);
+          activeInsertMenu = menu;
+          const firstItem = menu.querySelector('[role="menuitem"]');
+          if (firstItem && typeof firstItem.focus === "function") firstItem.focus();
+          bindToolbarPopupDismiss(menu, anchorEl, closeToolbarInsertMenu, "insert");
+        }
+        function runExportKind(kind) {
+          closeToolbarExportMenu();
+          if (kind === "html" && typeof opts.onExportHtml === "function") opts.onExportHtml();
+          else if (kind === "pdf" && typeof opts.onExportPdf === "function") opts.onExportPdf();
+          else if (kind === "docx" && typeof opts.onExportDocx === "function") opts.onExportDocx();
+        }
+        function openExportMenu(anchorEl) {
+          closeToolbarInsertMenu();
+          closeToolbarExportMenu();
+          const menu = document.createElement("div");
+          menu.className = "mda-context-menu";
+          menu.id = "mda-toolbar-export-menu";
+          menu.setAttribute("role", "menu");
+          menu.setAttribute("aria-label", t("tbExport"));
+          const items = [
+            { id: "html", key: "tbExportHtml" },
+            { id: "pdf", key: "tbExportPdf" },
+            { id: "docx", key: "tbExportDocx" }
+          ];
+          for (let i = 0; i < items.length; i++) {
+            const it = items[i];
+            const row = document.createElement("button");
+            row.type = "button";
+            row.className = "mda-menu-item";
+            row.setAttribute("role", "menuitem");
+            row.setAttribute("tabindex", "-1");
+            row.dataset.export = it.id;
+            row.textContent = t(it.key);
+            row.addEventListener("mousedown", function(e) {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              e.stopPropagation();
+              runExportKind(it.id);
+            });
+            menu.appendChild(row);
+          }
+          const exportBtn = bar.querySelector('[data-cmd="export-open"]');
+          if (exportBtn) exportBtn.setAttribute("aria-expanded", "true");
+          placeToolbarPopup(menu, anchorEl);
+          activeExportMenu = menu;
+          const firstItem = menu.querySelector('[role="menuitem"]');
+          if (firstItem && typeof firstItem.focus === "function") firstItem.focus();
+          bindToolbarPopupDismiss(menu, anchorEl, closeToolbarExportMenu, "export");
+        }
+        bar.addEventListener("click", function(e) {
+          const target = e.target && e.target.closest ? e.target.closest("[data-cmd]") : null;
+          if (!target || !bar.contains(target)) return;
+          const cmd = target.getAttribute("data-cmd");
+          if (!cmd) return;
+          e.preventDefault();
+          if (skipNextToolbarClick) {
+            skipNextToolbarClick = false;
+            return;
+          }
+          if (target.getAttribute("data-soon") === "1") {
+            handleSoon(cmd);
+            return;
+          }
+          if (cmd === "insert-open") {
+            if (activeInsertMenu) {
+              closeToolbarInsertMenu();
+              return;
+            }
+            openInsertMenu(
+              /** @type {HTMLElement} */
+              target
+            );
+            return;
+          }
+          if (cmd === "export-open") {
+            if (activeExportMenu) {
+              closeToolbarExportMenu();
+              return;
+            }
+            openExportMenu(
+              /** @type {HTMLElement} */
+              target
+            );
+            return;
+          }
+          if (cmd === "copy-preview") {
+            if (typeof opts.onCopyPreview === "function") opts.onCopyPreview();
+            return;
+          }
+          if (cmd === "find") {
+            if (typeof opts.onFind === "function") opts.onFind();
+            return;
+          }
+          if (cmd === "save") {
+            if (typeof opts.onSave === "function") opts.onSave();
+            return;
+          }
+          if (cmd === "comment") {
+            if (typeof opts.onTogglePanel === "function") opts.onTogglePanel();
+            refresh();
+            return;
+          }
+          runFormatCommand(view, cmd, formatOpts());
+          refresh();
+        });
+        paraSelect.addEventListener("change", function() {
+          const v = paraSelect.value;
+          if (!v) return;
+          if (v === "paragraph") runFormatCommand(view, "paragraph", formatOpts());
+          else runFormatCommand(view, v, formatOpts());
+          refresh();
+        });
+        refresh();
+        setBlockSelectionListener(function() {
+          refresh();
+        });
+        setWidgetPendingListener(function() {
+          refresh();
+        });
+        return {
+          refresh,
+          notifyDocOpened,
+          refreshI18n: function() {
+            applyLabels();
+            refresh();
+          },
+          destroy: function() {
+            hideFloatingTip();
+            if (floatingTip && floatingTip.parentNode) floatingTip.parentNode.removeChild(floatingTip);
+            floatingTip = null;
+            setBlockSelectionListener(null);
+            setWidgetPendingListener(null);
+            document.removeEventListener("focusin", onDocFocusIn);
+            document.removeEventListener("selectionchange", onDocSelectionChange);
+            if (selRefreshRaf) cancelAnimationFrame(selRefreshRaf);
+            selRefreshRaf = 0;
+            closeToolbarInsertMenu();
+            closeToolbarExportMenu();
+            if (bar.parentNode) bar.parentNode.removeChild(bar);
+          }
+        };
+      }
+      module.exports = {
+        createEditorToolbar,
+        closeToolbarInsertMenu,
+        closeToolbarExportMenu
+      };
+    }
+  });
+
   // src/gui/renderer/editor/mount.js
   var require_mount = __commonJS({
     "src/gui/renderer/editor/mount.js"(exports, module) {
@@ -59638,8 +66401,14 @@ var MDAEditorBundle = (() => {
       var { refreshBlockToolbars } = require_widget_common();
       var { outlineFlashExtension, flashOutlineLine } = require_outline_flash();
       var { getOutlineActiveLine } = require_outline_scroll();
+      var { refreshAnnoGutter } = require_anno_gutter();
+      var { invalidateLayerBuildCache, notifyAnnoFilterChanged } = require_live_preview();
       var { refreshEmptyLineInsertI18n } = require_empty_line_insert();
       var { sliceDocForClipboard } = require_syntax_clipboard();
+      var { adjustCaretForKeyboardNav } = require_caret_syntax_adjust();
+      var { createEditorToolbar } = require_toolbar();
+      var { createFormatKeymap } = require_format_commands();
+      var { createPendingInlineFormatExtension } = require_pending_inline_format();
       function stripBom(text) {
         if (typeof text !== "string") return { text: "", bom: "" };
         if (text.charCodeAt(0) === 65279) {
@@ -59653,6 +66422,19 @@ var MDAEditorBundle = (() => {
         let bom = initial.bom;
         let mode = opts.mode || MODE_PREVIEW;
         const comps = createModeCompartments();
+        const externalToolbar = !!(opts.toolbarHost && opts.toolbarHost.nodeType === 1);
+        let toolbarMount;
+        if (externalToolbar) {
+          toolbarMount = opts.toolbarHost;
+        } else {
+          toolbarMount = document.createElement("div");
+          toolbarMount.className = "mda-cm-edit-toolbar-host";
+          parent.appendChild(toolbarMount);
+        }
+        const editorParent = document.createElement("div");
+        editorParent.className = "mda-cm-editor-surface";
+        parent.appendChild(editorParent);
+        let toolbarApi = null;
         const updateListener = EditorView.updateListener.of((update) => {
           if (update.docChanged && typeof opts.onChange === "function") {
             opts.onChange({
@@ -59663,15 +66445,25 @@ var MDAEditorBundle = (() => {
           if (update.viewportChanged && typeof opts.onViewportChange === "function") {
             opts.onViewportChange();
           }
+          if (update.selectionSet || update.docChanged || update.focusChanged) {
+            if (toolbarApi && typeof toolbarApi.refresh === "function") toolbarApi.refresh();
+          }
+          if ((update.selectionSet || update.focusChanged) && typeof opts.onSelectionUpdate === "function") {
+            opts.onSelectionUpdate(update.view);
+          }
         });
         function buildExtensions(currentMode) {
           const list = [
             history(),
             drawSelection()
           ].concat([
-            // 不用 highlightActiveLine：整行浅底会像「选中了一整行」
             markdown({ extensions: GFM }),
             keymap.of(defaultKeymap.concat(historyKeymap)),
+            createFormatKeymap({
+              t: opts.t,
+              onPickImageInsert: opts.onPickImageInsert
+            })
+          ]).concat(createPendingInlineFormatExtension()).concat([
             updateListener,
             createClickDebugExtension(),
             outlineFlashExtension()
@@ -59686,8 +66478,30 @@ var MDAEditorBundle = (() => {
             doc: initial.text,
             extensions: buildExtensions(mode)
           }),
-          parent
+          parent: editorParent
         });
+        if (opts.toolbar !== false) {
+          toolbarApi = createEditorToolbar(toolbarMount, view, {
+            t: opts.t,
+            getMode: function() {
+              return mode;
+            },
+            onToggleMode: opts.onToggleMode,
+            onFind: opts.onFind,
+            onTogglePanel: opts.onTogglePanel,
+            getPanelVisible: opts.getPanelVisible,
+            onPickImageInsert: opts.onPickImageInsert,
+            onSoon: opts.onBlockMenuSoon,
+            onCopy: opts.onCopy,
+            onCut: opts.onCut,
+            onPaste: opts.onPaste,
+            onSave: opts.onSave,
+            onCopyPreview: opts.onCopyPreview,
+            onExportHtml: opts.onExportHtml,
+            onExportPdf: opts.onExportPdf,
+            onExportDocx: opts.onExportDocx
+          });
+        }
         let outlineFlashTimer = null;
         return {
           view,
@@ -59707,8 +66521,13 @@ var MDAEditorBundle = (() => {
           setText: function(raw, options) {
             const parsed = stripBom(raw || "");
             bom = parsed.bom;
-            if (view.state.doc.toString() === parsed.text) return;
             const resetHistory = options && (options.resetHistory || options.keepHistory === false);
+            if (view.state.doc.toString() === parsed.text) {
+              if (resetHistory && toolbarApi && typeof toolbarApi.notifyDocOpened === "function") {
+                toolbarApi.notifyDocOpened();
+              }
+              return;
+            }
             if (!resetHistory) {
               view.dispatch({
                 changes: {
@@ -59725,6 +66544,9 @@ var MDAEditorBundle = (() => {
                 extensions: buildExtensions(mode)
               })
             );
+            if (toolbarApi && typeof toolbarApi.notifyDocOpened === "function") {
+              toolbarApi.notifyDocOpened();
+            }
           },
           getMode: function() {
             return mode;
@@ -59742,9 +66564,20 @@ var MDAEditorBundle = (() => {
             }
             view.focus();
             if (typeof opts.onModeChange === "function") opts.onModeChange(mode);
+            if (toolbarApi && typeof toolbarApi.refresh === "function") toolbarApi.refresh();
           },
           focus: function() {
             view.focus();
+          },
+          /**
+           * 批注落盘同步：最小 diff 写入，不进入撤销栈。
+           * @param {import('@codemirror/state').ChangeSpec|import('@codemirror/state').ChangeSpec[]} changes
+           */
+          patchDocNoHistory: function(changes) {
+            view.dispatch({
+              changes,
+              annotations: Transaction.addToHistory.of(false)
+            });
           },
           /**
            * 大纲跳转：滚到 1-based 行，光标落行尾，标题闪高亮后清除。
@@ -59756,9 +66589,17 @@ var MDAEditorBundle = (() => {
             if (doc.lines < 1) return;
             const n = Math.min(Math.max(1, line1Based | 0), doc.lines);
             const line = doc.line(n);
+            let pos = line.to;
+            while (pos > line.from) {
+              const ch = doc.sliceString(pos - 1, pos);
+              if (ch !== "\n" && ch !== "\r") break;
+              pos -= 1;
+            }
+            if (pos <= line.from) pos = line.from;
+            else pos = adjustCaretForKeyboardNav(view.state, pos);
             view.dispatch({
-              selection: { anchor: line.to, head: line.to },
-              effects: EditorView.scrollIntoView(line.from, { y: "center" })
+              selection: { anchor: pos, head: pos },
+              effects: EditorView.scrollIntoView(pos, { y: "center" })
             });
             flashOutlineLine(view, n, opts2 && opts2.flashMs, {
               clearTimer: function() {
@@ -59771,7 +66612,35 @@ var MDAEditorBundle = (() => {
                 outlineFlashTimer = tid;
               }
             });
-            if (!(opts2 && opts2.skipFocus)) view.focus();
+            if (!(opts2 && opts2.skipFocus)) {
+              view.focus();
+              requestAnimationFrame(function() {
+                if (!view.destroyed) view.focus();
+              });
+            }
+          },
+          /**
+           * 选区批注定位：滚到 anchor 并选中对应 UTF-16 区间。
+           * @param {{ start: number, end: number }} anchor
+           * @param {{ skipFocus?: boolean }} [opts]
+           */
+          scrollToAnchor: function(anchor, opts2) {
+            if (!anchor) return;
+            const doc = view.state.doc;
+            let from = Math.max(0, Math.min(anchor.start | 0, doc.length));
+            let to = Math.max(from, Math.min(anchor.end | 0, doc.length));
+            from = adjustCaretForKeyboardNav(view.state, from);
+            if (to > from) to = adjustCaretForKeyboardNav(view.state, to);
+            view.dispatch({
+              selection: { anchor: from, head: to },
+              effects: EditorView.scrollIntoView(from, { y: "center" })
+            });
+            if (!(opts2 && opts2.skipFocus)) {
+              view.focus();
+              requestAnimationFrame(function() {
+                if (!view.destroyed) view.focus();
+              });
+            }
           },
           /**
            * 大纲滚动高亮：视口内标题 DOM 真实位置（见 outline-scroll.js）。
@@ -59867,7 +66736,15 @@ var MDAEditorBundle = (() => {
               clearTimeout(outlineFlashTimer);
               outlineFlashTimer = null;
             }
+            if (toolbarApi && typeof toolbarApi.destroy === "function") toolbarApi.destroy();
+            toolbarApi = null;
             view.destroy();
+          },
+          refreshToolbar: function() {
+            if (toolbarApi) {
+              if (typeof toolbarApi.refreshI18n === "function") toolbarApi.refreshI18n();
+              if (typeof toolbarApi.refresh === "function") toolbarApi.refresh();
+            }
           }
         };
       }
@@ -59876,8 +66753,11 @@ var MDAEditorBundle = (() => {
         stripBom,
         refreshDecorations: function(view) {
           if (!view || typeof view.dispatch !== "function") return;
+          invalidateLayerBuildCache();
+          refreshAnnoGutter(view);
           view.dispatch({ annotations: Transaction.addToHistory.of(false) });
         },
+        notifyAnnoFilterChanged,
         refreshWidgetI18n: function(view, t) {
           if (!view || !view.dom || typeof t !== "function") return;
           refreshBlockToolbars(view.dom, t);
@@ -59961,7 +66841,8 @@ var MDAEditorBundle = (() => {
   // src/gui/renderer/editor/index.js
   var require_index = __commonJS({
     "src/gui/renderer/editor/index.js"(exports, module) {
-      var { createEditor, refreshDecorations, refreshWidgetI18n } = require_mount();
+      var { createEditor, refreshDecorations, refreshWidgetI18n, notifyAnnoFilterChanged } = require_mount();
+      var annoAddContext = require_anno_add_context();
       var imageBlockOps = require_image_block_ops();
       var { insertMarkdownAtBlankLine, insertMarkdownNearBlock } = require_block_handle_ops();
       var { serializeImageMarkdown } = require_parse_image();
@@ -59972,11 +66853,15 @@ var MDAEditorBundle = (() => {
       var { serializeFencedCode } = require_parse_fence();
       var { tryCodeBlockUndo, tryCodeBlockRedo } = require_code();
       var { serializeMathBlock, serializeMathInline } = require_parse_math();
+      var { flushAllTableWidgets } = require_table();
       var { MODE_PREVIEW, MODE_SOURCE } = require_mode();
       var { SearchSession } = require_search_session();
       var editorConfig = require_config();
       function isEnabledByPref() {
         try {
+          if (typeof window !== "undefined" && window.mdaAPI && window.mdaAPI.cm6Forced) {
+            return true;
+          }
           var v = localStorage.getItem("mda-cm6");
           if (v === null || v === void 0 || v === "") return false;
           return v === "1" || v === "true";
@@ -59993,6 +66878,7 @@ var MDAEditorBundle = (() => {
       module.exports = {
         createEditor,
         refreshDecorations,
+        notifyAnnoFilterChanged,
         refreshWidgetI18n,
         deleteBlockRange: imageBlockOps.deleteBlockRange,
         deleteImageBlock: imageBlockOps.deleteImageBlock,
@@ -60013,11 +66899,17 @@ var MDAEditorBundle = (() => {
         tryCodeBlockRedo,
         serializeMathBlock,
         serializeMathInline,
+        flushAllTableWidgets,
         MODE_PREVIEW,
         MODE_SOURCE,
         SearchSession,
         isEnabledByPref,
         setEnabledPref,
+        resolveAnnoPanelContext: annoAddContext.resolveCm6AnnoPanelContext,
+        canUseSelectionAnnoForRange: annoAddContext.canUseSelectionAnnoForRange,
+        blockKindAtPos: annoAddContext.blockKindAtPos,
+        isBlockOnlyKind: annoAddContext.isBlockOnlyKind,
+        blockAnnotationLine: annoAddContext.blockAnnotationLine,
         config: editorConfig
       };
       if (typeof window !== "undefined") {

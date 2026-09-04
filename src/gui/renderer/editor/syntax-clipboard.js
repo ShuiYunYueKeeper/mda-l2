@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 预览模式剪贴板：定界符成对完整时保留 Markdown；仅一侧时复制/粘贴去掉定界符。
  */
 'use strict';
@@ -180,10 +180,13 @@ function handleMarkdownSyntaxCut(event, view) {
   if (!slice) return false;
   event.clipboardData.setData('text/plain', slice.text);
   event.preventDefault();
-  view.dispatch({
-    changes: { from: slice.from, to: slice.to, insert: '' },
-    selection: { anchor: slice.from, head: slice.from },
-  });
+  require('./state/inline-delimiter-ops').replaceRangeWithCleanup(
+    view,
+    slice.from,
+    slice.to,
+    '',
+    'delete.cut'
+  );
   return true;
 }
 
@@ -213,10 +216,13 @@ function handleMarkdownSyntaxPaste(event, view) {
   const next = normalizePasteForHeading(view.state, pos, plain);
   if (next === plain) return false;
   event.preventDefault();
-  view.dispatch({
-    changes: { from: sel.from, to: sel.to, insert: next },
-    userEvent: 'input.paste',
-  });
+  require('./state/inline-delimiter-ops').replaceRangeWithCleanup(
+    view,
+    sel.from,
+    sel.to,
+    next,
+    'input.paste'
+  );
   return true;
 }
 
