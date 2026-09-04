@@ -22,6 +22,15 @@ describe('outline', () => {
     expect(roots[1].title).toBe('H1b');
   });
 
+  test('列表项内标题进大纲，任务项内 # 不进', () => {
+    const text = '- ## InList\n1. ### InOrdered\n- [ ] #### NotHeading';
+    const roots = extractHeadings(text);
+    expect(roots).toHaveLength(1);
+    expect(roots[0].title).toBe('InList');
+    expect(roots[0].children[0].title).toBe('InOrdered');
+    expect(roots[0].children[0].children).toHaveLength(0);
+  });
+
   test('围栏内 # 忽略', () => {
     const text = '```\n# not heading\n```\n# Real';
     const roots = extractHeadings(text);

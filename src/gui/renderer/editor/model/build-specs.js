@@ -1,12 +1,13 @@
-﻿/**
+/**
  * P2 §4.1 装饰构建（纯函数）：文本 + 节点 → Spec[]，不碰 DOM。D15：始终隐藏语法标记。
  */
 'use strict';
 
 const { SYNTAX_RULES } = require('./syntax-rules');
-const { findAnnotationHideRanges } = require('./anno-lines');
+const { findAnnotationHideRanges, findHtmlCommentHideRanges } = require('./anno-lines');
 const { detectFrontMatter } = require('./readonly-blocks');
 const { findMathRanges } = require('./parse-math');
+const { findUnderlineRanges } = require('./underline');
 
 const PRIORITY = {
   'hide-line': 100,
@@ -32,6 +33,35 @@ const PRIORITY = {
  *   priority?: number,
  * }} DecoSpec
  */
+
+/**
+ * CM6 的 Decoration.line 只有落在行首才会生效，否则被静默丢弃。
+ * 列表项内的标题（`- ## 标题`）节点起点不在行首，须回退到行首再挂行样式。
+ * @param {string} text
+ * @param {number} pos
+ * @returns {number}
+ */
+function lineStartOf(text, pos) {
+  const nl = String(text).lastIndexOf('\n', pos - 1);
+  return nl < 0 ? 0 : nl + 1;
+}
+
+/**
+ * @param {{ from: number, to: number, type: string }} node
+ * @param {string} text
+ * @returns {{ level: number, anchorFrom: number }}
+ */
+function headingHandleMeta(node, text) {
+  if (/^ATXHeading([1-6])$/.test(node.type)) {
+    const level = parseInt(node.type.slice(-1), 10);
+    let end = node.from + level;
+    if (end < node.to && text.charAt(end) === ' ') end += 1;
+    return { level: level, anchorFrom: end > node.from ? end : node.from };
+  }
+  if (node.type === 'SetextHeading1') return { level: 1, anchorFrom: node.from };
+  if (node.type === 'SetextHeading2') return { level: 2, anchorFrom: node.from };
+  return { level: 1, anchorFrom: node.from };
+}
 
 /**
  * @param {string} text
@@ -78,12 +108,43 @@ function buildDecorationSpecs(text, nodes, opts) {
     }
   }
 
+  const htmlComments = findHtmlCommentHideRanges(text);
+  for (let h = 0; h < htmlComments.length; h++) {
+    const cr = htmlComments[h];
+    if (!(cr.from < cr.to)) continue;
+    specs.push({
+      kind: cr.kind === 'mark' ? 'hide-mark' : 'hide-line',
+      from: cr.from,
+      to: cr.to,
+      priority: PRIORITY['hide-line'],
+    });
+  }
+
   for (let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
     if (!node || node.from >= node.to) continue;
     if (skipTypes[node.type]) continue;
 
-    // 引用块手柄（零宽 side widget）；标题不加手柄
+    // 标题手柄（零宽 side widget）
+    if (/^ATXHeading[1-6]$/.test(node.type) || /^SetextHeading[12]$/.test(node.type)) {
+      if (widgetEnabled('heading-handle')) {
+        const source = text.slice(node.from, node.to);
+        const meta = headingHandleMeta(node, text);
+        specs.push({
+          kind: 'widget',
+          widget: 'heading-handle',
+          from: meta.anchorFrom,
+          to: meta.anchorFrom,
+          blockFrom: node.from,
+          blockTo: node.to,
+          headingLevel: meta.level,
+          source: source,
+          priority: PRIORITY.widget,
+        });
+      }
+    }
+
+    // 引用块手柄（零宽 side widget）
     if (node.type === 'Blockquote') {
       if (widgetEnabled('quote-handle')) {
         const source = text.slice(node.from, node.to);
@@ -159,11 +220,33 @@ function buildDecorationSpecs(text, nodes, opts) {
 
     if (rule.class !== 'R') continue;
 
-    if (node.type === 'ListMark' && node.listKind === 'ordered') continue;
+    if (node.type === 'ListMark' && node.listKind === 'ordered') {
+      // 序号保持可编辑的字面文本，只套一层 span 供样式跟随标题级别
+      let ordTo = node.to;
+      if (ordTo < text.length && text.charAt(ordTo) === ' ') ordTo += 1;
+      specs.push({
+        kind: 'style',
+        from: node.from,
+        to: ordTo,
+        cls: 'mda-cm-list-mark',
+        priority: PRIORITY.style,
+      });
+      continue;
+    }
 
     if (node.type === 'ListMark' && node.listKind === 'bullet') {
       let markTo = node.to;
       if (markTo < text.length && text.charAt(markTo) === ' ') markTo += 1;
+      // 任务项自带复选框 widget，再画圆点会显示成「• ☐ 文字」
+      if (/^ *\[[ xX]\]\s/.test(text.slice(markTo))) {
+        specs.push({
+          kind: 'hide-mark',
+          from: node.from,
+          to: markTo,
+          priority: PRIORITY['hide-mark'],
+        });
+        continue;
+      }
       specs.push({
         kind: 'widget',
         widget: 'bullet',
@@ -204,8 +287,8 @@ function buildDecorationSpecs(text, nodes, opts) {
       }
       specs.push({
         kind: 'line-style',
-        from: node.from,
-        to: node.from,
+        from: lineStartOf(text, node.from),
+        to: lineStartOf(text, node.from),
         cls: 'mda-cm-blockquote-line',
         priority: PRIORITY['line-style'],
       });
@@ -227,19 +310,22 @@ function buildDecorationSpecs(text, nodes, opts) {
     const content =
       typeof rule.contentRange === 'function' ? rule.contentRange(node, text) : null;
     const href = typeof rule.hrefOf === 'function' ? rule.hrefOf(node, text) : '';
-    if (content && content.from < content.to && rule.cls) {
-      specs.push({
-        kind: 'style',
-        from: content.from,
-        to: content.to,
-        cls: rule.cls,
-        href: href || undefined,
-        priority: PRIORITY.style,
-      });
+    if (content && rule.cls) {
+      if (content.from < content.to) {
+        specs.push({
+          kind: 'style',
+          from: content.from,
+          to: content.to,
+          cls: rule.cls,
+          href: href || undefined,
+          priority: PRIORITY.style,
+        });
+      }
+      // 空标题行也需行高，否则手柄与占位与有正文标题不一致
       if (/^mda-cm-h[1-6]$/.test(rule.cls)) {
         specs.push({
           kind: 'line-style',
-          from: node.from,
+          from: lineStartOf(text, node.from),
           cls: rule.cls + '-line',
           priority: PRIORITY['line-style'],
         });
@@ -319,11 +405,47 @@ function dedupeByPriority(specs) {
   return out;
 }
 
+const IMAGE_ONLY_LINE_RE = /^\s*!\[[^\]]*\]\([^)]*\)\s*$/;
+
+/**
+ * Setext 节点末行若是 ---/___（h2）或图片后的 ===，当作 HR 而非标题下划线。
+ * @param {string} text
+ * @param {string} nodeName
+ * @param {number} from
+ * @param {number} to
+ */
+function hrRangeFromSetext(text, nodeName, from, to) {
+  if (to <= from) return null;
+  let lineEnd = to;
+  while (lineEnd > from && (text.charAt(lineEnd - 1) === '\n' || text.charAt(lineEnd - 1) === '\r')) {
+    lineEnd -= 1;
+  }
+  let lineStart = lineEnd;
+  while (lineStart > from && text.charAt(lineStart - 1) !== '\n' && text.charAt(lineStart - 1) !== '\r') {
+    lineStart -= 1;
+  }
+  if (lineStart <= from) return null;
+  const ul = text.slice(lineStart, lineEnd).trim();
+  const isH2 = /^-{3,}$/.test(ul) || /^_{3,}$/.test(ul);
+  const isH1 = /^={3,}$/.test(ul);
+  if (!isH2 && !isH1) return null;
+  if (nodeName === 'SetextHeading2' && isH2) {
+    return { from: lineStart, to: to };
+  }
+  const nl = text.slice(from, to).search(/\r?\n/);
+  if (nl < 0) return null;
+  const head = text.slice(from, from + nl).trim();
+  if (!IMAGE_ONLY_LINE_RE.test(head)) return null;
+  return { from: lineStart, to: to };
+}
+
 /**
  * @param {import('@lezer/common').Tree} tree
+ * @param {string} [text]
  * @returns {{ from: number, to: number, type: string, listKind?: string }[]}
  */
-function collectSyntaxNodes(tree) {
+function collectSyntaxNodes(tree, text) {
+  const doc = text == null ? '' : String(text);
   const nodes = [];
   const stack = [];
   let fenceDepth = 0;
@@ -367,6 +489,16 @@ function collectSyntaxNodes(tree) {
         return;
       }
 
+      if (node.name === 'SetextHeading1' || node.name === 'SetextHeading2') {
+        const hr = doc ? hrRangeFromSetext(doc, node.name, node.from, node.to) : null;
+        if (hr) {
+          nodes.push({ from: hr.from, to: hr.to, type: 'HorizontalRule' });
+          return;
+        }
+        nodes.push({ from: node.from, to: node.to, type: node.name });
+        return;
+      }
+
       if (!SYNTAX_RULES[node.name]) return;
 
       const item = { from: node.from, to: node.to, type: node.name };
@@ -391,6 +523,23 @@ function collectSyntaxNodes(tree) {
       }
     },
   });
+  if (doc) {
+    const exclude = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      if (
+        n.type === 'FencedCode' ||
+        n.type === 'CodeBlock' ||
+        n.type === 'InlineCode' ||
+        n.type === 'Strikethrough' ||
+        n.type === 'HorizontalRule'
+      ) {
+        exclude.push({ from: n.from, to: n.to });
+      }
+    }
+    const unders = findUnderlineRanges(doc, exclude);
+    for (let u = 0; u < unders.length; u++) nodes.push(unders[u]);
+  }
   return nodes;
 }
 
@@ -399,5 +548,6 @@ module.exports = {
   appendMathSpecs: appendMathSpecs,
   dedupeByPriority: dedupeByPriority,
   collectSyntaxNodes: collectSyntaxNodes,
+  headingHandleMeta: headingHandleMeta,
   PRIORITY: PRIORITY,
 };

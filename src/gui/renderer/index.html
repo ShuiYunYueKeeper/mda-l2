@@ -209,6 +209,8 @@
     }
     .toolbar .file-name .dirty-dot { user-select: none; -webkit-user-select: none; }
     .dirty-dot { color: var(--danger); font-weight: bold; margin-left: 2px; }
+    /* 未修改时仍占位，避免文件名宽度变化挤动居中的编辑工具栏 */
+    .dirty-dot.dirty-dot-clean { visibility: hidden; }
 
     /* ================= 主体三栏（编辑 | 预览 | 批注，宽度可拖拽）================= */
     #content-row { display: flex; flex: 1 1 auto; overflow: hidden; position: relative; }
@@ -1342,6 +1344,20 @@
     .mda-cm6-host .mda-cm-h4 { font-size: 1.1em; line-height: inherit; }
     .mda-cm6-host .mda-cm-h5 { font-size: 1em; line-height: inherit; }
     .mda-cm6-host .mda-cm-h6 { font-size: 0.95em; line-height: inherit; color: var(--text-muted); }
+    /* 列表项内的标题（`- ## 标题`）：列表符号在标题 span 之外，须单独跟随标题级别，
+       否则符号仍是正文字号，看着偏小、基线偏上，选区蓝底也会高低不齐 */
+    .mda-cm6-host .cm-line.mda-cm-h1-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h1-line .mda-cm-list-mark { font-size: 1.75em; }
+    .mda-cm6-host .cm-line.mda-cm-h2-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h2-line .mda-cm-list-mark { font-size: 1.45em; }
+    .mda-cm6-host .cm-line.mda-cm-h3-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h3-line .mda-cm-list-mark { font-size: 1.25em; }
+    .mda-cm6-host .cm-line.mda-cm-h4-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h4-line .mda-cm-list-mark { font-size: 1.1em; }
+    .mda-cm6-host .cm-line.mda-cm-h5-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h5-line .mda-cm-list-mark { font-size: 1em; }
+    .mda-cm6-host .cm-line.mda-cm-h6-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h6-line .mda-cm-list-mark { font-size: 0.95em; }
     .mda-cm6-host .mda-cm-hidden-line {
       display: block;
       height: 0 !important;
@@ -1668,13 +1684,17 @@
     .mda-cm-tb-main {
       display: flex;
       align-items: center;
-      justify-content: center;
+      /* 居中用首尾 auto margin 实现：justify-content:center 在溢出时会把起始段
+         推到 scrollLeft 负区且滚不回来，点击按钮触发的滚动修正就成了整栏抖动 */
+      justify-content: flex-start;
       gap: 2px;
       flex: 1 1 auto;
       min-width: 0;
       overflow-x: auto;
       scrollbar-width: none;
     }
+    .mda-cm-tb-main > :first-child { margin-left: auto; }
+    .mda-cm-tb-main > :last-child { margin-right: auto; }
     .mda-cm-tb-main::-webkit-scrollbar { display: none; }
     .mda-cm-tb-group { display: flex; align-items: center; gap: 2px; }
     .mda-cm-tb-sep {
@@ -1690,8 +1710,7 @@
       font-size: 14px; line-height: 1; cursor: pointer;
     }
     .mda-cm-tb-btn:hover { background: var(--bg-tertiary); border-color: var(--border-light); }
-    .mda-cm-tb-btn:focus-visible,
-    .mda-cm-tb-select:focus-visible {
+    .mda-cm-tb-btn:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 1px;
     }
@@ -1840,11 +1859,27 @@
     }
     .mda-cm-tb-select {
       height: 28px; min-width: 108px; max-width: 160px;
-      padding: 0 8px; border: 1px solid var(--border);
-      border-radius: 4px; background: var(--bg); color: var(--text);
+      padding: 0 24px 0 8px; border: 1px solid var(--border);
+      border-radius: 4px;
+      background-color: var(--bg);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 6px center;
+      background-size: 12px 12px;
+      -webkit-appearance: none;
+      appearance: none;
+      color: var(--text);
       font-size: 13px; cursor: pointer;
+      outline: none;
     }
     .mda-cm-tb-select:hover { border-color: var(--accent); }
+    /* 原生 select 在 Windows/Electron 聚焦时会在左右各画一条系统蓝框，勿再叠 outline */
+    .mda-cm-tb-select:focus,
+    .mda-cm-tb-select:focus-visible {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+    }
     .mda-cm6-host .cm-editor { flex: 1; min-height: 0; outline: none; display: flex; flex-direction: column; }
     .mda-cm6-host .cm-scroller {
       font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;

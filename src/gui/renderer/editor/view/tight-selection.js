@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 预览正文选区：原生 ::selection 透明 + 自绘层（只盖实际字符，叠在行内 code 之上）。
  *
  * 注意：layer({ class }) / classList.add 只能是单个 class token，不能含空格，
@@ -169,7 +169,10 @@ function tightMarkersForRange(view, range) {
       rowRight = c.right;
       continue;
     }
-    if (Math.abs(c.top - rowTop) > 3) {
+    // 只有「完全不与当前行重叠」才算换到下一视觉行。改用 top 差值阈值会把同一行里
+    // 字号不同的片段（列表符号 vs 标题正文、复选框 widget vs 文字）误判成两行，
+    // 画出两个高矮不一的矩形。换行时下一行的 top 恰好在上一行 bottom 之下，不会误伤。
+    if (!(c.top < rowBottom - 1 && c.bottom > rowTop + 1)) {
       flush(pos);
       rowFrom = pos;
       rowTop = c.top;

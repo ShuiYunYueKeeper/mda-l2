@@ -510,7 +510,12 @@ function createEditorToolbar(host, view, opts) {
       if (INLINE_FORMAT_CMDS[cmd]) {
         e.preventDefault();
         prepareInlineFormatToolbar(view);
+        return;
       }
+      // 其余按钮同样不吃焦点：工具栏窄窗口下横向溢出，浏览器把刚聚焦的按钮
+      // 滚进可视区会让整条工具栏平移一下（观感是「点一下就抖」）。
+      // select 需要原生交互展开下拉，不能拦。
+      if (hit.tagName !== 'SELECT') e.preventDefault();
     },
     true
   );
@@ -826,6 +831,9 @@ function createEditorToolbar(host, view, opts) {
   bar.addEventListener('click', function (e) {
     const target = e.target && e.target.closest ? e.target.closest('[data-cmd]') : null;
     if (!target || !bar.contains(target)) return;
+    // 段落下拉用原生 <select> + change 事件；click 里 data-cmd 恒为 paragraph，
+    // 一点击就 runFormatCommand('paragraph') 会在未选级别时强行改正文并 refresh 闪屏。
+    if (target.tagName === 'SELECT') return;
     const cmd = target.getAttribute('data-cmd');
     if (!cmd) return;
     e.preventDefault();

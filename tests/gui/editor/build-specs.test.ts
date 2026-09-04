@@ -1,13 +1,14 @@
-﻿/**
+/**
  * M8-B：buildDecorationSpecs 纯函数（E49–E52 雏形）
  */
 import * as path from 'path';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { buildDecorationSpecs } = require(path.join(
+const { buildDecorationSpecs, collectSyntaxNodes } = require(path.join(
   __dirname,
   '../../../src/gui/renderer/editor/model/build-specs.js'
 ));
+const { parser } = require('@lezer/markdown');
 
 describe('buildDecorationSpecs (M8-B S1–S5)', () => {
   test('E49: 标题隐藏 # 与空格，正文加样式', () => {
@@ -18,6 +19,18 @@ describe('buildDecorationSpecs (M8-B S1–S5)', () => {
     const styles = specs.filter((s: { kind: string }) => s.kind === 'style');
     expect(hides).toEqual([{ kind: 'hide-mark', from: 0, to: 2, priority: expect.any(Number) }]);
     expect(styles[0]).toMatchObject({ kind: 'style', from: 2, to: text.length, cls: 'mda-cm-h1' });
+  });
+
+  test('空标题行仍应用 mda-cm-hN-line 行高', () => {
+    const text = '# \n';
+    const nodes = [{ type: 'ATXHeading1', from: 0, to: 1 }];
+    const specs = buildDecorationSpecs(text, nodes);
+    expect(
+      specs.some(
+        (s: { kind: string; cls?: string }) => s.kind === 'line-style' && s.cls === 'mda-cm-h1-line'
+      )
+    ).toBe(true);
+    expect(specs.some((s: { kind: string }) => s.kind === 'style')).toBe(false);
   });
 
   test('D15: 行内强调始终隐藏定界符', () => {
@@ -122,10 +135,28 @@ describe('buildDecorationSpecs (M8-B S6–S12)', () => {
     ]);
   });
 
-  test('S9: 有序列表标记不装饰', () => {
+  test('S9: 有序列表序号保持字面文本，只套 style span', () => {
     const text = '1. item';
     const nodes = [{ type: 'ListMark', from: 0, to: 2, listKind: 'ordered' }];
-    expect(buildDecorationSpecs(text, nodes)).toEqual([]);
+    const specs = buildDecorationSpecs(text, nodes);
+    expect(specs).toEqual([
+      expect.objectContaining({ kind: 'style', cls: 'mda-cm-list-mark', from: 0, to: 3 }),
+    ]);
+    expect(specs.some((s: { kind: string }) => s.kind === 'hide-mark')).toBe(false);
+  });
+
+  test('任务项不再画圆点：ListMark 隐藏而非 bullet widget', () => {
+    const text = '- [ ] todo';
+    const nodes = [
+      { type: 'ListMark', from: 0, to: 1, listKind: 'bullet' },
+      { type: 'TaskMarker', from: 2, to: 5 },
+    ];
+    const specs = buildDecorationSpecs(text, nodes);
+    expect(specs.some((s: { widget?: string }) => s.widget === 'bullet')).toBe(false);
+    expect(
+      specs.some((s: any) => s.kind === 'hide-mark' && s.from === 0 && s.to === 2)
+    ).toBe(true);
+    expect(specs.some((s: { widget?: string }) => s.widget === 'task')).toBe(true);
   });
 
   test('S10: 任务标记 → checkbox widget', () => {
@@ -144,7 +175,7 @@ describe('buildDecorationSpecs (M8-B S6–S12)', () => {
     expect(hr[0]).toMatchObject({ kind: 'widget', widget: 'hr' });
   });
 
-  test('引用块：左上角手柄 widget；标题不加', () => {
+  test('引用块：左上角手柄 widget；标题加 heading-handle', () => {
     const quote = buildDecorationSpecs(
       '> hello',
       [
@@ -188,6 +219,95 @@ describe('buildDecorationSpecs (M8-B S6–S12)', () => {
     ).toBe(false);
 
     const heading = buildDecorationSpecs('# Title', [{ type: 'ATXHeading1', from: 0, to: 7 }]);
+    expect(heading.some((s: any) => s.widget === 'heading-handle' && s.headingLevel === 1)).toBe(
+      true
+    );
+    expect(heading.some((s: any) => s.widget === 'heading-handle' && s.from === 2)).toBe(true);
     expect(heading.some((s: any) => s.widget === 'quote-handle')).toBe(false);
+  });
+
+  test('列表项内标题：仍出手柄 + 标题样式 + 行高，且保留列表标记', () => {
+    const text = '- ## Title';
+    const tree = parser.parse(text);
+    const nodes = collectSyntaxNodes(tree, text);
+    const specs = buildDecorationSpecs(text, nodes);
+    expect(specs.some((s: any) => s.widget === 'heading-handle' && s.headingLevel === 2)).toBe(true);
+    expect(specs.some((s: any) => s.kind === 'style' && s.cls === 'mda-cm-h2')).toBe(true);
+    expect(specs.some((s: any) => s.widget === 'bullet')).toBe(true);
+    // Decoration.line 必须落在行首，否则 CM6 静默丢弃 → 标题行高失效
+    const lineStyle = specs.find(
+      (s: any) => s.kind === 'line-style' && s.cls === 'mda-cm-h2-line'
+    );
+    expect(lineStyle).toBeTruthy();
+    expect(lineStyle.from).toBe(0);
+  });
+
+  test('多行文档里列表项标题的行样式锚到本行行首', () => {
+    const text = 'intro\n\n1. ### Title\n';
+    const tree = parser.parse(text);
+    const nodes = collectSyntaxNodes(tree, text);
+    const specs = buildDecorationSpecs(text, nodes);
+    const lineStyle = specs.find(
+      (s: any) => s.kind === 'line-style' && s.cls === 'mda-cm-h3-line'
+    );
+    expect(lineStyle).toBeTruthy();
+    expect(lineStyle.from).toBe(text.indexOf('1. '));
+  });
+
+  test('图片行后紧跟 ---：补 HorizontalRule 节点（非 Setext 标题）', () => {
+    const text = '![](./a.png)\n---\n';
+    const tree = parser.parse(text);
+    const nodes = collectSyntaxNodes(tree, text);
+    expect(nodes.some((n: { type: string }) => n.type === 'Image')).toBe(true);
+    expect(nodes.some((n: { type: string }) => n.type === 'HorizontalRule')).toBe(true);
+    expect(nodes.some((n: { type: string }) => n.type === 'SetextHeading2')).toBe(false);
+    const specs = buildDecorationSpecs(text, nodes, {
+      widgetEnabled: function (kind: string) {
+        return kind === 'image' || kind === 'hr';
+      },
+    });
+    expect(specs.some((s: { widget?: string }) => s.widget === 'hr')).toBe(true);
+  });
+
+  test('段落后 ---（含下划线标识符）当作分割线而非 Setext', () => {
+    const text = 'size_class: small\n---\n# next\n';
+    const tree = parser.parse(text);
+    const nodes = collectSyntaxNodes(tree, text);
+    expect(nodes.some((n: { type: string }) => n.type === 'HorizontalRule')).toBe(true);
+    expect(nodes.some((n: { type: string }) => n.type === 'SetextHeading2')).toBe(false);
+    const specs = buildDecorationSpecs(text, nodes, {
+      widgetEnabled: function (kind: string) {
+        return kind === 'hr';
+      },
+    });
+    expect(specs.some((s: { widget?: string }) => s.widget === 'hr')).toBe(true);
+  });
+
+  test('=== Setext 一级标题保留', () => {
+    const text = 'Title\n===\n';
+    const tree = parser.parse(text);
+    const nodes = collectSyntaxNodes(tree, text);
+    expect(nodes.some((n: { type: string }) => n.type === 'SetextHeading1')).toBe(true);
+    expect(nodes.some((n: { type: string }) => n.type === 'HorizontalRule')).toBe(false);
+  });
+
+  test('围栏外 HTML 注释整行隐藏', () => {
+    const text = '# 入口\n<!-- AI 加载优先级: P2 -->\n正文\n';
+    const specs = buildDecorationSpecs(text, []);
+    const hides = specs.filter((s: { kind: string }) => s.kind === 'hide-line');
+    expect(hides.some((s: { from: number; to: number }) => text.slice(s.from, s.to).includes('AI 加载优先级'))).toBe(
+      true
+    );
+  });
+
+  test('围栏内 HTML 注释不隐藏', () => {
+    const text = '```html\n<!-- keep -->\n```\n';
+    const specs = buildDecorationSpecs(text, []);
+    expect(
+      specs.some(
+        (s: { kind: string; from: number; to: number }) =>
+          (s.kind === 'hide-line' || s.kind === 'hide-mark') && text.slice(s.from, s.to).includes('keep')
+      )
+    ).toBe(false);
   });
 });

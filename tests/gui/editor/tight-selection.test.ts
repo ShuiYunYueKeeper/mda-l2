@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 紧致选区：只盖实际字符
  */
 import * as path from 'path';
@@ -130,6 +130,66 @@ describe('tight-selection', () => {
     };
     expect(() => tightMarkersForRange(view, { from: 2, to: 8 })).not.toThrow();
     expect(tightMarkersForRange(view, { from: 2, to: 8 }).length).toBeGreaterThan(0);
+  });
+
+  test('同一行内字号不同不拆行：只出一个矩形，高度取并集', () => {
+    // pos 0-1 模拟列表符号（小字号），pos 2+ 模拟标题正文（大字号），两者纵向重叠
+    const view: any = {
+      viewport: { from: 0, to: 100 },
+      textDirection: 0,
+      scaleX: 1,
+      scaleY: 1,
+      state: { doc: { lineAt: () => ({ from: 0, to: 20, number: 1 }) } },
+      scrollDOM: {
+        getBoundingClientRect: () => ({ left: 0, right: 800, top: 0, bottom: 600 }),
+        scrollLeft: 0,
+        scrollTop: 0,
+        clientWidth: 800,
+      },
+      // side===-1 问的是 pos 左侧落点，归属前一个字符
+      coordsAtPos: (pos: number, side: number) => {
+        const idx = side === -1 ? pos - 1 : pos;
+        const left = 100 + idx * 10;
+        const small = idx < 2;
+        return {
+          left: left,
+          right: left + 10,
+          top: small ? 26 : 20,
+          bottom: small ? 42 : 46,
+        };
+      },
+    };
+    const markers = tightMarkersForRange(view, { from: 0, to: 4 });
+    expect(markers.length).toBe(1);
+    expect(markers[0].height).toBe(26);
+  });
+
+  test('真正换行仍拆成两个矩形', () => {
+    const view: any = {
+      viewport: { from: 0, to: 100 },
+      textDirection: 0,
+      scaleX: 1,
+      scaleY: 1,
+      state: { doc: { lineAt: () => ({ from: 0, to: 20, number: 1 }) } },
+      scrollDOM: {
+        getBoundingClientRect: () => ({ left: 0, right: 800, top: 0, bottom: 600 }),
+        scrollLeft: 0,
+        scrollTop: 0,
+        clientWidth: 800,
+      },
+      coordsAtPos: (pos: number, side: number) => {
+        const idx = side === -1 ? pos - 1 : pos;
+        const wrapped = idx >= 2;
+        const left = 100 + (wrapped ? idx - 2 : idx) * 10;
+        return {
+          left: left,
+          right: left + 10,
+          top: wrapped ? 40 : 20,
+          bottom: wrapped ? 60 : 40,
+        };
+      },
+    };
+    expect(tightMarkersForRange(view, { from: 0, to: 4 }).length).toBe(2);
   });
 
   test('layer / mark class 不得含空格（否则 classList.add 崩溃）', () => {
