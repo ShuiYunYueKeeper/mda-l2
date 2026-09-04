@@ -36,8 +36,36 @@ function buildHandleInnerHtml(blockKind) {
     typeIcon +
     '<span class="mda-cm-block-drag-grip" aria-hidden="true">' +
     '<i></i><i></i><i></i><i></i><i></i><i></i>' +
-    '</span>'
+    '</span>' +
+    '<span class="mda-cm-block-drag-tip"></span>'
   );
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {HTMLElement} blockRoot
+ * @param {{ from: number, to: number }} range
+ * @param {string} [blockKind]
+ * @returns {HTMLElement[]}
+ */
+function resolveBlockHighlightTargets(view, blockRoot, range, blockKind) {
+  if (
+    blockKind === 'image' ||
+    blockKind === 'mermaid' ||
+    blockKind === 'code' ||
+    blockRoot.classList.contains('mda-cm-image-block') ||
+    blockRoot.classList.contains('mda-cm-mermaid-block') ||
+    blockRoot.classList.contains('mda-cm-code-block')
+  ) {
+    return [];
+  }
+  if (
+    blockRoot.classList.contains('mda-cm-quote-handle-anchor') ||
+    blockRoot.classList.contains('mda-cm-heading-handle-anchor')
+  ) {
+    return collectCmLinesInRange(view, range.from, range.to);
+  }
+  return blockRoot && blockRoot.isConnected ? [blockRoot] : [];
 }
 
 /**
@@ -110,12 +138,15 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
   if (opts.blockKind) handle.setAttribute('data-block-kind', opts.blockKind);
   handle.setAttribute('data-i18n-title', 'widgetBlockDragHandle');
   handle.setAttribute('data-i18n-aria', 'widgetBlockDragHandle');
+  handle.innerHTML = buildHandleInnerHtml(opts.blockKind);
   if (opts.t) {
     const { uiT } = require('./widget-common');
-    handle.title = uiT('widgetBlockDragHandle', opts.t);
-    handle.setAttribute('aria-label', uiT('widgetBlockDragHandle', opts.t));
+    const label = uiT('widgetBlockDragHandle', opts.t);
+    handle.removeAttribute('title');
+    handle.setAttribute('aria-label', label);
+    const tipEl = handle.querySelector('.mda-cm-block-drag-tip');
+    if (tipEl) tipEl.textContent = label;
   }
-  handle.innerHTML = buildHandleInnerHtml(opts.blockKind);
   anchorEl.insertBefore(handle, anchorEl.firstChild);
 
   let pressTimer = 0;
@@ -123,6 +154,23 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
   let dropLine = null;
   let lastResolved = null;
   let hideTimer = 0;
+  let handleHover = false;
+  /** @type {HTMLElement[]} */
+  let highlightEls = [];
+
+  function setBlockHighlight(on) {
+    if (!on) {
+      for (let i = 0; i < highlightEls.length; i++) {
+        highlightEls[i].classList.remove('mda-cm-block-handle-highlight');
+      }
+      highlightEls = [];
+      return;
+    }
+    highlightEls = resolveBlockHighlightTargets(view, blockRoot, range, opts.blockKind);
+    for (let i = 0; i < highlightEls.length; i++) {
+      highlightEls[i].classList.add('mda-cm-block-handle-highlight');
+    }
+  }
 
   function showHandle() {
     window.clearTimeout(hideTimer);
@@ -134,17 +182,33 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
     window.clearTimeout(hideTimer);
     hideTimer = window.setTimeout(function () {
       hideTimer = 0;
+      if (handleHover) return;
       if (dragging || handle.classList.contains('mda-cm-block-drag-handle-active')) return;
       if (typeof document !== 'undefined' && document.body.classList.contains('mda-cm-block-drag-active')) {
         return;
       }
       if (isBlockHandleMenuOpenFor(blockRoot)) return;
+      setBlockHighlight(false);
       blockRoot.classList.remove('mda-cm-block-handle-show');
     }, HANDLE_HIDE_MS);
   }
 
+  function onHandleMouseEnter() {
+    handleHover = true;
+    handle.classList.add('mda-cm-block-drag-handle-hover');
+    setBlockHighlight(true);
+    showHandle();
+  }
+
+  function onHandleMouseLeave() {
+    handleHover = false;
+    handle.classList.remove('mda-cm-block-drag-handle-hover');
+    setBlockHighlight(false);
+    scheduleHideHandle();
+  }
+
   /** @type {HTMLElement[]} */
-  const hoverTargets = [blockRoot, handle];
+  const hoverTargets = [blockRoot];
   /** @type {{ el: HTMLElement, enter: Function, leave: Function }[]} */
   const boundHover = [];
 
@@ -160,17 +224,22 @@ function attachBlockDragHandle(anchorEl, view, range, opts) {
     hoverTargets[hi].addEventListener('mouseenter', showHandle);
     hoverTargets[hi].addEventListener('mouseleave', scheduleHideHandle);
   }
+  handle.addEventListener('mouseenter', onHandleMouseEnter);
+  handle.addEventListener('mouseleave', onHandleMouseLeave);
 
-  // toDOM 时 widget 尚未挂到 .cm-line，须延后绑定；引用/高亮还须覆盖块内所有行
-  if (blockRoot.classList.contains('mda-cm-quote-handle-anchor')) {
-    const bindQuoteLines = function () {
+  // toDOM 时 widget 尚未挂到 .cm-line，须延后绑定；引用/标题还须覆盖块内所有行
+  if (
+    blockRoot.classList.contains('mda-cm-quote-handle-anchor') ||
+    blockRoot.classList.contains('mda-cm-heading-handle-anchor')
+  ) {
+    const bindSideLines = function () {
       if (!blockRoot.isConnected) return;
       const line = blockRoot.closest('.cm-line');
       if (line) bindHoverTarget(line);
       const lines = collectCmLinesInRange(view, range.from, range.to);
       for (let i = 0; i < lines.length; i++) bindHoverTarget(lines[i]);
     };
-    requestAnimationFrame(bindQuoteLines);
+    requestAnimationFrame(bindSideLines);
   }
 
   function ensureDropLine() {
@@ -352,6 +421,7 @@ module.exports = {
   attachBlockDragHandle: attachBlockDragHandle,
   buildHandleInnerHtml: buildHandleInnerHtml,
   collectCmLinesInRange: collectCmLinesInRange,
+  resolveBlockHighlightTargets: resolveBlockHighlightTargets,
   LONG_PRESS_MS: LONG_PRESS_MS,
   HANDLE_HIDE_MS: HANDLE_HIDE_MS,
 };

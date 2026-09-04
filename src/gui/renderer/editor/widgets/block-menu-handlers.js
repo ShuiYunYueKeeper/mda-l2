@@ -148,6 +148,12 @@ function createBlockMenuHandlers(liveOpts) {
     if (typeof opts.onSoon === 'function') opts.onSoon(ctx, id);
   }
 
+  function onAddBlockAnnotation(block, kind) {
+    if (typeof opts.onAddBlockAnnotation === 'function') {
+      opts.onAddBlockAnnotation(block, kind);
+    }
+  }
+
   return {
     onCopy: onCopy,
     onCut: onCut,
@@ -157,6 +163,7 @@ function createBlockMenuHandlers(liveOpts) {
     onBlankInsert: onBlankInsert,
     onAi: onAi,
     onSoon: onSoon,
+    onAddBlockAnnotation: onAddBlockAnnotation,
   };
 }
 

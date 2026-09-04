@@ -6,6 +6,15 @@
 
 const { uiT, HOVER_LEAVE_MS } = require('./widget-common');
 const { menuIconHtml } = require('./block-menu-icons');
+const { isBlockOnlyKind } = require('../model/anno-add-context');
+
+/**
+ * @param {string} [blockKind]
+ * @returns {boolean}
+ */
+function canAddAnnoFromBlockHandle(blockKind) {
+  return isBlockOnlyKind(blockKind) || blockKind === 'quote' || blockKind === 'heading';
+}
 
 /** @type {HTMLElement | null} */
 let activeMenu = null;
@@ -50,15 +59,6 @@ const AI_ITEMS = [
   { id: 'translate', key: 'blockMenuAiTranslate', icon: 'translate', soon: true },
   { id: 'summarize', key: 'blockMenuAiSummarize', icon: 'summarize', soon: true },
   { id: 'more', key: 'blockMenuAiMore', icon: 'more', soon: true },
-];
-
-const INSERT_ITEMS = [
-  { id: 'image', key: 'blockMenuInsertImage', icon: 'image', soon: false },
-  { id: 'table', key: 'blockMenuInsertTable', icon: 'table', soon: false },
-  { id: 'code', key: 'blockMenuInsertCode', icon: 'code', soon: false },
-  { id: 'quote', key: 'blockMenuInsertQuote', icon: 'quote', soon: false },
-  { id: 'mermaid', key: 'blockMenuInsertMermaid', icon: 'mermaid', soon: false },
-  { id: 'hr', key: 'blockMenuInsertHr', icon: 'hr', soon: false },
 ];
 
 function clearSubTimers() {
@@ -204,6 +204,32 @@ function placeSubmenu(parentItem, submenu) {
 
 /**
  * @param {(key: string) => string} t
+ * @param {(id: string, soon: boolean) => void} onPick
+ */
+function buildInsertSubmenu(t, onPick) {
+  const sub = document.createElement('div');
+  sub.className = 'mda-context-menu mda-block-handle-submenu mda-insert-menu-panel';
+  sub.setAttribute('role', 'menu');
+  const { appendInsertMenuPanel } = require('./insert-menu-panel');
+  appendInsertMenuPanel(sub, t, function (id, soon) {
+    onPick(id, soon);
+    closeBlockHandleMenu();
+  });
+  sub.addEventListener('mouseenter', function () {
+    window.clearTimeout(subCloseTimer);
+    subCloseTimer = 0;
+    window.clearTimeout(menuCloseTimer);
+    menuCloseTimer = 0;
+  });
+  sub.addEventListener('mouseleave', function () {
+    window.clearTimeout(subCloseTimer);
+    subCloseTimer = window.setTimeout(closeActiveSubmenu, SUB_CLOSE_MS);
+  });
+  return sub;
+}
+
+/**
+ * @param {(key: string) => string} t
  * @param {{ id: string, key: string, icon?: string, soon?: boolean }[]} items
  * @param {(id: string, soon: boolean) => void} onPick
  */
@@ -317,46 +343,6 @@ function showBlockHandleMenu(ctx) {
   menu.id = 'mda-block-handle-menu';
   menu.setAttribute('role', 'menu');
 
-  addSubRow(menu, t, 'blockMenuAiEdit', 'ai', function () {
-    return buildSubmenu(t, AI_ITEMS, function (id, soon) {
-      if (soon) {
-        if (typeof handlers.onSoon === 'function') handlers.onSoon('ai', id);
-        return;
-      }
-      if (typeof handlers.onAi === 'function') {
-        handlers.onAi(id, ctx.block, ctx.blockKind);
-      }
-    });
-  });
-
-  addMenuSeparator(menu);
-
-  addSubRow(menu, t, 'blockMenuInsertAbove', 'insertAbove', function () {
-    return buildSubmenu(t, INSERT_ITEMS, function (id, soon) {
-      if (soon) {
-        if (typeof handlers.onSoon === 'function') handlers.onSoon('insert-above', id);
-        return;
-      }
-      if (typeof handlers.onInsert === 'function') {
-        handlers.onInsert('above', id, ctx.block, ctx.blockKind);
-      }
-    });
-  });
-
-  addSubRow(menu, t, 'blockMenuInsertBelow', 'insertBelow', function () {
-    return buildSubmenu(t, INSERT_ITEMS, function (id, soon) {
-      if (soon) {
-        if (typeof handlers.onSoon === 'function') handlers.onSoon('insert-below', id);
-        return;
-      }
-      if (typeof handlers.onInsert === 'function') {
-        handlers.onInsert('below', id, ctx.block, ctx.blockKind);
-      }
-    });
-  });
-
-  addMenuSeparator(menu);
-
   const mod = ctx.modKey || MOD_KEY;
 
   function addActionRow(spec) {
@@ -372,6 +358,58 @@ function showBlockHandleMenu(ctx) {
     menu.appendChild(row);
   }
 
+  addSubRow(menu, t, 'blockMenuAiEdit', 'ai', function () {
+    return buildSubmenu(t, AI_ITEMS, function (id, soon) {
+      if (soon) {
+        if (typeof handlers.onSoon === 'function') handlers.onSoon('ai', id);
+        return;
+      }
+      if (typeof handlers.onAi === 'function') {
+        handlers.onAi(id, ctx.block, ctx.blockKind);
+      }
+    });
+  });
+
+  addMenuSeparator(menu);
+
+  addSubRow(menu, t, 'blockMenuInsertAbove', 'insertAbove', function () {
+    return buildInsertSubmenu(t, function (id, soon) {
+      if (soon) {
+        if (typeof handlers.onSoon === 'function') handlers.onSoon('insert-above', id);
+        return;
+      }
+      if (typeof handlers.onInsert === 'function') {
+        handlers.onInsert('above', id, ctx.block, ctx.blockKind);
+      }
+    });
+  });
+
+  addSubRow(menu, t, 'blockMenuInsertBelow', 'insertBelow', function () {
+    return buildInsertSubmenu(t, function (id, soon) {
+      if (soon) {
+        if (typeof handlers.onSoon === 'function') handlers.onSoon('insert-below', id);
+        return;
+      }
+      if (typeof handlers.onInsert === 'function') {
+        handlers.onInsert('below', id, ctx.block, ctx.blockKind);
+      }
+    });
+  });
+
+  if (
+    ctx.blockKind &&
+    canAddAnnoFromBlockHandle(ctx.blockKind) &&
+    typeof handlers.onAddBlockAnnotation === 'function'
+  ) {
+    addActionRow({
+      act: 'anno',
+      key: 'addAnno',
+      icon: 'anno',
+    });
+  }
+
+  addMenuSeparator(menu);
+
   addActionRow({ act: 'copy', key: 'copyBtn', icon: 'copy', shortcut: mod + 'C' });
   addActionRow({ act: 'cut', key: 'blockMenuCut', icon: 'cut', shortcut: mod + 'X' });
 
@@ -382,6 +420,8 @@ function showBlockHandleMenu(ctx) {
       }
     });
   });
+
+  addMenuSeparator(menu);
 
   addActionRow({
     act: 'delete',
@@ -399,6 +439,8 @@ function showBlockHandleMenu(ctx) {
       handlers.onCopy(ctx.block, ctx.blockKind);
     } else if (act === 'cut' && typeof handlers.onCut === 'function') {
       handlers.onCut(ctx.block, ctx.blockKind);
+    } else if (act === 'anno' && typeof handlers.onAddBlockAnnotation === 'function') {
+      handlers.onAddBlockAnnotation(ctx.block, ctx.blockKind);
     } else if (act === 'delete' && typeof handlers.onDelete === 'function') {
       handlers.onDelete(ctx.block, ctx.blockKind);
     }

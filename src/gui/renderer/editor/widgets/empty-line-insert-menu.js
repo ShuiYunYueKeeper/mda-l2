@@ -1,10 +1,10 @@
-/**
- * 空白行「+」：扁平插入菜单（图片 / 表格 / 代码块 / 引用 / 流程图 / 分隔线）。
+﻿/**
+ * 空白行「+」：版式（标题/列表）+ 通用块插入菜单。
  */
 'use strict';
 
-const { uiT, HOVER_LEAVE_MS } = require('./widget-common');
-const { menuIconHtml } = require('./block-menu-icons');
+const { HOVER_LEAVE_MS } = require('./widget-common');
+const { appendInsertMenuPanel } = require('./insert-menu-panel');
 
 /** @type {HTMLElement | null} */
 let activeMenu = null;
@@ -20,15 +20,6 @@ let menuGraceUntil = 0;
 
 const MENU_GRACE_MS = 380;
 const MENU_CLOSE_MS = HOVER_LEAVE_MS;
-
-const INSERT_ITEMS = [
-  { id: 'image', key: 'blockMenuInsertImage', icon: 'image', soon: false },
-  { id: 'table', key: 'blockMenuInsertTable', icon: 'table', soon: false },
-  { id: 'code', key: 'blockMenuInsertCode', icon: 'code', soon: false },
-  { id: 'quote', key: 'blockMenuInsertQuote', icon: 'quote', soon: false },
-  { id: 'mermaid', key: 'blockMenuInsertMermaid', icon: 'mermaid', soon: false },
-  { id: 'hr', key: 'blockMenuInsertHr', icon: 'hr', soon: false },
-];
 
 /**
  * @param {Node | null | undefined} target
@@ -72,14 +63,6 @@ function isEmptyLineInsertMenuOpenFor(blockRoot) {
 }
 
 /**
- * @param {string} label
- * @param {string} [iconName]
- */
-function menuItemInner(label, iconName) {
-  return menuIconHtml(iconName || '') + '<span class="mda-menu-label">' + label + '</span>';
-}
-
-/**
  * @param {HTMLElement} menu
  * @param {number} x
  * @param {number} y
@@ -103,7 +86,8 @@ function placeMenu(menu, x, y) {
 
 /**
  * @param {{
- *   anchorEl: HTMLElement,
+ *   anchorEl?: HTMLElement,
+ *   anchorRect?: { left: number, top: number, right: number, bottom: number },
  *   blockRoot?: HTMLElement,
  *   view: import('@codemirror/view').EditorView,
  *   block: { from: number, to: number, source?: string },
@@ -122,34 +106,18 @@ function showEmptyLineInsertMenu(ctx) {
   const t = ctx.t;
   const handlers = ctx.handlers || {};
   const anchor = ctx.anchorEl;
-  const rect = anchor.getBoundingClientRect();
-  menuAnchorEl = anchor;
+  menuAnchorEl = anchor || null;
   menuBlockRoot = ctx.blockRoot || null;
   menuGraceUntil = Date.now() + MENU_GRACE_MS;
   if (menuBlockRoot) menuBlockRoot.classList.add('mda-cm-block-handle-show');
 
   const menu = document.createElement('div');
-  menu.className = 'mda-context-menu mda-empty-line-insert-menu mda-block-handle-submenu';
+  menu.className =
+    'mda-context-menu mda-empty-line-insert-menu mda-block-handle-submenu mda-insert-menu-panel';
   menu.id = 'mda-empty-line-insert-menu';
   menu.setAttribute('role', 'menu');
 
-  for (let i = 0; i < INSERT_ITEMS.length; i++) {
-    const it = INSERT_ITEMS[i];
-    const row = document.createElement('div');
-    row.className = 'mda-menu-item' + (it.soon ? ' mda-menu-item-soon' : '');
-    row.setAttribute('role', 'menuitem');
-    row.dataset.act = it.id;
-    row.dataset.soon = it.soon ? '1' : '0';
-    row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
-    menu.appendChild(row);
-  }
-
-  menu.addEventListener('click', function (e) {
-    const item = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
-    if (!item) return;
-    e.stopPropagation();
-    const id = item.dataset.act || '';
-    const soon = item.dataset.soon === '1';
+  appendInsertMenuPanel(menu, t, function (id, soon) {
     if (soon) {
       if (typeof handlers.onSoon === 'function') handlers.onSoon('insert-blank', id);
       closeEmptyLineInsertMenu();
@@ -161,7 +129,20 @@ function showEmptyLineInsertMenu(ctx) {
     closeEmptyLineInsertMenu();
   });
 
-  placeMenu(menu, rect.left, rect.bottom + 2);
+  let placeX;
+  let placeY;
+  if (ctx.anchorRect) {
+    placeX = ctx.anchorRect.left;
+    placeY = ctx.anchorRect.bottom;
+  } else if (anchor) {
+    const rect = anchor.getBoundingClientRect();
+    placeX = rect.left;
+    placeY = rect.bottom;
+  } else {
+    placeX = 0;
+    placeY = 0;
+  }
+  placeMenu(menu, placeX, placeY + 2);
   activeMenu = menu;
 
   dismissFn = function (ev) {

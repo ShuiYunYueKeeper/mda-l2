@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 引用块左上角拖动手柄：不替换正文，挂在块首零宽 widget。
  */
 'use strict';
@@ -118,12 +118,6 @@ class QuoteHandleWidget extends WidgetType {
         });
       },
     });
-
-    const handle = wrap.querySelector('.mda-cm-block-drag-handle');
-    if (handle && t) {
-      handle.title = uiT('widgetBlockDragHandle', t);
-      handle.setAttribute('aria-label', uiT('widgetBlockDragHandle', t));
-    }
 
     wrap.addEventListener('mousedown', function (e) {
       if (e.button !== 0) return;

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 块手柄菜单：复制 / 剪切 / 删除 / 插入片段。
  */
 'use strict';
@@ -9,7 +9,7 @@ const {
   deleteBlockRange,
   expandBlockRange,
 } = require('./image-block-ops');
-const { getInsertSnippet, caretOffsetInSnippet } = require('./block-insert-snippets');
+const { getInsertSnippet, caretOffsetInSnippet, isLineOrientedInsertType, planLineOrientedInsert, formatBlankLineInsert, planHrInsertCaret } = require('./block-insert-snippets');
 const { copyText } = require('./widget-common');
 
 /**
@@ -62,14 +62,15 @@ function pinSelectionForHistory(view, pos) {
 function insertSnippetAtBlankLine(view, block, type) {
   if (!view) return false;
   const snippet = getInsertSnippet(type);
-  if (!snippet) return false;
+  if (snippet == null) return false;
   const line = view.state.doc.lineAt(block && block.from != null ? block.from : 0);
   if (String(line.text || '').trim() !== '') return false;
 
-  const caret = line.from + caretOffsetInSnippet(type, snippet);
+  const formatted = formatBlankLineInsert(type, snippet, view.state.doc, line);
+  const caret = line.from + formatted.caretOffset;
   pinSelectionForHistory(view, line.from);
   view.dispatch({
-    changes: { from: line.from, to: line.to, insert: snippet },
+    changes: { from: line.from, to: line.to, insert: formatted.insert },
     selection: { anchor: caret, head: caret },
     userEvent: 'input',
   });
@@ -100,9 +101,34 @@ function insertSnippetAtBlankLine(view, block, type) {
 function insertSnippetNearBlock(view, block, where, type) {
   if (!view) return false;
   const snippet = getInsertSnippet(type);
-  if (!snippet) return false;
+  if (snippet == null) return false;
   const range = resolveBlockRange(view, block || {});
   if (!range) return false;
+
+  if (isLineOrientedInsertType(type)) {
+    const doc = view.state.doc;
+    const firstLine = doc.lineAt(range.from);
+    const lastLine = doc.lineAt(Math.max(range.from, Math.min(range.to, doc.length) - 1));
+    const plan = planLineOrientedInsert(
+      where,
+      firstLine.from,
+      lastLine.to,
+      type,
+      snippet
+    );
+    pinSelectionForHistory(view, plan.pos);
+    view.dispatch({
+      changes: { from: plan.pos, to: plan.pos, insert: plan.insert },
+      selection: { anchor: plan.caret, head: plan.caret },
+      userEvent: 'input',
+    });
+    try {
+      view.focus();
+    } catch (_) {
+      /* ignore */
+    }
+    return true;
+  }
 
   const doc = view.state.doc.toString();
   const pos = where === 'above' ? range.from : range.to;
@@ -115,9 +141,16 @@ function insertSnippetNearBlock(view, block, where, type) {
     if (pos >= doc.length || doc.charAt(pos) !== '\n') insert += '\n';
   }
 
+  let hrCaret = null;
+  if (type === 'hr') {
+    const planned = planHrInsertCaret(view.state.doc, pos, insert, snippet);
+    insert = planned.insert;
+    hrCaret = planned.caret;
+  }
+
   const lead = insert.indexOf(snippet);
   const snippetStart = pos + (lead >= 0 ? lead : 0);
-  const caret = snippetStart + caretOffsetInSnippet(type, snippet);
+  const caret = hrCaret != null ? hrCaret : snippetStart + caretOffsetInSnippet(type, snippet);
 
   pinSelectionForHistory(view, pos);
   view.dispatch({

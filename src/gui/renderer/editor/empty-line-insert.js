@@ -1,12 +1,14 @@
-/**
+﻿/**
  * 正文空白行：hover 显示「+」插入按钮；光标落点显示占位提示。
  */
 'use strict';
 
-const { Transaction } = require('@codemirror/state');
-const { EditorView, ViewPlugin, WidgetType, Decoration } = require('@codemirror/view');
+const { Transaction, Prec } = require('@codemirror/state');
+const { EditorView, ViewPlugin, WidgetType, Decoration, keymap } = require('@codemirror/view');
 const { showEmptyLineInsertMenu, isEmptyLineInsertMenuOpenFor } = require('./widgets/empty-line-insert-menu');
 const { HOVER_LEAVE_MS, uiT } = require('./widgets/widget-common');
+const { ATX_LINE_RE } = require('./caret-syntax-adjust');
+const { focusInWidgetInlineEditable } = require('./widget-editable-guard');
 
 const HIDE_MS = HOVER_LEAVE_MS;
 const BLOCK_CHILD_SEL =
@@ -92,19 +94,29 @@ function hitBlankLineAt(view, clientX, clientY) {
 class EmptyLinePlaceholderWidget extends WidgetType {
   /**
    * @param {string} label
+   * @param {number} [headingLevel] 1–6 时空标题占位沿用对应标题字号
    */
-  constructor(label) {
+  constructor(label, headingLevel) {
     super();
     this.label = label;
+    this.headingLevel = headingLevel || 0;
   }
 
   eq(other) {
-    return other instanceof EmptyLinePlaceholderWidget && other.label === this.label;
+    return (
+      other instanceof EmptyLinePlaceholderWidget &&
+      other.label === this.label &&
+      other.headingLevel === this.headingLevel
+    );
   }
 
   toDOM() {
     const el = document.createElement('span');
-    el.className = 'mda-cm-empty-line-placeholder';
+    let cls = 'mda-cm-empty-line-placeholder';
+    if (this.headingLevel >= 1 && this.headingLevel <= 6) {
+      cls += ' mda-cm-h' + this.headingLevel;
+    }
+    el.className = cls;
     el.textContent = this.label;
     el.setAttribute('aria-hidden', 'true');
     return el;
@@ -116,6 +128,21 @@ class EmptyLinePlaceholderWidget extends WidgetType {
 }
 
 /**
+ * @param {{ from: number, text: string }} line
+ * @returns {{ level: number, contentStart: number } | null}
+ */
+function parseEmptyHeadingLine(line) {
+  const m = ATX_LINE_RE.exec(line.text);
+  if (!m) return null;
+  const body = m[4] || '';
+  if (body.trim() !== '') return null;
+  const contentStart = line.from + m[1].length + m[2].length + m[3].length;
+  const level = m[2].length;
+  if (!(level >= 1 && level <= 6)) return null;
+  return { level: level, contentStart: contentStart };
+}
+
+/**
  * @param {import('@codemirror/view').EditorView} view
  * @param {Function | undefined} t
  */
@@ -124,6 +151,18 @@ function buildPlaceholderDecorations(view, t) {
   const sel = view.state.selection.main;
   if (sel.from !== sel.to) return Decoration.none;
   const line = view.state.doc.lineAt(sel.head);
+
+  const emptyHeading = parseEmptyHeadingLine(line);
+  if (emptyHeading) {
+    const label = uiT('emptyHeadingPlaceholder' + emptyHeading.level, t);
+    return Decoration.set([
+      Decoration.widget({
+        widget: new EmptyLinePlaceholderWidget(label, emptyHeading.level),
+        side: 1,
+      }).range(emptyHeading.contentStart),
+    ]);
+  }
+
   if (!isBlankProseLine(view, line)) return Decoration.none;
   const label = uiT('emptyLinePlaceholder', t);
   return Decoration.set([
@@ -136,6 +175,75 @@ function buildPlaceholderDecorations(view, t) {
 
 /** @type {import('@codemirror/view').EditorView | null} */
 let emptyLineViewRef = null;
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {import('@codemirror/state').Line} line
+ * @param {HTMLElement} lineEl
+ * @param {{ t?: Function, blockMenuHandlers?: object, anchorEl?: HTMLElement, anchorRect?: DOMRect }} opts
+ */
+function openBlankLineInsertMenu(view, line, lineEl, opts) {
+  opts = opts || {};
+  const block = { from: line.from, to: line.to, source: line.text };
+  try {
+    view.dispatch({
+      selection: { anchor: line.from, head: line.from },
+      annotations: Transaction.addToHistory.of(false),
+    });
+    view.focus();
+  } catch (_) {
+    /* ignore */
+  }
+  lineEl.classList.add('mda-cm-block-handle-show');
+  showEmptyLineInsertMenu({
+    anchorEl: opts.anchorEl,
+    anchorRect: opts.anchorRect,
+    blockRoot: lineEl,
+    view: view,
+    block: block,
+    t: opts.t,
+    handlers: opts.blockMenuHandlers,
+  });
+}
+
+/**
+ * 空白正文行按 /：弹出与「+」相同的插入菜单（不写入 / 字符）。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ blockMenuHandlers?: object, t?: Function }} [opts]
+ */
+function handleBlankLineSlashOpen(view, opts) {
+  opts = opts || {};
+  if (!view || view.destroyed) return false;
+  if (focusInWidgetInlineEditable()) return false;
+  const sel = view.state.selection.main;
+  if (!sel.empty) return false;
+  const line = view.state.doc.lineAt(sel.head);
+  if (!isBlankProseLine(view, line)) return false;
+  const lineEl = lineElementAt(view, line.from);
+  if (!lineEl) return false;
+
+  let anchorRect;
+  try {
+    const coords = view.coordsAtPos(sel.head);
+    if (coords) {
+      anchorRect = {
+        left: coords.left,
+        top: coords.top,
+        right: coords.right,
+        bottom: coords.bottom,
+      };
+    }
+  } catch (_) {
+    /* ignore */
+  }
+
+  openBlankLineInsertMenu(view, line, lineEl, {
+    t: opts.t,
+    blockMenuHandlers: opts.blockMenuHandlers,
+    anchorRect: anchorRect,
+  });
+  return true;
+}
 
 /**
  * @param {{
@@ -394,24 +502,10 @@ function createEmptyLineInsertExtension(opts) {
         const view = this.view;
         if (!this.lineNo || !this.lineEl) return;
         const line = view.state.doc.line(this.lineNo);
-        const block = { from: line.from, to: line.to, source: line.text };
-        try {
-          view.dispatch({
-            selection: { anchor: line.from, head: line.from },
-            annotations: Transaction.addToHistory.of(false),
-          });
-          view.focus();
-        } catch (_) {
-          /* ignore */
-        }
-        this.lineEl.classList.add('mda-cm-block-handle-show');
-        showEmptyLineInsertMenu({
-          anchorEl: this.btn,
-          blockRoot: this.lineEl,
-          view: view,
-          block: block,
+        openBlankLineInsertMenu(view, line, this.lineEl, {
           t: tFn(),
-          handlers: opts.blockMenuHandlers,
+          blockMenuHandlers: opts.blockMenuHandlers,
+          anchorEl: this.btn,
         });
       }
 
@@ -440,8 +534,22 @@ function createEmptyLineInsertExtension(opts) {
     }
   );
 
+  const slashKeymap = Prec.high(
+    keymap.of([
+      {
+        key: '/',
+        run: function (view) {
+          return handleBlankLineSlashOpen(view, {
+            t: tFn(),
+            blockMenuHandlers: opts.blockMenuHandlers,
+          });
+        },
+      },
+    ])
+  );
+
   return {
-    extensions: [placeholderPlugin, hoverPlugin],
+    extensions: [placeholderPlugin, hoverPlugin, slashKeymap],
   };
 }
 
@@ -471,5 +579,8 @@ module.exports = {
   createEmptyLineInsertExtension: createEmptyLineInsertExtension,
   refreshEmptyLineInsertI18n: refreshEmptyLineInsertI18n,
   isBlankProseLine: isBlankProseLine,
+  parseEmptyHeadingLine: parseEmptyHeadingLine,
   hitBlankLineAt: hitBlankLineAt,
+  openBlankLineInsertMenu: openBlankLineInsertMenu,
+  handleBlankLineSlashOpen: handleBlankLineSlashOpen,
 };
