@@ -1,11 +1,23 @@
-﻿/**
+/**
  * 批注色条：对齐 2.0 decorateParagraphs（段落 startLine + mostSevere 级别色）。
- * 经 StateField → EditorView.decorations.from 提供（行装饰，非 block widget）。
+ * 走 live-preview 的 line 装饰层（与标题行样式同路径，确保预览可见）。
  */
 'use strict';
 
-const { StateField, RangeSetBuilder } = require('@codemirror/state');
-const { EditorView, Decoration } = require('@codemirror/view');
+const { StateField, RangeSetBuilder, StateEffect } = require('@codemirror/state');
+const { EditorView, Decoration, gutter, GutterMarker } = require('@codemirror/view');
+const { findAnnotationHideRanges } = require('./model/anno-lines');
+
+/** reload / refreshDecorations 后强制重算色条 */
+const AnnoGutterRefresh = StateEffect.define();
+
+function needsAnnoGutterRecompute(tr) {
+  if (tr.docChanged) return true;
+  for (let i = 0; i < tr.effects.length; i++) {
+    if (tr.effects[i].is(AnnoGutterRefresh)) return true;
+  }
+  return false;
+}
 
 /**
  * @param {{ level?: string }[]} annos
@@ -28,7 +40,7 @@ function mostSevereAnno(annos, levelSeverity) {
  * @param {Record<string, number>} levelSeverity
  * @returns {{ line: number, color: string }[]}
  */
-function buildAnnoGutterMarks(text, scan, levelColors, levelSeverity) {
+function buildAnnoGutterMarks(text, scan, levelColors, levelSeverity, filterAnnotation) {
   const paragraphs = (scan && scan.paragraphs) || [];
   const colors = levelColors || {};
   const severity = levelSeverity || {};
@@ -36,8 +48,12 @@ function buildAnnoGutterMarks(text, scan, levelColors, levelSeverity) {
   const seen = Object.create(null);
   for (let i = 0; i < paragraphs.length; i++) {
     const p = paragraphs[i];
-    const annos = p && p.annotations;
+    let annos = p && p.annotations;
     if (!annos || !annos.length) continue;
+    if (typeof filterAnnotation === 'function') {
+      annos = annos.filter(filterAnnotation);
+      if (!annos.length) continue;
+    }
     const line = p.startLine;
     if (!(line >= 1) || seen[line]) continue;
     const top = mostSevereAnno(annos, severity);
@@ -47,6 +63,65 @@ function buildAnnoGutterMarks(text, scan, levelColors, levelSeverity) {
     out.push({ line: line, color: color });
   }
   return out;
+}
+
+/**
+ * 1-based 行号 → 文档偏移（行首）。
+ * @param {string} text
+ * @returns {number[]}
+ */
+function lineStartOffsets(text) {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) {
+    if (text.charAt(i) === '\n') starts.push(i + 1);
+  }
+  return starts;
+}
+
+/**
+ * 追加批注色条到 line 装饰层（buildLayerDecos 调用）。
+ * @param {string} text
+ * @param {{ from: number, to: number, deco: import('@codemirror/view').Decoration }[]} lineDecos
+ * @param {{
+ *   parseAnnotations?: (text: string) => { paragraphs?: object[] },
+ *   levelColors?: Record<string, string>,
+ *   levelSeverity?: Record<string, number>,
+ *   filterAnnotation?: (anno: object) => boolean,
+ * }} liveOpts
+ * @param {typeof Decoration} LineDeco
+ */
+function appendAnnoLineDecorations(text, lineDecos, liveOpts, LineDeco) {
+  if (!liveOpts || typeof liveOpts.parseAnnotations !== 'function' || !LineDeco) return;
+  try {
+    const scan = liveOpts.parseAnnotations(text) || {};
+    const marks = buildAnnoGutterMarks(
+      text,
+      scan,
+      liveOpts.levelColors || {},
+      liveOpts.levelSeverity || {},
+      liveOpts.filterAnnotation
+    );
+    if (!marks.length) return;
+    const starts = lineStartOffsets(text);
+    for (let i = 0; i < marks.length; i++) {
+      const m = marks[i];
+      const idx = m.line - 1;
+      if (idx < 0 || idx >= starts.length) continue;
+      const from = starts[idx];
+      lineDecos.push({
+        from: from,
+        to: from,
+        deco: LineDeco.line({
+          class: 'mda-anno-block-line',
+          attributes: {
+            style: '--mda-anno-bar: ' + m.color + ';',
+          },
+        }),
+      });
+    }
+  } catch (_) {
+    /* ignore */
+  }
 }
 
 /**
@@ -68,7 +143,7 @@ function marksToLineDecoSet(state, marks) {
       Decoration.line({
         class: 'mda-anno-block-line',
         attributes: {
-          style: 'border-left: 4px solid ' + m.color + '; padding-left: 10px;',
+          style: '--mda-anno-bar: ' + m.color + ';',
         },
       })
     );
@@ -113,7 +188,7 @@ function createAnnoGutterField(opts) {
       return compute(state);
     },
     update: function (deco, tr) {
-      if (!tr.docChanged) return deco;
+      if (!needsAnnoGutterRecompute(tr)) return deco;
       return compute(tr.state);
     },
     provide: function (field) {
@@ -122,8 +197,73 @@ function createAnnoGutterField(opts) {
   });
 }
 
+/** 强制重算色条（reload / refreshDecorations 后批注归属可能变化而 doc 未变） */
+function refreshAnnoGutter(view) {
+  if (!view || typeof view.dispatch !== 'function') return;
+  view.dispatch({ effects: AnnoGutterRefresh.of(null) });
+}
+
+class MalformedAnnoGutterMarker extends GutterMarker {
+  toDOM() {
+    const el = document.createElement('span');
+    el.className = 'mda-anno-malformed-gutter';
+    el.textContent = '!';
+    el.setAttribute('aria-hidden', 'true');
+    return el;
+  }
+}
+
+const malformedAnnoMarker = new MalformedAnnoGutterMarker();
+
+/**
+ * S25：坏批注行行号槽警示（预览模式无行号时仍显示窄槽）。
+ */
+function createAnnoMalformedGutter() {
+  const field = StateField.define({
+    create: function (state) {
+      return buildMalformedGutterSet(state);
+    },
+    update: function (set, tr) {
+      if (!needsAnnoGutterRecompute(tr)) return set;
+      return buildMalformedGutterSet(tr.state);
+    },
+  });
+
+  return [
+    field,
+    gutter({
+      class: 'cm-mda-anno-malformed-gutter',
+      markers: function (view) {
+        return view.state.field(field);
+      },
+      initialSpacer: function () {
+        return malformedAnnoMarker;
+      },
+    }),
+  ];
+}
+
+/**
+ * @param {import('@codemirror/state').EditorState} state
+ */
+function buildMalformedGutterSet(state) {
+  const text = state.doc.toString();
+  const ranges = findAnnotationHideRanges(text);
+  const builder = new RangeSetBuilder();
+  for (let i = 0; i < ranges.length; i++) {
+    const ar = ranges[i];
+    if (!ar.malformed) continue;
+    const line = state.doc.lineAt(ar.from);
+    builder.add(line.from, line.from, malformedAnnoMarker);
+  }
+  return builder.finish();
+}
+
 module.exports = {
   mostSevereAnno: mostSevereAnno,
   buildAnnoGutterMarks: buildAnnoGutterMarks,
+  appendAnnoLineDecorations: appendAnnoLineDecorations,
   createAnnoGutterField: createAnnoGutterField,
+  createAnnoMalformedGutter: createAnnoMalformedGutter,
+  refreshAnnoGutter: refreshAnnoGutter,
 };
