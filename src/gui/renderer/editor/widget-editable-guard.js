@@ -11,18 +11,150 @@ const { EditorView } = require('@codemirror/view');
 /** @type {boolean} */
 let widgetEditablePointerActive = false;
 let docMouseUpBound = false;
+let docFocusBound = false;
+
+/** @type {{ kind: string, el: HTMLElement, range: Range | null } | null} */
+let lastWidgetEdit = null;
+
+const WIDGET_EDIT_SELECTOR =
+  '.mda-cm-table th[contenteditable="true"], .mda-cm-table td[contenteditable="true"],' +
+  '.mda-cm-code-input[contenteditable="true"],' +
+  '.mda-cm-mermaid-source-input[contenteditable="true"],' +
+  '.mda-cm-math-source-input[contenteditable="true"]';
 
 /**
  * @param {EventTarget | null} target
  */
 function isWidgetInlineEditableTarget(target) {
   if (!target || !target.closest) return false;
-  return !!target.closest(
-    '.mda-cm-table th[contenteditable="true"], .mda-cm-table td[contenteditable="true"],' +
-      '.mda-cm-code-input[contenteditable="true"],' +
-      '.mda-cm-mermaid-source-input[contenteditable="true"],' +
-      '.mda-cm-math-source-input[contenteditable="true"]'
+  return !!target.closest(WIDGET_EDIT_SELECTOR);
+}
+
+function tableCellFromNode(node) {
+  if (!node) return null;
+  const el = node.nodeType === 1 ? /** @type {HTMLElement} */ (node) : node.parentElement;
+  if (!el || !el.closest) return null;
+  const cell = el.closest('th[contenteditable], td[contenteditable]');
+  if (cell && cell.closest('.mda-cm-table')) return /** @type {HTMLElement} */ (cell);
+  return null;
+}
+
+/**
+ * 嵌套 contenteditable 时 activeElement 常是 .cm-content，须从选区找格子。
+ * @returns {HTMLElement | null}
+ */
+function tableCellFromSelection() {
+  if (typeof window === 'undefined' || !window.getSelection) return null;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount < 1) return null;
+  return (
+    tableCellFromNode(sel.anchorNode) ||
+    tableCellFromNode(sel.focusNode) ||
+    (sel.rangeCount ? tableCellFromNode(sel.getRangeAt(0).commonAncestorContainer) : null)
   );
+}
+
+/**
+ * @param {HTMLElement} cell
+ * @returns {{ range: Range | null, visStart: number, visEnd: number }}
+ */
+function snapshotCellSelection(cell) {
+  const empty = { range: null, visStart: 0, visEnd: 0 };
+  if (!cell || typeof window === 'undefined' || !window.getSelection) return empty;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount < 1) return empty;
+  const range = sel.getRangeAt(0);
+  try {
+    if (!cell.contains(range.startContainer) || !cell.contains(range.endContainer)) return empty;
+    const pre = document.createRange();
+    pre.selectNodeContents(cell);
+    pre.setEnd(range.startContainer, range.startOffset);
+    const visStart = pre.toString().length;
+    return {
+      range: range.cloneRange(),
+      visStart: visStart,
+      visEnd: visStart + range.toString().length,
+    };
+  } catch (_) {
+    return empty;
+  }
+}
+
+/**
+ * @param {EventTarget | null} target
+ * @returns {{ kind: 'table-cell' | 'code' | 'mermaid' | 'math', el: HTMLElement } | null}
+ */
+function classifyWidgetEditable(target) {
+  if (target && target.closest) {
+    const el = /** @type {HTMLElement} */ (target);
+    const code = el.closest('.mda-cm-code-input[contenteditable="true"]');
+    if (code) return { kind: 'code', el: /** @type {HTMLElement} */ (code) };
+    const mermaid = el.closest('.mda-cm-mermaid-source-input[contenteditable="true"]');
+    if (mermaid) return { kind: 'mermaid', el: /** @type {HTMLElement} */ (mermaid) };
+    const math = el.closest('.mda-cm-math-source-input[contenteditable="true"]');
+    if (math) return { kind: 'math', el: /** @type {HTMLElement} */ (math) };
+    const cell = tableCellFromNode(el);
+    if (cell) return { kind: 'table-cell', el: cell };
+  }
+  const selCell = tableCellFromSelection();
+  if (selCell) return { kind: 'table-cell', el: selCell };
+  return null;
+}
+
+function isFenceWidgetKind(kind) {
+  return kind === 'code' || kind === 'mermaid' || kind === 'math';
+}
+
+/**
+ * 在焦点离开 widget 前调用（工具栏 mousedown capture）。
+ * @returns {{ kind: string, el: HTMLElement, range: Range | null, visStart: number, visEnd: number } | null}
+ */
+function captureWidgetEditTarget() {
+  if (typeof document === 'undefined') return lastWidgetEdit;
+  const live =
+    classifyWidgetEditable(document.activeElement) ||
+    classifyWidgetEditable(tableCellFromSelection());
+  if (!live) return lastWidgetEdit;
+  if (live.kind === 'table-cell') {
+    const snap = snapshotCellSelection(live.el);
+    lastWidgetEdit = {
+      kind: live.kind,
+      el: live.el,
+      range: snap.range,
+      visStart: snap.visStart,
+      visEnd: snap.visEnd,
+    };
+    return lastWidgetEdit;
+  }
+  lastWidgetEdit = { kind: live.kind, el: live.el, range: null, visStart: 0, visEnd: 0 };
+  return lastWidgetEdit;
+}
+
+function getEffectiveWidgetEditTarget() {
+  if (typeof document !== 'undefined') {
+    const live = classifyWidgetEditable(document.activeElement);
+    if (live) {
+      if (live.kind === 'table-cell') {
+        const snap = snapshotCellSelection(live.el);
+        if (snap.visEnd > snap.visStart || snap.range) {
+          lastWidgetEdit = {
+            kind: 'table-cell',
+            el: live.el,
+            range: snap.range,
+            visStart: snap.visStart,
+            visEnd: snap.visEnd,
+          };
+          return lastWidgetEdit;
+        }
+      }
+      return lastWidgetEdit && lastWidgetEdit.el === live.el
+        ? lastWidgetEdit
+        : { kind: live.kind, el: live.el, range: null, visStart: 0, visEnd: 0 };
+    }
+    const ae = document.activeElement;
+    if (ae && ae.closest && ae.closest('.mda-cm-edit-toolbar')) return lastWidgetEdit;
+  }
+  return lastWidgetEdit;
 }
 
 function focusInWidgetInlineEditable() {
@@ -56,6 +188,52 @@ function ensureDocMouseUpBound() {
     'mouseup',
     function () {
       widgetEditablePointerActive = false;
+    },
+    true
+  );
+}
+
+function ensureDocFocusBound() {
+  if (docFocusBound || typeof document === 'undefined') return;
+  docFocusBound = true;
+  document.addEventListener(
+    'selectionchange',
+    function () {
+      const cell = tableCellFromSelection();
+      if (!cell) return;
+      const snap = snapshotCellSelection(cell);
+      lastWidgetEdit = {
+        kind: 'table-cell',
+        el: cell,
+        range: snap.range,
+        visStart: snap.visStart,
+        visEnd: snap.visEnd,
+      };
+    },
+    false
+  );
+  document.addEventListener(
+    'focusin',
+    function (e) {
+      const t = classifyWidgetEditable(e.target);
+      if (t) {
+        if (t.kind === 'table-cell') {
+          const snap = snapshotCellSelection(t.el);
+          lastWidgetEdit = {
+            kind: t.kind,
+            el: t.el,
+            range: snap.range,
+            visStart: snap.visStart,
+            visEnd: snap.visEnd,
+          };
+        } else {
+          lastWidgetEdit = { kind: t.kind, el: t.el, range: null, visStart: 0, visEnd: 0 };
+        }
+        return;
+      }
+      const el = /** @type {HTMLElement} */ (e.target);
+      if (el && el.closest && el.closest('.mda-cm-edit-toolbar')) return;
+      lastWidgetEdit = null;
     },
     true
   );
@@ -95,6 +273,7 @@ function attachWidgetEditablePointerIsolation(el) {
 
 function createWidgetEditableGuardExtension() {
   ensureDocMouseUpBound();
+  ensureDocFocusBound();
   return [
     EditorState.transactionFilter.of(function (tr) {
       if (!tr.selection || !shouldSuppressCm6Selection()) return tr;
@@ -123,6 +302,10 @@ function createWidgetEditableGuardExtension() {
 
 module.exports = {
   isWidgetInlineEditableTarget: isWidgetInlineEditableTarget,
+  classifyWidgetEditable: classifyWidgetEditable,
+  isFenceWidgetKind: isFenceWidgetKind,
+  captureWidgetEditTarget: captureWidgetEditTarget,
+  getEffectiveWidgetEditTarget: getEffectiveWidgetEditTarget,
   focusInWidgetInlineEditable: focusInWidgetInlineEditable,
   attachWidgetEditablePointerIsolation: attachWidgetEditablePointerIsolation,
   createWidgetEditableGuardExtension: createWidgetEditableGuardExtension,

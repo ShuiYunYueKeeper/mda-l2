@@ -12,6 +12,10 @@ const {
 } = require('../model/parse-table');
 const { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require('./block-widget-base');
 const { mountTableChrome, closeTableMenu } = require('./table-chrome');
+const {
+  getCellVisibleSelection,
+  setCellVisibleSelection,
+} = require('./table-cell-content');
 const { deleteBlockRange } = require('./image-block-ops');
 const { applyTableLayoutSession } = require('./table-layout-session');
 const { attachTableBlockLayout, detachTableBlockLayout } = require('./table-layout-width');
@@ -146,12 +150,68 @@ function syncParsedToDoc(view, widget, parsed) {
 }
 
 /**
+ * flush 会把格内 DOM 写回文档，widget 随之重建、正在编辑的 td 被销毁 —— 光标就掉出格子了。
+ * Ctrl+S 是编辑途中的高频动作，不能让它把人踢出单元格，故先记坐标、写回后再落回去。
+ *
+ * @param {import('@codemirror/view').EditorView} view
+ * @returns {{ block: number, row: number, col: number, start: number, end: number } | null}
+ */
+function captureFocusedCellPos(view) {
+  if (typeof document === 'undefined') return null;
+  const cell = document.activeElement;
+  if (!cell || !cell.closest) return null;
+  const td = cell.closest('td, th');
+  if (!td || !view.dom.contains(td)) return null;
+  const root = td.closest('.mda-cm-table-block');
+  if (!root) return null;
+  const roots = Array.prototype.slice.call(view.dom.querySelectorAll('.mda-cm-table-block'));
+  const tr = td.parentElement;
+  if (!tr) return null;
+  const rows = Array.prototype.slice.call(
+    (td.closest('table') || root).querySelectorAll('tr')
+  );
+  const off = getCellVisibleSelection(td);
+  if (!off) return null;
+  return {
+    block: roots.indexOf(root),
+    row: rows.indexOf(tr),
+    col: Array.prototype.slice.call(tr.children).indexOf(td),
+    start: off.start,
+    end: off.end,
+  };
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {{ block: number, row: number, col: number, start: number, end: number }} pos
+ */
+function restoreFocusedCellPos(view, pos) {
+  if (!pos || pos.block < 0 || pos.row < 0 || pos.col < 0) return;
+  const roots = view.dom.querySelectorAll('.mda-cm-table-block');
+  const root = roots[pos.block];
+  if (!root) return;
+  const table = root.querySelector('table');
+  if (!table) return;
+  const tr = table.querySelectorAll('tr')[pos.row];
+  if (!tr) return;
+  const td = tr.children[pos.col];
+  if (!td) return;
+  try {
+    td.focus();
+  } catch (_) {
+    /* ignore */
+  }
+  setCellVisibleSelection(td, pos.start, pos.end);
+}
+
+/**
  * 模式切换 / 保存前：把表格单元格未落盘的编辑写回文档。
  * @param {import('@codemirror/view').EditorView} view
  */
 function flushAllTableWidgets(view) {
   if (!view || !view.dom) return;
   closeTableMenu();
+  const focused = captureFocusedCellPos(view);
   const roots = view.dom.querySelectorAll('.mda-cm-table-block');
   for (let i = 0; i < roots.length; i++) {
     const chrome = roots[i]._mdaTableChrome;
@@ -159,6 +219,7 @@ function flushAllTableWidgets(view) {
       chrome.flush();
     }
   }
+  if (focused) restoreFocusedCellPos(view, focused);
 }
 
 class TableWidget extends BlockReplaceWidget {

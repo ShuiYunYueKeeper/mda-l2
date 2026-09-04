@@ -3,6 +3,8 @@
  */
 'use strict';
 
+const { serializeTableCellDom } = require('../widgets/table-cell-content');
+
 /** 列宽 / 行高 meta 上限（防止异常 meta 把 CM6 块高度撑到数万像素） */
 const MAX_TABLE_COL_WIDTH = 4000;
 const MAX_TABLE_ROW_HEIGHT = 600;
@@ -331,53 +333,7 @@ function readTableFromDom(table) {
  * @param {HTMLElement | null} cell
  */
 function serializeTableCellMarkdown(cell) {
-  if (!cell) return '';
-  let out = '';
-  function walk(node) {
-    if (!node) return;
-    if (node.nodeType === 3) {
-      out += node.nodeValue || '';
-      return;
-    }
-    if (node.nodeType !== 1) return;
-    if (node.getAttribute && node.getAttribute('data-mda-math-source')) {
-      out += node.getAttribute('data-mda-math-source') || '';
-      return;
-    }
-    if (node.getAttribute && node.hasAttribute('data-mda-math-tex')) {
-      out += '$' + (node.getAttribute('data-mda-math-tex') || '') + '$';
-      return;
-    }
-    if (node.getAttribute && node.getAttribute('data-mda-image-source')) {
-      out += node.getAttribute('data-mda-image-source') || '';
-      return;
-    }
-    if (
-      node.classList &&
-      node.classList.contains('mda-cm-table-img') &&
-      node.getAttribute
-    ) {
-      const alt = node.getAttribute('data-mda-image-alt') || '';
-      const src = node.getAttribute('data-mda-image-src') || '';
-      const title = node.getAttribute('data-mda-image-title') || '';
-      if (title) {
-        out +=
-          '![' +
-          alt +
-          '](' +
-          src +
-          ' "' +
-          String(title).replace(/\\/g, '\\\\').replace(/"/g, '\\"') +
-          '")';
-      } else {
-        out += '![' + alt + '](' + src + ')';
-      }
-      return;
-    }
-    for (let i = 0; i < node.childNodes.length; i++) walk(node.childNodes[i]);
-  }
-  walk(cell);
-  return normalizeCellText(out);
+  return normalizeCellText(serializeTableCellDom(cell));
 }
 
 function isTableLine(line) {

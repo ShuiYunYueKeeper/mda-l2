@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 围栏代码块 widget：单层 contenteditable + 输入时重绘 hljs（避免透明叠层在 Electron 丢光标/选区字）。
  */
 'use strict';
@@ -1016,6 +1016,19 @@ class CodeFenceWidget extends BlockReplaceWidget {
     codeInput.addEventListener('keydown', function (e) {
       e.stopPropagation();
       const mod = e.ctrlKey || e.metaKey;
+      if (
+        mod &&
+        !e.altKey &&
+        (e.key === 'b' ||
+          e.key === 'B' ||
+          e.key === 'i' ||
+          e.key === 'I' ||
+          e.key === '`' ||
+          ((e.key === 'x' || e.key === 'X') && e.shiftKey))
+      ) {
+        e.preventDefault();
+        return;
+      }
       if (mod && !e.altKey && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
         if (e.shiftKey) redoLocal();

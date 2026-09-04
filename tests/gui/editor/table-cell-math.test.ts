@@ -111,4 +111,40 @@ describe('findImageRanges', () => {
       'image',
     ]);
   });
+
+  test('识别单元格内粗体与行内代码', () => {
+    const { findSyntaxInlineRanges } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/widgets/table-cell-content.js'
+    ));
+    const ranges = findSyntaxInlineRanges('`auth/cfgs/default.cfg` 与 **true**');
+    expect(ranges.map((r: { type: string }) => r.type)).toEqual([
+      'InlineCode',
+      'StrongEmphasis',
+    ]);
+    const merged = findCellInlineRanges('`cfg` **bold**');
+    expect(merged.map((r: { kind: string; type?: string }) => r.kind === 'syntax' ? r.type : r.kind)).toEqual([
+      'InlineCode',
+      'StrongEmphasis',
+    ]);
+  });
+
+  test('行内样式 DOM 可序列化回 Markdown', () => {
+    const { serializeInlineStyledElement } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/widgets/table-cell-content.js'
+    ));
+    const bold = {
+      classList: { contains: (c: string) => c === 'mda-cm-strong' },
+      getAttribute: () => null,
+      textContent: 'true',
+    };
+    const code = {
+      classList: { contains: (c: string) => c === 'mda-cm-code' },
+      getAttribute: () => null,
+      textContent: 'auth/cfgs/default.cfg',
+    };
+    expect(serializeInlineStyledElement(bold as never)).toBe('**true**');
+    expect(serializeInlineStyledElement(code as never)).toBe('`auth/cfgs/default.cfg`');
+  });
 });
