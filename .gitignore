@@ -1,8 +1,11 @@
-﻿node_modules/
+node_modules/
 .tmp/
 *.tmp
 coverage/
 .snapshots/
+test-results/
+playwright-report/
+blob-report/
 release/
 *.log
 .DS_Store
