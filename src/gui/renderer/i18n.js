@@ -4,10 +4,85 @@
     zh: {
       tbFiles: '文件列表',
       tbFilesTitle: '文件列表 (Ctrl+\\)',
-      tbEdit: '编辑',
-      tbEditTitle: '编辑栏 (Ctrl+E)',
+      tbEdit: '源码编辑',
+      tbEditTitle: '源码编辑栏 (Ctrl+E)',
       tbPanel: '批注',
-      tbPanelTitle: '批注栏 (Ctrl+B)',
+      tbPanelTitle: '批注栏 (Ctrl+Shift+B)',
+      tbUndo: '撤销',
+      tbRedo: '重做',
+      tbToolbar: '编辑工具栏',
+      tbFormatBrush: '格式刷',
+      tbClearFormat: '清除格式',
+      tbParagraph: '段落级别',
+      tbParagraphMixed: '多种样式',
+      tbBold: '加粗',
+      tbItalic: '斜体',
+      tbStrike: '删除线',
+      tbInlineCode: '行内代码',
+      tbLink: '链接',
+      tbUl: '无序列表',
+      tbOl: '有序列表',
+      tbTask: '任务列表',
+      tbQuote: '引用',
+      tbInsert: '插入',
+      tbFind: '查找',
+      tbModeToggle: '切换预览/源码',
+      tbModePreview: '预览',
+      tbModeSource: '源码',
+      tbUnderline: '下划线',
+      tbTipBold: '加粗（Ctrl + B）',
+      tbTipBoldWhere: 'Markdown：**文本** 和空格',
+      tbTipItalic: '斜体（Ctrl + I）',
+      tbTipItalicWhere: 'Markdown：*文本* 和空格',
+      tbTipUnderline: '下划线（Ctrl + U）',
+      tbTipUnderlineWhere: 'Markdown：~文本~ 和空格',
+      tbTipStrike: '删除线（Ctrl + Shift + S）',
+      tbTipStrikeWhere: 'Markdown：~~文本~~ 和空格',
+      tbTipCode: '行内代码（Ctrl + Shift + C）',
+      tbTipCodeWhere: 'Markdown：`文本`',
+      tbTipTask: '任务列表（Ctrl + Shift + Y）',
+      tbTipTaskWhere: 'Markdown：- [ ] 空格',
+      tbTipOl: '有序列表（Ctrl + Shift + U）',
+      tbTipOlWhere: 'Markdown：1. 空格',
+      tbTipUl: '无序列表（Ctrl + Shift + I）',
+      tbTipUlWhere: 'Markdown：* 空格 或 - 空格',
+      tbTipUndo: '撤销（Ctrl + Z）',
+      tbTipUndoWhere: '撤销最近一次文档修改',
+      tbTipRedo: '重做（Ctrl + Y）',
+      tbTipRedoWhere: '重做最近一次被撤销的操作',
+      tbTipClearFormat: '清除格式',
+      tbTipClearFormatWhere: '清除选中文字的字符格式，并将涉及段落恢复为正文',
+      tbTipParagraph: '标题 / 正文',
+      tbTipParagraphWhere: '应用到当前段落，或选区覆盖的所有段落',
+      tbTextColor: '字体颜色',
+      tbHighlight: '高亮',
+      tbSuperscript: '上标',
+      tbComment: '批注',
+      tbAi: 'AI',
+      tbSave: '保存',
+      tbCopyPreview: '复制预览',
+      tbExport: '导出',
+      tbExportHtml: '导出 HTML',
+      tbExportPdf: '导出 PDF',
+      tbExportDocx: '导出 Word',
+      tbPrint: '打印',
+      insertMenuCharts: '图形与数据',
+      insertMenuCloudDoc: '云文档',
+      insertMenuLocalFile: '本地文件',
+      insertMenuColumns: '分栏',
+      insertMenuHighlight: '高亮块',
+      insertMenuDate: '日期',
+      insertMenuMedia: '音视频文件',
+      insertMenuEmoji: '表情符号',
+      insertMenuTemplate: '内容模板',
+      insertMenuLink: '超链接',
+      insertMenuProtected: '内容保护区',
+      insertMenuFormula: '公式',
+      insertMenuWhiteboard: '画板',
+      insertMenuMindmap: '思维导图',
+      insertMenuFlowchart: '流程图',
+      insertMenuSpreadsheet: '电子表格',
+      insertMenuMultitable: '多维表格',
       fsTitle: '文件列表',
       fsExpand: '展开文件列表 (Ctrl+\\)',
       fsCollapse: '收起文件列表 (Ctrl+\\)',
@@ -141,6 +216,8 @@
       toastRememberSessionOff: '已关闭：下次启动进入欢迎页',
       settingsSave: '保存',
       settingsCancel: '取消',
+      toastSettingsSaveOk: '设置成功',
+      toastSettingsSaveFail: '设置失败',
       alertSettingsFail: '打开设置失败：{error}',
       filterStatus: '状态',
       filterLevel: '级别',
@@ -232,6 +309,12 @@
       widgetBlockDragHandle: '单击打开菜单，长按拖动',
       emptyLineInsertTooltip: '插入内容',
       emptyLinePlaceholder: '输入正文或 "/" 插入内容，双击 Ctrl 唤起 AI',
+      emptyHeadingPlaceholder1: '标题一',
+      emptyHeadingPlaceholder2: '标题二',
+      emptyHeadingPlaceholder3: '标题三',
+      emptyHeadingPlaceholder4: '标题四',
+      emptyHeadingPlaceholder5: '标题五',
+      emptyHeadingPlaceholder6: '标题六',
       blockMenuAiEdit: 'AI 帮我改',
       blockMenuInsertAbove: '上方插入',
       blockMenuInsertBelow: '下方插入',
@@ -254,6 +337,17 @@
       blockMenuInsertQuote: '引用',
       blockMenuInsertMermaid: '流程图',
       blockMenuInsertHr: '分隔线',
+      insertMenuGeneral: '通用',
+      insertMenuBodyText: '正文',
+      insertMenuHeading1: '一级标题',
+      insertMenuHeading2: '二级标题',
+      insertMenuHeading3: '三级标题',
+      insertMenuHeading4: '四级标题',
+      insertMenuHeading5: '五级标题',
+      insertMenuHeading6: '六级标题',
+      insertMenuBulletList: '无序列表',
+      insertMenuOrderedList: '有序列表',
+      insertMenuTaskList: '任务列表',
       blockMenuAiContinue: '续写',
       blockMenuAiCompanion: '伴写',
       blockMenuAiPolish: '润色',
@@ -290,6 +384,8 @@
       alertSelectCodeCopy: '请先选中要拷贝的代码',
       alertSelectAnno: '请先选中文本再添加选区批注',
       alertSelectCodeAnno: '请先选中代码再添加选区批注',
+      alertAnnoProseOnly: '仅正文与标题支持选区批注；代码块、图片、流程图、表格、分割线请使用块级批注',
+      tipAnnoDisabledInWidget: '代码块内、表格单元格或流程图源码内无法从此添加批注，请通过块手柄添加块级批注',
       alertBadSelection: '无法识别选区',
       alertBadSelectionEditor: '无法识别选区，请尝试在源码编辑区选择',
       alertMdOnly: '仅支持打开 .md / .markdown / .txt / .mdc 文件',
@@ -384,10 +480,88 @@
     en: {
       tbFiles: 'Files',
       tbFilesTitle: 'File list (Ctrl+\\)',
-      tbEdit: 'Edit',
-      tbEditTitle: 'Editor pane (Ctrl+E)',
+      tbEdit: 'Source Edit',
+      tbEditTitle: 'Source editor pane (Ctrl+E)',
       tbPanel: 'Notes',
-      tbPanelTitle: 'Annotation pane (Ctrl+B)',
+      tbPanelTitle: 'Annotation pane (Ctrl+Shift+B)',
+      tbUndo: 'Undo',
+      tbRedo: 'Redo',
+      tbToolbar: 'Editor toolbar',
+      tbFormatBrush: 'Format painter',
+      tbCut: 'Cut',
+      tbCopy: 'Copy',
+      tbPaste: 'Paste',
+      tbSave: 'Save',
+      tbCopyPreview: 'Copy preview',
+      tbExport: 'Export',
+      tbExportHtml: 'Export HTML',
+      tbExportPdf: 'Export PDF',
+      tbExportDocx: 'Export Word',
+      tbPrint: 'Print',
+      tbParagraph: 'Paragraph style',
+      tbParagraphMixed: 'Mixed styles',
+      tbBold: 'Bold',
+      tbItalic: 'Italic',
+      tbStrike: 'Strikethrough',
+      tbInlineCode: 'Inline code',
+      tbLink: 'Link',
+      tbUl: 'Bulleted list',
+      tbOl: 'Numbered list',
+      tbTask: 'Task list',
+      tbQuote: 'Quote',
+      tbInsert: 'Insert',
+      tbFind: 'Find',
+      tbModeToggle: 'Toggle preview / source',
+      tbModePreview: 'Preview',
+      tbModeSource: 'Source',
+      tbClearFormat: 'Clear formatting',
+      tbUnderline: 'Underline',
+      tbTipBold: 'Bold (Ctrl + B)',
+      tbTipBoldWhere: 'Markdown: **text** and spaces',
+      tbTipItalic: 'Italic (Ctrl + I)',
+      tbTipItalicWhere: 'Markdown: *text* and spaces',
+      tbTipUnderline: 'Underline (Ctrl + U)',
+      tbTipUnderlineWhere: 'Markdown: ~text~ and spaces',
+      tbTipStrike: 'Strikethrough (Ctrl + Shift + S)',
+      tbTipStrikeWhere: 'Markdown: ~~text~~ and spaces',
+      tbTipCode: 'Inline code (Ctrl + Shift + C)',
+      tbTipCodeWhere: 'Markdown: `text`',
+      tbTipTask: 'Task list (Ctrl + Shift + Y)',
+      tbTipTaskWhere: 'Markdown: - [ ] space',
+      tbTipOl: 'Numbered list (Ctrl + Shift + U)',
+      tbTipOlWhere: 'Markdown: 1. space',
+      tbTipUl: 'Bulleted list (Ctrl + Shift + I)',
+      tbTipUlWhere: 'Markdown: * space or - space',
+      tbTipUndo: 'Undo (Ctrl + Z)',
+      tbTipUndoWhere: 'Undo the last document change',
+      tbTipRedo: 'Redo (Ctrl + Y)',
+      tbTipRedoWhere: 'Redo the last undone change',
+      tbTipClearFormat: 'Clear formatting',
+      tbTipClearFormatWhere: 'Clear character formatting and reset involved paragraphs to body text',
+      tbTipParagraph: 'Heading / body',
+      tbTipParagraphWhere: 'Applies to the current paragraph, or all paragraphs in the selection',
+      tbTextColor: 'Text color',
+      tbHighlight: 'Highlight',
+      tbSuperscript: 'Superscript',
+      tbComment: 'Annotations',
+      tbAi: 'AI',
+      insertMenuCharts: 'Graphics & data',
+      insertMenuCloudDoc: 'Cloud document',
+      insertMenuLocalFile: 'Local file',
+      insertMenuColumns: 'Columns',
+      insertMenuHighlight: 'Callout',
+      insertMenuDate: 'Date',
+      insertMenuMedia: 'Audio / video',
+      insertMenuEmoji: 'Emoji',
+      insertMenuTemplate: 'Template',
+      insertMenuLink: 'Link',
+      insertMenuProtected: 'Protected area',
+      insertMenuFormula: 'Formula',
+      insertMenuWhiteboard: 'Whiteboard',
+      insertMenuMindmap: 'Mind map',
+      insertMenuFlowchart: 'Flowchart',
+      insertMenuSpreadsheet: 'Spreadsheet',
+      insertMenuMultitable: 'Database table',
       fsTitle: 'Files',
       fsExpand: 'Expand file list (Ctrl+\\)',
       fsCollapse: 'Collapse file list (Ctrl+\\)',
@@ -521,6 +695,8 @@
       toastRememberSessionOff: 'Remember last session: off (welcome next launch)',
       settingsSave: 'Save',
       settingsCancel: 'Cancel',
+      toastSettingsSaveOk: 'Settings saved',
+      toastSettingsSaveFail: 'Failed to save settings',
       alertSettingsFail: 'Failed to open settings: {error}',
       filterStatus: 'Status',
       filterLevel: 'Level',
@@ -612,6 +788,12 @@
       widgetBlockDragHandle: 'Click for menu, long-press to drag',
       emptyLineInsertTooltip: 'Insert content',
       emptyLinePlaceholder: 'Type or press "/" to insert; double-tap Ctrl for AI',
+      emptyHeadingPlaceholder1: 'Heading 1',
+      emptyHeadingPlaceholder2: 'Heading 2',
+      emptyHeadingPlaceholder3: 'Heading 3',
+      emptyHeadingPlaceholder4: 'Heading 4',
+      emptyHeadingPlaceholder5: 'Heading 5',
+      emptyHeadingPlaceholder6: 'Heading 6',
       blockMenuAiEdit: 'AI edit',
       blockMenuInsertAbove: 'Insert above',
       blockMenuInsertBelow: 'Insert below',
@@ -634,6 +816,17 @@
       blockMenuInsertQuote: 'Quote',
       blockMenuInsertMermaid: 'Diagram',
       blockMenuInsertHr: 'Divider',
+      insertMenuGeneral: 'General',
+      insertMenuBodyText: 'Body text',
+      insertMenuHeading1: 'Heading 1',
+      insertMenuHeading2: 'Heading 2',
+      insertMenuHeading3: 'Heading 3',
+      insertMenuHeading4: 'Heading 4',
+      insertMenuHeading5: 'Heading 5',
+      insertMenuHeading6: 'Heading 6',
+      insertMenuBulletList: 'Bulleted list',
+      insertMenuOrderedList: 'Numbered list',
+      insertMenuTaskList: 'Task list',
       blockMenuAiContinue: 'Continue writing',
       blockMenuAiCompanion: 'Co-write',
       blockMenuAiPolish: 'Polish',
@@ -670,6 +863,8 @@
       alertSelectCodeCopy: 'Select code to copy first',
       alertSelectAnno: 'Select text before adding a selection annotation',
       alertSelectCodeAnno: 'Select code before adding a selection annotation',
+      alertAnnoProseOnly: 'Selection annotations are only for body text and headings; use block annotations for code, images, diagrams, tables, or dividers',
+      tipAnnoDisabledInWidget: 'Cannot add from inside a code block, table cell, or diagram source — use the block handle to add a block annotation',
       alertBadSelection: 'Could not resolve selection',
       alertBadSelectionEditor: 'Could not resolve selection; try selecting in the source editor',
       alertMdOnly: 'Only .md / .markdown / .txt / .mdc files are supported',
@@ -820,9 +1015,9 @@
           '<li>Click to locate (no continuous scroll sync); <strong>outline on the left</strong> — click to jump, scroll preview to sync active heading; ‹ collapse, left rail button to expand</li>' +
           '<li>Syntax highlight + line numbers; <kbd>Ctrl+S</kbd> save; unsaved close prompts</li>' +
           '<li><kbd>Ctrl+F</kbd> find, <kbd>Ctrl+H</kbd> replace, <kbd>Ctrl+G</kbd> go to line</li>' +
-          '<li><kbd>Ctrl+B/I/`</kbd> bold/italic/code; <kbd>Ctrl+Shift+]/[</kbd> heading level</li>' +
+          '<li><kbd>Ctrl+B/I/U</kbd> bold/italic/underline; <kbd>Ctrl+Shift+C/S</kbd> code/strike; <kbd>Ctrl+Shift+Y/U/I</kbd> task/ol/ul</li>' +
           '<li>Dark mode; relative images; Mermaid; KaTeX; click image/diagram to zoom — diagram zoom: Copy image / Copy source (<code>```mermaid</code> fence); Ctrl+C copies image; image zoom copies bitmap</li>' +
-          '<li><strong>Copy preview</strong>: menu or <kbd>Ctrl+Shift+C</kbd> for WeChat-ready rich text (images, diagrams, and KaTeX formulas are embedded as PNG)</li>' +
+          '<li><strong>Copy preview</strong>: menu or <kbd>Ctrl+Alt+C</kbd> for WeChat-ready rich text (images, diagrams, and KaTeX formulas are embedded as PNG)</li>' +
           '<li><strong>Export</strong>: File → Export HTML / PDF / Word (progress UI; ~60s timeout)</li>' +
           '<li><strong>Auto-save</strong>: View → Settings… — Off / On blur / Every 30s / Every 60s (saved files only; untitled never auto Save As)</li>' +
           '<li>Panes are resizable; double-click splitter to reset</li>' +
@@ -843,15 +1038,15 @@
           '<tr><td>Find</td><td><kbd>Ctrl+F</kbd></td></tr>' +
           '<tr><td>Replace</td><td><kbd>Ctrl+H</kbd></td></tr>' +
           '<tr><td>Go to line</td><td><kbd>Ctrl+G</kbd></td></tr>' +
-          '<tr><td>Bold / italic / code</td><td><kbd>Ctrl+B</kbd> / <kbd>Ctrl+I</kbd> / <kbd>Ctrl+`</kbd></td></tr>' +
+          '<tr><td>Bold / italic / underline / code</td><td><kbd>Ctrl+B</kbd> / <kbd>Ctrl+I</kbd> / <kbd>Ctrl+U</kbd> / <kbd>Ctrl+Shift+C</kbd></td></tr>' +
           '<tr><td>Heading level</td><td><kbd>Ctrl+Shift+]</kbd> / <kbd>Ctrl+Shift+[</kbd></td></tr>' +
           '<tr><td>Save</td><td><kbd>Ctrl+S</kbd></td></tr>' +
           '<tr><td>Save As</td><td><kbd>Ctrl+Shift+S</kbd></td></tr>' +
           '<tr><td>Reload</td><td><kbd>Ctrl+R</kbd> (rename when file list focused)</td></tr>' +
           '<tr><td>Show in folder</td><td><kbd>Ctrl+Shift+O</kbd></td></tr>' +
-          '<tr><td>Copy preview (WeChat)</td><td><kbd>Ctrl+Shift+C</kbd></td></tr>' +
+          '<tr><td>Copy preview (WeChat)</td><td><kbd>Ctrl+Alt+C</kbd></td></tr>' +
           '<tr><td>Editor pane</td><td><kbd>Ctrl+E</kbd></td></tr>' +
-          '<tr><td>Annotation pane (menu)</td><td><kbd>Ctrl+B</kbd></td></tr>' +
+          '<tr><td>Annotation pane (menu)</td><td><kbd>Ctrl+Shift+B</kbd></td></tr>' +
           '<tr><td>Move line</td><td><kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd></td></tr>' +
           '<tr><td>Duplicate line</td><td><kbd>Alt+Shift+↓</kbd></td></tr>' +
           '<tr><td>Indent / outdent</td><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td></tr>' +
@@ -888,9 +1083,9 @@
         '<li>编辑↔预览<strong>点击定位</strong>（滚动互不跟随）；预览<strong>左侧大纲</strong>点击跳转，滚动预览时标题同步高亮；‹ 收起后左侧窄栏按钮展开</li>' +
         '<li>源码语法高亮 + 行号；<kbd>Ctrl+S</kbd> 保存；关闭时未保存会提示</li>' +
         '<li><kbd>Ctrl+F</kbd> 查找、<kbd>Ctrl+H</kbd> 替换、<kbd>Ctrl+G</kbd> 跳转到行</li>' +
-        '<li><kbd>Ctrl+B/I/`</kbd> 粗体/斜体/代码；<kbd>Ctrl+Shift+]/[</kbd> 标题升降级</li>' +
+        '<li><kbd>Ctrl+B/I/U</kbd> 粗体/斜体/下划线；<kbd>Ctrl+Shift+C/S</kbd> 行内代码/删除线；<kbd>Ctrl+Shift+Y/U/I</kbd> 任务/有序/无序列表</li>' +
         '<li>深色模式；相对路径图片；Mermaid 流程图；KaTeX 数学公式；点击图片/流程图可缩放 — 流程图工具栏「复制图片 / 复制源码」（源码含 <code>```mermaid</code> 围栏），Ctrl+C 默认复制图片；普通图片复制为位图</li>' +
-        '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Shift+C</kbd>，复制为微信公众号富文本（图片、流程图与 KaTeX 公式均内嵌为 PNG）</li>' +
+        '<li><strong>复制预览</strong>：菜单或 <kbd>Ctrl+Alt+C</kbd>，复制为微信公众号富文本（图片、流程图与 KaTeX 公式均内嵌为 PNG）</li>' +
         '<li><strong>导出</strong>：菜单「文件 → 导出 HTML / PDF / Word」（导出会显示进度；大文档约 60s 超时）</li>' +
         '<li><strong>自动保存</strong>：菜单「视图 → 设置…」— 关闭 / 失焦 / 每 30 秒 / 每 60 秒（仅已保存过的磁盘文件；未命名不自动另存）</li>' +
         '<li>分栏可拖拽调宽，双击分隔条复位</li>' +
@@ -911,15 +1106,15 @@
         '<tr><td>查找</td><td><kbd>Ctrl+F</kbd></td></tr>' +
         '<tr><td>替换</td><td><kbd>Ctrl+H</kbd></td></tr>' +
         '<tr><td>跳转到行</td><td><kbd>Ctrl+G</kbd></td></tr>' +
-        '<tr><td>粗体 / 斜体 / 代码（仅源码栏聚焦）</td><td><kbd>Ctrl+B</kbd> / <kbd>Ctrl+I</kbd> / <kbd>Ctrl+`</kbd></td></tr>' +
+        '<tr><td>粗体 / 斜体 / 下划线 / 行内代码</td><td><kbd>Ctrl+B</kbd> / <kbd>Ctrl+I</kbd> / <kbd>Ctrl+U</kbd> / <kbd>Ctrl+Shift+C</kbd></td></tr>' +
         '<tr><td>标题升降级</td><td><kbd>Ctrl+Shift+]</kbd> / <kbd>Ctrl+Shift+[</kbd></td></tr>' +
         '<tr><td>保存</td><td><kbd>Ctrl+S</kbd></td></tr>' +
         '<tr><td>另存为</td><td><kbd>Ctrl+Shift+S</kbd></td></tr>' +
         '<tr><td>重新加载</td><td><kbd>Ctrl+R</kbd>（文件列表获焦时为重命名）</td></tr>' +
         '<tr><td>打开文件所在目录</td><td><kbd>Ctrl+Shift+O</kbd></td></tr>' +
-        '<tr><td>复制预览（微信公众号）</td><td><kbd>Ctrl+Shift+C</kbd></td></tr>' +
+        '<tr><td>复制预览（微信公众号）</td><td><kbd>Ctrl+Alt+C</kbd></td></tr>' +
         '<tr><td>编辑栏</td><td><kbd>Ctrl+E</kbd></td></tr>' +
-        '<tr><td>批注栏（菜单）</td><td><kbd>Ctrl+B</kbd></td></tr>' +
+        '<tr><td>批注栏（菜单）</td><td><kbd>Ctrl+Shift+B</kbd></td></tr>' +
         '<tr><td>移动行</td><td><kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd></td></tr>' +
         '<tr><td>重复行</td><td><kbd>Alt+Shift+↓</kbd></td></tr>' +
         '<tr><td>缩进 / 反缩进</td><td><kbd>Tab</kbd> / <kbd>Shift+Tab</kbd></td></tr>' +

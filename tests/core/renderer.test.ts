@@ -104,6 +104,40 @@ description: 用于 C++ 代码审查
     expect(html).toContain('正文');
   });
 
+  test('非空段落后紧跟 --- 渲染为分割线而非 Setext 标题', () => {
+    const html = renderMarkdown(
+      md,
+      'module: kcompanytabbutton\nsize_class: small\n---\n# 策略\n'
+    );
+    expect(html).toContain('<hr');
+    expect(html).not.toContain('<h2>');
+    expect(html).toContain('<h1>策略</h1>');
+    expect(html).toContain('size_class: small');
+  });
+
+  test('=== 仍按 Setext 一级标题（非分割线）', () => {
+    const html = renderMarkdown(md, 'Title\n===\n\n正文\n');
+    expect(html).toContain('<h1>Title</h1>');
+    expect(html).not.toContain('<hr');
+  });
+
+  test('围栏外 HTML 注释不可见', () => {
+    const html = renderMarkdown(
+      md,
+      '# 入口\n<!-- AI 加载优先级: P2 -->\n<!-- 分区: P1 -->\n正文\n'
+    );
+    expect(html).not.toContain('AI 加载优先级');
+    expect(html).not.toContain('分区: P1');
+    expect(html).not.toContain('&lt;!--');
+    expect(html).toContain('<h1>入口</h1>');
+    expect(html).toContain('正文');
+  });
+
+  test('围栏内 HTML 注释样例保留', () => {
+    const html = renderMarkdown(md, '```html\n<!-- keep-me -->\n```\n');
+    expect(html).toContain('keep-me');
+  });
+
   test('批注 JSON 含 HTML 标签时 content 中的文本不出现在渲染输出中', () => {
     // markdown-it 的 commonmark preset 会 HTML-escape content 中的特殊字符
     const input = `[comment]: <> (@anno {"id":"x","content":"script tag example","tags":[],"level":"info","status":"open","created_at":"2026-01-01T00:00:00Z"})
@@ -180,6 +214,12 @@ describe('CommonMark 兼容', () => {
   test('水平线', () => {
     const html = renderMarkdown(md, '---');
     expect(html).toContain('<hr');
+  });
+
+  test('图片行后紧跟 --- 仍渲染为水平线（非 Setext 标题）', () => {
+    const html = renderMarkdown(md, '![](./assets/x.png)\n---\n');
+    expect(html).toContain('<hr');
+    expect(html).not.toMatch(/<h[12][^>]*>[\s\S]*<img/);
   });
 
   test('表格 (GFM)', () => {

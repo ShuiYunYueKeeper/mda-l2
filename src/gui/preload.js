@@ -1,4 +1,4 @@
-﻿const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 const { decodePathHref } = require('./main/image-path');
 // 复用编译后的 @mda/core（dist/core），消除 GUI 与核心库的重复实现。
@@ -306,8 +306,8 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   exportPdf: (filePath, html) => ipcRenderer.invoke('export-pdf', { filePath, html }),
   exportDocx: (filePath, html) => ipcRenderer.invoke('export-docx', { filePath, html }),
 
-  // 保存前校验：返回疑似批注但格式不正确的行号数组（供渲染层提示用户）
-  findMalformedAnnotations: (text) => findMalformedAnnotations(text),
+  /** E2E / CI：环境变量 MDA_CM6=1 时强制启用 CM6 编辑面 */
+  cm6Forced: process.env.MDA_CM6 === '1',
 
   // 源码编辑器语法高亮：自定义 Markdown 行级着色（标题整行含 CJK 全覆盖，`#` 暗色），
   // 围栏内代码块仍用 hljs；失败时回退为转义纯文本。

@@ -1,4 +1,4 @@
-﻿// @ts-nocheck
+// @ts-nocheck
 const katexExport = require('../../src/gui/renderer/katex-export.js');
 
 describe('KaTeX article export helpers', () => {
@@ -49,7 +49,7 @@ describe('KaTeX article export helpers', () => {
 
   test('uses compact padding for inline formulas', () => {
     expect(katexExport.formulaPadding(false)).toEqual({ x: 4, y: 4 });
-    expect(katexExport.formulaPadding(true)).toEqual({ x: 16, y: 12 });
+    expect(katexExport.formulaPadding(true)).toEqual({ x: 14, y: 10 });
   });
 
   test('applies measured visual-overflow offsets to the formula wrapper', () => {

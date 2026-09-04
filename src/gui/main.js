@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -53,6 +53,16 @@ app.commandLine.appendSwitch('disable-features', 'PartitionAllocBackupRefPtr,Par
 const schema = require(path.join(__dirname, '..', 'config', 'annotation-schema.json'));
 const MD_EXTENSIONS = schema.fileExtensions || ['md', 'markdown', 'txt', 'mdc'];
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
+const APP_ICON_PATH = path.join(__dirname, 'icon.png');
+
+/** @returns {string|undefined} */
+function resolveAppIconPath() {
+  if (process.platform === 'win32') {
+    const ico = path.join(__dirname, 'icon.ico');
+    if (fs.existsSync(ico)) return ico;
+  }
+  return fs.existsSync(APP_ICON_PATH) ? APP_ICON_PATH : undefined;
+}
 
 
 function isMarkdownPath(filePath) {
@@ -211,7 +221,7 @@ function buildMenuTemplate(recents) {
         },
         {
           label: t('menuSaveAs'),
-          accelerator: 'CmdOrCtrl+Shift+S',
+          accelerator: 'CmdOrCtrl+Alt+S',
           click: () => sendToRenderer('menu-save-as'),
         },
         {
@@ -227,7 +237,7 @@ function buildMenuTemplate(recents) {
         { type: 'separator' },
         {
           label: t('menuCopyArticle'),
-          accelerator: 'CmdOrCtrl+Shift+C',
+          accelerator: 'CmdOrCtrl+Alt+C',
           click: () => sendToRenderer('menu-copy-article'),
         },
         { type: 'separator' },
@@ -279,7 +289,7 @@ function buildMenuTemplate(recents) {
         },
         {
           label: t('menuAnnoPane'),
-          accelerator: 'CmdOrCtrl+B',
+          accelerator: 'CmdOrCtrl+Shift+B',
           click: () => sendToRenderer('menu-toggle-panel'),
         },
         {
@@ -1090,12 +1100,14 @@ function createWindow(initialFile) {
   allowClose = false;
   rendererDirty = false;
   const ud = app.getPath('userData');
+  const iconPath = resolveAppIconPath();
   const winOpts = {
     width: 1200,
     height: 750,
     minWidth: 900,
     minHeight: 600,
     title: 'MDA',
+    ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1199,6 +1211,10 @@ if (!gotSingleInstanceLock) {
   app.whenReady().then(() => {
     initI18n(app);
     initPastePrefs(app);
+    const iconPath = resolveAppIconPath();
+    if (iconPath && process.platform === 'darwin' && app.dock) {
+      app.dock.setIcon(iconPath);
+    }
     registerIpcHandlers();
     autoUpdaterApi = setupAutoUpdater(app, () => mainWindow);
     const argFile = process.argv.find((a) => !a.startsWith('-') && isMarkdownPath(a));
