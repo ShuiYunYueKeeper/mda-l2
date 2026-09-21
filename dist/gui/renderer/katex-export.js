@@ -1,4 +1,4 @@
-﻿// KaTeX 复制预览导出的纯函数；浏览器栅格化仍由 app.js 负责。
+// KaTeX 复制预览导出的纯函数；浏览器栅格化仍由 app.js 负责。
 (function (global) {
   'use strict';
 
@@ -19,7 +19,8 @@
   }
 
   function formulaPadding(isBlock) {
-    return isBlock ? { x: 16, y: 12 } : { x: 4, y: 4 };
+    // 块级与 CM6 .mda-cm-math-display 内边距一致，避免导出图比 widget 大一圈
+    return isBlock ? { x: 14, y: 10 } : { x: 4, y: 4 };
   }
 
   function svgToDataUrl(svg) {

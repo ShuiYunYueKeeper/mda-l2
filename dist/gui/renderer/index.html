@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -209,6 +209,8 @@
     }
     .toolbar .file-name .dirty-dot { user-select: none; -webkit-user-select: none; }
     .dirty-dot { color: var(--danger); font-weight: bold; margin-left: 2px; }
+    /* 未修改时仍占位，避免文件名宽度变化挤动居中的编辑工具栏 */
+    .dirty-dot.dirty-dot-clean { visibility: hidden; }
 
     /* ================= 主体三栏（编辑 | 预览 | 批注，宽度可拖拽）================= */
     #content-row { display: flex; flex: 1 1 auto; overflow: hidden; position: relative; }
@@ -693,6 +695,15 @@
       text-align: left;
       box-sizing: border-box;
     }
+    /* Windows/Electron 按钮聚焦默认黄框；菜单项用 hover 态即可，勿叠系统 outline */
+    .mda-context-menu button.mda-menu-item:focus,
+    .mda-context-menu button.mda-menu-item:focus-visible {
+      outline: none;
+    }
+    .mda-context-menu button.mda-menu-item:focus-visible {
+      background: var(--accent);
+      color: #fff;
+    }
     .mda-context-menu .mda-menu-item:hover { background: var(--accent); color: #fff; }
     .mda-context-menu .mda-menu-item.disabled { color: var(--text-muted); pointer-events: none; opacity: 0.55; }
     .mda-context-menu .mda-menu-key { color: var(--text-muted); font-size: 12px; }
@@ -808,10 +819,21 @@
       box-sizing: border-box;
     }
     .mda-insert-format-cell:hover,
+    .mda-insert-format-cell:focus,
     .mda-insert-format-cell:focus-visible {
-      background: var(--bg-tertiary);
-      color: var(--text);
+      background: color-mix(in srgb, var(--border) 48%, var(--bg-secondary));
+      color: var(--text-emphasis);
       outline: none;
+    }
+    .mda-insert-format-cell:active {
+      background: color-mix(in srgb, var(--border) 68%, var(--bg-secondary));
+      color: var(--text-emphasis);
+    }
+    .mda-insert-format-cell:hover .mda-insert-text-label,
+    .mda-insert-format-cell:focus .mda-insert-text-label,
+    .mda-insert-format-cell:focus-visible .mda-insert-text-label,
+    .mda-insert-format-cell:active .mda-insert-text-label {
+      color: var(--text-emphasis);
     }
     .mda-insert-format-cell .mda-menu-icon {
       width: 18px;
@@ -1276,6 +1298,48 @@
 
     /* ================= 查找替换 ================= */
     #editor-pane { position: relative; }
+    body.mda-cm6-active.mda-cm6-doc-open #preview-scroll { position: relative; }
+    .mda-cm6-host .mda-cm-find-mark {
+      background: rgba(255, 214, 0, 0.45);
+      border-radius: 2px;
+    }
+    .mda-cm6-host .mda-cm-find-active {
+      background: rgba(255, 140, 0, 0.7);
+      border-radius: 2px;
+    }
+    .mda-cm-table mark.mda-cm-table-find,
+    .mda-cm-table span.mda-cm-table-find {
+      background: rgba(255, 214, 0, 0.45);
+      border-radius: 2px;
+      color: inherit;
+      padding: 0;
+    }
+    .mda-cm-table mark.mda-cm-table-find-active,
+    .mda-cm-table span.mda-cm-table-find-active {
+      background: rgba(255, 140, 0, 0.7);
+      border-radius: 2px;
+      color: inherit;
+      padding: 0;
+    }
+    .mda-cm6-host .mda-cm-table .mda-cm-code span.mda-cm-table-find,
+    .mda-cm6-host .mda-cm-table .mda-cm-code span.mda-cm-table-find-active {
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+    .mda-cm6-host .mda-cm-code-input span.mda-cm-table-find,
+    .mda-cm6-host .mda-cm-code-input span.mda-cm-table-find-active {
+      border-radius: 2px;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+    }
+    .mda-cm6-host .mda-cm-code-input span.mda-cm-table-find {
+      background: rgba(255, 214, 0, 0.55) !important;
+      color: inherit;
+    }
+    .mda-cm6-host .mda-cm-code-input span.mda-cm-table-find-active {
+      background: rgba(255, 140, 0, 0.75) !important;
+      color: inherit;
+    }
     .mda-find-bar {
       position: absolute; top: 0; left: 0; right: 0; z-index: 30;
       background: var(--menu-bg); border-bottom: 1px solid var(--border);
@@ -1342,6 +1406,20 @@
     .mda-cm6-host .mda-cm-h4 { font-size: 1.1em; line-height: inherit; }
     .mda-cm6-host .mda-cm-h5 { font-size: 1em; line-height: inherit; }
     .mda-cm6-host .mda-cm-h6 { font-size: 0.95em; line-height: inherit; color: var(--text-muted); }
+    /* 列表项内的标题（`- ## 标题`）：列表符号在标题 span 之外，须单独跟随标题级别，
+       否则符号仍是正文字号，看着偏小、基线偏上，选区蓝底也会高低不齐 */
+    .mda-cm6-host .cm-line.mda-cm-h1-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h1-line .mda-cm-list-mark { font-size: 1.75em; }
+    .mda-cm6-host .cm-line.mda-cm-h2-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h2-line .mda-cm-list-mark { font-size: 1.45em; }
+    .mda-cm6-host .cm-line.mda-cm-h3-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h3-line .mda-cm-list-mark { font-size: 1.25em; }
+    .mda-cm6-host .cm-line.mda-cm-h4-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h4-line .mda-cm-list-mark { font-size: 1.1em; }
+    .mda-cm6-host .cm-line.mda-cm-h5-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h5-line .mda-cm-list-mark { font-size: 1em; }
+    .mda-cm6-host .cm-line.mda-cm-h6-line .mda-cm-bullet,
+    .mda-cm6-host .cm-line.mda-cm-h6-line .mda-cm-list-mark { font-size: 0.95em; }
     .mda-cm6-host .mda-cm-hidden-line {
       display: block;
       height: 0 !important;
@@ -1403,6 +1481,11 @@
     }
     .mda-cm6-host .mda-cm-link { color: var(--link); text-decoration: none; cursor: pointer; }
     .mda-cm6-host .mda-cm-link:hover { text-decoration: underline; }
+    .mda-cm-link-hover-tip {
+      max-width: min(420px, 92vw);
+      word-break: break-all;
+      white-space: pre-line;
+    }
     /* 预览模式：藏默认 CM6 层 + 原生透明；只用紧致自绘层 */
     body.mda-cm6-mode-preview .mda-cm6-host .cm-selectionLayer {
       display: none !important;
@@ -1668,13 +1751,17 @@
     .mda-cm-tb-main {
       display: flex;
       align-items: center;
-      justify-content: center;
+      /* 居中用首尾 auto margin 实现：justify-content:center 在溢出时会把起始段
+         推到 scrollLeft 负区且滚不回来，点击按钮触发的滚动修正就成了整栏抖动 */
+      justify-content: flex-start;
       gap: 2px;
       flex: 1 1 auto;
       min-width: 0;
       overflow-x: auto;
       scrollbar-width: none;
     }
+    .mda-cm-tb-main > :first-child { margin-left: auto; }
+    .mda-cm-tb-main > :last-child { margin-right: auto; }
     .mda-cm-tb-main::-webkit-scrollbar { display: none; }
     .mda-cm-tb-group { display: flex; align-items: center; gap: 2px; }
     .mda-cm-tb-sep {
@@ -1690,8 +1777,7 @@
       font-size: 14px; line-height: 1; cursor: pointer;
     }
     .mda-cm-tb-btn:hover { background: var(--bg-tertiary); border-color: var(--border-light); }
-    .mda-cm-tb-btn:focus-visible,
-    .mda-cm-tb-select:focus-visible {
+    .mda-cm-tb-btn:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 1px;
     }
@@ -1840,11 +1926,41 @@
     }
     .mda-cm-tb-select {
       height: 28px; min-width: 108px; max-width: 160px;
-      padding: 0 8px; border: 1px solid var(--border);
-      border-radius: 4px; background: var(--bg); color: var(--text);
+      padding: 0 24px 0 8px; border: 1px solid var(--border);
+      border-radius: 4px;
+      background-color: var(--bg);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 6px center;
+      background-size: 12px 12px;
+      -webkit-appearance: none;
+      appearance: none;
+      color: var(--text);
       font-size: 13px; cursor: pointer;
+      outline: none;
+      box-sizing: border-box;
+    }
+    button.mda-cm-tb-select {
+      display: inline-flex;
+      align-items: center;
+      margin: 0;
+      font: inherit;
+      text-align: left;
+    }
+    .mda-cm-tb-paragraph-label {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .mda-cm-tb-select:hover { border-color: var(--accent); }
+    .mda-cm-tb-select:focus,
+    .mda-cm-tb-select:focus-visible {
+      outline: none;
+      border-color: var(--border);
+      box-shadow: none;
+    }
     .mda-cm6-host .cm-editor { flex: 1; min-height: 0; outline: none; display: flex; flex-direction: column; }
     .mda-cm6-host .cm-scroller {
       font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
@@ -1921,11 +2037,7 @@
     .mda-cm6-host .mda-cm-code-frame:has(.mda-cm-code-lang-open) .mda-cm-code-preview {
       overflow: visible;
     }
-    .mda-cm6-host .mda-cm-code-frame.mda-cm-media-block.mda-cm-media-selected {
-      border-color: var(--accent);
-      border-radius: 8px;
-    }
-    /* 选中描边叠在内容之上，避免 gutter/滚动条切掉 outline */
+    /* 代码块：gutter/预览区会盖住内嵌 outline，须 ::after 叠在内容之上；仅 2px 描边，勿再改 border-color */
     .mda-cm6-host .mda-cm-code-frame.mda-cm-media-block.mda-cm-media-selected::after {
       content: '';
       position: absolute;
@@ -2094,9 +2206,6 @@
     }
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-mermaid-sized {
       max-width: none;
-    }
-    body.mda-img-resizing .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-mermaid-resize-active {
-      outline: none;
     }
     .mda-cm6-host .mda-cm-mermaid-handles,
     .mda-cm6-host .mda-cm-image-handles {
@@ -2689,20 +2798,6 @@
       border-radius: 7px 7px 0 0;
       overflow: hidden;
     }
-    .mda-cm6-host .mda-cm-math-frame.mda-cm-media-block.mda-cm-media-selected {
-      border-color: var(--accent);
-      border-radius: 8px;
-    }
-    .mda-cm6-host .mda-cm-math-frame.mda-cm-media-block.mda-cm-media-selected::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      border: 2px solid var(--accent);
-      border-radius: inherit;
-      pointer-events: none;
-      z-index: 20;
-      box-sizing: border-box;
-    }
     .mda-cm6-host .mda-cm-math-frame.mda-cm-media-selected > .mda-cm-block-toolbar {
       border-radius: 6px 6px 0 0;
     }
@@ -3230,6 +3325,16 @@
     .mda-cm6-host .mda-cm-table-menu-item:hover:not(:disabled):not(.disabled) .mda-menu-key {
       color: #e0e8ff;
     }
+    .mda-cm6-host .mda-cm-table-menu-item.mda-menu-danger {
+      color: var(--danger, #e74c3c);
+    }
+    .mda-cm6-host .mda-cm-table-menu-item.mda-menu-danger:hover:not(:disabled):not(.disabled) {
+      background: var(--danger, #e74c3c);
+      color: #fff;
+    }
+    .mda-cm6-host .mda-cm-table-menu-item.mda-menu-danger:hover:not(:disabled):not(.disabled) .mda-menu-key {
+      color: #fff;
+    }
     .mda-cm6-host .mda-cm-table-menu-item:disabled,
     .mda-cm6-host .mda-cm-table-menu-item.disabled {
       color: var(--text-muted);
@@ -3281,21 +3386,6 @@
       border-radius: 7px 7px 0 0;
       overflow: hidden;
     }
-    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-media-selected {
-      border-color: var(--accent);
-      border-radius: 8px;
-    }
-    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-media-selected::after,
-    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-mermaid-resize-active::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      border: 2px solid var(--accent);
-      border-radius: inherit;
-      pointer-events: none;
-      z-index: 20;
-      box-sizing: border-box;
-    }
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-selected > .mda-cm-block-toolbar {
       border-radius: 6px 6px 0 0;
     }
@@ -3303,10 +3393,17 @@
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-selected > .mda-cm-mermaid-source {
       border-radius: 0 0 6px 6px;
     }
-    /* 图片等通用 media 选中：统一 2px 描边 */
-    .mda-cm6-host .mda-cm-media-block.mda-cm-media-selected:not(.mda-cm-code-frame):not(.mda-cm-mermaid-frame):not(.mda-cm-math-frame) {
+    /* 图片 / 流程图 / 公式块选中与缩放：统一 2px 内嵌 outline（代码块见上方 ::after） */
+    .mda-cm6-host .mda-cm-image-frame.mda-cm-media-block.mda-cm-media-selected,
+    .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-block.mda-cm-media-selected,
+    .mda-cm6-host .mda-cm-math-frame.mda-cm-media-block.mda-cm-media-selected,
+    body.mda-img-resizing .mda-cm6-host .mda-cm-image-frame.mda-cm-img-resize-active,
+    body.mda-img-resizing .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-mermaid-resize-active {
       outline: 2px solid var(--accent);
       outline-offset: -2px;
+    }
+    .mda-cm6-host .mda-cm-image-frame.mda-cm-media-block.mda-cm-media-selected,
+    body.mda-img-resizing .mda-cm6-host .mda-cm-image-frame.mda-cm-img-resize-active {
       border-radius: 0;
     }
     /* 公式块：覆盖 media-block 的 fit-content，保持通栏卡片；框外手柄须 visible */
@@ -3361,10 +3458,6 @@
     .mda-cm6-host .mda-cm-image-frame.mda-cm-image-sized,
     .mda-cm6-host .mda-cm-image-frame.mda-cm-image-sized .mda-cm-image-inner {
       max-width: none;
-    }
-    body.mda-img-resizing .mda-cm6-host .mda-cm-image-frame.mda-cm-img-resize-active {
-      outline: 2px solid var(--accent);
-      outline-offset: -2px;
     }
     .mda-cm6-host .mda-cm-image-block-line > .mda-cm-image-toolbar {
       display: none;
@@ -3468,6 +3561,7 @@
   <script src="./editor.bundle.js"></script>
   <script src="./editor-assist.js"></script>
   <script src="./outline-panel.js"></script>
+  <script src="./doc-coords.js"></script>
   <script src="./selection-anchor.js"></script>
   <script src="./anchor-highlights.js"></script>
   <script src="./katex-export.js"></script>

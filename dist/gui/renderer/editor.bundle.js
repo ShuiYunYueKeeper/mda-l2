@@ -31080,6 +31080,10 @@ var MDAEditorBundle = (() => {
         "line-style": 25,
         raw: 10
       };
+      function lineStartOf(text, pos) {
+        const nl = String(text).lastIndexOf("\n", pos - 1);
+        return nl < 0 ? 0 : nl + 1;
+      }
       function headingHandleMeta(node, text) {
         if (/^ATXHeading([1-6])$/.test(node.type)) {
           const level = parseInt(node.type.slice(-1), 10);
@@ -31214,10 +31218,30 @@ var MDAEditorBundle = (() => {
             continue;
           }
           if (rule.class !== "R") continue;
-          if (node.type === "ListMark" && node.listKind === "ordered") continue;
+          if (node.type === "ListMark" && node.listKind === "ordered") {
+            let ordTo = node.to;
+            if (ordTo < text.length && text.charAt(ordTo) === " ") ordTo += 1;
+            specs.push({
+              kind: "style",
+              from: node.from,
+              to: ordTo,
+              cls: "mda-cm-list-mark",
+              priority: PRIORITY.style
+            });
+            continue;
+          }
           if (node.type === "ListMark" && node.listKind === "bullet") {
             let markTo = node.to;
             if (markTo < text.length && text.charAt(markTo) === " ") markTo += 1;
+            if (/^ *\[[ xX]\]\s/.test(text.slice(markTo))) {
+              specs.push({
+                kind: "hide-mark",
+                from: node.from,
+                to: markTo,
+                priority: PRIORITY["hide-mark"]
+              });
+              continue;
+            }
             specs.push({
               kind: "widget",
               widget: "bullet",
@@ -31256,8 +31280,8 @@ var MDAEditorBundle = (() => {
             }
             specs.push({
               kind: "line-style",
-              from: node.from,
-              to: node.from,
+              from: lineStartOf(text, node.from),
+              to: lineStartOf(text, node.from),
               cls: "mda-cm-blockquote-line",
               priority: PRIORITY["line-style"]
             });
@@ -31291,7 +31315,7 @@ var MDAEditorBundle = (() => {
             if (/^mda-cm-h[1-6]$/.test(rule.cls)) {
               specs.push({
                 kind: "line-style",
-                from: node.from,
+                from: lineStartOf(text, node.from),
                 cls: rule.cls + "-line",
                 priority: PRIORITY["line-style"]
               });
@@ -31509,7 +31533,7 @@ var MDAEditorBundle = (() => {
       var FLAGS = {
         clickDebug: {
           storageKey: "mda-editor-debug-click",
-          devDefault: true,
+          devDefault: false,
           releaseValue: false
         },
         logDecoBuild: {
@@ -47496,7 +47520,11 @@ var MDAEditorBundle = (() => {
         "flowchart",
         "spreadsheet",
         "multitable",
-        "menu"
+        "menu",
+        "insertColLeft",
+        "insertColRight",
+        "insertRowAbove",
+        "insertRowBelow"
       ];
       var TOOLBAR_ICON_NAMES = [
         "undo",
@@ -47586,7 +47614,11 @@ var MDAEditorBundle = (() => {
         flowchart: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>',
         spreadsheet: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="3" x2="21" y1="15" y2="15"/><line x1="9" x2="9" y1="9" y2="21"/><line x1="15" x2="15" y1="9" y2="21"/></svg>',
         multitable: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>',
-        menu: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg>'
+        menu: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg>',
+        insertColLeft: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5v14"/><path d="M3 12h8"/><path d="M7 8v8"/></svg>',
+        insertColRight: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5v14"/><path d="M13 12h8"/><path d="M17 8v8"/></svg>',
+        insertRowAbove: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 15h14"/><path d="M12 3v8"/><path d="M8 7h8"/></svg>',
+        insertRowBelow: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9h14"/><path d="M12 13v8"/><path d="M8 17h8"/></svg>'
       };
       module.exports = {
         LUCIDE_ICONS,
@@ -47775,6 +47807,24 @@ var MDAEditorBundle = (() => {
         if (!ae || !ae.closest) return false;
         return isWidgetInlineEditableTarget(ae);
       }
+      function getWidgetInlineSelectionText() {
+        if (typeof window === "undefined" || !window.getSelection) return "";
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount < 1 || sel.isCollapsed) return "";
+        const range = sel.getRangeAt(0);
+        let text = range.toString();
+        if (!text) return "";
+        const live = classifyWidgetEditable(document.activeElement) || classifyWidgetEditable(sel.anchorNode) || classifyWidgetEditable(sel.focusNode) || classifyWidgetEditable(range.commonAncestorContainer);
+        if (!live || !live.el) return "";
+        try {
+          if (!live.el.contains(range.startContainer) || !live.el.contains(range.endContainer)) {
+            return "";
+          }
+        } catch (_) {
+          return "";
+        }
+        return String(text).replace(/\u200b/g, "").replace(/\u00a0/g, " ");
+      }
       function shouldSuppressCm6Selection() {
         return widgetEditablePointerActive || focusInWidgetInlineEditable();
       }
@@ -47908,6 +47958,7 @@ var MDAEditorBundle = (() => {
         captureWidgetEditTarget,
         getEffectiveWidgetEditTarget,
         focusInWidgetInlineEditable,
+        getWidgetInlineSelectionText,
         attachWidgetEditablePointerIsolation,
         createWidgetEditableGuardExtension,
         collapseCm6Selection
@@ -47976,6 +48027,7 @@ var MDAEditorBundle = (() => {
       var { getSelectedMermaidBlock } = require_mermaid_selection();
       var { getSelectedImageBlock } = require_image_selection();
       var { getSelectedBlockOfKind } = require_block_selection();
+      var { getSelectedMathBlock } = require_math_selection();
       var IMAGE_LINE_RE = /^\s*!\[[^\]]*\]\([^)]*\)\s*$/;
       var HR_LINE_RE = /^\s*([-*_])(?:\s*\1){2,}\s*$/;
       var BLOCK_ONLY_KINDS = {
@@ -47983,7 +48035,8 @@ var MDAEditorBundle = (() => {
         mermaid: true,
         image: true,
         hr: true,
-        table: true
+        table: true,
+        math: true
       };
       function normalizeText(text) {
         return String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -48064,6 +48117,10 @@ var MDAEditorBundle = (() => {
         if (table) return { kind: "table", from: table.from, to: table.to };
         const hr = getSelectedBlockOfKind("hr");
         if (hr) return { kind: "hr", from: hr.from, to: hr.to };
+        const math = getSelectedMathBlock();
+        if (math && math.from != null) {
+          return { kind: "math", from: math.from, to: math.to };
+        }
         return null;
       }
       function resolveCm6AnnoPanelContext(view) {
@@ -48138,7 +48195,7 @@ var MDAEditorBundle = (() => {
       ];
       var INSERT_GENERAL_ITEMS = [
         { id: "image", key: "blockMenuInsertImage", icon: "image" },
-        { id: "table", key: "blockMenuInsertTable", icon: "table", hasSub: true },
+        { id: "table", key: "blockMenuInsertTable", icon: "table" },
         { id: "code", key: "blockMenuInsertCode", icon: "code" },
         { id: "quote", key: "blockMenuInsertQuote", icon: "quote" },
         { id: "link", key: "insertMenuLink", icon: "link" },
@@ -48147,6 +48204,7 @@ var MDAEditorBundle = (() => {
       var INSERT_CHART_ITEMS = [
         { id: "mermaid", key: "blockMenuInsertMermaid", icon: "mermaid" }
       ];
+      var INSERT_ACTION_ITEMS = [{ id: "anno", key: "addAnno", icon: "anno" }];
       var ITEM_MAP = /* @__PURE__ */ Object.create(null);
       function indexItems(list) {
         for (let i = 0; i < list.length; i++) {
@@ -48156,6 +48214,7 @@ var MDAEditorBundle = (() => {
       indexItems(INSERT_FORMAT_ITEMS);
       indexItems(INSERT_GENERAL_ITEMS);
       indexItems(INSERT_CHART_ITEMS);
+      indexItems(INSERT_ACTION_ITEMS);
       function findInsertMenuItem(id) {
         return ITEM_MAP[id] || null;
       }
@@ -48163,6 +48222,7 @@ var MDAEditorBundle = (() => {
         INSERT_FORMAT_ITEMS,
         INSERT_GENERAL_ITEMS,
         INSERT_CHART_ITEMS,
+        INSERT_ACTION_ITEMS,
         FORMAT_GRID_ROWS,
         findInsertMenuItem
       };
@@ -48179,7 +48239,8 @@ var MDAEditorBundle = (() => {
         FORMAT_GRID_ROWS,
         findInsertMenuItem,
         INSERT_GENERAL_ITEMS,
-        INSERT_CHART_ITEMS
+        INSERT_CHART_ITEMS,
+        INSERT_ACTION_ITEMS
       } = require_insert_menu_items();
       function addMenuSeparator(menu) {
         const sep = document.createElement("div");
@@ -48257,6 +48318,8 @@ var MDAEditorBundle = (() => {
         appendInsertMenuSection(menu, "insertMenuGeneral", INSERT_GENERAL_ITEMS, t);
         addMenuSeparator(menu);
         appendInsertMenuSection(menu, "insertMenuCharts", INSERT_CHART_ITEMS, t);
+        addMenuSeparator(menu);
+        appendInsertMenuSection(menu, "insertMenuActions", INSERT_ACTION_ITEMS, t);
         menu.addEventListener("click", function(e) {
           const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
           if (!item) return;
@@ -48268,7 +48331,8 @@ var MDAEditorBundle = (() => {
       }
       module.exports = {
         appendInsertMenuPanel,
-        addMenuSeparator
+        addMenuSeparator,
+        INSERT_ACTION_ITEMS
       };
     }
   });
@@ -48355,6 +48419,13 @@ var MDAEditorBundle = (() => {
         appendInsertMenuPanel(menu, t, function(id, soon) {
           if (soon) {
             if (typeof handlers.onSoon === "function") handlers.onSoon("insert-blank", id);
+            closeEmptyLineInsertMenu();
+            return;
+          }
+          if (id === "anno") {
+            if (typeof handlers.onAddLineAnnotation === "function") {
+              handlers.onAddLineAnnotation(ctx.block);
+            }
             closeEmptyLineInsertMenu();
             return;
           }
@@ -50053,9 +50124,9 @@ var MDAEditorBundle = (() => {
                 return line;
               }
               var info = stripListPrefix(line);
-              if (!info.type) {
+              if (type === "task" && !remove) {
                 var heading = stripHeadingPrefix(info.indent, info.body);
-                info = { type: null, indent: heading.indent, body: heading.body };
+                info = { type: info.type, indent: heading.indent, body: heading.body };
               }
               if (remove) return info.indent + info.body;
               return info.indent + prefix + info.body;
@@ -51178,11 +51249,21 @@ var MDAEditorBundle = (() => {
         if (/^>\s?/.test(body)) return "quote";
         return "paragraph";
       }
+      var LIST_ITEM_HEADING_RE = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+(#{1,6})\s+/;
+      function listItemHeadingLevel(text) {
+        const m = String(text || "").match(LIST_ITEM_HEADING_RE);
+        return m ? m[1].length : 0;
+      }
       function paragraphSelectOfLine(text) {
         const fmt = blockFormatOfLine(text);
         if (fmt.charAt(0) === "h" && fmt.length === 2) return (
           /** @type {'h1'} */
           fmt
+        );
+        const lv = listItemHeadingLevel(text);
+        if (lv) return (
+          /** @type {'h1'} */
+          "h" + lv
         );
         return "paragraph";
       }
@@ -51378,6 +51459,7 @@ var MDAEditorBundle = (() => {
       }
       module.exports = {
         blockFormatOfLine,
+        paragraphSelectOfLine,
         deriveBlockFormat,
         deriveParagraphSelect,
         deriveListToolbarState,
@@ -53709,6 +53791,7 @@ var MDAEditorBundle = (() => {
         expandGfmTableRange,
         expandTableBlockRange,
         splitRow,
+        isSepRow,
         escapeCell,
         tablesEqual,
         normalizeCellText,
@@ -55849,7 +55932,7 @@ var MDAEditorBundle = (() => {
           }
           const btn = document.createElement("button");
           btn.type = "button";
-          btn.className = "mda-menu-item mda-cm-table-menu-item" + (item.disabled ? " disabled" : "");
+          btn.className = "mda-menu-item mda-cm-table-menu-item" + (item.disabled ? " disabled" : "") + (item.danger ? " mda-menu-danger" : "");
           btn.dataset.action = item.id;
           btn.dataset.i18nKey = item.i18nKey;
           btn.innerHTML = tableMenuItemInner(uiT(item.i18nKey, t), item.icon, item.key);
@@ -56288,17 +56371,17 @@ var MDAEditorBundle = (() => {
           }
           if (isBodyRow || selection.kind === "row" && selection.row === -1) {
             if (items.length) items.push({ id: "---" });
-            items.push({ id: "insert-row-above", i18nKey: "widgetTableInsertRowAbove" });
-            items.push({ id: "insert-row-below", i18nKey: "widgetTableInsertRowBelow" });
+            items.push({ id: "insert-row-above", i18nKey: "widgetTableInsertRowAbove", icon: "insertRowAbove" });
+            items.push({ id: "insert-row-below", i18nKey: "widgetTableInsertRowBelow", icon: "insertRowBelow" });
           } else if (isColSel) {
             if (items.length) items.push({ id: "---" });
-            items.push({ id: "insert-col-left", i18nKey: "widgetTableInsertColLeft" });
-            items.push({ id: "insert-col-right", i18nKey: "widgetTableInsertColRight" });
+            items.push({ id: "insert-col-left", i18nKey: "widgetTableInsertColLeft", icon: "insertColLeft" });
+            items.push({ id: "insert-col-right", i18nKey: "widgetTableInsertColRight", icon: "insertColRight" });
           }
           if (canDeleteRow || canDeleteCol) {
             if (items.length) items.push({ id: "---" });
-            if (canDeleteRow) items.push({ id: "delete-row", i18nKey: "widgetTableDeleteRow" });
-            if (canDeleteCol) items.push({ id: "delete-col", i18nKey: "widgetTableDeleteCol" });
+            if (canDeleteRow) items.push({ id: "delete-row", i18nKey: "widgetTableDeleteRow", icon: "delete" });
+            if (canDeleteCol) items.push({ id: "delete-col", i18nKey: "widgetTableDeleteCol", icon: "delete" });
           }
           if (hasClipboard || inCell) {
             if (items.length) items.push({ id: "---" });
@@ -56311,7 +56394,7 @@ var MDAEditorBundle = (() => {
           }
           if (items.length) items.push({ id: "---" });
           if (!inCell || hasClipboard || tableStructuralSel) {
-            items.push({ id: "delete-table", i18nKey: "widgetTableDeleteTable", icon: "delete" });
+            items.push({ id: "delete-table", i18nKey: "widgetTableDeleteTable", icon: "delete", danger: true });
           }
           return items;
         }
@@ -62453,6 +62536,11 @@ var MDAEditorBundle = (() => {
             opts.onAddBlockAnnotation(block, kind);
           }
         }
+        function onAddLineAnnotation(block) {
+          if (typeof opts.onAddLineAnnotation === "function") {
+            opts.onAddLineAnnotation(block);
+          }
+        }
         return {
           onCopy,
           onCut,
@@ -62462,11 +62550,190 @@ var MDAEditorBundle = (() => {
           onBlankInsert,
           onAi,
           onSoon,
-          onAddBlockAnnotation
+          onAddBlockAnnotation,
+          onAddLineAnnotation
         };
       }
       module.exports = {
         createBlockMenuHandlers
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/link-hover-tip.js
+  var require_link_hover_tip = __commonJS({
+    "src/gui/renderer/editor/link-hover-tip.js"(exports, module) {
+      "use strict";
+      var { EditorView } = require_dist4();
+      var { syntaxTree } = require_dist7();
+      var SHOW_DELAY_MS = 450;
+      var HIDE_DELAY_MS = 80;
+      function decodeFileUrl(fileUrl) {
+        let s = String(fileUrl || "");
+        if (!/^file:/i.test(s)) return s;
+        s = s.replace(/^file:\/\//i, "");
+        if (/^\/[A-Za-z]:/.test(s)) s = s.slice(1);
+        try {
+          return decodeURIComponent(s);
+        } catch (_) {
+          return s;
+        }
+      }
+      function hrefAtPointer(view, event) {
+        const target = event.target;
+        if (target && target.closest) {
+          const el = target.closest("[data-mda-href], a.mda-cm-link[href]");
+          if (el) return el.getAttribute("data-mda-href") || el.getAttribute("href") || "";
+        }
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        if (pos == null) return "";
+        let node = syntaxTree(view.state).resolveInner(pos, 1);
+        const text = view.state.doc.toString();
+        while (node) {
+          if (node.name === "Link") {
+            const slice = text.slice(node.from, node.to);
+            const m = /^\[([\s\S]*?)\]\(([\s\S]*?)\)$/.exec(slice);
+            return m ? String(m[2] || "").trim() : "";
+          }
+          if (node.name === "Autolink") {
+            return text.slice(node.from + 1, node.to - 1).trim();
+          }
+          if (node.name === "URL") {
+            return text.slice(node.from, node.to).trim();
+          }
+          node = node.parent;
+        }
+        return "";
+      }
+      function openLinkHint(t) {
+        const isMac = (navigator.platform || "").toLowerCase().indexOf("mac") >= 0;
+        return t(isMac ? "linkTipOpenMac" : "linkTipOpenWin");
+      }
+      function linkDisplayPath(href, opts) {
+        if (!href) return "";
+        if (/^(https?:|mailto:)/i.test(href)) return href;
+        if (/^file:/i.test(href)) return decodeFileUrl(href);
+        if (typeof opts.resolveImageUrl === "function") {
+          const resolved = opts.resolveImageUrl(href);
+          if (resolved) {
+            if (/^file:/i.test(resolved)) return decodeFileUrl(resolved);
+            return resolved;
+          }
+        }
+        return href;
+      }
+      function createLinkHoverTipExtension(opts) {
+        opts = opts || {};
+        let showTimer = 0;
+        let hideTimer = 0;
+        let tipEl = null;
+        let lastHref = "";
+        let pendingX = 0;
+        let pendingY = 0;
+        function t(key) {
+          return typeof opts.t === "function" ? opts.t(key) : key;
+        }
+        function ensureTip() {
+          if (tipEl && tipEl.isConnected) return tipEl;
+          tipEl = document.createElement("div");
+          tipEl.className = "mda-cm-tb-floating-tip mda-cm-link-hover-tip";
+          tipEl.setAttribute("role", "tooltip");
+          document.body.appendChild(tipEl);
+          return tipEl;
+        }
+        function hideTip() {
+          lastHref = "";
+          if (tipEl) tipEl.classList.remove("is-visible");
+        }
+        function scheduleHide() {
+          window.clearTimeout(showTimer);
+          showTimer = 0;
+          window.clearTimeout(hideTimer);
+          hideTimer = window.setTimeout(hideTip, HIDE_DELAY_MS);
+        }
+        function showTip(href, x, y) {
+          const tip = ensureTip();
+          tip.textContent = linkDisplayPath(href, opts) + "\n" + openLinkHint(t) + "\n" + t("linkTipEdit");
+          tip.classList.add("is-visible");
+          lastHref = href;
+          const pad = 8;
+          let left = x + 12;
+          let top = y + 16;
+          const rect = tip.getBoundingClientRect();
+          if (left + rect.width > window.innerWidth - pad) {
+            left = window.innerWidth - rect.width - pad;
+          }
+          if (top + rect.height > window.innerHeight - pad) {
+            top = y - rect.height - 8;
+          }
+          if (left < pad) left = pad;
+          if (top < pad) top = pad;
+          tip.style.left = Math.round(left) + "px";
+          tip.style.top = Math.round(top) + "px";
+        }
+        function scheduleShow(view, event) {
+          const href = hrefAtPointer(view, event);
+          if (!href) {
+            scheduleHide();
+            return;
+          }
+          if (href === lastHref && tipEl && tipEl.classList.contains("is-visible")) return;
+          window.clearTimeout(hideTimer);
+          hideTimer = 0;
+          pendingX = event.clientX;
+          pendingY = event.clientY;
+          window.clearTimeout(showTimer);
+          showTimer = window.setTimeout(function() {
+            showTimer = 0;
+            const target = document.elementFromPoint(pendingX, pendingY);
+            const again = hrefAtPointer(view, {
+              clientX: pendingX,
+              clientY: pendingY,
+              target
+            });
+            if (!again) return;
+            showTip(again, pendingX, pendingY);
+          }, SHOW_DELAY_MS);
+        }
+        return [
+          EditorView.domEventHandlers({
+            mouseover: function(event, view) {
+              if (event.target && event.target.closest && event.target.closest(".mda-link-edit-popover")) {
+                return false;
+              }
+              scheduleShow(view, event);
+              return false;
+            },
+            mousemove: function(event, view) {
+              scheduleShow(view, event);
+              return false;
+            },
+            mouseout: function(event) {
+              const related = event.relatedTarget;
+              if (tipEl && related && tipEl.contains(
+                /** @type {Node} */
+                related
+              )) return false;
+              scheduleHide();
+              return false;
+            },
+            mousedown: function() {
+              scheduleHide();
+              return false;
+            },
+            scroll: function() {
+              scheduleHide();
+              return false;
+            }
+          }),
+          EditorView.updateListener.of(function(update) {
+            if (update.docChanged || update.selectionSet || update.viewportChanged) scheduleHide();
+          })
+        ];
+      }
+      module.exports = {
+        createLinkHoverTipExtension,
+        hrefAtPointer
       };
     }
   });
@@ -63290,6 +63557,7 @@ var MDAEditorBundle = (() => {
         createInlineMathShortcutKeymap
       } = require_inline_math_selection();
       var { createBlockMenuHandlers } = require_block_menu_handlers();
+      var { createLinkHoverTipExtension, hrefAtPointer } = require_link_hover_tip();
       var { createEmptyLineInsertExtension } = require_empty_line_insert();
       var { createOutlineClickSyncExtension } = require_outline_click_sync();
       var {
@@ -63946,32 +64214,6 @@ var MDAEditorBundle = (() => {
           }
         });
       }
-      function hrefAtEvent(view, event) {
-        const target = event.target;
-        if (target && target.closest) {
-          const el = target.closest("[data-mda-href]");
-          if (el) return el.getAttribute("data-mda-href") || "";
-        }
-        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-        if (pos == null) return "";
-        let node = syntaxTree(view.state).resolveInner(pos, 1);
-        const text = view.state.doc.toString();
-        while (node) {
-          if (node.name === "Link") {
-            const slice = text.slice(node.from, node.to);
-            const m = /^\[([\s\S]*?)\]\(([\s\S]*?)\)$/.exec(slice);
-            return m ? String(m[2] || "").trim() : "";
-          }
-          if (node.name === "Autolink") {
-            return text.slice(node.from + 1, node.to - 1).trim();
-          }
-          if (node.name === "URL") {
-            return text.slice(node.from, node.to).trim();
-          }
-          node = node.parent;
-        }
-        return "";
-      }
       var layerBuildCache = { doc: null, fp: "", result: null, opts: null };
       var AnnoFilterRefresh = StateEffect.define();
       function annoDecorCacheKey(liveOpts) {
@@ -64129,7 +64371,8 @@ var MDAEditorBundle = (() => {
           onPickImageInsert: opts.onPickImageInsert,
           onSoon: opts.onBlockMenuSoon,
           onAiAction: opts.onBlockMenuAi,
-          onAddBlockAnnotation: opts.onAddBlockAnnotation
+          onAddBlockAnnotation: opts.onAddBlockAnnotation,
+          onAddLineAnnotation: opts.onAddLineAnnotation
         });
         const liveOpts = Object.assign({}, opts, {
           blockMenuHandlers,
@@ -64176,7 +64419,7 @@ var MDAEditorBundle = (() => {
           },
           click: function(event, view) {
             if (!(event.ctrlKey || event.metaKey)) return false;
-            const href = hrefAtEvent(view, event);
+            const href = hrefAtPointer(view, event);
             if (!href) return false;
             event.preventDefault();
             if (typeof opts.onOpenLink === "function") opts.onOpenLink(href);
@@ -64225,7 +64468,8 @@ var MDAEditorBundle = (() => {
           })
         ].concat(makeLayerPlugin("hide", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("style", liveOpts, {}, blockFocusField)).concat(makeLayerPlugin("widget", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("line", liveOpts, {}, blockFocusField)).concat([
           createDocLineCursorKeymap(blockDecoField),
-          linkClick,
+          linkClick
+        ]).concat(createLinkHoverTipExtension(liveOpts)).concat([
           createClickCollapseExtension(),
           createContextMenuExtension(liveOpts),
           createOutlineClickSyncExtension(liveOpts.onHeadingClick),
@@ -64480,7 +64724,7 @@ var MDAEditorBundle = (() => {
             rowRight = c.right;
             continue;
           }
-          if (Math.abs(c.top - rowTop) > 3) {
+          if (!(c.top < rowBottom - 1 && c.bottom > rowTop + 1)) {
             flush(pos);
             rowFrom = pos;
             rowTop = c.top;
@@ -64879,6 +65123,579 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/find-highlight.js
+  var require_find_highlight = __commonJS({
+    "src/gui/renderer/editor/find-highlight.js"(exports, module) {
+      "use strict";
+      var { StateEffect, StateField } = require_dist2();
+      var { Decoration, EditorView } = require_dist4();
+      var setFindHighlights = StateEffect.define();
+      var findHighlightField = StateField.define({
+        create: function() {
+          return Decoration.none;
+        },
+        update: function(deco, tr) {
+          deco = deco.map(tr.changes);
+          for (var i = 0; i < tr.effects.length; i++) {
+            var e = tr.effects[i];
+            if (!e.is(setFindHighlights)) continue;
+            var payload = e.value;
+            if (!payload || !payload.matches || !payload.matches.length) {
+              deco = Decoration.none;
+            } else {
+              var marks = [];
+              for (var j = 0; j < payload.matches.length; j++) {
+                var m = payload.matches[j];
+                if (m.end <= m.start) continue;
+                var cls = j === payload.activeIndex ? "mda-cm-find-active" : "mda-cm-find-mark";
+                marks.push(Decoration.mark({ class: cls }).range(m.start, m.end));
+              }
+              deco = marks.length ? Decoration.set(marks, true) : Decoration.none;
+            }
+          }
+          return deco;
+        },
+        provide: function(f) {
+          return EditorView.decorations.from(f);
+        }
+      });
+      function findHighlightExtension() {
+        return findHighlightField;
+      }
+      function applyFindHighlights(view, matches, activeIndex, tableRanges) {
+        var payload = null;
+        if (matches && matches.length) {
+          var docMatches = matches;
+          var docActive = activeIndex == null ? -1 : activeIndex;
+          if (tableRanges && tableRanges.length) {
+            docMatches = [];
+            docActive = -1;
+            for (var i = 0; i < matches.length; i++) {
+              var m = matches[i];
+              var inTable = false;
+              for (var t = 0; t < tableRanges.length; t++) {
+                var r = tableRanges[t];
+                if (m.end > r.from && m.start < r.to) {
+                  inTable = true;
+                  break;
+                }
+              }
+              if (inTable) continue;
+              if (i === activeIndex) docActive = docMatches.length;
+              docMatches.push(m);
+            }
+          }
+          if (docMatches.length) {
+            payload = { matches: docMatches, activeIndex: docActive };
+          }
+        }
+        view.dispatch({ effects: setFindHighlights.of(payload) });
+      }
+      module.exports = {
+        findHighlightExtension,
+        applyFindHighlights,
+        setFindHighlights
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widget-find-dom.js
+  var require_widget_find_dom = __commonJS({
+    "src/gui/renderer/editor/widget-find-dom.js"(exports, module) {
+      "use strict";
+      var FIND_MARK_CLS = "mda-cm-table-find";
+      var FIND_ACTIVE_CLS = "mda-cm-table-find-active";
+      function clearContainerFindMarks(container) {
+        if (!container) return;
+        const marks = container.querySelectorAll(
+          "mark." + FIND_MARK_CLS + ", mark." + FIND_ACTIVE_CLS + ", span." + FIND_MARK_CLS + ", span." + FIND_ACTIVE_CLS
+        );
+        for (let i = 0; i < marks.length; i++) {
+          const mark = marks[i];
+          const parent = mark.parentNode;
+          if (!parent) continue;
+          while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+          parent.removeChild(mark);
+          if (parent.normalize) parent.normalize();
+        }
+      }
+      function logicalTextCharLength(text) {
+        return String(text || "").replace(/\u200b/g, "").replace(/\u00a0/g, " ").length;
+      }
+      function logicalToRawSlice(raw, localLogicalStart, localLogicalEnd) {
+        let logical = 0;
+        let rawStart = -1;
+        let rawEnd = raw.length;
+        const s = String(raw || "");
+        for (let i = 0; i < s.length; i++) {
+          const ch = s.charAt(i);
+          if (ch === "\u200B") continue;
+          if (logical === localLogicalStart && rawStart < 0) rawStart = i;
+          if (logical >= localLogicalEnd) {
+            rawEnd = i;
+            break;
+          }
+          logical += 1;
+        }
+        if (rawStart < 0) rawStart = 0;
+        return { start: rawStart, end: rawEnd };
+      }
+      function indexTextNodes(container) {
+        const list = [];
+        if (!container) return list;
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+          acceptNode: function(node2) {
+            const p = node2.parentElement;
+            if (p && p.closest && p.closest("[data-mda-widget-find]")) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        });
+        let pos = 0;
+        let node = walker.nextNode();
+        while (node) {
+          const len = logicalTextCharLength(node.nodeValue);
+          if (len > 0) {
+            list.push({ node, globalStart: pos, globalEnd: pos + len });
+          }
+          pos += len;
+          node = walker.nextNode();
+        }
+        return list;
+      }
+      function indexLogicalTextNodes(container) {
+        const list = [];
+        if (!container) return list;
+        function walk(node) {
+          for (let child = node.firstChild; child; child = child.nextSibling) {
+            if (child.nodeType === Node.TEXT_NODE) {
+              const p = child.parentElement;
+              if (p && p.closest && p.closest("[data-mda-widget-find]")) continue;
+              const len = logicalTextCharLength(child.nodeValue);
+              if (len > 0) {
+                list.push({
+                  node: child,
+                  globalStart: logicalPos,
+                  globalEnd: logicalPos + len
+                });
+              }
+              logicalPos += len;
+            } else if (child.nodeName === "BR") {
+              const p = child.parentElement;
+              if (p && p.closest && p.closest("[data-mda-widget-find]")) continue;
+              logicalPos += 1;
+            } else if (child.nodeType === Node.ELEMENT_NODE) {
+              walk(child);
+            }
+          }
+        }
+        let logicalPos = 0;
+        walk(container);
+        return list;
+      }
+      function collectVisibleTextSegments(container, visStart, visEnd) {
+        const segments = [];
+        if (!container || visEnd <= visStart) return segments;
+        const useLogical = !!(container.querySelector && container.querySelector("br"));
+        const nodes = useLogical ? indexLogicalTextNodes(container) : indexTextNodes(container);
+        for (let i = 0; i < nodes.length; i++) {
+          const entry = nodes[i];
+          const overlapStart = Math.max(visStart, entry.globalStart);
+          const overlapEnd = Math.min(visEnd, entry.globalEnd);
+          if (overlapEnd <= overlapStart) continue;
+          const localLogicalStart = overlapStart - entry.globalStart;
+          const localLogicalEnd = overlapEnd - entry.globalStart;
+          const raw = logicalToRawSlice(entry.node.nodeValue || "", localLogicalStart, localLogicalEnd);
+          segments.push({
+            node: entry.node,
+            start: raw.start,
+            end: raw.end
+          });
+        }
+        return segments;
+      }
+      function splitAndWrapTextNode(textNode, start, end, className) {
+        if (!textNode || start >= end) return;
+        const parent = textNode.parentNode;
+        if (!parent) return;
+        const full = textNode.nodeValue || "";
+        const safeStart = Math.max(0, Math.min(start, full.length));
+        const safeEnd = Math.max(safeStart, Math.min(end, full.length));
+        if (safeEnd <= safeStart) return;
+        const before = full.slice(0, safeStart);
+        const mid = full.slice(safeStart, safeEnd);
+        const after = full.slice(safeEnd);
+        const wrap = document.createElement("span");
+        wrap.className = className;
+        wrap.setAttribute("data-mda-widget-find", "1");
+        wrap.textContent = mid;
+        if (before) parent.insertBefore(document.createTextNode(before), textNode);
+        parent.insertBefore(wrap, textNode);
+        if (after) parent.insertBefore(document.createTextNode(after), textNode);
+        parent.removeChild(textNode);
+      }
+      function applyVisibleHighlightsInContainer(container, ranges) {
+        if (!container || !ranges.length) return;
+        const sorted = ranges.slice().sort(function(a, b) {
+          return b.visStart - a.visStart;
+        });
+        for (let i = 0; i < sorted.length; i++) {
+          const r = sorted[i];
+          if (r.visEnd <= r.visStart) continue;
+          const segs = collectVisibleTextSegments(container, r.visStart, r.visEnd);
+          for (let j = segs.length - 1; j >= 0; j--) {
+            const seg = segs[j];
+            if (!seg.node.isConnected) continue;
+            splitAndWrapTextNode(seg.node, seg.start, seg.end, r.cls);
+          }
+        }
+      }
+      module.exports = {
+        FIND_MARK_CLS,
+        FIND_ACTIVE_CLS,
+        clearContainerFindMarks,
+        collectVisibleTextSegments,
+        splitAndWrapTextNode,
+        applyVisibleHighlightsInContainer,
+        indexTextNodes,
+        indexLogicalTextNodes
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/table-find-highlight.js
+  var require_table_find_highlight = __commonJS({
+    "src/gui/renderer/editor/table-find-highlight.js"(exports, module) {
+      "use strict";
+      var { parseTableMetaLine, splitRow, isSepRow } = require_parse_table();
+      var { markdownToVisibleOffset } = require_table_cell_content();
+      var {
+        FIND_MARK_CLS,
+        FIND_ACTIVE_CLS,
+        clearContainerFindMarks,
+        applyVisibleHighlightsInContainer
+      } = require_widget_find_dom();
+      function cellContentRangesInLine(line, lineStart) {
+        const ranges = [];
+        let i = 0;
+        const s = String(line || "");
+        if (s.charAt(i) === "|") i += 1;
+        let col = 0;
+        while (i <= s.length) {
+          while (i < s.length && s.charAt(i) === " ") i += 1;
+          const start = i;
+          while (i < s.length) {
+            if (s.charAt(i) === "\\" && i + 1 < s.length) {
+              i += 2;
+              continue;
+            }
+            if (s.charAt(i) === "|") break;
+            i += 1;
+          }
+          ranges.push({ col, docFrom: lineStart + start, docTo: lineStart + i });
+          col += 1;
+          if (i < s.length && s.charAt(i) === "|") i += 1;
+          else break;
+        }
+        return ranges;
+      }
+      function buildTableCellDocMap(blockText, blockFrom) {
+        const normalized = String(blockText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        const lines = normalized.split("\n");
+        let lineStart = blockFrom;
+        let tableLineIdx = -1;
+        const cells = [];
+        for (let li = 0; li < lines.length; li++) {
+          const line = lines[li];
+          const trimmed = line.trim();
+          const nextLineStart = lineStart + line.length + (li < lines.length - 1 ? 1 : 0);
+          if (!trimmed) {
+            lineStart = nextLineStart;
+            continue;
+          }
+          if (parseTableMetaLine(line)) {
+            lineStart = nextLineStart;
+            continue;
+          }
+          if (!trimmed.startsWith("|")) {
+            lineStart = nextLineStart;
+            continue;
+          }
+          tableLineIdx += 1;
+          if (tableLineIdx === 1 || isSepRow(line)) {
+            lineStart = nextLineStart;
+            continue;
+          }
+          const row = tableLineIdx === 0 ? -1 : tableLineIdx - 2;
+          const colRanges = cellContentRangesInLine(line, lineStart);
+          const parts = splitRow(line);
+          for (let c = 0; c < colRanges.length; c++) {
+            const r = colRanges[c];
+            if (r.docTo <= r.docFrom) continue;
+            cells.push({
+              row,
+              col: c,
+              docFrom: r.docFrom,
+              docTo: r.docTo,
+              markdown: parts[c] != null ? parts[c] : ""
+            });
+          }
+          lineStart = nextLineStart;
+        }
+        return cells;
+      }
+      function getTableBlockRanges(view) {
+        const ranges = [];
+        if (!view || !view.dom) return ranges;
+        const blocks = view.dom.querySelectorAll(".mda-cm-table-block");
+        for (let i = 0; i < blocks.length; i++) {
+          const from = parseInt(blocks[i].getAttribute("data-mda-block-from") || "", 10);
+          const to = parseInt(blocks[i].getAttribute("data-mda-block-to") || "", 10);
+          if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
+            ranges.push({ from, to });
+          }
+        }
+        return ranges;
+      }
+      function clearCellFindMarks(cell) {
+        clearContainerFindMarks(cell);
+      }
+      function clearTableFindHighlights(view) {
+        if (!view || !view.dom) return;
+        const cells = view.dom.querySelectorAll(".mda-cm-table th, .mda-cm-table td");
+        for (let i = 0; i < cells.length; i++) clearCellFindMarks(cells[i]);
+      }
+      function queryTableCell(tableRoot, row, col) {
+        if (!tableRoot) return null;
+        const table = tableRoot.querySelector("table");
+        if (!table) return null;
+        const sel = (row < 0 ? "thead th" : "tbody td") + '[data-mda-row="' + row + '"][data-mda-col="' + col + '"]';
+        return table.querySelector(sel);
+      }
+      function applyTableFindHighlights(view, matches, activeIndex) {
+        if (!view || !view.dom) return;
+        clearTableFindHighlights(view);
+        if (!matches || !matches.length) return;
+        const doc = view.state.doc.toString();
+        const blocks = view.dom.querySelectorAll(".mda-cm-table-block");
+        const cellRanges = /* @__PURE__ */ new Map();
+        for (let bi = 0; bi < blocks.length; bi++) {
+          const root = blocks[bi];
+          const blockFrom = parseInt(root.getAttribute("data-mda-block-from") || "", 10);
+          const blockTo = parseInt(root.getAttribute("data-mda-block-to") || "", 10);
+          if (!Number.isFinite(blockFrom) || !Number.isFinite(blockTo) || blockTo <= blockFrom) {
+            continue;
+          }
+          const blockText = doc.slice(blockFrom, blockTo);
+          const cellMap = buildTableCellDocMap(blockText, blockFrom);
+          for (let mi = 0; mi < matches.length; mi++) {
+            const m = matches[mi];
+            if (m.end <= m.start) continue;
+            if (m.end <= blockFrom || m.start >= blockTo) continue;
+            const isActive = mi === activeIndex;
+            const cls = isActive ? FIND_ACTIVE_CLS : FIND_MARK_CLS;
+            const matchFrom = Math.max(m.start, blockFrom);
+            const matchTo = Math.min(m.end, blockTo);
+            for (let ci = 0; ci < cellMap.length; ci++) {
+              const cellInfo = cellMap[ci];
+              if (matchTo <= cellInfo.docFrom || matchFrom >= cellInfo.docTo) continue;
+              const localFrom = Math.max(0, matchFrom - cellInfo.docFrom);
+              const localTo = Math.min(cellInfo.docTo - cellInfo.docFrom, matchTo - cellInfo.docFrom);
+              const cellMd = doc.slice(cellInfo.docFrom, cellInfo.docTo);
+              const visStart = markdownToVisibleOffset(cellMd, localFrom);
+              const visEnd = markdownToVisibleOffset(cellMd, localTo);
+              if (visEnd <= visStart) continue;
+              const cellEl = queryTableCell(root, cellInfo.row, cellInfo.col);
+              if (!cellEl) continue;
+              if (!cellRanges.has(cellEl)) cellRanges.set(cellEl, []);
+              cellRanges.get(cellEl).push({ visStart, visEnd, cls });
+            }
+          }
+        }
+        cellRanges.forEach(function(ranges, cell) {
+          applyVisibleHighlightsInContainer(cell, ranges);
+        });
+      }
+      module.exports = {
+        applyTableFindHighlights,
+        clearTableFindHighlights,
+        buildTableCellDocMap,
+        getTableBlockRanges
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/code-find-highlight.js
+  var require_code_find_highlight = __commonJS({
+    "src/gui/renderer/editor/code-find-highlight.js"(exports, module) {
+      "use strict";
+      var { readPlainCodeDom } = require_code();
+      var {
+        FIND_MARK_CLS,
+        FIND_ACTIVE_CLS,
+        clearContainerFindMarks,
+        applyVisibleHighlightsInContainer,
+        indexLogicalTextNodes,
+        indexTextNodes
+      } = require_widget_find_dom();
+      function getFenceBodyDocRange(blockFrom, blockText) {
+        const text = String(blockText || "").replace(/\r\n/g, "\n");
+        const openNl = text.indexOf("\n");
+        if (openNl < 0) return null;
+        const openLine = text.slice(0, openNl);
+        const openM = /^ {0,3}(`{3,}|~{3,})/.exec(openLine);
+        if (!openM) return null;
+        const marker = openM[1];
+        const ch = marker.charAt(0);
+        const minLen = marker.length;
+        const closeRe = new RegExp("^ {0,3}\\" + ch + "{" + minLen + ",}\\s*$");
+        const bodyStartRel = openNl + 1;
+        let bodyEndRel = text.length;
+        const tail = text.slice(bodyStartRel);
+        let scan = 0;
+        while (scan < tail.length) {
+          const nl = tail.indexOf("\n", scan);
+          const lineEnd = nl < 0 ? tail.length : nl;
+          const line = tail.slice(scan, lineEnd);
+          if (closeRe.test(line)) {
+            bodyEndRel = bodyStartRel + scan;
+            break;
+          }
+          scan = nl < 0 ? tail.length : nl + 1;
+        }
+        const code = text.slice(bodyStartRel, bodyEndRel);
+        return {
+          bodyFrom: blockFrom + bodyStartRel,
+          bodyTo: blockFrom + bodyEndRel,
+          code
+        };
+      }
+      function getCodeInputPlainText(codeInput) {
+        if (!codeInput) return "";
+        if (codeInput.querySelector && codeInput.querySelector("br")) {
+          return readPlainCodeDom(codeInput).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        }
+        return String(codeInput.textContent || "").replace(/\u200b/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      }
+      function fencePlainAligns(a, b) {
+        if (a === b) return true;
+        if (a.endsWith("\n") && a.slice(0, -1) === b) return true;
+        if (b.endsWith("\n") && b.slice(0, -1) === a) return true;
+        return false;
+      }
+      function getCodeBlockRanges(view) {
+        const ranges = [];
+        if (!view || !view.dom) return ranges;
+        const blocks = view.dom.querySelectorAll(".mda-cm-code-block");
+        for (let i = 0; i < blocks.length; i++) {
+          const from = parseInt(blocks[i].getAttribute("data-mda-block-from") || "", 10);
+          const to = parseInt(blocks[i].getAttribute("data-mda-block-to") || "", 10);
+          if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
+            ranges.push({ from, to });
+          }
+        }
+        return ranges;
+      }
+      function clearCodeFindHighlights(view) {
+        if (!view || !view.dom) return;
+        const inputs = view.dom.querySelectorAll(".mda-cm-code-input");
+        for (let i = 0; i < inputs.length; i++) clearContainerFindMarks(inputs[i]);
+      }
+      function applyCodeFindHighlights(view, matches, activeIndex) {
+        if (!view || !view.dom) return;
+        clearCodeFindHighlights(view);
+        if (!matches || !matches.length) return;
+        const doc = view.state.doc.toString();
+        const blocks = view.dom.querySelectorAll(".mda-cm-code-block");
+        const inputRanges = /* @__PURE__ */ new Map();
+        for (let bi = 0; bi < blocks.length; bi++) {
+          const root = blocks[bi];
+          const blockFrom = parseInt(root.getAttribute("data-mda-block-from") || "", 10);
+          const blockTo = parseInt(root.getAttribute("data-mda-block-to") || "", 10);
+          if (!Number.isFinite(blockFrom) || !Number.isFinite(blockTo) || blockTo <= blockFrom) {
+            continue;
+          }
+          const blockText = doc.slice(blockFrom, blockTo);
+          const body = getFenceBodyDocRange(blockFrom, blockText);
+          if (!body) continue;
+          const codeInput = root.querySelector(".mda-cm-code-input");
+          if (!codeInput) continue;
+          const plain = getCodeInputPlainText(codeInput);
+          if (!fencePlainAligns(plain, body.code)) continue;
+          const useLogical = !!(codeInput.querySelector && codeInput.querySelector("br"));
+          const indexFn = useLogical ? indexLogicalTextNodes : indexTextNodes;
+          const plainLen = indexFn(codeInput).reduce(function(sum, n) {
+            return sum + (n.globalEnd - n.globalStart);
+          }, 0);
+          const codeLen = body.code.length;
+          const lenOk = plainLen === codeLen || plainLen === codeLen + 1 || plainLen === codeLen - 1;
+          for (let mi = 0; mi < matches.length; mi++) {
+            const m = matches[mi];
+            if (m.end <= m.start) continue;
+            if (m.end <= body.bodyFrom || m.start >= body.bodyTo) continue;
+            const matchFrom = Math.max(m.start, body.bodyFrom);
+            const matchTo = Math.min(m.end, body.bodyTo);
+            const visStart = matchFrom - body.bodyFrom;
+            const visEnd = matchTo - body.bodyFrom;
+            if (visEnd <= visStart) continue;
+            if (visEnd > codeLen || lenOk && visEnd > plainLen) continue;
+            const slice = body.code.slice(visStart, visEnd);
+            const docSlice = doc.slice(matchFrom, matchTo);
+            if (slice !== docSlice) continue;
+            const isActive = mi === activeIndex;
+            const cls = isActive ? FIND_ACTIVE_CLS : FIND_MARK_CLS;
+            if (!inputRanges.has(codeInput)) inputRanges.set(codeInput, []);
+            inputRanges.get(codeInput).push({ visStart, visEnd, cls });
+          }
+        }
+        inputRanges.forEach(function(ranges, input) {
+          applyVisibleHighlightsInContainer(input, ranges);
+        });
+      }
+      module.exports = {
+        applyCodeFindHighlights,
+        clearCodeFindHighlights,
+        getCodeBlockRanges,
+        getFenceBodyDocRange,
+        getCodeInputPlainText
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widget-find-highlight.js
+  var require_widget_find_highlight = __commonJS({
+    "src/gui/renderer/editor/widget-find-highlight.js"(exports, module) {
+      "use strict";
+      var {
+        applyTableFindHighlights,
+        clearTableFindHighlights,
+        getTableBlockRanges
+      } = require_table_find_highlight();
+      var {
+        applyCodeFindHighlights,
+        clearCodeFindHighlights,
+        getCodeBlockRanges
+      } = require_code_find_highlight();
+      function getWidgetBlockRanges(view) {
+        return getTableBlockRanges(view).concat(getCodeBlockRanges(view));
+      }
+      function applyWidgetFindHighlights(view, matches, activeIndex) {
+        applyTableFindHighlights(view, matches, activeIndex);
+        applyCodeFindHighlights(view, matches, activeIndex);
+      }
+      function clearWidgetFindHighlights(view) {
+        clearTableFindHighlights(view);
+        clearCodeFindHighlights(view);
+      }
+      module.exports = {
+        getWidgetBlockRanges,
+        applyWidgetFindHighlights,
+        clearWidgetFindHighlights
+      };
+    }
+  });
+
   // src/gui/renderer/editor/toolbar-icons.js
   var require_toolbar_icons = __commonJS({
     "src/gui/renderer/editor/toolbar-icons.js"(exports, module) {
@@ -64905,7 +65722,7 @@ var MDAEditorBundle = (() => {
     "src/gui/renderer/editor/state/format-availability.js"(exports, module) {
       "use strict";
       var { syntaxTree } = require_dist7();
-      var { blockFormatOfLine } = require_block_format();
+      var { blockFormatOfLine, paragraphSelectOfLine } = require_block_format();
       var { buildCodeFenceMask } = require_parse_math();
       var { detectFrontMatter } = require_readonly_blocks();
       var { getSelectedBlockOfKind } = require_block_selection();
@@ -64985,7 +65802,7 @@ var MDAEditorBundle = (() => {
         for (let n = fromN; n <= toN; n++) {
           const text = state.doc.line(n).text;
           if (!String(text).trim()) continue;
-          const fmt = blockFormatOfLine(text);
+          const fmt = paragraphSelectOfLine(text);
           if (fmt.charAt(0) === "h" && fmt.length === 2) return true;
         }
         return false;
@@ -65012,6 +65829,7 @@ var MDAEditorBundle = (() => {
           strike: false,
           code: false,
           list: false,
+          taskList: false,
           inHeading: false,
           mediaOrFence: true
         };
@@ -65040,6 +65858,7 @@ var MDAEditorBundle = (() => {
             strike: false,
             code: false,
             list: false,
+            taskList: false,
             inHeading,
             mediaOrFence: true
           };
@@ -65048,6 +65867,7 @@ var MDAEditorBundle = (() => {
         const markOk = true;
         const code = true;
         const list = true;
+        const taskList = !inHeading;
         return {
           bold,
           italic: markOk,
@@ -65055,6 +65875,7 @@ var MDAEditorBundle = (() => {
           strike: markOk,
           code,
           list,
+          taskList,
           inHeading,
           mediaOrFence: false
         };
@@ -65066,7 +65887,8 @@ var MDAEditorBundle = (() => {
         if (cmd === "underline") return !!avail.underline;
         if (cmd === "strike") return !!avail.strike;
         if (cmd === "code") return !!avail.code;
-        if (cmd === "ul" || cmd === "ol" || cmd === "task") return !!avail.list;
+        if (cmd === "task") return !!avail.list && !!avail.taskList;
+        if (cmd === "ul" || cmd === "ol") return !!avail.list;
         return true;
       }
       module.exports = {
@@ -65655,8 +66477,10 @@ var MDAEditorBundle = (() => {
       };
       var activeInsertMenu = null;
       var activeExportMenu = null;
+      var activeParagraphMenu = null;
       var insertDismissFn = null;
       var exportDismissFn = null;
+      var paragraphDismissFn = null;
       function unbindToolbarPopupDismiss(fn) {
         if (!fn || typeof document === "undefined") return;
         document.removeEventListener("mousedown", fn, true);
@@ -65694,6 +66518,22 @@ var MDAEditorBundle = (() => {
           if (btn && typeof btn.focus === "function") btn.focus();
         }
       }
+      function closeToolbarParagraphMenu(opts) {
+        unbindToolbarPopupDismiss(paragraphDismissFn);
+        paragraphDismissFn = null;
+        if (activeParagraphMenu && activeParagraphMenu.parentNode) {
+          activeParagraphMenu.parentNode.removeChild(activeParagraphMenu);
+        }
+        activeParagraphMenu = null;
+        const expanded = document.querySelectorAll('.mda-cm-tb-paragraph[aria-expanded="true"]');
+        for (let i = 0; i < expanded.length; i++) {
+          expanded[i].setAttribute("aria-expanded", "false");
+        }
+        if (opts && opts.restoreFocus) {
+          const btn = document.querySelector(".mda-cm-tb-paragraph");
+          if (btn && typeof btn.focus === "function") btn.focus();
+        }
+      }
       function tbButtonHtml(cmd, spec) {
         spec = spec || {};
         const cls = "mda-cm-tb-btn" + (spec.toggle ? " mda-cm-tb-toggle" : "") + (spec.soon ? " mda-cm-tb-soon" : "") + (spec.extraClass ? " " + spec.extraClass : "");
@@ -65713,7 +66553,7 @@ var MDAEditorBundle = (() => {
         bar.className = "mda-cm-edit-toolbar";
         bar.setAttribute("role", "toolbar");
         bar.setAttribute("aria-orientation", "horizontal");
-        bar.innerHTML = '<div class="mda-cm-tb-main"><div class="mda-cm-tb-group" data-group="history">' + tbButtonHtml("undo", { icon: "undo", keyshortcuts: "Control+Z", tip: true }) + tbButtonHtml("redo", { icon: "redo", keyshortcuts: "Control+Y", tip: true }) + tbButtonHtml("clear-format", { icon: "clearFormat", tip: true }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="paragraph"><span class="mda-cm-tb-tip-host" data-tip-cmd="paragraph"><select class="mda-cm-tb-select" data-cmd="paragraph" aria-label=""></select></span></div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="inline">' + tbButtonHtml("bold", {
+        bar.innerHTML = '<div class="mda-cm-tb-main"><div class="mda-cm-tb-group" data-group="history">' + tbButtonHtml("undo", { icon: "undo", keyshortcuts: "Control+Z", tip: true }) + tbButtonHtml("redo", { icon: "redo", keyshortcuts: "Control+Y", tip: true }) + tbButtonHtml("clear-format", { icon: "clearFormat", tip: true }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="paragraph"><span class="mda-cm-tb-tip-host" data-tip-cmd="paragraph"><button type="button" class="mda-cm-tb-select mda-cm-tb-paragraph" data-cmd="paragraph-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-paragraph-menu"><span class="mda-cm-tb-paragraph-label"></span></button></span></div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="inline">' + tbButtonHtml("bold", {
           toggle: true,
           pressed: true,
           icon: "bold",
@@ -65761,12 +66601,13 @@ var MDAEditorBundle = (() => {
           icon: "ol",
           keyshortcuts: "Control+Shift+U",
           tip: true
-        }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="utility">' + tbButtonHtml("save", { icon: "save" }) + tbButtonHtml("copy-preview", { icon: "copyPreview", keyshortcuts: "Control+Alt+C" }) + '<button type="button" class="mda-cm-tb-btn mda-cm-tb-export" data-cmd="export-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-export-menu" title="">' + toolbarIconHtml("export") + '<span class="mda-cm-tb-export-label"></span><span class="mda-cm-tb-export-caret" aria-hidden="true">\u25BE</span></button>' + tbButtonHtml("find", { icon: "find" }) + tbButtonHtml("comment", { icon: "comment", pressed: true }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="insert"><button type="button" class="mda-cm-tb-btn mda-cm-tb-insert" data-cmd="insert-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-insert-menu" title=""><span class="mda-cm-tb-insert-plus" aria-hidden="true">+</span><span class="mda-cm-tb-insert-label"></span></button><button type="button" class="mda-cm-tb-btn mda-cm-tb-ai" data-cmd="ai" data-soon="1" title="">' + toolbarIconHtml("ai") + '<span class="mda-cm-tb-ai-text"></span><span class="mda-cm-tb-ai-caret" aria-hidden="true">\u25BE</span></button></div></div>';
+        }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="utility">' + tbButtonHtml("save", { icon: "save", keyshortcuts: "Control+S", tip: true }) + tbButtonHtml("copy-preview", { icon: "copyPreview", keyshortcuts: "Control+Alt+C", tip: true }) + '<button type="button" class="mda-cm-tb-btn mda-cm-tb-export" data-cmd="export-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-export-menu" title="">' + toolbarIconHtml("export") + '<span class="mda-cm-tb-export-label"></span><span class="mda-cm-tb-export-caret" aria-hidden="true">\u25BE</span></button>' + tbButtonHtml("find", { icon: "find", keyshortcuts: "Control+F", tip: true }) + tbButtonHtml("comment", { icon: "comment", keyshortcuts: "Control+Shift+B", tip: true }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="insert"><button type="button" class="mda-cm-tb-btn mda-cm-tb-insert" data-cmd="insert-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-insert-menu" title=""><span class="mda-cm-tb-insert-plus" aria-hidden="true">+</span><span class="mda-cm-tb-insert-label"></span></button><button type="button" class="mda-cm-tb-btn mda-cm-tb-ai" data-cmd="ai" data-soon="1" title="">' + toolbarIconHtml("ai") + '<span class="mda-cm-tb-ai-text"></span><span class="mda-cm-tb-ai-caret" aria-hidden="true">\u25BE</span></button></div></div>';
         host.appendChild(bar);
-        const paraSelect = (
-          /** @type {HTMLSelectElement} */
-          bar.querySelector('[data-cmd="paragraph"]')
+        const paraBtn = (
+          /** @type {HTMLButtonElement} */
+          bar.querySelector('[data-cmd="paragraph-open"]')
         );
+        const paraLabel = bar.querySelector(".mda-cm-tb-paragraph-label");
         const paraOptions = [
           { v: "paragraph", k: "insertMenuBodyText" },
           { v: "h1", k: "insertMenuHeading1" },
@@ -65801,6 +66642,7 @@ var MDAEditorBundle = (() => {
           redo: ["tbTipRedo", "tbTipRedoWhere"],
           "clear-format": ["tbTipClearFormat", "tbTipClearFormatWhere"],
           paragraph: ["tbTipParagraph", "tbTipParagraphWhere"],
+          "paragraph-open": ["tbTipParagraph", "tbTipParagraphWhere"],
           bold: ["tbTipBold", "tbTipBoldWhere"],
           italic: ["tbTipItalic", "tbTipItalicWhere"],
           underline: ["tbTipUnderline", "tbTipUnderlineWhere"],
@@ -65808,19 +66650,13 @@ var MDAEditorBundle = (() => {
           code: ["tbTipCode", "tbTipCodeWhere"],
           task: ["tbTipTask", "tbTipTaskWhere"],
           ul: ["tbTipUl", "tbTipUlWhere"],
-          ol: ["tbTipOl", "tbTipOlWhere"]
+          ol: ["tbTipOl", "tbTipOlWhere"],
+          save: ["tbTipSave", "tbTipSaveWhere"],
+          "copy-preview": ["tbTipCopyPreview", "tbTipCopyPreviewWhere"],
+          find: ["tbTipFind", "tbTipFindWhere"]
         };
         function applyLabels() {
-          const prev = paraSelect.value;
-          paraSelect.innerHTML = "";
-          for (let i = 0; i < paraOptions.length; i++) {
-            const o = document.createElement("option");
-            o.value = paraOptions[i].v;
-            o.textContent = t(paraOptions[i].k);
-            paraSelect.appendChild(o);
-          }
-          if (prev) paraSelect.value = prev;
-          paraSelect.setAttribute("aria-label", t("tbParagraph"));
+          if (paraBtn) paraBtn.setAttribute("aria-label", t("tbParagraph"));
           bar.setAttribute("aria-label", t("tbToolbar"));
           bar.querySelectorAll("[data-cmd]").forEach(function(el) {
             const cmd = el.getAttribute("data-cmd");
@@ -65849,6 +66685,22 @@ var MDAEditorBundle = (() => {
           if (exportLabel) exportLabel.textContent = t("tbExport");
           const aiText = bar.querySelector(".mda-cm-tb-ai-text");
           if (aiText) aiText.textContent = t("tbAi");
+          refreshCommentTip();
+        }
+        function refreshCommentTip() {
+          const host2 = bar.querySelector('[data-tip-cmd="comment"]');
+          const btn = bar.querySelector('[data-cmd="comment"]');
+          if (!host2 || !btn) return;
+          let hasSelection = false;
+          if (typeof opts.resolveAddAnnoIntent === "function") {
+            const intent = opts.resolveAddAnnoIntent();
+            hasSelection = !!(intent && intent.hasSelection);
+          }
+          const line1 = hasSelection ? t("tbTipCommentSel") : t("tbTipComment");
+          const line2 = hasSelection ? t("tbTipCommentSelWhere") : t("tbTipCommentWhere");
+          btn.removeAttribute("title");
+          btn.setAttribute("aria-label", line1);
+          host2.setAttribute("data-tip", line1 + "\n" + line2);
         }
         applyLabels();
         let floatingTip = null;
@@ -65906,7 +66758,7 @@ var MDAEditorBundle = (() => {
           hideFloatingTip();
         });
         function toolbarControls() {
-          return Array.prototype.slice.call(bar.querySelectorAll("button[data-cmd], select[data-cmd]"));
+          return Array.prototype.slice.call(bar.querySelectorAll("button[data-cmd]"));
         }
         function enabledControls() {
           return toolbarControls().filter(function(el) {
@@ -65936,7 +66788,6 @@ var MDAEditorBundle = (() => {
         bar.addEventListener("keydown", function(e) {
           const target = e.target;
           if (!target || !bar.contains(target)) return;
-          if (target.tagName === "SELECT" && (e.key === "ArrowDown" || e.key === "ArrowUp")) return;
           if (e.key === "ArrowRight") {
             e.preventDefault();
             moveToolbarFocus(target, 1);
@@ -65987,7 +66838,9 @@ var MDAEditorBundle = (() => {
             if (INLINE_FORMAT_CMDS[cmd]) {
               e.preventDefault();
               prepareInlineFormatToolbar(view);
+              return;
             }
+            e.preventDefault();
           },
           true
         );
@@ -66075,21 +66928,20 @@ var MDAEditorBundle = (() => {
           };
           let readonly = typeof opts.isReadonly === "function" ? !!opts.isReadonly() : false;
           if (!readonly) readonly = selectionTouchesReadonly(state);
-          const mixedOpt = paraSelect.querySelector('option[data-mixed="1"]');
-          if (para.mixed) {
-            if (!mixedOpt) {
-              const o = document.createElement("option");
-              o.value = "";
-              o.dataset.mixed = "1";
-              o.textContent = t("tbParagraphMixed");
-              paraSelect.insertBefore(o, paraSelect.firstChild);
+          const mixedOpt = para.mixed;
+          if (paraLabel) {
+            if (mixedOpt) {
+              paraLabel.textContent = t("tbParagraphMixed");
             } else {
-              mixedOpt.textContent = t("tbParagraphMixed");
+              let label = "";
+              for (let pi = 0; pi < paraOptions.length; pi++) {
+                if (paraOptions[pi].v === para.value) {
+                  label = t(paraOptions[pi].k);
+                  break;
+                }
+              }
+              paraLabel.textContent = label;
             }
-            paraSelect.value = "";
-          } else {
-            if (mixedOpt) paraSelect.removeChild(mixedOpt);
-            paraSelect.value = para.value;
           }
           const canUndo = undoDepth(state) > 0;
           const canRedo = redoDepth(state) > 0;
@@ -66107,7 +66959,7 @@ var MDAEditorBundle = (() => {
               el.disabled = readonly;
               return;
             }
-            let disabled = readonly || formatLocked && !!NEEDS_EDITOR_ACTIVATION[cmd] || inFence || inTableCell && !TABLE_CELL_ALLOWED[cmd];
+            let disabled = readonly || formatLocked && !!NEEDS_EDITOR_ACTIVATION[cmd === "paragraph-open" ? "paragraph" : cmd] || inFence || inTableCell && !TABLE_CELL_ALLOWED[cmd];
             if (!disabled && AVAIL_CHECK_CMDS[cmd] && !inTableCell) {
               disabled = !isFormatCmdAvailable(cmd, avail);
             }
@@ -66136,11 +66988,11 @@ var MDAEditorBundle = (() => {
             }
           });
           const commentBtn = bar.querySelector('[data-cmd="comment"]');
-          if (commentBtn && typeof opts.getPanelVisible === "function") {
-            const vis = !!opts.getPanelVisible();
-            commentBtn.classList.toggle("is-active", vis);
-            commentBtn.setAttribute("aria-pressed", vis ? "true" : "false");
+          if (commentBtn) {
+            commentBtn.classList.remove("is-active");
+            commentBtn.removeAttribute("aria-pressed");
           }
+          refreshCommentTip();
           const focused = bar.querySelector('[tabindex="0"]');
           setRovingTabindex(focused && !focused.disabled ? focused : null);
         }
@@ -66162,13 +67014,18 @@ var MDAEditorBundle = (() => {
           menu.style.top = top + "px";
         }
         function bindToolbarPopupDismiss(menu, anchorEl, closeFn, kind) {
-          unbindToolbarPopupDismiss(kind === "export" ? exportDismissFn : insertDismissFn);
+          const prevFn = kind === "export" ? exportDismissFn : kind === "paragraph" ? paragraphDismissFn : insertDismissFn;
+          unbindToolbarPopupDismiss(prevFn);
           const dismiss = function(ev) {
             if (kind === "export" && activeExportMenu !== menu) {
               unbindToolbarPopupDismiss(dismiss);
               return;
             }
             if (kind === "insert" && activeInsertMenu !== menu) {
+              unbindToolbarPopupDismiss(dismiss);
+              return;
+            }
+            if (kind === "paragraph" && activeParagraphMenu !== menu) {
               unbindToolbarPopupDismiss(dismiss);
               return;
             }
@@ -66190,16 +67047,19 @@ var MDAEditorBundle = (() => {
             closeFn();
           };
           if (kind === "export") exportDismissFn = dismiss;
+          else if (kind === "paragraph") paragraphDismissFn = dismiss;
           else insertDismissFn = dismiss;
           window.setTimeout(function() {
             if (kind === "export" && activeExportMenu !== menu) return;
             if (kind === "insert" && activeInsertMenu !== menu) return;
+            if (kind === "paragraph" && activeParagraphMenu !== menu) return;
             document.addEventListener("mousedown", dismiss, true);
             document.addEventListener("keydown", dismiss, true);
           }, 0);
         }
         function openInsertMenu(anchorEl) {
           closeToolbarExportMenu();
+          closeToolbarParagraphMenu();
           closeToolbarInsertMenu();
           const menu = document.createElement("div");
           menu.className = "mda-context-menu mda-empty-line-insert-menu mda-block-handle-submenu mda-insert-menu-panel";
@@ -66214,6 +67074,10 @@ var MDAEditorBundle = (() => {
             if (id === "link") {
               runFormatCommand(view, "link", formatOpts());
               refresh();
+              return;
+            }
+            if (id === "anno") {
+              if (typeof opts.onAddAnnotation === "function") opts.onAddAnnotation();
               return;
             }
             insertTypeAtCursor(view, id, formatOpts());
@@ -66236,6 +67100,7 @@ var MDAEditorBundle = (() => {
         }
         function openExportMenu(anchorEl) {
           closeToolbarInsertMenu();
+          closeToolbarParagraphMenu();
           closeToolbarExportMenu();
           const menu = document.createElement("div");
           menu.className = "mda-context-menu";
@@ -66268,13 +67133,49 @@ var MDAEditorBundle = (() => {
           if (exportBtn) exportBtn.setAttribute("aria-expanded", "true");
           placeToolbarPopup(menu, anchorEl);
           activeExportMenu = menu;
-          const firstItem = menu.querySelector('[role="menuitem"]');
-          if (firstItem && typeof firstItem.focus === "function") firstItem.focus();
           bindToolbarPopupDismiss(menu, anchorEl, closeToolbarExportMenu, "export");
+        }
+        function runParagraphKind(kind) {
+          closeToolbarParagraphMenu();
+          if (kind === "paragraph") runFormatCommand(view, "paragraph", formatOpts());
+          else runFormatCommand(view, kind, formatOpts());
+          refresh();
+        }
+        function openParagraphMenu(anchorEl) {
+          closeToolbarInsertMenu();
+          closeToolbarExportMenu();
+          closeToolbarParagraphMenu();
+          const menu = document.createElement("div");
+          menu.className = "mda-context-menu";
+          menu.id = "mda-toolbar-paragraph-menu";
+          menu.setAttribute("role", "menu");
+          menu.setAttribute("aria-label", t("tbParagraph"));
+          for (let i = 0; i < paraOptions.length; i++) {
+            const it = paraOptions[i];
+            const row = document.createElement("button");
+            row.type = "button";
+            row.className = "mda-menu-item";
+            row.setAttribute("role", "menuitem");
+            row.setAttribute("tabindex", "-1");
+            row.dataset.paragraph = it.v;
+            row.textContent = t(it.k);
+            row.addEventListener("mousedown", function(e) {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              e.stopPropagation();
+              runParagraphKind(it.v);
+            });
+            menu.appendChild(row);
+          }
+          if (paraBtn) paraBtn.setAttribute("aria-expanded", "true");
+          placeToolbarPopup(menu, anchorEl);
+          activeParagraphMenu = menu;
+          bindToolbarPopupDismiss(menu, anchorEl, closeToolbarParagraphMenu, "paragraph");
         }
         bar.addEventListener("click", function(e) {
           const target = e.target && e.target.closest ? e.target.closest("[data-cmd]") : null;
           if (!target || !bar.contains(target)) return;
+          if (target.tagName === "SELECT") return;
           const cmd = target.getAttribute("data-cmd");
           if (!cmd) return;
           e.preventDefault();
@@ -66308,6 +67209,17 @@ var MDAEditorBundle = (() => {
             );
             return;
           }
+          if (cmd === "paragraph-open") {
+            if (activeParagraphMenu) {
+              closeToolbarParagraphMenu();
+              return;
+            }
+            openParagraphMenu(
+              /** @type {HTMLElement} */
+              target
+            );
+            return;
+          }
           if (cmd === "copy-preview") {
             if (typeof opts.onCopyPreview === "function") opts.onCopyPreview();
             return;
@@ -66321,18 +67233,11 @@ var MDAEditorBundle = (() => {
             return;
           }
           if (cmd === "comment") {
-            if (typeof opts.onTogglePanel === "function") opts.onTogglePanel();
+            if (typeof opts.onAddAnnotation === "function") opts.onAddAnnotation();
             refresh();
             return;
           }
           runFormatCommand(view, cmd, formatOpts());
-          refresh();
-        });
-        paraSelect.addEventListener("change", function() {
-          const v = paraSelect.value;
-          if (!v) return;
-          if (v === "paragraph") runFormatCommand(view, "paragraph", formatOpts());
-          else runFormatCommand(view, v, formatOpts());
           refresh();
         });
         refresh();
@@ -66361,6 +67266,7 @@ var MDAEditorBundle = (() => {
             selRefreshRaf = 0;
             closeToolbarInsertMenu();
             closeToolbarExportMenu();
+            closeToolbarParagraphMenu();
             if (bar.parentNode) bar.parentNode.removeChild(bar);
           }
         };
@@ -66400,11 +67306,18 @@ var MDAEditorBundle = (() => {
       var { syncSelectedMermaidFrameClass } = require_mermaid_selection();
       var { refreshBlockToolbars } = require_widget_common();
       var { outlineFlashExtension, flashOutlineLine } = require_outline_flash();
+      var { findHighlightExtension, applyFindHighlights } = require_find_highlight();
+      var {
+        getWidgetBlockRanges,
+        applyWidgetFindHighlights,
+        clearWidgetFindHighlights
+      } = require_widget_find_highlight();
       var { getOutlineActiveLine } = require_outline_scroll();
       var { refreshAnnoGutter } = require_anno_gutter();
       var { invalidateLayerBuildCache, notifyAnnoFilterChanged } = require_live_preview();
       var { refreshEmptyLineInsertI18n } = require_empty_line_insert();
       var { sliceDocForClipboard } = require_syntax_clipboard();
+      var { getWidgetInlineSelectionText } = require_widget_editable_guard();
       var { adjustCaretForKeyboardNav } = require_caret_syntax_adjust();
       var { createEditorToolbar } = require_toolbar();
       var { createFormatKeymap } = require_format_commands();
@@ -66435,6 +67348,8 @@ var MDAEditorBundle = (() => {
         editorParent.className = "mda-cm-editor-surface";
         parent.appendChild(editorParent);
         let toolbarApi = null;
+        let pendingWidgetFind = null;
+        let tableFindRaf = 0;
         const updateListener = EditorView.updateListener.of((update) => {
           if (update.docChanged && typeof opts.onChange === "function") {
             opts.onChange({
@@ -66451,6 +67366,16 @@ var MDAEditorBundle = (() => {
           if ((update.selectionSet || update.focusChanged) && typeof opts.onSelectionUpdate === "function") {
             opts.onSelectionUpdate(update.view);
           }
+          if (pendingWidgetFind && pendingWidgetFind.matches && pendingWidgetFind.matches.length && (update.docChanged || update.viewportChanged || update.geometryChanged)) {
+            if (!tableFindRaf) {
+              tableFindRaf = requestAnimationFrame(function() {
+                tableFindRaf = 0;
+                const p = pendingWidgetFind;
+                if (!p || !p.matches || !p.matches.length || view.destroyed) return;
+                applyWidgetFindHighlights(view, p.matches, p.activeIndex);
+              });
+            }
+          }
         });
         function buildExtensions(currentMode) {
           const list = [
@@ -66466,7 +67391,8 @@ var MDAEditorBundle = (() => {
           ]).concat(createPendingInlineFormatExtension()).concat([
             updateListener,
             createClickDebugExtension(),
-            outlineFlashExtension()
+            outlineFlashExtension(),
+            findHighlightExtension()
           ]).concat(extensionsForMode(currentMode, comps, opts));
           if (opts.placeholder && currentMode === MODE_SOURCE) {
             list.push(placeholder(opts.placeholder));
@@ -66489,6 +67415,8 @@ var MDAEditorBundle = (() => {
             onToggleMode: opts.onToggleMode,
             onFind: opts.onFind,
             onTogglePanel: opts.onTogglePanel,
+            onAddAnnotation: opts.onAddAnnotation,
+            resolveAddAnnoIntent: opts.resolveAddAnnoIntent,
             getPanelVisible: opts.getPanelVisible,
             onPickImageInsert: opts.onPickImageInsert,
             onSoon: opts.onBlockMenuSoon,
@@ -66655,6 +67583,8 @@ var MDAEditorBundle = (() => {
             return sel.from !== sel.to;
           },
           getSelectionText: function() {
+            const widgetSel = getWidgetInlineSelectionText();
+            if (widgetSel) return widgetSel;
             const sel = view.state.selection.main;
             if (sel.from === sel.to) return "";
             return sliceDocForClipboard(view.state, sel.from, sel.to).text;
@@ -66718,6 +67648,53 @@ var MDAEditorBundle = (() => {
               selection: { anchor: from + text.length }
             });
             view.focus();
+          },
+          /**
+           * 全部替换：单次事务写入，撤销一步还原整次替换。
+           * @param {{ start: number, end: number }[]} matches
+           * @param {string} insert
+           */
+          replaceAllRanges: function(matches, insert) {
+            const rep = insert == null ? "" : String(insert);
+            const list = Array.isArray(matches) ? matches : [];
+            if (!list.length) return;
+            const doc = view.state.doc.toString();
+            const sorted = list.slice().sort(function(a, b) {
+              return a.start - b.start;
+            });
+            let last = 0;
+            let out = "";
+            for (let i = 0; i < sorted.length; i++) {
+              const m = sorted[i];
+              if (m.end <= m.start) continue;
+              out += doc.slice(last, m.start);
+              out += rep;
+              last = m.end;
+            }
+            out += doc.slice(last);
+            if (out === doc) return;
+            view.dispatch({
+              changes: { from: 0, to: doc.length, insert: out },
+              userEvent: "input.replaceAll"
+            });
+            view.focus();
+          },
+          /**
+           * @param {{ start: number, end: number }[]} matches
+           * @param {number} activeIndex
+           */
+          setFindHighlights: function(matches, activeIndex) {
+            const idx = activeIndex == null ? -1 : activeIndex;
+            const list = Array.isArray(matches) ? matches : [];
+            pendingWidgetFind = list.length ? { matches: list, activeIndex: idx } : null;
+            const widgetRanges = getWidgetBlockRanges(view);
+            applyFindHighlights(view, list, idx, widgetRanges);
+            applyWidgetFindHighlights(view, list, idx);
+          },
+          clearFindHighlights: function() {
+            pendingWidgetFind = null;
+            applyFindHighlights(view, [], -1);
+            clearWidgetFindHighlights(view);
           },
           undo: function() {
             return undo(view);
@@ -66838,11 +67815,44 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/pref.js
+  var require_pref = __commonJS({
+    "src/gui/renderer/editor/pref.js"(exports, module) {
+      "use strict";
+      var PREF_KEY = "mda-cm6";
+      function isEnabledByPref() {
+        try {
+          if (typeof window !== "undefined" && window.mdaAPI && window.mdaAPI.cm6Forced) {
+            return true;
+          }
+          if (typeof localStorage === "undefined" || !localStorage) return true;
+          const v = localStorage.getItem(PREF_KEY);
+          if (v === null || v === void 0 || v === "") return true;
+          return v !== "0" && v !== "false";
+        } catch (_) {
+          return true;
+        }
+      }
+      function setEnabledPref(on) {
+        try {
+          localStorage.setItem(PREF_KEY, on ? "1" : "0");
+        } catch (_) {
+        }
+      }
+      module.exports = {
+        PREF_KEY,
+        isEnabledByPref,
+        setEnabledPref
+      };
+    }
+  });
+
   // src/gui/renderer/editor/index.js
   var require_index = __commonJS({
     "src/gui/renderer/editor/index.js"(exports, module) {
       var { createEditor, refreshDecorations, refreshWidgetI18n, notifyAnnoFilterChanged } = require_mount();
       var annoAddContext = require_anno_add_context();
+      var { anchorFromSelection } = require_anchor_from_sel();
       var imageBlockOps = require_image_block_ops();
       var { insertMarkdownAtBlankLine, insertMarkdownNearBlock } = require_block_handle_ops();
       var { serializeImageMarkdown } = require_parse_image();
@@ -66857,24 +67867,7 @@ var MDAEditorBundle = (() => {
       var { MODE_PREVIEW, MODE_SOURCE } = require_mode();
       var { SearchSession } = require_search_session();
       var editorConfig = require_config();
-      function isEnabledByPref() {
-        try {
-          if (typeof window !== "undefined" && window.mdaAPI && window.mdaAPI.cm6Forced) {
-            return true;
-          }
-          var v = localStorage.getItem("mda-cm6");
-          if (v === null || v === void 0 || v === "") return false;
-          return v === "1" || v === "true";
-        } catch (_) {
-          return false;
-        }
-      }
-      function setEnabledPref(on) {
-        try {
-          localStorage.setItem("mda-cm6", on ? "1" : "0");
-        } catch (_) {
-        }
-      }
+      var { isEnabledByPref, setEnabledPref } = require_pref();
       module.exports = {
         createEditor,
         refreshDecorations,
@@ -66910,6 +67903,7 @@ var MDAEditorBundle = (() => {
         blockKindAtPos: annoAddContext.blockKindAtPos,
         isBlockOnlyKind: annoAddContext.isBlockOnlyKind,
         blockAnnotationLine: annoAddContext.blockAnnotationLine,
+        anchorFromSelection,
         config: editorConfig
       };
       if (typeof window !== "undefined") {

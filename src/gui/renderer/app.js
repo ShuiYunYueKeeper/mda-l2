@@ -50,6 +50,8 @@
   var settingsOpenPane = 'general';
   var selAnchor = null;
   var anchorHl = null;
+  var docCoords = null;
+  var docCoordsInfo = { bomLen: 0, eol: '\n' }; // 当前文档的磁盘坐标系（见 getSourceText）
   var selectionMenuDismiss = null;
   var previewSelectionSnap = null;
   var previewPointer = { down: false, dragged: false, x: 0, y: 0 };
@@ -430,8 +432,9 @@
             uiAlert(uiT('alertAnnoProseOnly'));
             return;
           }
+          // anchor 来自 CM6 文档坐标，写盘前换算到磁盘坐标（见 getSourceText）
           var line = selAnchor.anchorToLine(text, anchor.start);
-          showEditDialog('add', null, line, anchor);
+          showEditDialog('add', null, line, anchorToDisk(anchor));
         },
         onAddBlockAnnotation: function (block, kind) {
           openBlockAnnotationDialog(block, kind);
@@ -1458,14 +1461,41 @@
     }
   }
 
+  /**
+   * anchor 的权威坐标系是磁盘原文（原 EOL + BOM）——它要写进文件、与 CLI/MCP 共享。
+   * CM6 文档统一 LF 且不含 BOM，直接拿编辑器文本比对会在 CRLF 文件上整体错位。
+   */
   function getSourceText() {
+    if (isCm6Ready() && cm6Editor) {
+      return docCoords
+        ? docCoords.docTextToDisk(getEditorTextValue(), docCoordsInfo)
+        : getEditorTextValue();
+    }
     if (dirty) return getEditorTextValue();
     return currentText || getEditorTextValue();
+  }
+
+  /** CM6 文档坐标的 anchor → 磁盘坐标（写盘前） */
+  function anchorToDisk(anchor) {
+    if (!anchor || !docCoords || !isCm6Ready()) return anchor;
+    return docCoords.anchorDocToDisk(getEditorTextValue(), anchor, docCoordsInfo);
+  }
+
+  /** 磁盘坐标的 anchor → CM6 文档坐标（定位前） */
+  function anchorToDoc(anchor) {
+    if (!anchor || !docCoords || !isCm6Ready()) return anchor;
+    return docCoords.anchorDiskToDoc(getEditorTextValue(), anchor, docCoordsInfo);
+  }
+
+  function refreshDocCoords(diskText) {
+    if (!docCoords) return;
+    docCoordsInfo = docCoords.detectDocCoords(diskText || '');
   }
 
   function mountM4Modules() {
     selAnchor = window.MDASelectionAnchor || null;
     anchorHl = window.MDAAnchorHighlights || null;
+    docCoords = window.MDADocCoords || null;
     setupSelectionContextMenus();
   }
 
@@ -2353,6 +2383,7 @@
       if (!ok) return;
       currentFilePath = null;
       currentText = '';
+      refreshDocCoords(''); // 新文档尚未落盘，按 writeRawFile 的新文件默认 LF
       setEditorTextValue('', { resetHistory: true });
       annotations = [];
       paragraphs = [];
@@ -2729,6 +2760,7 @@
   function clearOpenDocument() {
     currentFilePath = null;
     currentText = '';
+    refreshDocCoords('');
     setEditorTextValue('', { resetHistory: true });
     annotations = [];
     paragraphs = [];
@@ -3162,8 +3194,16 @@
           done();
           return;
         }
+        // 另存为可能落到换行风格不同的文件上；writeRawFile 按目标文件原 EOL 回写，
+        // anchor 坐标系须跟着新目标走，否则选区批注在下次定位时整体错位。
+        var pathChanged = currentFilePath !== filePath;
         currentFilePath = filePath;
         currentText = content;
+        if (pathChanged && api.readFile) {
+          api.readFile(filePath).then(function (re) {
+            if (re && re.success) refreshDocCoords(re.content);
+          });
+        }
         setDocState('open');
         setDirtyState(false);
         if (api.addRecentFile) {
@@ -5982,13 +6022,14 @@
       if (window.MDAEditor.canUseSelectionAnnoForRange(text, sel.from, sel.to)) {
         var anchor = window.MDAEditor.anchorFromSelection(view.state);
         if (anchor) {
+          // 行号仍按文档文本算（与 doc 坐标同源），anchor 换成磁盘坐标后才写盘
           var line = selAnchor
             ? selAnchor.anchorToLine(text, anchor.start)
             : ctx.line;
           return {
             canAdd: true,
             hasSelection: true,
-            anchor: anchor,
+            anchor: anchorToDisk(anchor),
             line: line,
             ctx: ctx,
           };
@@ -6286,7 +6327,8 @@
       tries++;
       if (anno && anno.anchor && selAnchor && selAnchor.validateAnchor(getSourceText(), anno.anchor)) {
         if (typeof cm6Editor.scrollToAnchor === 'function') {
-          cm6Editor.scrollToAnchor(anno.anchor, { skipFocus: false });
+          // scrollToAnchor 吃的是 CM6 文档坐标，anno.anchor 来自磁盘
+          cm6Editor.scrollToAnchor(anchorToDoc(anno.anchor), { skipFocus: false });
         }
       } else {
         // 滚到段落正文行；anno.line 是隐藏的批注行，落点会不可见
@@ -6347,6 +6389,7 @@
     if (!result.success) { uiAlert(uiT('alertOpenFail', { error: result.error })); return; }
     if (scrollToTop) resetFindUiForNewDocument();
     currentFilePath = filePath;
+    refreshDocCoords(result.content);
     setDocState('open');
     setEditorTextValue(result.content, {
       resetHistory: scrollToTop && !softReload,

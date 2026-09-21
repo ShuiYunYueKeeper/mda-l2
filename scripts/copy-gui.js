@@ -34,6 +34,7 @@ const files = [
   ['src/gui/renderer/find-replace.js', 'dist/gui/renderer/find-replace.js'],
   ['src/gui/renderer/editor-assist.js', 'dist/gui/renderer/editor-assist.js'],
   ['src/gui/renderer/outline-panel.js', 'dist/gui/renderer/outline-panel.js'],
+  ['src/gui/renderer/doc-coords.js', 'dist/gui/renderer/doc-coords.js'],
   ['src/gui/renderer/selection-anchor.js', 'dist/gui/renderer/selection-anchor.js'],
   ['src/gui/renderer/anchor-highlights.js', 'dist/gui/renderer/anchor-highlights.js'],
   ['src/gui/renderer/katex-export.js', 'dist/gui/renderer/katex-export.js'],

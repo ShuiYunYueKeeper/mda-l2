@@ -35,6 +35,7 @@
     var onMatchesChange = hooks.onMatchesChange;
     var syncEditorScroll = hooks.syncEditorScroll;
     var searchSession = hooks.searchSession || null;
+    var adapter = hooks.editorAdapter || null;
     var LINE_H = 21;
 
     var bar = document.createElement('div');
@@ -115,10 +116,31 @@
       return measureMirror;
     }
 
+    function getText() {
+      if (adapter && adapter.getText) return adapter.getText();
+      return editorEl.value;
+    }
+
+    function getMeasureStyleEl() {
+      if (adapter && adapter.getMeasureStyleEl) {
+        var el = adapter.getMeasureStyleEl();
+        if (el) return el;
+      }
+      return editorEl;
+    }
+
+    function focusEditor() {
+      if (adapter && adapter.focusEditor) {
+        adapter.focusEditor();
+        return;
+      }
+      editorEl.focus();
+    }
+
     function measureEditorTextWidth(text) {
       if (!text) return 0;
       var mirror = getMeasureMirror();
-      var style = window.getComputedStyle(editorEl);
+      var style = window.getComputedStyle(getMeasureStyleEl());
       mirror.style.font = style.font;
       mirror.style.tabSize = style.tabSize || '2';
       mirror.style.letterSpacing = style.letterSpacing;
@@ -129,8 +151,8 @@
     }
 
     function scrollMatchHorizontally(m) {
-      if (!m) return;
-      var full = editorEl.value;
+      if (!m || (adapter && adapter.skipHorizontalScroll)) return;
+      var full = getText();
       var lineStart = full.lastIndexOf('\n', m.start - 1) + 1;
       var before = full.slice(lineStart, m.start);
       var matchText = full.slice(m.start, m.end);
@@ -162,7 +184,12 @@
 
     function scrollToMatch(m) {
       if (!m) return;
-      var line = editorEl.value.slice(0, m.start).split('\n').length;
+      if (adapter && adapter.setSelectionRange) {
+        adapter.setSelectionRange(m.start, m.end);
+        if (syncEditorScroll) syncEditorScroll();
+        return;
+      }
+      var line = getText().slice(0, m.start).split('\n').length;
       var pad = 0;
       try { pad = parseFloat(window.getComputedStyle(editorEl).paddingTop) || 0; } catch (e) { /* ignore */ }
       editorEl.scrollTop = Math.max(0, pad + (line - 1) * LINE_H - Math.floor(editorEl.clientHeight / 3));
@@ -171,8 +198,13 @@
       if (syncEditorScroll) syncEditorScroll();
     }
 
-    function refreshMatches(jumpToFirst) {
-      var text = editorEl.value;
+    /**
+     * @param {boolean} [jumpToFirst]
+     * @param {{ skipScroll?: boolean, skipRefocus?: boolean }} [opts]
+     */
+    function refreshMatches(jumpToFirst, opts) {
+      opts = opts || {};
+      var text = getText();
       var query = findInput.value;
       state.matches = findAll(text, query, {
         caseSensitive: bar.querySelector('#fr-case').checked,
@@ -184,10 +216,10 @@
       updateCount();
       notifyMatches();
       syncSearchSession();
-      if (state.matches.length && state.index >= 0) {
+      if (!opts.skipScroll && state.matches.length && state.index >= 0) {
         scrollToMatch(state.matches[state.index]);
       }
-      refocusBar();
+      if (!opts.skipRefocus) refocusBar();
     }
 
     function updateCount() {
@@ -235,6 +267,13 @@
       if (!state.matches.length || state.index < 0) return;
       var m = state.matches[state.index];
       var rep = replaceInput.value;
+      if (adapter && adapter.replaceRange) {
+        adapter.replaceRange(m.start, m.end, rep);
+        if (onDirty) onDirty();
+        refreshMatches(false);
+        if (state.matches.length) findNext(false);
+        return;
+      }
       editorEl.focus();
       editorEl.setSelectionRange(m.start, m.end);
       if (document.execCommand('insertText', false, rep)) {
@@ -258,8 +297,25 @@
         regex: bar.querySelector('#fr-regex').checked,
       };
       var rep = replaceInput.value;
-      var val = editorEl.value;
+      var val = getText();
       var matches = findAll(val, query, opts);
+      if (adapter && adapter.replaceAllRanges) {
+        adapter.replaceAllRanges(matches, rep);
+        if (onDirty) onDirty();
+        refreshMatches(false);
+        return;
+      }
+      if (adapter && adapter.replaceRange) {
+        for (var i = matches.length - 1; i >= 0; i--) {
+          var m = matches[i];
+          adapter.replaceRange(m.start, m.end, rep);
+        }
+        if (onDirty) onDirty();
+        refreshMatches(false);
+        return;
+      }
+      val = editorEl.value;
+      matches = findAll(val, query, opts);
       for (var i = matches.length - 1; i >= 0; i--) {
         var m = matches[i];
         val = val.slice(0, m.start) + rep + val.slice(m.end);
@@ -274,10 +330,17 @@
       refreshMatches(false);
     }
 
-    function show(mode) {
+    /**
+     * @param {'find'|'replace'} [mode]
+     * @param {string} [initialQuery] 非空时填入查找框（如来自编辑器选区）
+     */
+    function show(mode, initialQuery) {
       state.mode = mode || 'find';
       bar.classList.remove('hidden');
       replaceRow.classList.toggle('hidden', state.mode !== 'replace');
+      if (initialQuery != null && String(initialQuery).length > 0) {
+        findInput.value = String(initialQuery);
+      }
       findInput.focus();
       findInput.select();
       refreshMatches(true);
@@ -288,7 +351,28 @@
       state.matches = [];
       state.index = -1;
       if (onMatchesChange) onMatchesChange([], -1, { query: '', caseSensitive: false, regex: false });
-      editorEl.focus();
+      focusEditor();
+    }
+
+    function resetAndClose() {
+      findInput.value = '';
+      replaceInput.value = '';
+      bar.querySelector('#fr-case').checked = false;
+      bar.querySelector('#fr-regex').checked = false;
+      countEl.textContent = '';
+      state.matches = [];
+      state.index = -1;
+      bar.classList.add('hidden');
+      if (searchSession) {
+        searchSession.applyOptions({
+          query: '',
+          caseSensitive: false,
+          regex: false,
+          matchIndex: -1,
+        });
+        searchSession.setMatches([], -1);
+      }
+      if (onMatchesChange) onMatchesChange([], -1, { query: '', caseSensitive: false, regex: false });
     }
 
     function isOpen() {
@@ -333,7 +417,15 @@
       inp.addEventListener('keydown', function (e) { e.stopPropagation(); });
     });
 
-    return { show: show, hide: hide, isOpen: isOpen, findNext: findNext, refreshMatches: refreshMatches, applyLang: applyLang };
+    return {
+      show: show,
+      hide: hide,
+      resetAndClose: resetAndClose,
+      isOpen: isOpen,
+      findNext: findNext,
+      refreshMatches: refreshMatches,
+      applyLang: applyLang,
+    };
   }
 
   var api = { findAll: findAll, mount: mount };

@@ -1,4 +1,4 @@
-﻿// MDA Renderer — Markdown 工作台 GUI
+// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -50,6 +50,8 @@
   var settingsOpenPane = 'general';
   var selAnchor = null;
   var anchorHl = null;
+  var docCoords = null;
+  var docCoordsInfo = { bomLen: 0, eol: '\n' }; // 当前文档的磁盘坐标系（见 getSourceText）
   var selectionMenuDismiss = null;
   var previewSelectionSnap = null;
   var previewPointer = { down: false, dragged: false, x: 0, y: 0 };
@@ -57,6 +59,7 @@
   var filterStatus = { open: true, resolved: false, wontfix: false };
   var filterLevel = { critical: true, major: true, minor: true, info: true };
   var filterTags = {};
+  var annoFilterRevision = 0;
 
   var LEVEL_COLORS = (api && api.levelColors) || { critical: '#e74c3c', major: '#e67e22', minor: '#f1c40f', info: '#95a5a6' };
   var LEVEL_ORDER = (api && api.levelSeverity) || { critical: 3, major: 2, minor: 1, info: 0 };
@@ -68,8 +71,13 @@
   var findMatchState = null; // { matches: [{start,end}], index: number }
   var cm6Editor = null;
   var cm6HostEl = null;
+  var cmEditToolbarSlotEl = null;
   var cm6SearchSession = null;
   var tbEditBtn, tbPanelBtn, tbFilesBtn, tbFileNameEl, addBtn, clearAllBtn;
+  /** @type {HTMLElement | null} */
+  var topToolbarTipEl = null;
+  /** @type {HTMLElement | null} */
+  var topToolbarTipAnchor = null;
 
   var MOD_KEY = (navigator.platform || '').toLowerCase().indexOf('mac') >= 0 ? '\u2318' : 'Ctrl+';
 
@@ -135,6 +143,7 @@
     document.body.classList.remove('mda-cm6-doc-open');
     document.body.classList.remove('mda-cm6-mode-preview', 'mda-cm6-mode-source');
     if (cm6HostEl) cm6HostEl.classList.add('hidden');
+    if (cmEditToolbarSlotEl) cmEditToolbarSlotEl.classList.add('hidden');
   }
 
   function toLocalFileUrl(absPath) {
@@ -225,6 +234,7 @@
       var meta = block && block.meta ? block.meta : {};
       var line = buildPastedImageMarkdown(r, meta);
       if (!line) return;
+      applyFormulaClipboardDisplayWidth(pastedImageAssetHref(r));
       if (block && block.from != null && block.to != null) {
         window.MDAEditor.replaceBlockRange(cm6Editor.view, block.from, block.to, line);
       } else if (pos != null) {
@@ -251,6 +261,24 @@
     }
   }
 
+  function refreshAnnoFilterGutter() {
+    if (!isCm6Ready() || !cm6Editor.view) return;
+    annoFilterRevision++;
+    var view = cm6Editor.view;
+    requestAnimationFrame(function () {
+      if (!isCm6Ready() || !cm6Editor || cm6Editor.view !== view) return;
+      try {
+        if (window.MDAEditor && typeof window.MDAEditor.notifyAnnoFilterChanged === 'function') {
+          window.MDAEditor.notifyAnnoFilterChanged(view);
+          return;
+        }
+      } catch (_) {
+        /* ignore */
+      }
+      refreshCm6Decorations();
+    });
+  }
+
   function applyCm6DocumentUi() {
     if (!isCm6Enabled()) {
       clearCm6DocumentUi();
@@ -269,6 +297,9 @@
     var docOpen = docState === 'open' || docState === 'untitled';
     document.body.classList.toggle('mda-cm6-doc-open', docOpen);
     if (cm6HostEl) cm6HostEl.classList.toggle('hidden', !docOpen);
+    if (cmEditToolbarSlotEl) {
+      cmEditToolbarSlotEl.classList.toggle('hidden', !docOpen);
+    }
     if (docOpen) bindCm6OutlineScroll();
   }
 
@@ -295,16 +326,81 @@
     try {
       cm6Editor = window.MDAEditor.createEditor({
         parent: cm6HostEl,
+        toolbarHost: cmEditToolbarSlotEl,
         doc: '',
         mode: mode,
         placeholder: uiT('editorPlaceholder'),
+        onFind: function () {
+          openFindReplace('find');
+        },
+        onCopy: function () {
+          if (!cm6Editor || docState === 'welcome') return;
+          var text = cm6Editor.getSelectionText();
+          if (text && api.copyToClipboard) api.copyToClipboard(text);
+        },
+        onCut: function () {
+          if (!cm6Editor || docState === 'welcome') return;
+          var text = cm6Editor.cutSelection();
+          if (text && api.copyToClipboard) api.copyToClipboard(text);
+        },
+        onPaste: function () {
+          if (!cm6Editor || docState === 'welcome') return;
+          if (!navigator.clipboard || !navigator.clipboard.readText) {
+            return Promise.reject(new Error('clipboard unavailable'));
+          }
+          return navigator.clipboard.readText().then(function (text) {
+            if (text) cm6Editor.replaceSelection(text);
+          });
+        },
+        onSave: function () {
+          if (docState === 'welcome') return;
+          saveFile();
+        },
+        onCopyPreview: function () {
+          if (docState === 'welcome') return;
+          copyPreviewForArticle();
+        },
+        onExportHtml: function () {
+          if (docState === 'welcome') return;
+          exportPreviewHtml();
+        },
+        onExportPdf: function () {
+          if (docState === 'welcome') return;
+          exportPreviewPdf();
+        },
+        onExportDocx: function () {
+          if (docState === 'welcome') return;
+          exportPreviewDocx();
+        },
+        onToggleMode: function () {
+          toggleEditor();
+        },
+        onTogglePanel: function () {
+          togglePanel();
+        },
+        onAddAnnotation: function () {
+          triggerAddAnnotation();
+        },
+        onAddLineAnnotation: function (block) {
+          if (!currentFilePath) return;
+          openBlockAnnotationDialog(block, null);
+        },
+        resolveAddAnnoIntent: function () {
+          return resolveCm6AddAnnoIntent();
+        },
+        getPanelVisible: function () {
+          return panelVisible;
+        },
         parseAnnotations: function (text) { return api.parseAnnotations(text); },
+        filterAnnotation: annotationPassesFilter,
+        getAnnoFilterRevision: function () { return annoFilterRevision; },
         levelColors: LEVEL_COLORS,
         levelSeverity: (api && api.levelSeverity) || { critical: 3, major: 2, minor: 1, info: 0 },
         renderMarkdown: function (text) { return api.renderMarkdown(text); },
         resolveImageUrl: resolveImageUrlForEditor,
         onChange: function () {
           syncDirtyFromEditor();
+          refreshFindMatchesIfOpen();
           if (previewTimer) clearTimeout(previewTimer);
           previewTimer = setTimeout(function () {
             var text = getEditorTextValue();
@@ -316,6 +412,41 @@
         },
         onHeadingClick: function (line) {
           syncOutlineFromHeadingClick(line);
+        },
+        onParagraphClick: function (line) {
+          cursorLine = line;
+          updateOutlineActiveFromLine(line, { skipScroll: true });
+          var para = findParagraphForLine(line);
+          if (para && para.annotations && para.annotations.length) {
+            selectAnnotation(para.annotations[0].id, false);
+          }
+        },
+        onAddSelectionAnnotation: function (anchor) {
+          if (!currentFilePath || !anchor || !selAnchor) return;
+          var text = getEditorTextValue();
+          if (
+            window.MDAEditor &&
+            typeof window.MDAEditor.canUseSelectionAnnoForRange === 'function' &&
+            !window.MDAEditor.canUseSelectionAnnoForRange(text, anchor.start, anchor.end)
+          ) {
+            uiAlert(uiT('alertAnnoProseOnly'));
+            return;
+          }
+          // anchor 来自 CM6 文档坐标，写盘前换算到磁盘坐标（见 getSourceText）
+          var line = selAnchor.anchorToLine(text, anchor.start);
+          showEditDialog('add', null, line, anchorToDisk(anchor));
+        },
+        onAddBlockAnnotation: function (block, kind) {
+          openBlockAnnotationDialog(block, kind);
+        },
+        onSelectionUpdate: function () {
+          updateAnnoAddButton();
+          if (cm6Editor && typeof cm6Editor.refreshToolbar === 'function') {
+            cm6Editor.refreshToolbar();
+          }
+        },
+        alert: function (msg) {
+          uiAlert(msg);
         },
         onOpenLink: function (href) {
           handleLinkClick(href);
@@ -449,6 +580,7 @@
               // katexElToPngDataUrl 返回 { dataUrl, width, height }
               var dataUrl = png && typeof png === 'object' ? png.dataUrl : png;
               if (!isValidPngDataUrl(dataUrl)) throw new Error(uiT('unknownError'));
+              rememberFormulaClipboardExport(png);
               return api.copyClipboardImage({ dataUrl: dataUrl });
             })
             .then(function (r) {
@@ -640,6 +772,18 @@
           );
           syncDirtyFromEditor();
         },
+        onMoveHeadingBlock: function (block) {
+          if (!isCm6Ready() || !window.MDAEditor || !block) return;
+          var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
+          if (!range) return;
+          window.MDAEditor.moveBlockRange(
+            cm6Editor.view,
+            range.from,
+            range.to,
+            block.targetPos
+          );
+          syncDirtyFromEditor();
+        },
         onMoveHrBlock: function (block) {
           if (!isCm6Ready() || !window.MDAEditor || !block) return;
           var range = window.MDAEditor.resolveBlockRange(cm6Editor.view, block);
@@ -731,6 +875,12 @@
     applyCm6DocumentUi();
     bindCm6OutlineScroll();
     bindCm6AutosaveBlur();
+    if (cm6HostEl && !cm6HostEl.dataset.mdaAnnoBtnSync) {
+      cm6HostEl.dataset.mdaAnnoBtnSync = '1';
+      cm6HostEl.addEventListener('mousedown', function () {
+        requestAnimationFrame(updateAnnoAddButton);
+      }, true);
+    }
   }
 
   function focusActiveEditor() {
@@ -811,20 +961,86 @@
     return false;
   }
 
+  function applyTopToolbarTipData() {
+    var specs = [
+      { btn: tbFilesBtn, line1: 'tbTipFiles', line2: 'tbTipFilesWhere' },
+      { btn: tbEditBtn, line1: 'tbTipEdit', line2: 'tbTipEditWhere' },
+      { btn: tbPanelBtn, line1: 'tbTipPanel', line2: 'tbTipPanelWhere' },
+    ];
+    for (var i = 0; i < specs.length; i++) {
+      var spec = specs[i];
+      if (!spec.btn) continue;
+      var host = spec.btn.parentElement;
+      if (!host || !host.classList.contains('mda-cm-tb-tip-host')) continue;
+      var line1 = uiT(spec.line1);
+      var line2 = uiT(spec.line2);
+      spec.btn.textContent = uiT(
+        spec.btn.id === 'tb-files' ? 'tbFiles' : spec.btn.id === 'tb-edit' ? 'tbEdit' : 'tbPanel'
+      );
+      spec.btn.removeAttribute('title');
+      spec.btn.setAttribute('aria-label', line1);
+      host.setAttribute('data-tip', line1 + '\n' + line2);
+    }
+  }
+
+  function ensureTopToolbarTip() {
+    if (topToolbarTipEl && topToolbarTipEl.isConnected) return topToolbarTipEl;
+    topToolbarTipEl = document.createElement('div');
+    topToolbarTipEl.className = 'mda-cm-tb-floating-tip';
+    topToolbarTipEl.setAttribute('role', 'tooltip');
+    document.body.appendChild(topToolbarTipEl);
+    return topToolbarTipEl;
+  }
+
+  function hideTopToolbarTip() {
+    topToolbarTipAnchor = null;
+    if (topToolbarTipEl) topToolbarTipEl.classList.remove('is-visible');
+  }
+
+  function showTopToolbarTip(host) {
+    var text = host.getAttribute('data-tip');
+    if (!text) return;
+    var tip = ensureTopToolbarTip();
+    tip.textContent = text;
+    topToolbarTipAnchor = host;
+    tip.classList.add('is-visible');
+    var rect = host.getBoundingClientRect();
+    var tipRect = tip.getBoundingClientRect();
+    var left = rect.left + rect.width / 2 - tipRect.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+    var top = rect.bottom + 6;
+    if (top + tipRect.height > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - tipRect.height - 6);
+    }
+    tip.style.left = Math.round(left) + 'px';
+    tip.style.top = Math.round(top) + 'px';
+  }
+
+  function bindTopToolbarTips() {
+    var nav = document.querySelector('.toolbar-nav');
+    if (!nav) return;
+    nav.addEventListener('mouseover', function (e) {
+      var host = e.target && e.target.closest ? e.target.closest('.mda-cm-tb-tip-host') : null;
+      if (!host || !nav.contains(host)) return;
+      showTopToolbarTip(host);
+    });
+    nav.addEventListener('mouseout', function (e) {
+      var related = e.relatedTarget;
+      if (topToolbarTipAnchor && related && topToolbarTipAnchor.contains(related)) return;
+      if (related && related.closest && related.closest('.mda-cm-tb-tip-host') === topToolbarTipAnchor) return;
+      hideTopToolbarTip();
+    });
+    nav.addEventListener('focusin', function (e) {
+      var host = e.target && e.target.closest ? e.target.closest('.mda-cm-tb-tip-host') : null;
+      if (host && nav.contains(host)) showTopToolbarTip(host);
+    });
+    nav.addEventListener('focusout', function () {
+      hideTopToolbarTip();
+    });
+  }
+
   function applyUiLang() {
-    if (tbFilesBtn) {
-      tbFilesBtn.textContent = uiT('tbFiles');
-      tbFilesBtn.title = uiT('tbFilesTitle');
-    }
-    if (tbEditBtn) {
-      tbEditBtn.textContent = uiT('tbEdit');
-      tbEditBtn.title = uiT('tbEditTitle');
-    }
-    if (tbPanelBtn) {
-      tbPanelBtn.textContent = uiT('tbPanel');
-      tbPanelBtn.title = uiT('tbPanelTitle');
-    }
-    if (addBtn) addBtn.textContent = uiT('btnAddAnno');
+    applyTopToolbarTipData();
     if (clearAllBtn) clearAllBtn.textContent = uiT('btnClearAllAnnos');
     if (editorEl) editorEl.placeholder = uiT('editorPlaceholder');
     document.querySelectorAll('[data-i18n-filter]').forEach(function (el) {
@@ -838,6 +1054,9 @@
     if (findReplaceUi && findReplaceUi.applyLang) findReplaceUi.applyLang();
     if (isCm6Ready() && cm6Editor && cm6Editor.view && window.MDAEditor && window.MDAEditor.refreshWidgetI18n) {
       window.MDAEditor.refreshWidgetI18n(cm6Editor.view, uiT);
+    }
+    if (isCm6Ready() && cm6Editor && typeof cm6Editor.refreshToolbar === 'function') {
+      cm6Editor.refreshToolbar();
     }
     updateToolbar();
     if (typeof renderAnnoList === 'function') {
@@ -963,16 +1182,14 @@
       if (k === 'f' && !e.shiftKey) {
         if (docState !== 'welcome' && findReplaceUi) {
           e.preventDefault();
-          if (!editorVisible) showEditorPane(true);
-          findReplaceUi.show('find');
+          openFindReplace('find');
         }
         return;
       }
       if (k === 'h' && !e.shiftKey) {
         if (docState !== 'welcome' && findReplaceUi) {
           e.preventDefault();
-          if (!editorVisible) showEditorPane(true);
-          findReplaceUi.show('replace');
+          openFindReplace('replace');
         }
         return;
       }
@@ -1016,14 +1233,73 @@
     updateToolbar();
   }
 
+  function buildFindEditorAdapter() {
+    if (!isCm6Enabled()) return null;
+    return {
+      skipHorizontalScroll: true,
+      getText: function () {
+        return getEditorTextValue();
+      },
+      setSelectionRange: function (start, end) {
+        if (cm6Editor && typeof cm6Editor.scrollToAnchor === 'function') {
+          cm6Editor.scrollToAnchor({ start: start, end: end }, { skipFocus: true });
+        }
+      },
+      replaceRange: function (start, end, text) {
+        if (cm6Editor && typeof cm6Editor.replaceRange === 'function') {
+          cm6Editor.replaceRange(start, end, text);
+        }
+      },
+      replaceAllRanges: function (matches, text) {
+        if (cm6Editor && typeof cm6Editor.replaceAllRanges === 'function') {
+          cm6Editor.replaceAllRanges(matches, text);
+        }
+      },
+      focusEditor: function () {
+        if (cm6Editor && typeof cm6Editor.focus === 'function') cm6Editor.focus();
+      },
+      getMeasureStyleEl: function () {
+        if (cm6Editor && cm6Editor.view) {
+          var cm = cm6Editor.view.dom.querySelector('.cm-content');
+          if (cm) return cm;
+        }
+        return editorEl;
+      },
+    };
+  }
+
+  /** 打开查找栏时：若有非空选区则作为查找词（单行输入框仅取首行） */
+  function getFindSeedFromSelection() {
+    var text = '';
+    if (isCm6Ready() && cm6Editor && typeof cm6Editor.getSelectionText === 'function') {
+      text = cm6Editor.getSelectionText();
+    } else if (editorEl && editorEl.selectionStart < editorEl.selectionEnd) {
+      text = editorEl.value.slice(editorEl.selectionStart, editorEl.selectionEnd);
+    }
+    text = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    if (!text) return null;
+    if (text.indexOf('\n') !== -1) text = text.split('\n')[0];
+    text = text.trim();
+    return text.length ? text : null;
+  }
+
+  function openFindReplace(mode) {
+    if (docState === 'welcome' || !findReplaceUi) return;
+    if (!isCm6Ready() && !editorVisible) showEditorPane(true);
+    var seed = getFindSeedFromSelection();
+    findReplaceUi.show(mode || 'find', seed);
+  }
+
   function mountM3Modules() {
     initCm6Editor();
     assist = window.MDAEditorAssist || null;
     if (window.MDAFindReplace && editorPaneEl) {
-      findReplaceUi = window.MDAFindReplace.mount(editorPaneEl, editorEl, function () {
+      var findHostEl = (isCm6Enabled() && previewScrollEl) ? previewScrollEl : editorPaneEl;
+      findReplaceUi = window.MDAFindReplace.mount(findHostEl, editorEl, function () {
         syncDirtyFromEditor();
       }, {
         searchSession: cm6SearchSession,
+        editorAdapter: buildFindEditorAdapter(),
         onMatchesChange: function (matches, index, opts) {
           opts = opts || {};
           if (!opts.query) {
@@ -1185,14 +1461,41 @@
     }
   }
 
+  /**
+   * anchor 的权威坐标系是磁盘原文（原 EOL + BOM）——它要写进文件、与 CLI/MCP 共享。
+   * CM6 文档统一 LF 且不含 BOM，直接拿编辑器文本比对会在 CRLF 文件上整体错位。
+   */
   function getSourceText() {
+    if (isCm6Ready() && cm6Editor) {
+      return docCoords
+        ? docCoords.docTextToDisk(getEditorTextValue(), docCoordsInfo)
+        : getEditorTextValue();
+    }
     if (dirty) return getEditorTextValue();
     return currentText || getEditorTextValue();
+  }
+
+  /** CM6 文档坐标的 anchor → 磁盘坐标（写盘前） */
+  function anchorToDisk(anchor) {
+    if (!anchor || !docCoords || !isCm6Ready()) return anchor;
+    return docCoords.anchorDocToDisk(getEditorTextValue(), anchor, docCoordsInfo);
+  }
+
+  /** 磁盘坐标的 anchor → CM6 文档坐标（定位前） */
+  function anchorToDoc(anchor) {
+    if (!anchor || !docCoords || !isCm6Ready()) return anchor;
+    return docCoords.anchorDiskToDoc(getEditorTextValue(), anchor, docCoordsInfo);
+  }
+
+  function refreshDocCoords(diskText) {
+    if (!docCoords) return;
+    docCoordsInfo = docCoords.detectDocCoords(diskText || '');
   }
 
   function mountM4Modules() {
     selAnchor = window.MDASelectionAnchor || null;
     anchorHl = window.MDAAnchorHighlights || null;
+    docCoords = window.MDADocCoords || null;
     setupSelectionContextMenus();
   }
 
@@ -1265,6 +1568,31 @@
     el.setAttribute('role', 'status');
     el.textContent = message || '';
     document.body.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add('show'); });
+    setTimeout(function () {
+      el.classList.remove('show');
+      setTimeout(function () { if (el.parentNode) el.remove(); }, 220);
+    }, 1600);
+  }
+
+  function showSettingsToast(overlay, message) {
+    if (!overlay || !overlay.isConnected) {
+      showToast(message);
+      return;
+    }
+    var host = overlay.querySelector('.mda-settings-toast-host');
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'mda-settings-toast-host';
+      overlay.appendChild(host);
+    }
+    var old = host.querySelector('.mda-toast');
+    if (old) old.remove();
+    var el = document.createElement('div');
+    el.className = 'mda-toast mda-toast-in-settings';
+    el.setAttribute('role', 'status');
+    el.textContent = message || '';
+    host.appendChild(el);
     requestAnimationFrame(function () { el.classList.add('show'); });
     setTimeout(function () {
       el.classList.remove('show');
@@ -1596,6 +1924,7 @@
   }
 
   function updateFindMarkLayer() {
+    if (isCm6Ready()) return;
     if (!srcFindMarkEl) return;
     var code = srcFindMarkEl.querySelector('code') || srcFindMarkEl;
     if (!findMatchState || !findMatchState.matches.length) {
@@ -1618,7 +1947,29 @@
     code.innerHTML = html;
   }
 
+  /** 编辑/撤销后同步查找命中与高亮（替换后 undo 时 findMatchState 会过期） */
+  function refreshFindMatchesIfOpen() {
+    if (!findReplaceUi || typeof findReplaceUi.isOpen !== 'function' || !findReplaceUi.isOpen()) {
+      return;
+    }
+    if (typeof findReplaceUi.refreshMatches === 'function') {
+      findReplaceUi.refreshMatches(false, { skipScroll: true, skipRefocus: true });
+    }
+  }
+
   function updateFindHighlights() {
+    if (isCm6Ready() && cm6Editor && typeof cm6Editor.setFindHighlights === 'function') {
+      if (!findMatchState || !findMatchState.matches.length) {
+        if (typeof cm6Editor.clearFindHighlights === 'function') {
+          cm6Editor.clearFindHighlights();
+        } else {
+          cm6Editor.setFindHighlights([], -1);
+        }
+      } else {
+        cm6Editor.setFindHighlights(findMatchState.matches, findMatchState.index);
+      }
+      return;
+    }
     updateFindMarkLayer();
     updateFindPreviewHighlights();
   }
@@ -1639,7 +1990,7 @@
   function getActiveFindLine() {
     if (!findMatchState || !findMatchState.matches.length || findMatchState.index < 0) return null;
     var m = findMatchState.matches[findMatchState.index];
-    return editorEl.value.slice(0, m.start).split('\n').length;
+    return getEditorTextValue().slice(0, m.start).split('\n').length;
   }
 
   function updateFindPreviewHighlights(hlOpts) {
@@ -1704,6 +2055,33 @@
 
   function clearFindMarkLayer() {
     findMatchState = null;
+    updateFindHighlights();
+  }
+
+  /** 切换文档：关闭查找栏、清空检索与高亮 */
+  function resetFindUiForNewDocument() {
+    if (findReplaceUi && typeof findReplaceUi.resetAndClose === 'function') {
+      findReplaceUi.resetAndClose();
+    } else if (findReplaceUi && typeof findReplaceUi.hide === 'function') {
+      findReplaceUi.hide();
+    }
+    findMatchState = null;
+    if (isCm6Ready() && cm6Editor) {
+      if (typeof cm6Editor.clearFindHighlights === 'function') {
+        cm6Editor.clearFindHighlights();
+      } else if (typeof cm6Editor.setFindHighlights === 'function') {
+        cm6Editor.setFindHighlights([], -1);
+      }
+    }
+    if (cm6SearchSession) {
+      cm6SearchSession.applyOptions({
+        query: '',
+        caseSensitive: false,
+        regex: false,
+        matchIndex: -1,
+      });
+      cm6SearchSession.setMatches([], -1);
+    }
     updateFindHighlights();
   }
 
@@ -1861,6 +2239,10 @@
       close();
       // 延后聚焦编辑器，避免 keydown Enter 落到 textarea 插入换行导致标脏
       setTimeout(function () {
+        if (isCm6Ready() && cm6Editor && typeof cm6Editor.scrollToLine === 'function') {
+          cm6Editor.scrollToLine(n, { skipFocus: false });
+          return;
+        }
         if (!editorVisible) showEditorPane(true);
         if (syncScrollCtrl) syncScrollCtrl.scrollEditorToLine(n);
         else jumpEditorToLine(n);
@@ -1936,6 +2318,9 @@
         onCopyFileName: function (_path, name) {
           copyTextWithToast(name, uiT('toastCopied'));
         },
+        onShowInFolder: function (filePath) {
+          if (filePath && api.showItemInFolder) api.showItemInFolder(filePath);
+        },
         onCopyFile: function (filePath) { copyFileToFsClip(filePath); },
         onCutFile: function (filePath) { cutFileToFsClip(filePath); },
         onPasteToDir: function (destDir) { pasteFsClipToDir(destDir); },
@@ -1998,6 +2383,7 @@
       if (!ok) return;
       currentFilePath = null;
       currentText = '';
+      refreshDocCoords(''); // 新文档尚未落盘，按 writeRawFile 的新文件默认 LF
       setEditorTextValue('', { resetHistory: true });
       annotations = [];
       paragraphs = [];
@@ -2010,6 +2396,7 @@
         else showEditorPane(true);
       }
       parseAndRender('', null);
+      resetFindUiForNewDocument();
       resetScrollTop();
       requestAnimationFrame(function () { if (editorVisible || isCm6Enabled()) focusActiveEditor(); });
     });
@@ -2373,6 +2760,7 @@
   function clearOpenDocument() {
     currentFilePath = null;
     currentText = '';
+    refreshDocCoords('');
     setEditorTextValue('', { resetHistory: true });
     annotations = [];
     paragraphs = [];
@@ -2380,6 +2768,8 @@
     previewEl.innerHTML = '';
     setDirtyState(false);
     setDocState('welcome');
+    resetFindUiForNewDocument();
+    resetScrollTop();
     if (fileSidebar && fileSidebar.setActive) fileSidebar.setActive(null);
     if (outlinePanelUi && outlinePanelUi.setHeadings) outlinePanelUi.setHeadings([]);
     updateToolbar();
@@ -2767,6 +3157,11 @@
   }
 
   function flushActiveWidgetEditsBeforeSave() {
+    // 表格单元格靠 blur 才写回文档，而 blur 提交是异步的（rAF），保存时来不及；
+    // 直接走同步的 flush 读回 DOM，否则正在编辑的格子会被存成旧内容。
+    if (isCm6Ready() && cm6Editor.view && window.MDAEditor && window.MDAEditor.flushAllTableWidgets) {
+      window.MDAEditor.flushAllTableWidgets(cm6Editor.view);
+    }
     var ae = document.activeElement;
     if (!ae || !ae.closest) return;
     if (ae.closest('.mda-cm-code-input')) ae.blur();
@@ -2799,8 +3194,16 @@
           done();
           return;
         }
+        // 另存为可能落到换行风格不同的文件上；writeRawFile 按目标文件原 EOL 回写，
+        // anchor 坐标系须跟着新目标走，否则选区批注在下次定位时整体错位。
+        var pathChanged = currentFilePath !== filePath;
         currentFilePath = filePath;
         currentText = content;
+        if (pathChanged && api.readFile) {
+          api.readFile(filePath).then(function (re) {
+            if (re && re.success) refreshDocCoords(re.content);
+          });
+        }
         setDocState('open');
         setDirtyState(false);
         if (api.addRecentFile) {
@@ -2823,10 +3226,12 @@
     var root = document.getElementById('root');
     root.innerHTML =
       '<div class="toolbar">' +
-        '<button id="tb-files" class="tool-btn" title="" disabled></button>' +
-        '<button id="tb-edit" class="tool-btn" title=""></button>' +
-        '<button id="tb-panel" class="tool-btn" title=""></button>' +
-        '<span class="spacer"></span>' +
+        '<div class="toolbar-nav">' +
+        '<span class="mda-cm-tb-tip-host" data-tip-cmd="files"><button id="tb-files" class="tool-btn" title="" disabled></button></span>' +
+        '<span class="mda-cm-tb-tip-host" data-tip-cmd="edit"><button id="tb-edit" class="tool-btn" title=""></button></span>' +
+        '<span class="mda-cm-tb-tip-host" data-tip-cmd="panel"><button id="tb-panel" class="tool-btn" title=""></button></span>' +
+        '</div>' +
+        '<div id="cm-edit-toolbar-slot" class="mda-cm-edit-toolbar-slot hidden"></div>' +
         '<span id="tb-filename" class="file-name"></span>' +
       '</div>' +
       '<div id="content-row">' +
@@ -2848,7 +3253,9 @@
         '<div id="preview-pane">' +
           '<div id="outline-expand-rail" class="mda-outline-expand-rail">' +
             '<button type="button" id="outline-float-toggle" class="mda-outline-expand-tab" title="">' +
-              '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3.5h12v1.2H2V3.5zm0 4.15h12v1.2H2V7.65zm0 4.15h12v1.2H2v-1.2z"/></svg>' +
+              (window.MDAGuiIcons && window.MDAGuiIcons.menu
+                ? window.MDAGuiIcons.menu
+                : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg>') +
             '</button>' +
           '</div>' +
           '<div id="outline-host"></div>' +
@@ -2875,6 +3282,7 @@
     previewEl = document.getElementById('preview-content');
     previewPaneEl = document.getElementById('preview-pane');
     previewScrollEl = document.getElementById('preview-scroll');
+    cmEditToolbarSlotEl = document.getElementById('cm-edit-toolbar-slot');
     setupMediaDefaultWidthResizeObserver();
     outlineFloatBtn = document.getElementById('outline-float-toggle');
     outlineExpandRail = document.getElementById('outline-expand-rail');
@@ -2900,13 +3308,24 @@
     tbFileNameEl = document.getElementById('tb-filename');
     addBtn = document.getElementById('btn-add');
     clearAllBtn = document.getElementById('btn-clear-all');
+    bindTopToolbarTips();
+    applyTopToolbarTipData();
 
     // 恢复批注栏展开习惯（与大纲/文件列表一致走 localStorage）
     applyPanelVisible(readPanelVisiblePref());
 
     setupDomCopyShortcuts();
 
-    addBtn.addEventListener('click', function () { showEditDialog('add', null, cursorLine); });
+    document.addEventListener('focusin', function () {
+      if (isCm6Ready()) updateAnnoAddButton();
+    }, true);
+    document.addEventListener('focusout', function () {
+      if (isCm6Ready()) updateAnnoAddButton();
+    }, true);
+
+    addBtn.addEventListener('click', function () {
+      triggerAddAnnotation();
+    });
     if (clearAllBtn) {
       clearAllBtn.addEventListener('click', function () { clearAllAnnotationsInFile(); });
     }
@@ -2930,6 +3349,7 @@
     editorEl.addEventListener('input', function () {
       if (isCm6Ready()) return;
       setDirtyState(editorEl.value !== currentText);
+      refreshFindMatchesIfOpen();
       refreshEditorDecorations();
       applyPinnedEditorScroll();
       // 浏览器常在 input 之后才做「保光标可见」滚动，再钉一次
@@ -3263,20 +3683,58 @@
     };
   }
 
+  /** 公式复制/导出：按屏幕所见 .katex 本体测宽，避免撑满整栏。 */
+  function measureKatexExportBox(renderEl) {
+    if (!renderEl) return { width: 0, height: 0, offsetX: 0, offsetY: 0 };
+    var html = renderEl.querySelector('.katex-html') || renderEl;
+    var htmlRect = html.getBoundingClientRect();
+    var baseRect = renderEl.getBoundingClientRect();
+    var w = Math.max(htmlRect.width || 0, 0);
+    var h = Math.max(htmlRect.height || 0, 0);
+    if (baseRect.width > 0 && baseRect.width < 4096) w = Math.max(w, baseRect.width);
+    if (baseRect.height > 0) h = Math.max(h, baseRect.height);
+    w = Math.ceil(Math.max(w, renderEl.scrollWidth || 0));
+    h = Math.ceil(Math.max(h, renderEl.scrollHeight || 0));
+    if (w < 2) w = Math.ceil(renderEl.scrollWidth) || 40;
+    if (h < 2) h = Math.ceil(renderEl.scrollHeight) || 24;
+    return { width: w, height: h, offsetX: 0, offsetY: 0 };
+  }
+
+  /** @type {{ width: number, height: number, at: number } | null} */
+  var lastFormulaClipboardExport = null;
+
+  function rememberFormulaClipboardExport(exported) {
+    var w = exported && typeof exported === 'object' ? exported.width : 0;
+    var h = exported && typeof exported === 'object' ? exported.height : 0;
+    if (w > 0 && h > 0) {
+      lastFormulaClipboardExport = { width: Math.round(w), height: Math.round(h), at: Date.now() };
+    }
+  }
+
+  function applyFormulaClipboardDisplayWidth(href) {
+    if (!href || !lastFormulaClipboardExport) return;
+    if (Date.now() - lastFormulaClipboardExport.at > 120000) {
+      lastFormulaClipboardExport = null;
+      return;
+    }
+    imageDisplayWidths[href] = lastFormulaClipboardExport.width;
+    lastFormulaClipboardExport = null;
+  }
+
   function svgPayloadToPng(payload) {
     return new Promise(function (resolve, reject) {
       var img = new Image();
       img.onload = function () {
         try {
           var canvas = document.createElement('canvas');
-          canvas.width = payload.logicalWidth;
-          canvas.height = payload.logicalHeight;
+          canvas.width = payload.pixelWidth;
+          canvas.height = payload.pixelHeight;
           var ctx = canvas.getContext('2d');
           ctx.fillStyle = payload.bg || '#ffffff';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(img, 0, 0, payload.pixelWidth, payload.pixelHeight, 0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
           var dataUrl = canvas.toDataURL('image/png');
           if (!isValidPngDataUrl(dataUrl)) reject(new Error('formula export failed'));
           else resolve({
@@ -4815,6 +5273,7 @@
       table: '.mda-cm-table-block[data-mda-block-from="' + from + '"]',
       hr: '.mda-cm-hr-block[data-mda-block-from="' + from + '"]',
       quote: '.mda-cm-quote-handle-anchor[data-mda-block-from="' + from + '"]',
+      heading: '.mda-cm-heading-handle-anchor[data-mda-block-from="' + from + '"]',
     };
     var sel = (kind && map[kind]) || '[data-mda-block-from="' + from + '"]';
     return document.querySelector(sel);
@@ -5170,6 +5629,7 @@
       }
       katexElToPngDataUrl(katexEl)
         .then(function (png) {
+          rememberFormulaClipboardExport(png);
           var dataUrl = png && typeof png === 'object' ? png.dataUrl : png;
           return copyPngDataUrlToClipboard(dataUrl);
         })
@@ -5408,6 +5868,9 @@
   function saveFile(onSuccess, opts) {
     opts = opts || {};
     if (docState === 'welcome') return;
+    // 必须在判脏之前 flush：表格格内编辑只改 widget 的 DOM，不经 CM6 事务，文档因此还是「干净」的，
+    // 直接走到 `if (!dirty) return` 会把这次编辑整个跳过（保存无声失败）。
+    flushActiveWidgetEditsBeforeSave();
     if (!currentFilePath) {
       if (opts.quiet) return; // 自动保存不对未命名文档弹另存为
       saveAs(onSuccess);
@@ -5437,7 +5900,9 @@
   function tryAutosave() {
     if (autosaveSaving) return;
     if (autosavePref === 'off') return;
-    if (docState !== 'open' || !currentFilePath || !dirty || !editorEl) return;
+    if (docState !== 'open' || !currentFilePath || !editorEl) return;
+    flushActiveWidgetEditsBeforeSave();
+    if (!dirty) return;
     autosaveSaving = true;
     writeToPath(currentFilePath, function () { autosaveSaving = false; }, { quiet: true });
   }
@@ -5504,6 +5969,8 @@
 
   function handleAppCloseRequest() {
     if (document.getElementById('settings-dialog')) return;
+    // 同 saveFile：格内编辑未经 CM6 事务，不先 flush 会被当成「没改过」直接关掉
+    flushActiveWidgetEditsBeforeSave();
     if (!dirty) {
       clearCloseTimers();
       api.confirmClose();
@@ -5539,6 +6006,112 @@
     });
   }
 
+  function resolveCm6AddAnnoIntent() {
+    if (!isCm6Ready() || !cm6Editor || !cm6Editor.view || !window.MDAEditor) return null;
+    var view = cm6Editor.view;
+    if (typeof window.MDAEditor.resolveAnnoPanelContext !== 'function') return null;
+    var ctx = window.MDAEditor.resolveAnnoPanelContext(view);
+    if (!ctx.canPanelAdd) return { canAdd: false, hasSelection: false, ctx: ctx };
+    var sel = view.state.selection.main;
+    if (
+      sel.from < sel.to &&
+      typeof window.MDAEditor.anchorFromSelection === 'function' &&
+      typeof window.MDAEditor.canUseSelectionAnnoForRange === 'function'
+    ) {
+      var text = view.state.doc.toString();
+      if (window.MDAEditor.canUseSelectionAnnoForRange(text, sel.from, sel.to)) {
+        var anchor = window.MDAEditor.anchorFromSelection(view.state);
+        if (anchor) {
+          // 行号仍按文档文本算（与 doc 坐标同源），anchor 换成磁盘坐标后才写盘
+          var line = selAnchor
+            ? selAnchor.anchorToLine(text, anchor.start)
+            : ctx.line;
+          return {
+            canAdd: true,
+            hasSelection: true,
+            anchor: anchorToDisk(anchor),
+            line: line,
+            ctx: ctx,
+          };
+        }
+      }
+    }
+    return { canAdd: true, hasSelection: false, line: ctx.line, ctx: ctx };
+  }
+
+  function triggerAddAnnotation() {
+    if (docState !== 'open' || !currentFilePath) return;
+    if (isCm6Ready() && cm6Editor && cm6Editor.view && window.MDAEditor) {
+      var intent = resolveCm6AddAnnoIntent();
+      if (!intent || !intent.canAdd) return;
+      if (intent.hasSelection && intent.anchor) {
+        showEditDialog('add', null, intent.line, intent.anchor);
+      } else {
+        showEditDialog('add', null, intent.line, null);
+      }
+      return;
+    }
+    var start = editorEl ? editorEl.selectionStart : 0;
+    var end = editorEl ? editorEl.selectionEnd : 0;
+    if (start !== end && selAnchor) {
+      var anchor = resolveSelectionAnchor('editor', { start: start, end: end, quote: editorEl.value.slice(start, end) });
+      if (anchor) {
+        var line = selAnchor.anchorToLine(getSourceText(), anchor.start);
+        showEditDialog('add', null, line, anchor);
+        return;
+      }
+    }
+    showEditDialog('add', null, cursorLine);
+  }
+
+  function updateAnnoAddButton() {
+    if (!addBtn) return;
+    var baseDisabled = docState !== 'open' || !currentFilePath;
+    if (baseDisabled) {
+      addBtn.disabled = true;
+      addBtn.textContent = uiT('btnAddAnno');
+      addBtn.removeAttribute('title');
+      return;
+    }
+    if (isCm6Ready() && window.MDAEditor && typeof window.MDAEditor.resolveAnnoPanelContext === 'function') {
+      var intent = resolveCm6AddAnnoIntent();
+      var ctx = intent && intent.ctx ? intent.ctx : window.MDAEditor.resolveAnnoPanelContext(cm6Editor.view);
+      addBtn.disabled = !(intent && intent.canAdd);
+      if (!intent || !intent.canAdd) {
+        if (ctx && ctx.reason === 'widget-editable') {
+          addBtn.title = uiT('tipAnnoDisabledInWidget');
+        } else {
+          addBtn.removeAttribute('title');
+        }
+        addBtn.textContent = uiT('btnAddAnno');
+        return;
+      }
+      addBtn.textContent = intent.hasSelection ? uiT('btnAddSelAnno') : uiT('btnAddAnno');
+      addBtn.removeAttribute('title');
+      if (intent.line) cursorLine = intent.line;
+      else if (ctx && ctx.line) cursorLine = ctx.line;
+      return;
+    }
+    addBtn.disabled = false;
+    addBtn.textContent = uiT('btnAddAnno');
+    addBtn.removeAttribute('title');
+  }
+
+  function openBlockAnnotationDialog(block, kind) {
+    if (!currentFilePath) return;
+    var line = cursorLine;
+    if (isCm6Ready() && cm6Editor && cm6Editor.view && window.MDAEditor) {
+      if (block && block.from != null && typeof window.MDAEditor.blockAnnotationLine === 'function') {
+        var ln = window.MDAEditor.blockAnnotationLine(cm6Editor.view, block);
+        if (ln) line = ln;
+      } else if (typeof window.MDAEditor.resolveAnnoPanelContext === 'function') {
+        var ctx = window.MDAEditor.resolveAnnoPanelContext(cm6Editor.view);
+        if (ctx.line) line = ctx.line;
+      }
+    }
+    showEditDialog('add', null, line, null);
+  }
+
   function updateToolbar() {
     if (tbFilesBtn) {
       var filesReady = !!(workspaceRoot && leftRailEl && !leftRailEl.classList.contains('hidden') && fileSidebar);
@@ -5557,11 +6130,19 @@
       else if (currentFilePath) name = currentFilePath.replace(/\\/g, '/').split('/').pop();
       tbFileNameEl.setAttribute('data-filename', name || '');
       tbFileNameEl.title = name ? uiT('filenameCopyHint', { name: name }) : '';
-      tbFileNameEl.innerHTML = name ? (escHtml(name) + (dirty ? '<span class="dirty-dot">●</span>' : '')) : '';
+      // 圆点常驻、仅切换可见性：追加/移除会改变文件名标签宽度，中间 flex:1 的
+      // 工具栏槽位随之伸缩，居中的按钮整排平移一下（观感是「点一下工具栏就抖」）。
+      tbFileNameEl.innerHTML = name
+        ? escHtml(name) +
+          '<span class="dirty-dot' + (dirty ? '' : ' dirty-dot-clean') + '">●</span>'
+        : '';
     }
-    if (addBtn) addBtn.disabled = docState !== 'open' || !currentFilePath;
+    if (addBtn) updateAnnoAddButton();
     if (clearAllBtn) {
       clearAllBtn.disabled = docState !== 'open' || !currentFilePath || !annotations.length;
+    }
+    if (isCm6Ready() && cm6Editor && typeof cm6Editor.refreshToolbar === 'function') {
+      cm6Editor.refreshToolbar();
     }
   }
 
@@ -5640,10 +6221,12 @@
     for (var i = 0; i < paragraphs.length; i++) {
       var p = paragraphs[i];
       if (!p.annotations || !p.annotations.length) continue;
+      var visible = p.annotations.filter(annotationPassesFilter);
+      if (!visible.length) continue;
       var el = paragraphElement(p);
       if (!el) continue;
       el.classList.add('mda-anno-block');
-      el.style.borderLeft = '4px solid ' + LEVEL_COLORS[mostSevere(p.annotations).level];
+      el.style.borderLeft = '4px solid ' + LEVEL_COLORS[mostSevere(visible).level];
       el.style.paddingLeft = '10px';
       el.style.cursor = 'pointer';
     }
@@ -5668,8 +6251,14 @@
     var p = findParagraphByAnnotationId(id);
     if (!anno && !p) return;
 
-    var needOpenEditor = !editorVisible;
+    var cm6 = isCm6Ready();
+    var needOpenEditor = !cm6 && !editorVisible;
     if (needOpenEditor) showEditorPane(true);
+
+    if (cm6) {
+      locateAnnotationInCm6(id, anno, p);
+      return;
+    }
 
     var tries = 0;
     var maxTries = needOpenEditor ? 4 : 3;
@@ -5728,11 +6317,64 @@
     });
   }
 
+  /** CM6 预览模式：滚到批注段落/选区，不切换源码模式 */
+  function locateAnnotationInCm6(id, anno, p) {
+    if (!cm6Editor) return;
+    var tries = 0;
+    var maxTries = 3;
+
+    function scrollOnce() {
+      tries++;
+      if (anno && anno.anchor && selAnchor && selAnchor.validateAnchor(getSourceText(), anno.anchor)) {
+        if (typeof cm6Editor.scrollToAnchor === 'function') {
+          // scrollToAnchor 吃的是 CM6 文档坐标，anno.anchor 来自磁盘
+          cm6Editor.scrollToAnchor(anchorToDoc(anno.anchor), { skipFocus: false });
+        }
+      } else {
+        // 滚到段落正文行；anno.line 是隐藏的批注行，落点会不可见
+        var line = p ? p.startLine : (anno && anno.line);
+        if (line && typeof cm6Editor.scrollToLine === 'function') {
+          cm6Editor.scrollToLine(line, { skipFocus: false });
+        }
+      }
+      var activeLine = p ? p.startLine : (anno && anno.line);
+      if (activeLine) {
+        cursorLine = activeLine;
+        updateOutlineActiveFromLine(activeLine, { skipScroll: true });
+      }
+    }
+
+    function finishFocus() {
+      if (cm6Editor && typeof cm6Editor.focus === 'function') cm6Editor.focus();
+    }
+
+    scrollOnce();
+    requestAnimationFrame(function () {
+      scrollOnce();
+      finishFocus();
+      if (tries < maxTries) {
+        setTimeout(function () {
+          scrollOnce();
+          finishFocus();
+          if (tries < maxTries) setTimeout(function () {
+            scrollOnce();
+            finishFocus();
+          }, 120);
+        }, 50);
+      }
+    });
+  }
+
   // ---- 文件操作 ----
   async function openFile(filePath, opts) {
     opts = opts || {};
     var scrollToTop = !!opts.scrollToTop;
+    var softReload = !!opts.softReload;
     var savedScroll = null;
+    var savedCm6Scroll = null;
+    if (!scrollToTop && isCm6Ready() && cm6Editor && cm6Editor.view) {
+      savedCm6Scroll = cm6Editor.view.scrollDOM.scrollTop;
+    }
     if (!scrollToTop && editorEl) {
       savedScroll = {
         editorTop: editorEl.scrollTop,
@@ -5745,10 +6387,12 @@
     }
     var result = await api.readFile(filePath);
     if (!result.success) { uiAlert(uiT('alertOpenFail', { error: result.error })); return; }
+    if (scrollToTop) resetFindUiForNewDocument();
     currentFilePath = filePath;
+    refreshDocCoords(result.content);
     setDocState('open');
     setEditorTextValue(result.content, {
-      resetHistory: true,
+      resetHistory: scrollToTop && !softReload,
       selectionStart: scrollToTop ? 0 : (savedScroll ? savedScroll.selStart : undefined),
       selectionEnd: scrollToTop ? 0 : (savedScroll ? savedScroll.selEnd : undefined),
     });
@@ -5768,7 +6412,14 @@
     if (isCm6Ready()) {
       requestAnimationFrame(function () {
         refreshCm6Decorations();
-        requestAnimationFrame(refreshCm6Decorations);
+        requestAnimationFrame(function () {
+          refreshCm6Decorations();
+          if (scrollToTop) {
+            resetScrollTop();
+          } else if (savedCm6Scroll != null && cm6Editor && cm6Editor.view && !opts.selectAnnoId) {
+            cm6Editor.view.scrollDOM.scrollTop = savedCm6Scroll;
+          }
+        });
       });
     }
     updateToolbar();
@@ -5799,7 +6450,15 @@
     if (editorEl) { editorEl.scrollTop = 0; editorEl.scrollLeft = 0; }
     if (srcHighlightEl) { var hp = srcHighlightEl.parentNode; hp.scrollTop = 0; hp.scrollLeft = 0; }
     if (srcGutterEl) srcGutterEl.scrollTop = 0;
+    if (srcFindMarkEl) srcFindMarkEl.scrollTop = 0;
     if (previewScrollEl) previewScrollEl.scrollTop = 0;
+    if (isCm6Ready() && cm6Editor && cm6Editor.view) {
+      var scrollEl = cm6Editor.view.scrollDOM;
+      if (scrollEl) {
+        scrollEl.scrollTop = 0;
+        scrollEl.scrollLeft = 0;
+      }
+    }
   }
 
   function setTitle(filePath) {
@@ -5817,7 +6476,195 @@
 
   function reloadFile(opts) {
     opts = opts || {};
-    if (currentFilePath) openFile(currentFilePath, { scrollToTop: false, selectAnnoId: opts.selectAnnoId || null });
+    if (currentFilePath) {
+      openFile(currentFilePath, {
+        scrollToTop: false,
+        softReload: true,
+        selectAnnoId: opts.selectAnnoId || null,
+      });
+    }
+  }
+
+  var ANNO_LINE_STRICT_RE = /^\[comment\]:\s*<>\s*\(@anno\s+\{.+?\}\)\s*$/;
+
+  function splitLinesNorm(text) {
+    return normalizeEditorCompareText(text).split('\n');
+  }
+
+  function isStrictAnnoLine(line) {
+    return ANNO_LINE_STRICT_RE.test(line);
+  }
+
+  function finishAnnoDiskSync(diskContent, opts) {
+    opts = opts || {};
+    currentText = diskContent;
+    setDirtyState(false);
+    parseAndRender(getEditorTextValue(), currentFilePath, { selectAnnoId: opts.selectAnnoId || null });
+    refreshCm6Decorations();
+    return Promise.resolve(true);
+  }
+
+  function applyInsertAnnoLine(lineIndex0, lineText, diskContent, opts) {
+    if (!isCm6Ready() || !cm6Editor || !cm6Editor.view) {
+      setEditorTextValue(diskContent, { resetHistory: false });
+      return finishAnnoDiskSync(diskContent, opts);
+    }
+    var view = cm6Editor.view;
+    var from;
+    var insert;
+    if (lineIndex0 >= view.state.doc.lines) {
+      from = view.state.doc.length;
+      insert = (from > 0 ? '\n' : '') + lineText;
+    } else {
+      var line = view.state.doc.line(lineIndex0 + 1);
+      from = line.from;
+      insert = lineText + '\n';
+    }
+    if (cm6Editor.patchDocNoHistory) {
+      cm6Editor.patchDocNoHistory({ from: from, insert: insert });
+    } else {
+      view.dispatch({ changes: { from: from, insert: insert } });
+    }
+    return finishAnnoDiskSync(diskContent, opts);
+  }
+
+  function applyDeleteAnnoLine(lineIndex0, diskContent, opts) {
+    if (!isCm6Ready() || !cm6Editor || !cm6Editor.view) {
+      setEditorTextValue(diskContent, { resetHistory: false });
+      return finishAnnoDiskSync(diskContent, opts);
+    }
+    var view = cm6Editor.view;
+    var line = view.state.doc.line(lineIndex0 + 1);
+    var from = line.from;
+    var to = line.to;
+    if (to < view.state.doc.length && view.state.doc.sliceString(to, to + 1) === '\n') to += 1;
+    if (cm6Editor.patchDocNoHistory) {
+      cm6Editor.patchDocNoHistory({ from: from, to: to, insert: '' });
+    } else {
+      view.dispatch({ changes: { from: from, to: to, insert: '' } });
+    }
+    return finishAnnoDiskSync(diskContent, opts);
+  }
+
+  function applyReplaceAnnoLine(lineIndex0, lineText, diskContent, opts) {
+    if (!isCm6Ready() || !cm6Editor || !cm6Editor.view) {
+      setEditorTextValue(diskContent, { resetHistory: false });
+      return finishAnnoDiskSync(diskContent, opts);
+    }
+    var view = cm6Editor.view;
+    var line = view.state.doc.line(lineIndex0 + 1);
+    if (cm6Editor.patchDocNoHistory) {
+      cm6Editor.patchDocNoHistory({ from: line.from, to: line.to, insert: lineText });
+    } else {
+      view.dispatch({ changes: { from: line.from, to: line.to, insert: lineText } });
+    }
+    return finishAnnoDiskSync(diskContent, opts);
+  }
+
+  function applyDeleteAllAnnoLines(diskContent, opts) {
+    if (!isCm6Ready() || !cm6Editor || !cm6Editor.view) {
+      setEditorTextValue(diskContent, { resetHistory: false });
+      return finishAnnoDiskSync(diskContent, opts);
+    }
+    var view = cm6Editor.view;
+    var localLines = splitLinesNorm(getEditorTextValue());
+    var indices = [];
+    for (var i = 0; i < localLines.length; i++) {
+      if (isStrictAnnoLine(localLines[i])) indices.push(i);
+    }
+    if (!indices.length) return finishAnnoDiskSync(diskContent, opts);
+    var changes = [];
+    for (var j = indices.length - 1; j >= 0; j--) {
+      var ln = view.state.doc.line(indices[j] + 1);
+      var from = ln.from;
+      var to = ln.to;
+      if (to < view.state.doc.length && view.state.doc.sliceString(to, to + 1) === '\n') to += 1;
+      changes.push({ from: from, to: to, insert: '' });
+    }
+    if (cm6Editor.patchDocNoHistory) {
+      cm6Editor.patchDocNoHistory(changes);
+    } else {
+      view.dispatch({ changes: changes });
+    }
+    return finishAnnoDiskSync(diskContent, opts);
+  }
+
+  /**
+   * 批注增删改后：尽量只同步 @anno 行 diff，避免整篇 setText 引起行高跳动。
+   */
+  function syncAnnoDiskToEditor(diskContent, opts) {
+    opts = opts || {};
+    if (!currentFilePath) return Promise.resolve(false);
+    var diskNorm = normalizeEditorCompareText(diskContent);
+    var localNorm = normalizeEditorCompareText(getEditorTextValue());
+    if (diskNorm === localNorm) {
+      return finishAnnoDiskSync(diskContent, opts);
+    }
+    if (!isCm6Ready() || !cm6Editor || !cm6Editor.view) {
+      setEditorTextValue(diskContent, { resetHistory: false });
+      return finishAnnoDiskSync(diskContent, opts);
+    }
+    var dLines = splitLinesNorm(diskContent);
+    var lLines = splitLinesNorm(getEditorTextValue());
+
+    if (dLines.length === lLines.length + 1) {
+      for (var ins = 0; ins < dLines.length; ins++) {
+        if (isStrictAnnoLine(dLines[ins])) {
+          var withoutIns = dLines.slice(0, ins).concat(dLines.slice(ins + 1));
+          if (withoutIns.join('\n') === lLines.join('\n')) {
+            return applyInsertAnnoLine(ins, dLines[ins], diskContent, opts);
+          }
+        }
+      }
+    }
+
+    if (dLines.length + 1 === lLines.length) {
+      for (var del = 0; del < lLines.length; del++) {
+        if (isStrictAnnoLine(lLines[del])) {
+          var withoutDel = lLines.slice(0, del).concat(lLines.slice(del + 1));
+          if (withoutDel.join('\n') === dLines.join('\n')) {
+            return applyDeleteAnnoLine(del, diskContent, opts);
+          }
+        }
+      }
+    }
+
+    if (dLines.length === lLines.length) {
+      var diffAt = -1;
+      var diffN = 0;
+      for (var k = 0; k < dLines.length; k++) {
+        if (dLines[k] !== lLines[k]) {
+          diffN++;
+          diffAt = k;
+        }
+      }
+      if (diffN === 1 && isStrictAnnoLine(dLines[diffAt]) && isStrictAnnoLine(lLines[diffAt])) {
+        return applyReplaceAnnoLine(diffAt, dLines[diffAt], diskContent, opts);
+      }
+    }
+
+    var localAnnoCount = 0;
+    var diskAnnoCount = 0;
+    for (var la = 0; la < lLines.length; la++) {
+      if (isStrictAnnoLine(lLines[la])) localAnnoCount++;
+    }
+    for (var da = 0; da < dLines.length; da++) {
+      if (isStrictAnnoLine(dLines[da])) diskAnnoCount++;
+    }
+    if (localAnnoCount > 0 && diskAnnoCount === 0) {
+      return applyDeleteAllAnnoLines(diskContent, opts);
+    }
+
+    setEditorTextValue(diskContent, { resetHistory: false });
+    return finishAnnoDiskSync(diskContent, opts);
+  }
+
+  function refreshFromDiskAfterAnno(selectAnnoId) {
+    if (!currentFilePath) return Promise.resolve();
+    return api.readFile(currentFilePath).then(function (r) {
+      if (!r || !r.success) return;
+      return syncAnnoDiskToEditor(r.content, { selectAnnoId: selectAnnoId || null });
+    });
   }
 
   function parseAndRender(text, filePath, opts) {
@@ -5832,8 +6679,21 @@
     updateOutline(text);
     if (!isCm6Ready() || opts.forceHtmlPreview) {
       renderMarkdownContent(text, opts);
+    } else {
+      renderPanel();
     }
-    renderPanel();
+    if (isCm6Ready() && opts.selectAnnoId && !opts.forceHtmlPreview) {
+      if (!panelVisible) {
+        applyPanelVisible(true);
+        savePanelVisiblePref(true);
+      }
+      requestAnimationFrame(function () {
+        refreshCm6Decorations();
+        requestAnimationFrame(function () {
+          selectAnnotation(opts.selectAnnoId, true);
+        });
+      });
+    }
   }
 
   // ---- Markdown 渲染 ----
@@ -5884,7 +6744,8 @@
         unfreezeEditorScroll();
       }
       if (findMatchState && findMatchState.query) {
-        updateFindPreviewHighlights({ skipScroll: liveEdit });
+        if (isCm6Ready()) updateFindHighlights();
+        else updateFindPreviewHighlights({ skipScroll: liveEdit });
       }
       applyAnchorHighlights();
       updateToolbar();
@@ -6117,19 +6978,18 @@
     clone.style.maxWidth = 'none';
     clone.style.verticalAlign = 'baseline';
 
-    var visualBox = measureKatexVisualBox(renderEl);
-    var w = Math.ceil(Math.max(visualBox.width || 0, renderEl.offsetWidth || 0));
-    var h = Math.ceil(Math.max(visualBox.height || 0, renderEl.offsetHeight || 0));
-    if (w < 2) w = Math.ceil(renderEl.scrollWidth) || 200;
-    if (h < 2) h = Math.ceil(renderEl.scrollHeight) || 40;
+    var visualBox = measureKatexExportBox(renderEl);
+    var w = Math.ceil(visualBox.width || 0);
+    var h = Math.ceil(visualBox.height || 0);
     var isBlock = liveEl.classList.contains('katex-display');
     var padding = window.MDAKatexExport.formulaPadding
       ? window.MDAKatexExport.formulaPadding(isBlock)
-      : (isBlock ? { x: 16, y: 12 } : { x: 4, y: 4 });
+      : (isBlock ? { x: 14, y: 10 } : { x: 4, y: 4 });
     var padX = padding.x;
     var padY = padding.y;
     var tw = w + padX * 2;
     var th = h + padY * 2;
+    var exportScale = exportBitmapScale();
 
     var payloadOptions = {
       html: clone.outerHTML,
@@ -6140,7 +7000,7 @@
       padY: padY,
       offsetX: visualBox.offsetX,
       offsetY: visualBox.offsetY,
-      scale: 2,
+      scale: exportScale,
     };
     try {
       return await svgPayloadToPng(window.MDAKatexExport.buildSvgPayload(payloadOptions));
@@ -7780,8 +8640,7 @@
     menu.className = 'mda-context-menu';
     menu.innerHTML =
       '<div class="mda-menu-item' + (hasSel ? '' : ' disabled') + '" data-act="copy"><span>' + uiT('copy') + '</span><span class="mda-menu-key">' + MOD_KEY + 'C</span></div>' +
-      '<div class="mda-menu-item" data-act="copy-all"><span>' + uiT('copyAll') + '</span><span class="mda-menu-key">' + MOD_KEY + 'A</span></div>' +
-      '<div class="mda-menu-item' + (hasSel ? '' : ' disabled') + '" data-act="anno"><span>' + uiT('addSelAnno') + '</span></div>';
+      '<div class="mda-menu-item" data-act="copy-all"><span>' + uiT('copyAll') + '</span><span class="mda-menu-key">' + MOD_KEY + 'A</span></div>';
     document.body.appendChild(menu);
     menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 4) + 'px';
     menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 4) + 'px';
@@ -7800,23 +8659,6 @@
         copyCode(selText, btn);
       } else if (act === 'copy-all') {
         copyCode(rawText, btn);
-      } else if (act === 'anno') {
-        if (!snap) {
-          uiAlert(uiT('alertSelectCodeAnno'));
-          removeCodeContextMenu();
-          return;
-        }
-        previewSelectionSnap = snap;
-        var anchor = resolveSelectionAnchor('preview', snap);
-        removeCodeContextMenu();
-        clearPreviewSelectionSnap();
-        if (!anchor) {
-          uiAlert(uiT('alertBadSelectionEditor'));
-          return;
-        }
-        var line = selAnchor.anchorToLine(getSourceText(), anchor.start);
-        showEditDialog('add', null, line, anchor);
-        return;
       }
       removeCodeContextMenu();
     });
@@ -7890,17 +8732,28 @@
     }
   }
 
-  function getFilteredAnnotations() {
-    return annotations.filter(function (a) {
-      if (!filterStatus[a.status]) return false;
-      if (!filterLevel[a.level]) return false;
-      if (a.tags.length > 0 && Object.keys(filterTags).length > 0) {
-        var hasTag = false;
-        for (var t = 0; t < a.tags.length; t++) { if (filterTags[a.tags[t]]) { hasTag = true; break; } }
-        if (!hasTag) return false;
+  function annotationPassesFilter(a) {
+    if (!a) return false;
+    if (!filterStatus[a.status]) return false;
+    if (!filterLevel[a.level]) return false;
+    var tags = a.tags || [];
+    if (tags.length > 0 && Object.keys(filterTags).length > 0) {
+      var hasTag = false;
+      for (var t = 0; t < tags.length; t++) {
+        if (filterTags[tags[t]]) {
+          hasTag = true;
+          break;
+        }
       }
-      return true;
-    }).sort(function (a, b) { return (a.line || 0) - (b.line || 0); });
+      if (!hasTag) return false;
+    }
+    return true;
+  }
+
+  function getFilteredAnnotations() {
+    return annotations.filter(annotationPassesFilter).sort(function (a, b) {
+      return (a.line || 0) - (b.line || 0);
+    });
   }
 
   function annoContentNeedsToggle(text) {
@@ -7956,7 +8809,7 @@
     if (filtered.length === 0) html = '<div class="anno-empty">' + uiT('annoEmpty') + '</div>';
 
     annoListEl.innerHTML = html;
-    if (addBtn) addBtn.disabled = !currentFilePath;
+    if (addBtn) updateAnnoAddButton();
     if (clearAllBtn) {
       clearAllBtn.disabled = !currentFilePath || !annotations.length;
     }
@@ -7986,6 +8839,7 @@
     for (var d = 0; d < dels.length; d++) {
       dels[d].addEventListener('click', function (e) { e.stopPropagation(); deleteAnnotation(this.dataset.id); });
     }
+    if (isCm6Ready()) refreshAnnoFilterGutter();
   }
 
   function saveDocumentForAnnotation() {
@@ -8017,6 +8871,7 @@
         setDirtyState(false);
         parseAndRender(content, currentFilePath);
         refreshEditorDecorations();
+        refreshCm6Decorations();
         resolve(true);
       });
     });
@@ -8077,7 +8932,7 @@
           selectedAnnotationId = null;
           var n = typeof r.value === 'number' ? r.value : 0;
           showToast(uiT('toastClearAllOk', { count: n }));
-          reloadFile();
+          refreshFromDiskAfterAnno(null);
         });
       });
     });
@@ -8164,6 +9019,8 @@
       overlay.innerHTML =
         '<div class="mda-settings-shell" role="dialog" aria-modal="true" aria-label="' +
           escHtml(uiT('settingsTitle')) + '">' +
+          '<button type="button" id="settings-close" class="mda-settings-close" ' +
+            'aria-label="' + escHtml(uiT('close')) + '" title="' + escHtml(uiT('close')) + '">×</button>' +
           '<aside class="mda-settings-nav">' +
             '<div class="mda-settings-brand">' + escHtml(uiT('settingsTitle')) + '</div>' +
             '<button type="button" class="mda-settings-nav-item" data-pane="general">' +
@@ -8265,6 +9122,7 @@
         if (api.setSettingsModal) api.setSettingsModal(false);
       }
       trapModalFocus(overlay, close);
+      overlay.querySelector('#settings-close').addEventListener('click', close);
       overlay.querySelector('#settings-cancel').addEventListener('click', close);
       overlay.querySelectorAll('.mda-settings-nav-item').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -8330,37 +9188,35 @@
           uiAlert(uiT('alertPasteAssetsCustomRequired'));
           return;
         }
-        var rememberChanged = nextRemember !== isRememberLayout();
-        var sessionChanged = nextSession !== isRememberSession();
-        var mermaidChanged = nextMermaidW !== mediaDefaultWidthPref;
-        var pasteChanged = nextPasteMode !== pasteAssetsModePref ||
-          nextPasteCustom !== pasteAssetsCustomDirPref;
-        var toastOther = !rememberChanged && !sessionChanged && !mermaidChanged && !pasteChanged;
-        applyAutosavePref(mode, { toast: toastOther, persist: true });
+        applyAutosavePref(mode, { toast: false, persist: true });
         applyMediaDefaultWidthPref(nextMermaidW, { reapply: true });
-        applyRememberLayoutPref(nextRemember, { toast: rememberChanged && !sessionChanged });
-        applyRememberSessionPref(nextSession, { toast: sessionChanged });
-        var pasteSaveP = applyPasteAssetsPref(nextPasteMode, nextPasteCustom, {
-          persist: true,
-          toast: pasteChanged && !rememberChanged && !sessionChanged && !mermaidChanged,
-        });
+        applyRememberLayoutPref(nextRemember, { toast: false });
         var aiPatch = window.MDASettingsAi && window.MDASettingsAi.collectAiSettingsPatch
           ? window.MDASettingsAi.collectAiSettingsPatch(overlay)
           : null;
-        var finish = function () { close(); };
-        pasteSaveP.then(function () {
-          if (aiPatch && api.saveAiSettings) {
-            api.saveAiSettings(aiPatch).then(function (r) {
-              if (!r || !r.success) {
-                uiAlert(uiT('aiErrorGeneric', { error: (r && r.error) || '' }));
-                return;
-              }
-              finish();
+        applyRememberSessionPref(nextSession, { toast: false })
+          .then(function () {
+            return applyPasteAssetsPref(nextPasteMode, nextPasteCustom, {
+              persist: true,
+              toast: false,
             });
-          } else {
-            finish();
-          }
-        });
+          })
+          .then(function (pasteR) {
+            if (!pasteR || pasteR.success === false) {
+              throw new Error('paste');
+            }
+            if (aiPatch && api.saveAiSettings) {
+              return api.saveAiSettings(aiPatch).then(function (r) {
+                if (!r || !r.success) throw new Error('ai');
+              });
+            }
+          })
+          .then(function () {
+            showSettingsToast(overlay, uiT('toastSettingsSaveOk'));
+          })
+          .catch(function () {
+            showSettingsToast(overlay, uiT('toastSettingsSaveFail'));
+          });
       });
       requestAnimationFrame(function () {
         var sel = overlay.querySelector('#settings-autosave');
@@ -8401,7 +9257,7 @@
         return api.removeAnnotation(currentFilePath, id).then(function (r) {
           if (r.success) {
             if (selectedAnnotationId === id) selectedAnnotationId = null;
-            reloadFile();
+            refreshFromDiskAfterAnno(null);
           } else { uiAlert(uiT('alertDelFail', { error: r.error })); }
         });
       });
@@ -8689,7 +9545,7 @@
       return api.addAnnotation(currentFilePath, line, input).then(function (r) {
         if (!r.success) { uiAlert(uiT('alertSaveFail', { error: r.error })); return; }
         var newId = r.value && r.value.id;
-        reloadFile({ selectAnnoId: newId || null });
+        refreshFromDiskAfterAnno(newId || null);
       });
     });
   }
@@ -8699,7 +9555,7 @@
       return api.editAnnotation(currentFilePath, id, { content: content, tags: tags, level: level, status: status })
         .then(function (r) {
           if (!r.success) { uiAlert(uiT('alertSaveFail', { error: r.error })); return; }
-          reloadFile({ selectAnnoId: id });
+          refreshFromDiskAfterAnno(id);
         });
     });
   }
