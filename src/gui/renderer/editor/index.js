@@ -1,6 +1,6 @@
 /**
  * MDA 3.0 编辑面入口（M8）。
- * 启用：`localStorage mda-cm6=1` 后重启 GUI。
+ * 默认启用预览编辑；`localStorage mda-cm6=0` 后重启 GUI 可回退 2.0 源码编辑面。
  */
 'use strict';
 
@@ -21,27 +21,7 @@ const { flushAllTableWidgets } = require('./widgets/table');
 const { MODE_PREVIEW, MODE_SOURCE } = require('./mode');
 const { SearchSession } = require('./state/search-session');
 const editorConfig = require('./config');
-
-function isEnabledByPref() {
-  try {
-    if (typeof window !== 'undefined' && window.mdaAPI && window.mdaAPI.cm6Forced) {
-      return true;
-    }
-    var v = localStorage.getItem('mda-cm6');
-    if (v === null || v === undefined || v === '') return false;
-    return v === '1' || v === 'true';
-  } catch (_) {
-    return false;
-  }
-}
-
-function setEnabledPref(on) {
-  try {
-    localStorage.setItem('mda-cm6', on ? '1' : '0');
-  } catch (_) {
-    /* ignore */
-  }
-}
+const { isEnabledByPref, setEnabledPref } = require('./pref');
 
 module.exports = {
   createEditor: createEditor,
