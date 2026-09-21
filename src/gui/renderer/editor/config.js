@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 编辑面运行时配置：功能闸门 + 开发调试开关（发布时统一关闭）。
  *
  * 分阶段交付（代码已签收，开发默认 math）：
@@ -18,7 +18,7 @@ var RELEASE =
 var FLAGS = {
   clickDebug: {
     storageKey: 'mda-editor-debug-click',
-    devDefault: true,
+    devDefault: false,
     releaseValue: false,
   },
   logDecoBuild: {

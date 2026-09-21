@@ -164,6 +164,33 @@ function focusInWidgetInlineEditable() {
   return isWidgetInlineEditableTarget(ae);
 }
 
+/**
+ * 表格格 / 代码块等 widget 内 DOM 选区的可见文字（CM6 文档选区常为空）。
+ * @returns {string}
+ */
+function getWidgetInlineSelectionText() {
+  if (typeof window === 'undefined' || !window.getSelection) return '';
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount < 1 || sel.isCollapsed) return '';
+  const range = sel.getRangeAt(0);
+  let text = range.toString();
+  if (!text) return '';
+  const live =
+    classifyWidgetEditable(document.activeElement) ||
+    classifyWidgetEditable(sel.anchorNode) ||
+    classifyWidgetEditable(sel.focusNode) ||
+    classifyWidgetEditable(range.commonAncestorContainer);
+  if (!live || !live.el) return '';
+  try {
+    if (!live.el.contains(range.startContainer) || !live.el.contains(range.endContainer)) {
+      return '';
+    }
+  } catch (_) {
+    return '';
+  }
+  return String(text).replace(/\u200b/g, '').replace(/\u00a0/g, ' ');
+}
+
 function shouldSuppressCm6Selection() {
   return widgetEditablePointerActive || focusInWidgetInlineEditable();
 }
@@ -307,6 +334,7 @@ module.exports = {
   captureWidgetEditTarget: captureWidgetEditTarget,
   getEffectiveWidgetEditTarget: getEffectiveWidgetEditTarget,
   focusInWidgetInlineEditable: focusInWidgetInlineEditable,
+  getWidgetInlineSelectionText: getWidgetInlineSelectionText,
   attachWidgetEditablePointerIsolation: attachWidgetEditablePointerIsolation,
   createWidgetEditableGuardExtension: createWidgetEditableGuardExtension,
   collapseCm6Selection: collapseCm6Selection,

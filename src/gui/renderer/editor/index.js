@@ -6,6 +6,7 @@
 
 const { createEditor, refreshDecorations, refreshWidgetI18n, notifyAnnoFilterChanged } = require('./mount');
 const annoAddContext = require('./model/anno-add-context');
+const { anchorFromSelection } = require('./model/anchor-from-sel');
 const imageBlockOps = require('./widgets/image-block-ops');
 const { insertMarkdownAtBlankLine, insertMarkdownNearBlock } = require('./widgets/block-handle-ops');
 const { serializeImageMarkdown } = require('./model/parse-image');
@@ -77,6 +78,7 @@ module.exports = {
   blockKindAtPos: annoAddContext.blockKindAtPos,
   isBlockOnlyKind: annoAddContext.isBlockOnlyKind,
   blockAnnotationLine: annoAddContext.blockAnnotationLine,
+  anchorFromSelection: anchorFromSelection,
   config: editorConfig,
 };
 

@@ -1,4 +1,4 @@
-﻿// MDA Renderer — Markdown 工作台 GUI
+// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -72,6 +72,10 @@
   var cmEditToolbarSlotEl = null;
   var cm6SearchSession = null;
   var tbEditBtn, tbPanelBtn, tbFilesBtn, tbFileNameEl, addBtn, clearAllBtn;
+  /** @type {HTMLElement | null} */
+  var topToolbarTipEl = null;
+  /** @type {HTMLElement | null} */
+  var topToolbarTipAnchor = null;
 
   var MOD_KEY = (navigator.platform || '').toLowerCase().indexOf('mac') >= 0 ? '\u2318' : 'Ctrl+';
 
@@ -325,8 +329,7 @@
         mode: mode,
         placeholder: uiT('editorPlaceholder'),
         onFind: function () {
-          if (docState === 'welcome' || !findReplaceUi) return;
-          findReplaceUi.show('find');
+          openFindReplace('find');
         },
         onCopy: function () {
           if (!cm6Editor || docState === 'welcome') return;
@@ -373,6 +376,16 @@
         onTogglePanel: function () {
           togglePanel();
         },
+        onAddAnnotation: function () {
+          triggerAddAnnotation();
+        },
+        onAddLineAnnotation: function (block) {
+          if (!currentFilePath) return;
+          openBlockAnnotationDialog(block, null);
+        },
+        resolveAddAnnoIntent: function () {
+          return resolveCm6AddAnnoIntent();
+        },
         getPanelVisible: function () {
           return panelVisible;
         },
@@ -385,6 +398,7 @@
         resolveImageUrl: resolveImageUrlForEditor,
         onChange: function () {
           syncDirtyFromEditor();
+          refreshFindMatchesIfOpen();
           if (previewTimer) clearTimeout(previewTimer);
           previewTimer = setTimeout(function () {
             var text = getEditorTextValue();
@@ -424,6 +438,9 @@
         },
         onSelectionUpdate: function () {
           updateAnnoAddButton();
+          if (cm6Editor && typeof cm6Editor.refreshToolbar === 'function') {
+            cm6Editor.refreshToolbar();
+          }
         },
         alert: function (msg) {
           uiAlert(msg);
@@ -941,20 +958,86 @@
     return false;
   }
 
+  function applyTopToolbarTipData() {
+    var specs = [
+      { btn: tbFilesBtn, line1: 'tbTipFiles', line2: 'tbTipFilesWhere' },
+      { btn: tbEditBtn, line1: 'tbTipEdit', line2: 'tbTipEditWhere' },
+      { btn: tbPanelBtn, line1: 'tbTipPanel', line2: 'tbTipPanelWhere' },
+    ];
+    for (var i = 0; i < specs.length; i++) {
+      var spec = specs[i];
+      if (!spec.btn) continue;
+      var host = spec.btn.parentElement;
+      if (!host || !host.classList.contains('mda-cm-tb-tip-host')) continue;
+      var line1 = uiT(spec.line1);
+      var line2 = uiT(spec.line2);
+      spec.btn.textContent = uiT(
+        spec.btn.id === 'tb-files' ? 'tbFiles' : spec.btn.id === 'tb-edit' ? 'tbEdit' : 'tbPanel'
+      );
+      spec.btn.removeAttribute('title');
+      spec.btn.setAttribute('aria-label', line1);
+      host.setAttribute('data-tip', line1 + '\n' + line2);
+    }
+  }
+
+  function ensureTopToolbarTip() {
+    if (topToolbarTipEl && topToolbarTipEl.isConnected) return topToolbarTipEl;
+    topToolbarTipEl = document.createElement('div');
+    topToolbarTipEl.className = 'mda-cm-tb-floating-tip';
+    topToolbarTipEl.setAttribute('role', 'tooltip');
+    document.body.appendChild(topToolbarTipEl);
+    return topToolbarTipEl;
+  }
+
+  function hideTopToolbarTip() {
+    topToolbarTipAnchor = null;
+    if (topToolbarTipEl) topToolbarTipEl.classList.remove('is-visible');
+  }
+
+  function showTopToolbarTip(host) {
+    var text = host.getAttribute('data-tip');
+    if (!text) return;
+    var tip = ensureTopToolbarTip();
+    tip.textContent = text;
+    topToolbarTipAnchor = host;
+    tip.classList.add('is-visible');
+    var rect = host.getBoundingClientRect();
+    var tipRect = tip.getBoundingClientRect();
+    var left = rect.left + rect.width / 2 - tipRect.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+    var top = rect.bottom + 6;
+    if (top + tipRect.height > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - tipRect.height - 6);
+    }
+    tip.style.left = Math.round(left) + 'px';
+    tip.style.top = Math.round(top) + 'px';
+  }
+
+  function bindTopToolbarTips() {
+    var nav = document.querySelector('.toolbar-nav');
+    if (!nav) return;
+    nav.addEventListener('mouseover', function (e) {
+      var host = e.target && e.target.closest ? e.target.closest('.mda-cm-tb-tip-host') : null;
+      if (!host || !nav.contains(host)) return;
+      showTopToolbarTip(host);
+    });
+    nav.addEventListener('mouseout', function (e) {
+      var related = e.relatedTarget;
+      if (topToolbarTipAnchor && related && topToolbarTipAnchor.contains(related)) return;
+      if (related && related.closest && related.closest('.mda-cm-tb-tip-host') === topToolbarTipAnchor) return;
+      hideTopToolbarTip();
+    });
+    nav.addEventListener('focusin', function (e) {
+      var host = e.target && e.target.closest ? e.target.closest('.mda-cm-tb-tip-host') : null;
+      if (host && nav.contains(host)) showTopToolbarTip(host);
+    });
+    nav.addEventListener('focusout', function () {
+      hideTopToolbarTip();
+    });
+  }
+
   function applyUiLang() {
-    if (tbFilesBtn) {
-      tbFilesBtn.textContent = uiT('tbFiles');
-      tbFilesBtn.title = uiT('tbFilesTitle');
-    }
-    if (tbEditBtn) {
-      tbEditBtn.textContent = uiT('tbEdit');
-      tbEditBtn.title = uiT('tbEditTitle');
-    }
-    if (tbPanelBtn) {
-      tbPanelBtn.textContent = uiT('tbPanel');
-      tbPanelBtn.title = uiT('tbPanelTitle');
-    }
-    if (addBtn) addBtn.textContent = uiT('btnAddAnno');
+    applyTopToolbarTipData();
     if (clearAllBtn) clearAllBtn.textContent = uiT('btnClearAllAnnos');
     if (editorEl) editorEl.placeholder = uiT('editorPlaceholder');
     document.querySelectorAll('[data-i18n-filter]').forEach(function (el) {
@@ -1096,16 +1179,14 @@
       if (k === 'f' && !e.shiftKey) {
         if (docState !== 'welcome' && findReplaceUi) {
           e.preventDefault();
-          if (!editorVisible) showEditorPane(true);
-          findReplaceUi.show('find');
+          openFindReplace('find');
         }
         return;
       }
       if (k === 'h' && !e.shiftKey) {
         if (docState !== 'welcome' && findReplaceUi) {
           e.preventDefault();
-          if (!editorVisible) showEditorPane(true);
-          findReplaceUi.show('replace');
+          openFindReplace('replace');
         }
         return;
       }
@@ -1149,14 +1230,73 @@
     updateToolbar();
   }
 
+  function buildFindEditorAdapter() {
+    if (!isCm6Enabled()) return null;
+    return {
+      skipHorizontalScroll: true,
+      getText: function () {
+        return getEditorTextValue();
+      },
+      setSelectionRange: function (start, end) {
+        if (cm6Editor && typeof cm6Editor.scrollToAnchor === 'function') {
+          cm6Editor.scrollToAnchor({ start: start, end: end }, { skipFocus: true });
+        }
+      },
+      replaceRange: function (start, end, text) {
+        if (cm6Editor && typeof cm6Editor.replaceRange === 'function') {
+          cm6Editor.replaceRange(start, end, text);
+        }
+      },
+      replaceAllRanges: function (matches, text) {
+        if (cm6Editor && typeof cm6Editor.replaceAllRanges === 'function') {
+          cm6Editor.replaceAllRanges(matches, text);
+        }
+      },
+      focusEditor: function () {
+        if (cm6Editor && typeof cm6Editor.focus === 'function') cm6Editor.focus();
+      },
+      getMeasureStyleEl: function () {
+        if (cm6Editor && cm6Editor.view) {
+          var cm = cm6Editor.view.dom.querySelector('.cm-content');
+          if (cm) return cm;
+        }
+        return editorEl;
+      },
+    };
+  }
+
+  /** 打开查找栏时：若有非空选区则作为查找词（单行输入框仅取首行） */
+  function getFindSeedFromSelection() {
+    var text = '';
+    if (isCm6Ready() && cm6Editor && typeof cm6Editor.getSelectionText === 'function') {
+      text = cm6Editor.getSelectionText();
+    } else if (editorEl && editorEl.selectionStart < editorEl.selectionEnd) {
+      text = editorEl.value.slice(editorEl.selectionStart, editorEl.selectionEnd);
+    }
+    text = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    if (!text) return null;
+    if (text.indexOf('\n') !== -1) text = text.split('\n')[0];
+    text = text.trim();
+    return text.length ? text : null;
+  }
+
+  function openFindReplace(mode) {
+    if (docState === 'welcome' || !findReplaceUi) return;
+    if (!isCm6Ready() && !editorVisible) showEditorPane(true);
+    var seed = getFindSeedFromSelection();
+    findReplaceUi.show(mode || 'find', seed);
+  }
+
   function mountM3Modules() {
     initCm6Editor();
     assist = window.MDAEditorAssist || null;
     if (window.MDAFindReplace && editorPaneEl) {
-      findReplaceUi = window.MDAFindReplace.mount(editorPaneEl, editorEl, function () {
+      var findHostEl = (isCm6Enabled() && previewScrollEl) ? previewScrollEl : editorPaneEl;
+      findReplaceUi = window.MDAFindReplace.mount(findHostEl, editorEl, function () {
         syncDirtyFromEditor();
       }, {
         searchSession: cm6SearchSession,
+        editorAdapter: buildFindEditorAdapter(),
         onMatchesChange: function (matches, index, opts) {
           opts = opts || {};
           if (!opts.query) {
@@ -1754,6 +1894,7 @@
   }
 
   function updateFindMarkLayer() {
+    if (isCm6Ready()) return;
     if (!srcFindMarkEl) return;
     var code = srcFindMarkEl.querySelector('code') || srcFindMarkEl;
     if (!findMatchState || !findMatchState.matches.length) {
@@ -1776,7 +1917,29 @@
     code.innerHTML = html;
   }
 
+  /** 编辑/撤销后同步查找命中与高亮（替换后 undo 时 findMatchState 会过期） */
+  function refreshFindMatchesIfOpen() {
+    if (!findReplaceUi || typeof findReplaceUi.isOpen !== 'function' || !findReplaceUi.isOpen()) {
+      return;
+    }
+    if (typeof findReplaceUi.refreshMatches === 'function') {
+      findReplaceUi.refreshMatches(false, { skipScroll: true, skipRefocus: true });
+    }
+  }
+
   function updateFindHighlights() {
+    if (isCm6Ready() && cm6Editor && typeof cm6Editor.setFindHighlights === 'function') {
+      if (!findMatchState || !findMatchState.matches.length) {
+        if (typeof cm6Editor.clearFindHighlights === 'function') {
+          cm6Editor.clearFindHighlights();
+        } else {
+          cm6Editor.setFindHighlights([], -1);
+        }
+      } else {
+        cm6Editor.setFindHighlights(findMatchState.matches, findMatchState.index);
+      }
+      return;
+    }
     updateFindMarkLayer();
     updateFindPreviewHighlights();
   }
@@ -1797,7 +1960,7 @@
   function getActiveFindLine() {
     if (!findMatchState || !findMatchState.matches.length || findMatchState.index < 0) return null;
     var m = findMatchState.matches[findMatchState.index];
-    return editorEl.value.slice(0, m.start).split('\n').length;
+    return getEditorTextValue().slice(0, m.start).split('\n').length;
   }
 
   function updateFindPreviewHighlights(hlOpts) {
@@ -1862,6 +2025,33 @@
 
   function clearFindMarkLayer() {
     findMatchState = null;
+    updateFindHighlights();
+  }
+
+  /** 切换文档：关闭查找栏、清空检索与高亮 */
+  function resetFindUiForNewDocument() {
+    if (findReplaceUi && typeof findReplaceUi.resetAndClose === 'function') {
+      findReplaceUi.resetAndClose();
+    } else if (findReplaceUi && typeof findReplaceUi.hide === 'function') {
+      findReplaceUi.hide();
+    }
+    findMatchState = null;
+    if (isCm6Ready() && cm6Editor) {
+      if (typeof cm6Editor.clearFindHighlights === 'function') {
+        cm6Editor.clearFindHighlights();
+      } else if (typeof cm6Editor.setFindHighlights === 'function') {
+        cm6Editor.setFindHighlights([], -1);
+      }
+    }
+    if (cm6SearchSession) {
+      cm6SearchSession.applyOptions({
+        query: '',
+        caseSensitive: false,
+        regex: false,
+        matchIndex: -1,
+      });
+      cm6SearchSession.setMatches([], -1);
+    }
     updateFindHighlights();
   }
 
@@ -2098,6 +2288,9 @@
         onCopyFileName: function (_path, name) {
           copyTextWithToast(name, uiT('toastCopied'));
         },
+        onShowInFolder: function (filePath) {
+          if (filePath && api.showItemInFolder) api.showItemInFolder(filePath);
+        },
         onCopyFile: function (filePath) { copyFileToFsClip(filePath); },
         onCutFile: function (filePath) { cutFileToFsClip(filePath); },
         onPasteToDir: function (destDir) { pasteFsClipToDir(destDir); },
@@ -2172,6 +2365,7 @@
         else showEditorPane(true);
       }
       parseAndRender('', null);
+      resetFindUiForNewDocument();
       resetScrollTop();
       requestAnimationFrame(function () { if (editorVisible || isCm6Enabled()) focusActiveEditor(); });
     });
@@ -2542,6 +2736,8 @@
     previewEl.innerHTML = '';
     setDirtyState(false);
     setDocState('welcome');
+    resetFindUiForNewDocument();
+    resetScrollTop();
     if (fileSidebar && fileSidebar.setActive) fileSidebar.setActive(null);
     if (outlinePanelUi && outlinePanelUi.setHeadings) outlinePanelUi.setHeadings([]);
     updateToolbar();
@@ -2991,9 +3187,9 @@
     root.innerHTML =
       '<div class="toolbar">' +
         '<div class="toolbar-nav">' +
-        '<button id="tb-files" class="tool-btn" title="" disabled></button>' +
-        '<button id="tb-edit" class="tool-btn" title=""></button>' +
-        '<button id="tb-panel" class="tool-btn" title=""></button>' +
+        '<span class="mda-cm-tb-tip-host" data-tip-cmd="files"><button id="tb-files" class="tool-btn" title="" disabled></button></span>' +
+        '<span class="mda-cm-tb-tip-host" data-tip-cmd="edit"><button id="tb-edit" class="tool-btn" title=""></button></span>' +
+        '<span class="mda-cm-tb-tip-host" data-tip-cmd="panel"><button id="tb-panel" class="tool-btn" title=""></button></span>' +
         '</div>' +
         '<div id="cm-edit-toolbar-slot" class="mda-cm-edit-toolbar-slot hidden"></div>' +
         '<span id="tb-filename" class="file-name"></span>' +
@@ -3072,6 +3268,8 @@
     tbFileNameEl = document.getElementById('tb-filename');
     addBtn = document.getElementById('btn-add');
     clearAllBtn = document.getElementById('btn-clear-all');
+    bindTopToolbarTips();
+    applyTopToolbarTipData();
 
     // 恢复批注栏展开习惯（与大纲/文件列表一致走 localStorage）
     applyPanelVisible(readPanelVisiblePref());
@@ -3086,13 +3284,7 @@
     }, true);
 
     addBtn.addEventListener('click', function () {
-      if (isCm6Ready() && window.MDAEditor && typeof window.MDAEditor.resolveAnnoPanelContext === 'function') {
-        var ctx = window.MDAEditor.resolveAnnoPanelContext(cm6Editor.view);
-        if (!ctx.canPanelAdd) return;
-        showEditDialog('add', null, ctx.line, null);
-        return;
-      }
-      showEditDialog('add', null, cursorLine);
+      triggerAddAnnotation();
     });
     if (clearAllBtn) {
       clearAllBtn.addEventListener('click', function () { clearAllAnnotationsInFile(); });
@@ -3117,6 +3309,7 @@
     editorEl.addEventListener('input', function () {
       if (isCm6Ready()) return;
       setDirtyState(editorEl.value !== currentText);
+      refreshFindMatchesIfOpen();
       refreshEditorDecorations();
       applyPinnedEditorScroll();
       // 浏览器常在 input 之后才做「保光标可见」滚动，再钉一次
@@ -5773,26 +5966,93 @@
     });
   }
 
+  function resolveCm6AddAnnoIntent() {
+    if (!isCm6Ready() || !cm6Editor || !cm6Editor.view || !window.MDAEditor) return null;
+    var view = cm6Editor.view;
+    if (typeof window.MDAEditor.resolveAnnoPanelContext !== 'function') return null;
+    var ctx = window.MDAEditor.resolveAnnoPanelContext(view);
+    if (!ctx.canPanelAdd) return { canAdd: false, hasSelection: false, ctx: ctx };
+    var sel = view.state.selection.main;
+    if (
+      sel.from < sel.to &&
+      typeof window.MDAEditor.anchorFromSelection === 'function' &&
+      typeof window.MDAEditor.canUseSelectionAnnoForRange === 'function'
+    ) {
+      var text = view.state.doc.toString();
+      if (window.MDAEditor.canUseSelectionAnnoForRange(text, sel.from, sel.to)) {
+        var anchor = window.MDAEditor.anchorFromSelection(view.state);
+        if (anchor) {
+          var line = selAnchor
+            ? selAnchor.anchorToLine(text, anchor.start)
+            : ctx.line;
+          return {
+            canAdd: true,
+            hasSelection: true,
+            anchor: anchor,
+            line: line,
+            ctx: ctx,
+          };
+        }
+      }
+    }
+    return { canAdd: true, hasSelection: false, line: ctx.line, ctx: ctx };
+  }
+
+  function triggerAddAnnotation() {
+    if (docState !== 'open' || !currentFilePath) return;
+    if (isCm6Ready() && cm6Editor && cm6Editor.view && window.MDAEditor) {
+      var intent = resolveCm6AddAnnoIntent();
+      if (!intent || !intent.canAdd) return;
+      if (intent.hasSelection && intent.anchor) {
+        showEditDialog('add', null, intent.line, intent.anchor);
+      } else {
+        showEditDialog('add', null, intent.line, null);
+      }
+      return;
+    }
+    var start = editorEl ? editorEl.selectionStart : 0;
+    var end = editorEl ? editorEl.selectionEnd : 0;
+    if (start !== end && selAnchor) {
+      var anchor = resolveSelectionAnchor('editor', { start: start, end: end, quote: editorEl.value.slice(start, end) });
+      if (anchor) {
+        var line = selAnchor.anchorToLine(getSourceText(), anchor.start);
+        showEditDialog('add', null, line, anchor);
+        return;
+      }
+    }
+    showEditDialog('add', null, cursorLine);
+  }
+
   function updateAnnoAddButton() {
     if (!addBtn) return;
     var baseDisabled = docState !== 'open' || !currentFilePath;
     if (baseDisabled) {
       addBtn.disabled = true;
+      addBtn.textContent = uiT('btnAddAnno');
       addBtn.removeAttribute('title');
       return;
     }
     if (isCm6Ready() && window.MDAEditor && typeof window.MDAEditor.resolveAnnoPanelContext === 'function') {
-      var ctx = window.MDAEditor.resolveAnnoPanelContext(cm6Editor.view);
-      addBtn.disabled = !ctx.canPanelAdd;
-      if (!ctx.canPanelAdd && ctx.reason === 'widget-editable') {
-        addBtn.title = uiT('tipAnnoDisabledInWidget');
-      } else {
-        addBtn.removeAttribute('title');
+      var intent = resolveCm6AddAnnoIntent();
+      var ctx = intent && intent.ctx ? intent.ctx : window.MDAEditor.resolveAnnoPanelContext(cm6Editor.view);
+      addBtn.disabled = !(intent && intent.canAdd);
+      if (!intent || !intent.canAdd) {
+        if (ctx && ctx.reason === 'widget-editable') {
+          addBtn.title = uiT('tipAnnoDisabledInWidget');
+        } else {
+          addBtn.removeAttribute('title');
+        }
+        addBtn.textContent = uiT('btnAddAnno');
+        return;
       }
-      if (ctx.canPanelAdd && ctx.line) cursorLine = ctx.line;
+      addBtn.textContent = intent.hasSelection ? uiT('btnAddSelAnno') : uiT('btnAddAnno');
+      addBtn.removeAttribute('title');
+      if (intent.line) cursorLine = intent.line;
+      else if (ctx && ctx.line) cursorLine = ctx.line;
       return;
     }
     addBtn.disabled = false;
+    addBtn.textContent = uiT('btnAddAnno');
     addBtn.removeAttribute('title');
   }
 
@@ -6085,6 +6345,7 @@
     }
     var result = await api.readFile(filePath);
     if (!result.success) { uiAlert(uiT('alertOpenFail', { error: result.error })); return; }
+    if (scrollToTop) resetFindUiForNewDocument();
     currentFilePath = filePath;
     setDocState('open');
     setEditorTextValue(result.content, {
@@ -6110,7 +6371,9 @@
         refreshCm6Decorations();
         requestAnimationFrame(function () {
           refreshCm6Decorations();
-          if (savedCm6Scroll != null && cm6Editor && cm6Editor.view && !opts.selectAnnoId) {
+          if (scrollToTop) {
+            resetScrollTop();
+          } else if (savedCm6Scroll != null && cm6Editor && cm6Editor.view && !opts.selectAnnoId) {
             cm6Editor.view.scrollDOM.scrollTop = savedCm6Scroll;
           }
         });
@@ -6144,7 +6407,15 @@
     if (editorEl) { editorEl.scrollTop = 0; editorEl.scrollLeft = 0; }
     if (srcHighlightEl) { var hp = srcHighlightEl.parentNode; hp.scrollTop = 0; hp.scrollLeft = 0; }
     if (srcGutterEl) srcGutterEl.scrollTop = 0;
+    if (srcFindMarkEl) srcFindMarkEl.scrollTop = 0;
     if (previewScrollEl) previewScrollEl.scrollTop = 0;
+    if (isCm6Ready() && cm6Editor && cm6Editor.view) {
+      var scrollEl = cm6Editor.view.scrollDOM;
+      if (scrollEl) {
+        scrollEl.scrollTop = 0;
+        scrollEl.scrollLeft = 0;
+      }
+    }
   }
 
   function setTitle(filePath) {
@@ -6430,7 +6701,8 @@
         unfreezeEditorScroll();
       }
       if (findMatchState && findMatchState.query) {
-        updateFindPreviewHighlights({ skipScroll: liveEdit });
+        if (isCm6Ready()) updateFindHighlights();
+        else updateFindPreviewHighlights({ skipScroll: liveEdit });
       }
       applyAnchorHighlights();
       updateToolbar();

@@ -482,6 +482,8 @@
 
           '<div class="mda-menu-item" data-act="copy-name"><span>' + tr('fsCopyName') + '</span></div>' +
 
+          '<div class="mda-menu-item" data-act="show-in-folder"><span>' + tr('fsShowInFolder') + '</span></div>' +
+
           '<div class="mda-menu-item" data-act="copy-file"><span>' + tr('fsCopyFile') + '</span>' + menuKey(mk + 'C') + '</div>' +
 
           '<div class="mda-menu-item" data-act="cut-file"><span>' + tr('fsCutFile') + '</span>' + menuKey(mk + 'X') + '</div>' +
@@ -515,6 +517,8 @@
         removeFsContextMenu();
 
         if (act === 'copy-name' && cb.onCopyFileName) cb.onCopyFileName(opts.filePath, opts.fileName);
+
+        if (act === 'show-in-folder' && cb.onShowInFolder) cb.onShowInFolder(opts.filePath);
 
         if (act === 'copy-file' && cb.onCopyFile) cb.onCopyFile(opts.filePath);
 

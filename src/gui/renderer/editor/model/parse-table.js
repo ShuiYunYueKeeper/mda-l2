@@ -465,6 +465,7 @@ module.exports = {
   expandGfmTableRange: expandGfmTableRange,
   expandTableBlockRange: expandTableBlockRange,
   splitRow: splitRow,
+  isSepRow: isSepRow,
   escapeCell: escapeCell,
   tablesEqual: tablesEqual,
   normalizeCellText: normalizeCellText,

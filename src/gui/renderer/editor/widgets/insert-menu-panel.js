@@ -10,6 +10,7 @@ const {
   findInsertMenuItem,
   INSERT_GENERAL_ITEMS,
   INSERT_CHART_ITEMS,
+  INSERT_ACTION_ITEMS,
 } = require('./insert-menu-items');
 
 /**
@@ -128,6 +129,8 @@ function appendInsertMenuPanel(menu, t, onPick) {
   appendInsertMenuSection(menu, 'insertMenuGeneral', INSERT_GENERAL_ITEMS, t);
   addMenuSeparator(menu);
   appendInsertMenuSection(menu, 'insertMenuCharts', INSERT_CHART_ITEMS, t);
+  addMenuSeparator(menu);
+  appendInsertMenuSection(menu, 'insertMenuActions', INSERT_ACTION_ITEMS, t);
 
   menu.addEventListener('click', function (e) {
     const item = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
@@ -142,4 +145,5 @@ function appendInsertMenuPanel(menu, t, onPick) {
 module.exports = {
   appendInsertMenuPanel: appendInsertMenuPanel,
   addMenuSeparator: addMenuSeparator,
+  INSERT_ACTION_ITEMS: INSERT_ACTION_ITEMS,
 };

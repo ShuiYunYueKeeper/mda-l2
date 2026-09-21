@@ -28,7 +28,7 @@ const FORMAT_GRID_ROWS = [
 /** @type {InsertMenuItem[]} */
 const INSERT_GENERAL_ITEMS = [
   { id: 'image', key: 'blockMenuInsertImage', icon: 'image' },
-  { id: 'table', key: 'blockMenuInsertTable', icon: 'table', hasSub: true },
+  { id: 'table', key: 'blockMenuInsertTable', icon: 'table' },
   { id: 'code', key: 'blockMenuInsertCode', icon: 'code' },
   { id: 'quote', key: 'blockMenuInsertQuote', icon: 'quote' },
   { id: 'link', key: 'insertMenuLink', icon: 'link' },
@@ -39,6 +39,9 @@ const INSERT_GENERAL_ITEMS = [
 const INSERT_CHART_ITEMS = [
   { id: 'mermaid', key: 'blockMenuInsertMermaid', icon: 'mermaid' },
 ];
+
+/** @type {InsertMenuItem[]} */
+const INSERT_ACTION_ITEMS = [{ id: 'anno', key: 'addAnno', icon: 'anno' }];
 
 /** @type {Record<string, InsertMenuItem>} */
 const ITEM_MAP = Object.create(null);
@@ -52,6 +55,7 @@ function indexItems(list) {
 indexItems(INSERT_FORMAT_ITEMS);
 indexItems(INSERT_GENERAL_ITEMS);
 indexItems(INSERT_CHART_ITEMS);
+indexItems(INSERT_ACTION_ITEMS);
 
 /**
  * @param {string} id
@@ -65,6 +69,7 @@ module.exports = {
   INSERT_FORMAT_ITEMS: INSERT_FORMAT_ITEMS,
   INSERT_GENERAL_ITEMS: INSERT_GENERAL_ITEMS,
   INSERT_CHART_ITEMS: INSERT_CHART_ITEMS,
+  INSERT_ACTION_ITEMS: INSERT_ACTION_ITEMS,
   FORMAT_GRID_ROWS: FORMAT_GRID_ROWS,
   findInsertMenuItem: findInsertMenuItem,
 };

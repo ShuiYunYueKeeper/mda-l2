@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-E1 常驻编辑工具栏（F11-6，布局对齐竞品）。
  */
 'use strict';
@@ -65,10 +65,14 @@ const NEEDS_EDITOR_ACTIVATION = {
 let activeInsertMenu = null;
 /** @type {HTMLElement | null} */
 let activeExportMenu = null;
+/** @type {HTMLElement | null} */
+let activeParagraphMenu = null;
 /** @type {((ev: Event) => void) | null} */
 let insertDismissFn = null;
 /** @type {((ev: Event) => void) | null} */
 let exportDismissFn = null;
+/** @type {((ev: Event) => void) | null} */
+let paragraphDismissFn = null;
 
 /**
  * @param {((ev: Event) => void) | null} fn
@@ -109,6 +113,23 @@ function closeToolbarExportMenu(opts) {
   }
   if (opts && opts.restoreFocus) {
     const btn = document.querySelector('.mda-cm-tb-export');
+    if (btn && typeof btn.focus === 'function') btn.focus();
+  }
+}
+
+function closeToolbarParagraphMenu(opts) {
+  unbindToolbarPopupDismiss(paragraphDismissFn);
+  paragraphDismissFn = null;
+  if (activeParagraphMenu && activeParagraphMenu.parentNode) {
+    activeParagraphMenu.parentNode.removeChild(activeParagraphMenu);
+  }
+  activeParagraphMenu = null;
+  const expanded = document.querySelectorAll('.mda-cm-tb-paragraph[aria-expanded="true"]');
+  for (let i = 0; i < expanded.length; i++) {
+    expanded[i].setAttribute('aria-expanded', 'false');
+  }
+  if (opts && opts.restoreFocus) {
+    const btn = document.querySelector('.mda-cm-tb-paragraph');
     if (btn && typeof btn.focus === 'function') btn.focus();
   }
 }
@@ -173,7 +194,9 @@ function createEditorToolbar(host, view, opts) {
     '<span class="mda-cm-tb-sep" aria-hidden="true"></span>' +
     '<div class="mda-cm-tb-group" data-group="paragraph">' +
     '<span class="mda-cm-tb-tip-host" data-tip-cmd="paragraph">' +
-    '<select class="mda-cm-tb-select" data-cmd="paragraph" aria-label=""></select>' +
+    '<button type="button" class="mda-cm-tb-select mda-cm-tb-paragraph" data-cmd="paragraph-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-paragraph-menu">' +
+    '<span class="mda-cm-tb-paragraph-label"></span>' +
+    '</button>' +
     '</span>' +
     '</div>' +
     '<span class="mda-cm-tb-sep" aria-hidden="true"></span>' +
@@ -240,15 +263,15 @@ function createEditorToolbar(host, view, opts) {
     '</div>' +
     '<span class="mda-cm-tb-sep" aria-hidden="true"></span>' +
     '<div class="mda-cm-tb-group" data-group="utility">' +
-    tbButtonHtml('save', { icon: 'save' }) +
-    tbButtonHtml('copy-preview', { icon: 'copyPreview', keyshortcuts: 'Control+Alt+C' }) +
+    tbButtonHtml('save', { icon: 'save', keyshortcuts: 'Control+S', tip: true }) +
+    tbButtonHtml('copy-preview', { icon: 'copyPreview', keyshortcuts: 'Control+Alt+C', tip: true }) +
     '<button type="button" class="mda-cm-tb-btn mda-cm-tb-export" data-cmd="export-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-export-menu" title="">' +
     toolbarIconHtml('export') +
     '<span class="mda-cm-tb-export-label"></span>' +
     '<span class="mda-cm-tb-export-caret" aria-hidden="true">▾</span>' +
     '</button>' +
-    tbButtonHtml('find', { icon: 'find' }) +
-    tbButtonHtml('comment', { icon: 'comment', pressed: true }) +
+    tbButtonHtml('find', { icon: 'find', keyshortcuts: 'Control+F', tip: true }) +
+    tbButtonHtml('comment', { icon: 'comment', keyshortcuts: 'Control+Shift+B', tip: true }) +
     '</div>' +
     '<span class="mda-cm-tb-sep" aria-hidden="true"></span>' +
     '<div class="mda-cm-tb-group" data-group="insert">' +
@@ -266,7 +289,8 @@ function createEditorToolbar(host, view, opts) {
 
   host.appendChild(bar);
 
-  const paraSelect = /** @type {HTMLSelectElement} */ (bar.querySelector('[data-cmd="paragraph"]'));
+  const paraBtn = /** @type {HTMLButtonElement} */ (bar.querySelector('[data-cmd="paragraph-open"]'));
+  const paraLabel = bar.querySelector('.mda-cm-tb-paragraph-label');
   const paraOptions = [
     { v: 'paragraph', k: 'insertMenuBodyText' },
     { v: 'h1', k: 'insertMenuHeading1' },
@@ -303,6 +327,7 @@ function createEditorToolbar(host, view, opts) {
     redo: ['tbTipRedo', 'tbTipRedoWhere'],
     'clear-format': ['tbTipClearFormat', 'tbTipClearFormatWhere'],
     paragraph: ['tbTipParagraph', 'tbTipParagraphWhere'],
+    'paragraph-open': ['tbTipParagraph', 'tbTipParagraphWhere'],
     bold: ['tbTipBold', 'tbTipBoldWhere'],
     italic: ['tbTipItalic', 'tbTipItalicWhere'],
     underline: ['tbTipUnderline', 'tbTipUnderlineWhere'],
@@ -311,19 +336,13 @@ function createEditorToolbar(host, view, opts) {
     task: ['tbTipTask', 'tbTipTaskWhere'],
     ul: ['tbTipUl', 'tbTipUlWhere'],
     ol: ['tbTipOl', 'tbTipOlWhere'],
+    save: ['tbTipSave', 'tbTipSaveWhere'],
+    'copy-preview': ['tbTipCopyPreview', 'tbTipCopyPreviewWhere'],
+    find: ['tbTipFind', 'tbTipFindWhere'],
   };
 
   function applyLabels() {
-    const prev = paraSelect.value;
-    paraSelect.innerHTML = '';
-    for (let i = 0; i < paraOptions.length; i++) {
-      const o = document.createElement('option');
-      o.value = paraOptions[i].v;
-      o.textContent = t(paraOptions[i].k);
-      paraSelect.appendChild(o);
-    }
-    if (prev) paraSelect.value = prev;
-    paraSelect.setAttribute('aria-label', t('tbParagraph'));
+    if (paraBtn) paraBtn.setAttribute('aria-label', t('tbParagraph'));
     bar.setAttribute('aria-label', t('tbToolbar'));
     bar.querySelectorAll('[data-cmd]').forEach(function (el) {
       const cmd = el.getAttribute('data-cmd');
@@ -355,6 +374,23 @@ function createEditorToolbar(host, view, opts) {
     if (exportLabel) exportLabel.textContent = t('tbExport');
     const aiText = bar.querySelector('.mda-cm-tb-ai-text');
     if (aiText) aiText.textContent = t('tbAi');
+    refreshCommentTip();
+  }
+
+  function refreshCommentTip() {
+    const host = bar.querySelector('[data-tip-cmd="comment"]');
+    const btn = bar.querySelector('[data-cmd="comment"]');
+    if (!host || !btn) return;
+    let hasSelection = false;
+    if (typeof opts.resolveAddAnnoIntent === 'function') {
+      const intent = opts.resolveAddAnnoIntent();
+      hasSelection = !!(intent && intent.hasSelection);
+    }
+    const line1 = hasSelection ? t('tbTipCommentSel') : t('tbTipComment');
+    const line2 = hasSelection ? t('tbTipCommentSelWhere') : t('tbTipCommentWhere');
+    btn.removeAttribute('title');
+    btn.setAttribute('aria-label', line1);
+    host.setAttribute('data-tip', line1 + '\n' + line2);
   }
 
   applyLabels();
@@ -421,7 +457,7 @@ function createEditorToolbar(host, view, opts) {
   });
 
   function toolbarControls() {
-    return Array.prototype.slice.call(bar.querySelectorAll('button[data-cmd], select[data-cmd]'));
+    return Array.prototype.slice.call(bar.querySelectorAll('button[data-cmd]'));
   }
 
   function enabledControls() {
@@ -455,7 +491,6 @@ function createEditorToolbar(host, view, opts) {
   bar.addEventListener('keydown', function (e) {
     const target = e.target;
     if (!target || !bar.contains(target)) return;
-    if (target.tagName === 'SELECT' && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) return;
     if (e.key === 'ArrowRight') {
       e.preventDefault();
       moveToolbarFocus(target, 1);
@@ -514,8 +549,7 @@ function createEditorToolbar(host, view, opts) {
       }
       // 其余按钮同样不吃焦点：工具栏窄窗口下横向溢出，浏览器把刚聚焦的按钮
       // 滚进可视区会让整条工具栏平移一下（观感是「点一下就抖」）。
-      // select 需要原生交互展开下拉，不能拦。
-      if (hit.tagName !== 'SELECT') e.preventDefault();
+      e.preventDefault();
     },
     true
   );
@@ -620,21 +654,20 @@ function createEditorToolbar(host, view, opts) {
     };
     let readonly = typeof opts.isReadonly === 'function' ? !!opts.isReadonly() : false;
     if (!readonly) readonly = selectionTouchesReadonly(state);
-    const mixedOpt = paraSelect.querySelector('option[data-mixed="1"]');
-    if (para.mixed) {
-      if (!mixedOpt) {
-        const o = document.createElement('option');
-        o.value = '';
-        o.dataset.mixed = '1';
-        o.textContent = t('tbParagraphMixed');
-        paraSelect.insertBefore(o, paraSelect.firstChild);
+    const mixedOpt = para.mixed;
+    if (paraLabel) {
+      if (mixedOpt) {
+        paraLabel.textContent = t('tbParagraphMixed');
       } else {
-        mixedOpt.textContent = t('tbParagraphMixed');
+        let label = '';
+        for (let pi = 0; pi < paraOptions.length; pi++) {
+          if (paraOptions[pi].v === para.value) {
+            label = t(paraOptions[pi].k);
+            break;
+          }
+        }
+        paraLabel.textContent = label;
       }
-      paraSelect.value = '';
-    } else {
-      if (mixedOpt) paraSelect.removeChild(mixedOpt);
-      paraSelect.value = para.value;
     }
     const canUndo = undoDepth(state) > 0;
     const canRedo = redoDepth(state) > 0;
@@ -660,7 +693,7 @@ function createEditorToolbar(host, view, opts) {
       }
       let disabled =
         readonly ||
-        (formatLocked && !!NEEDS_EDITOR_ACTIVATION[cmd]) ||
+        (formatLocked && !!NEEDS_EDITOR_ACTIVATION[cmd === 'paragraph-open' ? 'paragraph' : cmd]) ||
         inFence ||
         (inTableCell && !TABLE_CELL_ALLOWED[cmd]);
       if (!disabled && AVAIL_CHECK_CMDS[cmd] && !inTableCell) {
@@ -691,11 +724,11 @@ function createEditorToolbar(host, view, opts) {
       }
     });
     const commentBtn = bar.querySelector('[data-cmd="comment"]');
-    if (commentBtn && typeof opts.getPanelVisible === 'function') {
-      const vis = !!opts.getPanelVisible();
-      commentBtn.classList.toggle('is-active', vis);
-      commentBtn.setAttribute('aria-pressed', vis ? 'true' : 'false');
+    if (commentBtn) {
+      commentBtn.classList.remove('is-active');
+      commentBtn.removeAttribute('aria-pressed');
     }
+    refreshCommentTip();
     const focused = bar.querySelector('[tabindex="0"]');
     setRovingTabindex(focused && !focused.disabled ? focused : null);
   }
@@ -719,13 +752,19 @@ function createEditorToolbar(host, view, opts) {
   }
 
   function bindToolbarPopupDismiss(menu, anchorEl, closeFn, kind) {
-    unbindToolbarPopupDismiss(kind === 'export' ? exportDismissFn : insertDismissFn);
+    const prevFn =
+      kind === 'export' ? exportDismissFn : kind === 'paragraph' ? paragraphDismissFn : insertDismissFn;
+    unbindToolbarPopupDismiss(prevFn);
     const dismiss = function (ev) {
       if (kind === 'export' && activeExportMenu !== menu) {
         unbindToolbarPopupDismiss(dismiss);
         return;
       }
       if (kind === 'insert' && activeInsertMenu !== menu) {
+        unbindToolbarPopupDismiss(dismiss);
+        return;
+      }
+      if (kind === 'paragraph' && activeParagraphMenu !== menu) {
         unbindToolbarPopupDismiss(dismiss);
         return;
       }
@@ -741,10 +780,12 @@ function createEditorToolbar(host, view, opts) {
       closeFn();
     };
     if (kind === 'export') exportDismissFn = dismiss;
+    else if (kind === 'paragraph') paragraphDismissFn = dismiss;
     else insertDismissFn = dismiss;
     window.setTimeout(function () {
       if (kind === 'export' && activeExportMenu !== menu) return;
       if (kind === 'insert' && activeInsertMenu !== menu) return;
+      if (kind === 'paragraph' && activeParagraphMenu !== menu) return;
       document.addEventListener('mousedown', dismiss, true);
       document.addEventListener('keydown', dismiss, true);
     }, 0);
@@ -752,6 +793,7 @@ function createEditorToolbar(host, view, opts) {
 
   function openInsertMenu(anchorEl) {
     closeToolbarExportMenu();
+    closeToolbarParagraphMenu();
     closeToolbarInsertMenu();
     const menu = document.createElement('div');
     menu.className =
@@ -767,6 +809,10 @@ function createEditorToolbar(host, view, opts) {
       if (id === 'link') {
         runFormatCommand(view, 'link', formatOpts());
         refresh();
+        return;
+      }
+      if (id === 'anno') {
+        if (typeof opts.onAddAnnotation === 'function') opts.onAddAnnotation();
         return;
       }
       insertTypeAtCursor(view, id, formatOpts());
@@ -791,6 +837,7 @@ function createEditorToolbar(host, view, opts) {
 
   function openExportMenu(anchorEl) {
     closeToolbarInsertMenu();
+    closeToolbarParagraphMenu();
     closeToolbarExportMenu();
     const menu = document.createElement('div');
     menu.className = 'mda-context-menu';
@@ -823,16 +870,52 @@ function createEditorToolbar(host, view, opts) {
     if (exportBtn) exportBtn.setAttribute('aria-expanded', 'true');
     placeToolbarPopup(menu, anchorEl);
     activeExportMenu = menu;
-    const firstItem = menu.querySelector('[role="menuitem"]');
-    if (firstItem && typeof firstItem.focus === 'function') firstItem.focus();
     bindToolbarPopupDismiss(menu, anchorEl, closeToolbarExportMenu, 'export');
+  }
+
+  function runParagraphKind(kind) {
+    closeToolbarParagraphMenu();
+    if (kind === 'paragraph') runFormatCommand(view, 'paragraph', formatOpts());
+    else runFormatCommand(view, kind, formatOpts());
+    refresh();
+  }
+
+  function openParagraphMenu(anchorEl) {
+    closeToolbarInsertMenu();
+    closeToolbarExportMenu();
+    closeToolbarParagraphMenu();
+    const menu = document.createElement('div');
+    menu.className = 'mda-context-menu';
+    menu.id = 'mda-toolbar-paragraph-menu';
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', t('tbParagraph'));
+    for (let i = 0; i < paraOptions.length; i++) {
+      const it = paraOptions[i];
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'mda-menu-item';
+      row.setAttribute('role', 'menuitem');
+      row.setAttribute('tabindex', '-1');
+      row.dataset.paragraph = it.v;
+      row.textContent = t(it.k);
+      row.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        runParagraphKind(it.v);
+      });
+      menu.appendChild(row);
+    }
+    if (paraBtn) paraBtn.setAttribute('aria-expanded', 'true');
+    placeToolbarPopup(menu, anchorEl);
+    activeParagraphMenu = menu;
+    bindToolbarPopupDismiss(menu, anchorEl, closeToolbarParagraphMenu, 'paragraph');
   }
 
   bar.addEventListener('click', function (e) {
     const target = e.target && e.target.closest ? e.target.closest('[data-cmd]') : null;
     if (!target || !bar.contains(target)) return;
-    // 段落下拉用原生 <select> + change 事件；click 里 data-cmd 恒为 paragraph，
-    // 一点击就 runFormatCommand('paragraph') 会在未选级别时强行改正文并 refresh 闪屏。
+    // 段落下拉用自定义菜单 + change 路径；勿走通用 runFormatCommand('paragraph')。
     if (target.tagName === 'SELECT') return;
     const cmd = target.getAttribute('data-cmd');
     if (!cmd) return;
@@ -861,6 +944,14 @@ function createEditorToolbar(host, view, opts) {
       openExportMenu(/** @type {HTMLElement} */ (target));
       return;
     }
+    if (cmd === 'paragraph-open') {
+      if (activeParagraphMenu) {
+        closeToolbarParagraphMenu();
+        return;
+      }
+      openParagraphMenu(/** @type {HTMLElement} */ (target));
+      return;
+    }
     if (cmd === 'copy-preview') {
       if (typeof opts.onCopyPreview === 'function') opts.onCopyPreview();
       return;
@@ -874,19 +965,11 @@ function createEditorToolbar(host, view, opts) {
       return;
     }
     if (cmd === 'comment') {
-      if (typeof opts.onTogglePanel === 'function') opts.onTogglePanel();
+      if (typeof opts.onAddAnnotation === 'function') opts.onAddAnnotation();
       refresh();
       return;
     }
     runFormatCommand(view, cmd, formatOpts());
-    refresh();
-  });
-
-  paraSelect.addEventListener('change', function () {
-    const v = paraSelect.value;
-    if (!v) return;
-    if (v === 'paragraph') runFormatCommand(view, 'paragraph', formatOpts());
-    else runFormatCommand(view, v, formatOpts());
     refresh();
   });
 
@@ -917,6 +1000,7 @@ function createEditorToolbar(host, view, opts) {
       selRefreshRaf = 0;
       closeToolbarInsertMenu();
       closeToolbarExportMenu();
+      closeToolbarParagraphMenu();
       if (bar.parentNode) bar.parentNode.removeChild(bar);
     },
   };

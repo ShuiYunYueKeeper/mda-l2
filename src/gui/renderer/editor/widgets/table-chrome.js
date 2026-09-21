@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-C3 表格竞品式交互：行/列选区、增删、剪贴板、右键菜单。
  */
 'use strict';
@@ -316,7 +316,10 @@ function openTableMenu(host, spec, onAction, t) {
     }
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'mda-menu-item mda-cm-table-menu-item' + (item.disabled ? ' disabled' : '');
+    btn.className =
+      'mda-menu-item mda-cm-table-menu-item' +
+      (item.disabled ? ' disabled' : '') +
+      (item.danger ? ' mda-menu-danger' : '');
     btn.dataset.action = item.id;
     btn.dataset.i18nKey = item.i18nKey;
     btn.innerHTML = tableMenuItemInner(uiT(item.i18nKey, t), item.icon, item.key);
@@ -851,18 +854,18 @@ function mountTableChrome(ctx) {
 
     if (isBodyRow || (selection.kind === 'row' && selection.row === -1)) {
       if (items.length) items.push({ id: '---' });
-      items.push({ id: 'insert-row-above', i18nKey: 'widgetTableInsertRowAbove' });
-      items.push({ id: 'insert-row-below', i18nKey: 'widgetTableInsertRowBelow' });
+      items.push({ id: 'insert-row-above', i18nKey: 'widgetTableInsertRowAbove', icon: 'insertRowAbove' });
+      items.push({ id: 'insert-row-below', i18nKey: 'widgetTableInsertRowBelow', icon: 'insertRowBelow' });
     } else if (isColSel) {
       if (items.length) items.push({ id: '---' });
-      items.push({ id: 'insert-col-left', i18nKey: 'widgetTableInsertColLeft' });
-      items.push({ id: 'insert-col-right', i18nKey: 'widgetTableInsertColRight' });
+      items.push({ id: 'insert-col-left', i18nKey: 'widgetTableInsertColLeft', icon: 'insertColLeft' });
+      items.push({ id: 'insert-col-right', i18nKey: 'widgetTableInsertColRight', icon: 'insertColRight' });
     }
 
     if (canDeleteRow || canDeleteCol) {
       if (items.length) items.push({ id: '---' });
-      if (canDeleteRow) items.push({ id: 'delete-row', i18nKey: 'widgetTableDeleteRow' });
-      if (canDeleteCol) items.push({ id: 'delete-col', i18nKey: 'widgetTableDeleteCol' });
+      if (canDeleteRow) items.push({ id: 'delete-row', i18nKey: 'widgetTableDeleteRow', icon: 'delete' });
+      if (canDeleteCol) items.push({ id: 'delete-col', i18nKey: 'widgetTableDeleteCol', icon: 'delete' });
     }
 
     if (hasClipboard || inCell) {
@@ -877,7 +880,7 @@ function mountTableChrome(ctx) {
 
     if (items.length) items.push({ id: '---' });
     if (!inCell || hasClipboard || tableStructuralSel) {
-      items.push({ id: 'delete-table', i18nKey: 'widgetTableDeleteTable', icon: 'delete' });
+      items.push({ id: 'delete-table', i18nKey: 'widgetTableDeleteTable', icon: 'delete', danger: true });
     }
 
     return items;

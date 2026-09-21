@@ -10,6 +10,7 @@ const { getSelectedCodeBlock } = require('../widgets/code-selection');
 const { getSelectedMermaidBlock } = require('../widgets/mermaid-selection');
 const { getSelectedImageBlock } = require('../widgets/image-selection');
 const { getSelectedBlockOfKind } = require('../widgets/block-selection');
+const { getSelectedMathBlock } = require('../widgets/math-selection');
 
 const IMAGE_LINE_RE = /^\s*!\[[^\]]*\]\([^)]*\)\s*$/;
 const HR_LINE_RE = /^\s*([-*_])(?:\s*\1){2,}\s*$/;
@@ -21,6 +22,7 @@ const BLOCK_ONLY_KINDS = {
   image: true,
   hr: true,
   table: true,
+  math: true,
 };
 
 /**
@@ -151,6 +153,10 @@ function getSelectedBlockOnly() {
   if (table) return { kind: 'table', from: table.from, to: table.to };
   const hr = getSelectedBlockOfKind('hr');
   if (hr) return { kind: 'hr', from: hr.from, to: hr.to };
+  const math = getSelectedMathBlock();
+  if (math && math.from != null) {
+    return { kind: 'math', from: math.from, to: math.to };
+  }
   return null;
 }
 

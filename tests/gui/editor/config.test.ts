@@ -9,9 +9,10 @@ const editorConfig = require(path.join(
 ));
 
 describe('editor config', () => {
-  test('开发构建默认：点击诊断开、widget 阶段 math', () => {
+  test('开发构建默认：点击诊断关、widget 阶段 math', () => {
     expect(editorConfig.RELEASE).toBe(false);
-    expect(editorConfig.clickDebugEnabled()).toBe(true);
+    // 诊断 HUD 会遮挡正文，默认关闭；排查坐标问题时置 mda-editor-debug-click=1
+    expect(editorConfig.clickDebugEnabled()).toBe(false);
     expect(editorConfig.readWidgetPhase()).toBe('math');
     expect(editorConfig.blockWidgetsEnabled()).toBe(true);
     expect(editorConfig.blockWidgetEnabled('image')).toBe(true);

@@ -53,6 +53,7 @@ const {
   createInlineMathShortcutKeymap,
 } = require('./widgets/inline-math-selection');
 const { createBlockMenuHandlers } = require('./widgets/block-menu-handlers');
+const { createLinkHoverTipExtension, hrefAtPointer } = require('./link-hover-tip');
 const { createEmptyLineInsertExtension } = require('./empty-line-insert');
 const { createOutlineClickSyncExtension } = require('./outline-click-sync');
 const {
@@ -825,33 +826,6 @@ function createBlockDecoField(liveOpts, blockFocusField) {
   });
 }
 
-function hrefAtEvent(view, event) {
-  const target = event.target;
-  if (target && target.closest) {
-    const el = target.closest('[data-mda-href]');
-    if (el) return el.getAttribute('data-mda-href') || '';
-  }
-  const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-  if (pos == null) return '';
-  let node = syntaxTree(view.state).resolveInner(pos, 1);
-  const text = view.state.doc.toString();
-  while (node) {
-    if (node.name === 'Link') {
-      const slice = text.slice(node.from, node.to);
-      const m = /^\[([\s\S]*?)\]\(([\s\S]*?)\)$/.exec(slice);
-      return m ? String(m[2] || '').trim() : '';
-    }
-    if (node.name === 'Autolink') {
-      return text.slice(node.from + 1, node.to - 1).trim();
-    }
-    if (node.name === 'URL') {
-      return text.slice(node.from, node.to).trim();
-    }
-    node = node.parent;
-  }
-  return '';
-}
-
 var layerBuildCache = { doc: null, fp: '', result: null, opts: null };
 
 /** 批注筛选变更：须强制重算 line 色条（缓存键不含 filter 回调） */
@@ -1063,6 +1037,7 @@ function livePreview(opts) {
     onSoon: opts.onBlockMenuSoon,
     onAiAction: opts.onBlockMenuAi,
     onAddBlockAnnotation: opts.onAddBlockAnnotation,
+    onAddLineAnnotation: opts.onAddLineAnnotation,
   });
   const liveOpts = Object.assign({}, opts, {
     blockMenuHandlers: blockMenuHandlers,
@@ -1115,7 +1090,7 @@ function livePreview(opts) {
     },
     click: function (event, view) {
       if (!(event.ctrlKey || event.metaKey)) return false;
-      const href = hrefAtEvent(view, event);
+      const href = hrefAtPointer(view, event);
       if (!href) return false;
       event.preventDefault();
       if (typeof opts.onOpenLink === 'function') opts.onOpenLink(href);
@@ -1174,6 +1149,9 @@ function livePreview(opts) {
     .concat([
       createDocLineCursorKeymap(blockDecoField),
       linkClick,
+    ])
+    .concat(createLinkHoverTipExtension(liveOpts))
+    .concat([
       createClickCollapseExtension(),
       createContextMenuExtension(liveOpts),
       createOutlineClickSyncExtension(liveOpts.onHeadingClick),

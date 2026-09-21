@@ -154,6 +154,12 @@ function createBlockMenuHandlers(liveOpts) {
     }
   }
 
+  function onAddLineAnnotation(block) {
+    if (typeof opts.onAddLineAnnotation === 'function') {
+      opts.onAddLineAnnotation(block);
+    }
+  }
+
   return {
     onCopy: onCopy,
     onCut: onCut,
@@ -164,6 +170,7 @@ function createBlockMenuHandlers(liveOpts) {
     onAi: onAi,
     onSoon: onSoon,
     onAddBlockAnnotation: onAddBlockAnnotation,
+    onAddLineAnnotation: onAddLineAnnotation,
   };
 }
 

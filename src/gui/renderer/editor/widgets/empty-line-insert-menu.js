@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 空白行「+」：版式（标题/列表）+ 通用块插入菜单。
  */
 'use strict';
@@ -120,6 +120,13 @@ function showEmptyLineInsertMenu(ctx) {
   appendInsertMenuPanel(menu, t, function (id, soon) {
     if (soon) {
       if (typeof handlers.onSoon === 'function') handlers.onSoon('insert-blank', id);
+      closeEmptyLineInsertMenu();
+      return;
+    }
+    if (id === 'anno') {
+      if (typeof handlers.onAddLineAnnotation === 'function') {
+        handlers.onAddLineAnnotation(ctx.block);
+      }
       closeEmptyLineInsertMenu();
       return;
     }

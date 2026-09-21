@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 创建 / 销毁 CM6 EditorView；BOM 不进模型，由调用方在保存时拼回。
  */
 'use strict';
@@ -26,11 +26,18 @@ const { syncSelectedImageFrameClass } = require('./widgets/image-selection');
 const { syncSelectedMermaidFrameClass } = require('./widgets/mermaid-selection');
 const { refreshBlockToolbars } = require('./widgets/widget-common');
 const { outlineFlashExtension, flashOutlineLine } = require('./outline-flash');
+const { findHighlightExtension, applyFindHighlights } = require('./find-highlight');
+const {
+  getWidgetBlockRanges,
+  applyWidgetFindHighlights,
+  clearWidgetFindHighlights,
+} = require('./widget-find-highlight');
 const { getOutlineActiveLine } = require('./outline-scroll');
 const { refreshAnnoGutter } = require('./anno-gutter');
 const { invalidateLayerBuildCache, notifyAnnoFilterChanged } = require('./live-preview');
 const { refreshEmptyLineInsertI18n } = require('./empty-line-insert');
 const { sliceDocForClipboard } = require('./syntax-clipboard');
+const { getWidgetInlineSelectionText } = require('./widget-editable-guard');
 const { adjustCaretForKeyboardNav } = require('./caret-syntax-adjust');
 const { createEditorToolbar } = require('./toolbar');
 const { createFormatKeymap } = require('./format-commands');
@@ -78,6 +85,11 @@ function createEditor(opts) {
   /** @type {{ refresh?: () => void, destroy?: () => void } | null} */
   let toolbarApi = null;
 
+  /** @type {{ matches: {start:number,end:number}[], activeIndex: number } | null} */
+  let pendingWidgetFind = null;
+  /** @type {number} */
+  let tableFindRaf = 0;
+
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged && typeof opts.onChange === 'function') {
       opts.onChange({
@@ -96,6 +108,21 @@ function createEditor(opts) {
       typeof opts.onSelectionUpdate === 'function'
     ) {
       opts.onSelectionUpdate(update.view);
+    }
+    if (
+      pendingWidgetFind &&
+      pendingWidgetFind.matches &&
+      pendingWidgetFind.matches.length &&
+      (update.docChanged || update.viewportChanged || update.geometryChanged)
+    ) {
+      if (!tableFindRaf) {
+        tableFindRaf = requestAnimationFrame(function () {
+          tableFindRaf = 0;
+          const p = pendingWidgetFind;
+          if (!p || !p.matches || !p.matches.length || view.destroyed) return;
+          applyWidgetFindHighlights(view, p.matches, p.activeIndex);
+        });
+      }
     }
   });
 
@@ -117,6 +144,7 @@ function createEditor(opts) {
         updateListener,
         createClickDebugExtension(),
         outlineFlashExtension(),
+        findHighlightExtension(),
       ])
       .concat(extensionsForMode(currentMode, comps, opts));
     if (opts.placeholder && currentMode === MODE_SOURCE) {
@@ -142,6 +170,8 @@ function createEditor(opts) {
       onToggleMode: opts.onToggleMode,
       onFind: opts.onFind,
       onTogglePanel: opts.onTogglePanel,
+      onAddAnnotation: opts.onAddAnnotation,
+      resolveAddAnnoIntent: opts.resolveAddAnnoIntent,
       getPanelVisible: opts.getPanelVisible,
       onPickImageInsert: opts.onPickImageInsert,
       onSoon: opts.onBlockMenuSoon,
@@ -313,6 +343,8 @@ function createEditor(opts) {
       return sel.from !== sel.to;
     },
     getSelectionText: function () {
+      const widgetSel = getWidgetInlineSelectionText();
+      if (widgetSel) return widgetSel;
       const sel = view.state.selection.main;
       if (sel.from === sel.to) return '';
       return sliceDocForClipboard(view.state, sel.from, sel.to).text;
@@ -376,6 +408,53 @@ function createEditor(opts) {
         selection: { anchor: from + text.length },
       });
       view.focus();
+    },
+    /**
+     * 全部替换：单次事务写入，撤销一步还原整次替换。
+     * @param {{ start: number, end: number }[]} matches
+     * @param {string} insert
+     */
+    replaceAllRanges: function (matches, insert) {
+      const rep = insert == null ? '' : String(insert);
+      const list = Array.isArray(matches) ? matches : [];
+      if (!list.length) return;
+      const doc = view.state.doc.toString();
+      const sorted = list.slice().sort(function (a, b) {
+        return a.start - b.start;
+      });
+      let last = 0;
+      let out = '';
+      for (let i = 0; i < sorted.length; i++) {
+        const m = sorted[i];
+        if (m.end <= m.start) continue;
+        out += doc.slice(last, m.start);
+        out += rep;
+        last = m.end;
+      }
+      out += doc.slice(last);
+      if (out === doc) return;
+      view.dispatch({
+        changes: { from: 0, to: doc.length, insert: out },
+        userEvent: 'input.replaceAll',
+      });
+      view.focus();
+    },
+    /**
+     * @param {{ start: number, end: number }[]} matches
+     * @param {number} activeIndex
+     */
+    setFindHighlights: function (matches, activeIndex) {
+      const idx = activeIndex == null ? -1 : activeIndex;
+      const list = Array.isArray(matches) ? matches : [];
+      pendingWidgetFind = list.length ? { matches: list, activeIndex: idx } : null;
+      const widgetRanges = getWidgetBlockRanges(view);
+      applyFindHighlights(view, list, idx, widgetRanges);
+      applyWidgetFindHighlights(view, list, idx);
+    },
+    clearFindHighlights: function () {
+      pendingWidgetFind = null;
+      applyFindHighlights(view, [], -1);
+      clearWidgetFindHighlights(view);
     },
     undo: function () {
       return undo(view);
