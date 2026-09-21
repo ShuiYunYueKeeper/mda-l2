@@ -85,6 +85,32 @@ const ICON_MAP = {
   menu: 'Menu',
 };
 
+/** 表格插入行列：竖线/横线 + 加号（非 Lucide 内置，手写 SVG） */
+/** 表格插入行列：竖线/横线 + 加号（8px 大加号） */
+const CUSTOM_ICON_SVG = {
+  // 左侧插入列：分隔线在 x=15，左侧空间为 0-15，中心约在 x=7.5
+  // 加号中心设为 (7, 12)，范围 x:3-11 (宽8), y:8-16 (高8)
+  insertColLeft:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5v14"/><path d="M3 12h8"/><path d="M7 8v8"/></svg>',
+
+  // 右侧插入列：分隔线在 x=9，右侧空间为 9-24，中心约在 x=16.5
+  // 加号中心设为 (17, 12)，范围 x:13-21 (宽8), y:8-16 (高8)
+  insertColRight:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5v14"/><path d="M13 12h8"/><path d="M17 8v8"/></svg>',
+
+  // 上方插入行：分隔线在 y=15，上方空间为 0-15，中心约在 y=7.5
+  // 加号中心设为 (12, 7)，范围 x:8-16 (宽8), y:3-11 (高8)
+  insertRowAbove:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 15h14"/><path d="M12 3v8"/><path d="M8 7h8"/></svg>',
+
+  // 下方插入行：分隔线在 y=9，下方空间为 9-24，中心约在 y=16.5
+  // 加号中心设为 (12, 17)，范围 x:8-16 (宽8), y:13-21 (高8)
+  insertRowBelow:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9h14"/><path d="M12 13v8"/><path d="M8 17h8"/></svg>',
+};
+
+
+
 /** @type {readonly string[]} */
 const TOOLBAR_ICON_NAMES = [
   'undo',
@@ -119,6 +145,9 @@ lines.push('const LUCIDE_ICON_NAMES = [');
 Object.keys(ICON_MAP).forEach(function (key) {
   lines.push("  '" + key + "',");
 });
+Object.keys(CUSTOM_ICON_SVG).forEach(function (key) {
+  lines.push("  '" + key + "',");
+});
 lines.push('];');
 lines.push('');
 lines.push('/** @type {readonly string[]} */');
@@ -138,6 +167,10 @@ Object.keys(ICON_MAP).forEach(function (key) {
     throw new Error('Missing lucide icon: ' + lucideName + ' for key ' + key);
   }
   lines.push('  ' + key + ': ' + JSON.stringify(iconSvg(node)) + ',');
+});
+
+Object.keys(CUSTOM_ICON_SVG).forEach(function (key) {
+  lines.push('  ' + key + ': ' + JSON.stringify(CUSTOM_ICON_SVG[key]) + ',');
 });
 
 lines.push('};');

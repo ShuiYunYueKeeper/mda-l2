@@ -1,4 +1,4 @@
-node_modules/
+﻿node_modules/
 .tmp/
 *.tmp
 coverage/
@@ -19,3 +19,6 @@ docs/L2-evaluation-report.md
 .cursor/l2-exam-evaluator/
 
 release-smoke/
+# 本地 L2 skill 同步产物（由 scripts/sync-l2-skill.js 生成）
+l2-project-template
+skills
