@@ -135,12 +135,15 @@ function renderSourceHtml(selectedPages, metaNote) {
   .page:last-child { page-break-after: auto; }
   .hdr { font-family: "Microsoft YaHei", sans-serif; font-size: 11px; border-bottom: 1px solid #333;
          padding-bottom: 4px; margin-bottom: 8px; display: flex; justify-content: space-between; }
-  pre { font-size: 9.5px; line-height: 1.35; white-space: pre-wrap; word-break: break-all; margin: 0; }
-  .meta { font-family: "Microsoft YaHei", sans-serif; font-size: 12px; margin: 24px; }
+  pre { font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; margin: 0; }
+  /* 说明页须独立成页：否则它与第 1 页代码挤在同一张纸上，页眉标注的 "第 1 / 60 页" 与实际纸张错位 */
+  .meta { font-family: "Microsoft YaHei", sans-serif; font-size: 12px; margin: 24px;
+          page-break-after: always; }
 </style></head><body>`);
   parts.push(`<div class="meta"><p><b>${SOFTWARE} ${VERSION}</b> — 程序鉴别材料（一般交存）</p>
 <p>${escapeHtml(metaNote)}</p>
-<p>每页 ${LINES_PER_PAGE} 行。页眉含软件名称与页码。</p></div>`);
+<p>本页为编排说明，其后 ${selectedPages.length} 页为源程序鉴别材料正文，
+每页 ${LINES_PER_PAGE} 行，页眉标注软件名称、版本号与连续页码。</p></div>`);
 
   selectedPages.forEach((pageLines, idx) => {
     const pageNo = idx + 1;
@@ -168,7 +171,8 @@ function resolveManualImage(manualDir, src) {
 
 function mdToSimpleHtml(md, title, manualDir) {
   const blocks = [];
-  const lines = md.replace(/\r\n/g, '\n').split('\n');
+  // 剥 BOM：否则首行 "# 标题" 的 # 不在行首，标题会原样打印出 "#"
+  const lines = md.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').split('\n');
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
@@ -196,30 +200,28 @@ function mdToSimpleHtml(md, title, manualDir) {
       i++;
       continue;
     }
-    if (/^# /.test(line)) {
-      blocks.push(`<h1>${escapeHtml(line.slice(2))}</h1>`);
+    const heading = line.match(/^(#{1,4})\s+(.*)$/);
+    if (heading) {
+      const level = heading[1].length;
+      blocks.push(`<h${level}>${inlineMd(escapeHtml(heading[2]))}</h${level}>`);
       i++;
       continue;
     }
-    if (/^## /.test(line)) {
-      blocks.push(`<h2>${escapeHtml(line.slice(3))}</h2>`);
-      i++;
-      continue;
-    }
-    if (/^### /.test(line)) {
-      blocks.push(`<h3>${escapeHtml(line.slice(4))}</h3>`);
-      i++;
-      continue;
-    }
-    if (/^\| .+\|$/.test(line)) {
+    // 表格：分隔行（|---|---|）不含空格，故正则不能要求 "| " —— 否则分隔行会漏成正文
+    if (/^\|.*\|\s*$/.test(line)) {
       const tableRows = [];
-      while (i < lines.length && /^\| .+\|$/.test(lines[i])) {
-        const row = lines[i];
-        if (!/^\|\s*-+/.test(row)) {
-          const cells = row.split('|').slice(1, -1).map((c) => c.trim());
-          tableRows.push('<tr>' + cells.map((c) => `<td>${escapeHtml(c)}</td>`).join('') + '</tr>');
-        }
+      let isFirstRow = true;
+      while (i < lines.length && /^\|.*\|\s*$/.test(lines[i])) {
+        const row = lines[i].trim();
         i++;
+        if (/^\|[\s:-]+\|$/.test(row.replace(/\|/g, '|'))) continue; // 分隔行
+        if (/^\|[\s|:-]+$/.test(row)) continue;
+        const cells = row.split('|').slice(1, -1).map((c) => c.trim());
+        const tag = isFirstRow ? 'th' : 'td';
+        tableRows.push(
+          '<tr>' + cells.map((c) => `<${tag}>${inlineMd(escapeHtml(c))}</${tag}>`).join('') + `</tr>`,
+        );
+        isFirstRow = false;
       }
       blocks.push(`<table>${tableRows.join('')}</table>`);
       continue;
@@ -264,28 +266,37 @@ function mdToSimpleHtml(md, title, manualDir) {
   h2 { font-size: 16px; margin-top: 22px; border-bottom: 1px solid #999; padding-bottom: 4px; page-break-after: avoid; }
   h3 { font-size: 14px; margin-top: 16px; page-break-after: avoid; }
   p { margin: 8px 0; }
-  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
-  td { border: 1px solid #333; padding: 4px 6px; vertical-align: top; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; page-break-inside: avoid; }
+  td, th { border: 1px solid #333; padding: 4px 6px; vertical-align: top; text-align: left; }
+  th { background: #f0f0f0; }
   pre.code { background: #f5f5f5; border: 1px solid #ccc; padding: 8px; font-size: 11px;
              white-space: pre-wrap; word-break: break-all; }
-  .hdr-print { display: flex; justify-content: space-between; font-size: 11px; color: #333;
-               border-bottom: 1px solid #333; margin-bottom: 16px; padding-bottom: 4px; }
+  h4 { font-size: 13px; margin-top: 14px; page-break-after: avoid; }
   figure.fig { margin: 14px 0; text-align: center; page-break-inside: avoid; }
-  figure.fig img { max-width: 100%; max-height: 220mm; border: 1px solid #ccc; }
+  /* 截图是宽屏比例；限到 150mm 可让「图 + 一节文字」同页，避免整页只放一张图的稀疏观感 */
+  figure.fig img { max-width: 100%; max-height: 150mm; border: 1px solid #ccc; }
   figure.fig figcaption { font-size: 11px; color: #333; margin-top: 6px; }
   hr { border: none; border-top: 1px solid #ccc; margin: 16px 0; }
   ul, ol { margin: 8px 0 8px 22px; }
   code { font-family: Consolas, monospace; font-size: 11px; background: #f0f0f0; padding: 1px 4px; }
 </style></head><body>
-<div class="hdr-print"><span>${SOFTWARE} ${VERSION}</span><span>操作说明书</span></div>
 ${blocks.join('\n')}
 </body></html>`;
 }
 
+/**
+ * 行内标记转换。顺序要紧：先把 code 片段挖成占位符，再处理 **加粗**。
+ * 否则 `**` 这类「反引号里含星号」的正文会被加粗规则吞掉，PDF 里出现残缺符号。
+ * 双反引号（``…``）优先于单反引号，用于包裹本身含反引号的内容。
+ */
 function inlineMd(s) {
-  return s
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  const stash = [];
+  let out = String(s).replace(/``([\s\S]+?)``|`([^`]+)`/g, (_m, dbl, single) => {
+    stash.push(dbl !== undefined ? dbl : single);
+    return `\u0000CODE${stash.length - 1}\u0000`;
+  });
+  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  return out.replace(/\u0000CODE(\d+)\u0000/g, (_m, idx) => `<code>${stash[Number(idx)]}</code>`);
 }
 
 function findBrowser() {
@@ -308,7 +319,53 @@ function findBrowser() {
   return null;
 }
 
-function htmlToPdf(browser, htmlPath, pdfPath) {
+/**
+ * 形式审查要求文档鉴别材料**每页**都有页眉（软件名称 + 版本号）并连续编页码。
+ * `chrome --print-to-pdf` 做不到：`--no-pdf-header-footer` 会把页眉页脚全关掉，
+ * 不关则带上 file:/// URL 与系统日期。所以走 Playwright 的 headerTemplate/footerTemplate。
+ * 源程序 HTML 自身每页已画页眉页码，故 `displayHeaderFooter` 传 false 避免重复。
+ */
+async function htmlToPdfViaPlaywright(htmlPath, pdfPath, opts) {
+  const { chromium } = require('playwright');
+  const fileUrl = 'file:///' + htmlPath.replace(/\\/g, '/');
+  const browser = await chromium.launch({ channel: 'msedge' });
+  try {
+    const page = await browser.newPage();
+    await page.goto(fileUrl, { waitUntil: 'load', timeout: 120000 });
+    // 页眉/页脚模板须用 pt 且 ≥10pt：Chromium 对模板另有缩放，写 9px 会缩到肉眼不可见
+    // （现象是 PDF 页顶只剩一道短横线）；也不要用 flex + padding，居中用 text-align 最稳。
+    // 字体名不能带双引号：这段字符串要塞进 style="…" 属性，双引号会提前闭合属性、整个模板作废
+    const style =
+      "font-family:SimSun,'Microsoft YaHei',serif;font-size:10pt;color:#333;" +
+      'width:100%;text-align:center;';
+    await page.pdf({
+      path: pdfPath,
+      format: 'A4',
+      printBackground: true,
+      displayHeaderFooter: Boolean(opts && opts.headerText),
+      headerTemplate: opts && opts.headerText
+        ? `<div style="${style}">${opts.headerText}</div>`
+        : '<div></div>',
+      footerTemplate: opts && opts.headerText
+        ? `<div style="${style}">第 <span class="pageNumber"></span> 页 / 共 ` +
+          '<span class="totalPages"></span> 页</div>'
+        : '<div></div>',
+      margin: (opts && opts.margin) || {
+        top: '20mm',
+        bottom: '18mm',
+        left: '16mm',
+        right: '16mm',
+      },
+    });
+  } finally {
+    await browser.close();
+  }
+  if (!fs.existsSync(pdfPath)) {
+    throw new Error(`打印 PDF 失败，可手动打开 HTML 后「打印 → 另存为 PDF」:\n${htmlPath}`);
+  }
+}
+
+function htmlToPdfViaChromeCli(browser, htmlPath, pdfPath) {
   const fileUrl = 'file:///' + htmlPath.replace(/\\/g, '/');
   const r = spawnSync(
     browser,
@@ -330,7 +387,7 @@ function htmlToPdf(browser, htmlPath, pdfPath) {
   }
 }
 
-function main() {
+async function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   const files = collectSourceFiles();
@@ -355,6 +412,12 @@ function main() {
     'utf8',
   );
 
+  let usePlaywright = true;
+  try {
+    require.resolve('playwright');
+  } catch {
+    usePlaywright = false;
+  }
   const browser = findBrowser();
   const summary = {
     software: SOFTWARE,
@@ -368,16 +431,30 @@ function main() {
     outputs: [],
   };
 
-  if (!browser) {
-    console.warn('未找到 Edge/Chrome，已生成 HTML。请手动打开后打印为 PDF：');
+  if (usePlaywright) {
+    console.log('打印引擎: playwright + msedge（每页页眉页码）');
+    // Playwright 的 margin 会覆盖 HTML 的 @page，默认为 0；不显式传会让代码贴到纸边被裁切
+    await htmlToPdfViaPlaywright(srcHtmlPath, srcPdfPath, {
+      margin: { top: '14mm', bottom: '16mm', left: '16mm', right: '12mm' },
+    });
+    await htmlToPdfViaPlaywright(docHtmlPath, docPdfPath, {
+      headerText: `${SOFTWARE} ${VERSION} 操作说明书`,
+    });
+    summary.outputs.push(srcPdfPath, docPdfPath, srcHtmlPath, docHtmlPath);
+    summary.printEngine = 'playwright+msedge';
+    console.log('已生成:', srcPdfPath);
+    console.log('已生成:', docPdfPath);
+  } else if (!browser) {
+    console.warn('未找到 playwright 与 Edge/Chrome，已生成 HTML。请手动打开后打印为 PDF：');
     console.warn(' ', srcHtmlPath);
     console.warn(' ', docHtmlPath);
     summary.outputs.push(srcHtmlPath, docHtmlPath);
   } else {
-    console.log('使用浏览器:', browser);
-    htmlToPdf(browser, srcHtmlPath, srcPdfPath);
-    htmlToPdf(browser, docHtmlPath, docPdfPath);
+    console.warn('未安装 playwright，退回 Chrome CLI 打印：说明书将缺少每页页眉页码，请人工补。');
+    htmlToPdfViaChromeCli(browser, srcHtmlPath, srcPdfPath);
+    htmlToPdfViaChromeCli(browser, docHtmlPath, docPdfPath);
     summary.outputs.push(srcPdfPath, docPdfPath, srcHtmlPath, docHtmlPath);
+    summary.printEngine = 'chrome-cli';
     console.log('已生成:', srcPdfPath);
     console.log('已生成:', docPdfPath);
   }
@@ -429,4 +506,7 @@ node scripts/generate-soft-copyright-materials.js
   console.log(JSON.stringify(summary, null, 2));
 }
 
-main();
+main().catch((e) => {
+  console.error(e.message || e);
+  process.exit(1);
+});
