@@ -12,8 +12,15 @@ release/
 Thumbs.db
 # 根目录临时截图（勿入库）
 /[0-9]*.png
-# 本地草稿，不纳入版本库
-docs/demo/
+# 本地草稿，不纳入版本库。
+# 写 `docs/demo/*` 而非 `docs/demo/`：目录级忽略会让 git 根本不进入该目录，
+# 后面针对子目录的例外规则会失效。
+docs/demo/*
+# 例外：软著鉴别材料的源 Markdown 是人工撰写的资产，须入库；
+# 同目录的 PDF/HTML 由 scripts/generate-soft-copyright-materials.js 派生，继续忽略。
+!docs/demo/软著材料/
+docs/demo/软著材料/*
+!docs/demo/软著材料/*.md
 docs/articles/
 docs/L2-evaluation-report.md
 .cursor/l2-exam-evaluator/

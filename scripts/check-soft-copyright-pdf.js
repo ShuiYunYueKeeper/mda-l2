@@ -23,6 +23,8 @@ const STRAY_PATTERNS = [
   ['行首井号未转标题', '\n# '],
   ['占位符未替换', '以申请表填写为准'],
   ['裸露四连星号', '****'],
+  // 简易转换器不处理单星号斜体，写了就会原样打进 PDF
+  ['单星号强调未转换', '\n*'],
 ];
 
 async function checkHtml(htmlPath, opts) {
@@ -49,7 +51,12 @@ async function checkHtml(htmlPath, opts) {
 
     // 标记泄漏只对说明书成立：源程序是代码逐字打印，注释里本就出现 **** 这类字面量
     if (opts.checkStrayMarkdown) {
-      const text = await page.evaluate(() => document.body.innerText);
+      // 代码块里的 # 与 **** 是刻意展示的字面内容，取文本时先把 pre/code 摘掉
+      const text = await page.evaluate(() => {
+        const clone = document.body.cloneNode(true);
+        clone.querySelectorAll('pre, code').forEach((el) => el.remove());
+        return clone.innerText;
+      });
       for (const [label, needle] of STRAY_PATTERNS) {
         if (text.includes(needle)) problems.push(`疑似 Markdown 标记泄漏（${label}）`);
       }
