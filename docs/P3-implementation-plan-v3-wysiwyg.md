@@ -1,4 +1,4 @@
-# 实施计划 — MDA 3.0 预览直接编辑（WYSIWYG）与源码模式
+﻿# 实施计划 — MDA 3.0 预览直接编辑（WYSIWYG）与源码模式
 
 > 前置：[`P2-detailed-design-v3-wysiwyg.md`](P2-detailed-design-v3-wysiwyg.md)（**已确认** 2026-07-28，含裁决 D14；**v1.1** F18）  
 > 架构：[`P1-architecture-v3-wysiwyg.md`](P1-architecture-v3-wysiwyg.md)（**v1.5**，已确认；方案 A：CM6 源码即真源）  
@@ -225,7 +225,7 @@ flowchart LR
 |----|------|------|------|---------|------|
 | M8-F1 | 新建空态三入口 UI（F15-1） | M8-A6 | ✓ | editor/empty-state.js | 模板 / AI 帮我写 / 打开 |
 | M8-F2 | 主进程模板 IO + preload | M8-A2 | ✓ | main/templates.js, preload | 仅 `.md`；路径校验 |
-| M8-F3 | 内置 14 模板正文落地（优先 T2/T3/T5/T6/T8/T14） | M8-F2 | ✓ | templates/*.md | 复用 l2-project-template |
+| M8-F3 | 内置 15 模板正文落地（优先 T2/T3/T5/T6/T8/T14/T15） | M8-F2 | ✓ | templates/*.md | 复用 docs/templates + AGENTS/README；T15=detailed-design |
 | M8-F4 | 自定义模板目录设置 | M8-F2 | ✓ | settings, main | AC-24 |
 | M8-F5 | 默认模式记忆、只读/超大降级（2MB/2万行/10MB） | M8-A4 | ✓ | app.js | F16 |
 | M8-F6 | 外部文件改动提示 | M8-A5 | ✓ | main.js, app.js | — |

@@ -1,4 +1,4 @@
-# 详细设计 — MDA 3.0 预览直接编辑（WYSIWYG）与源码模式
+﻿# 详细设计 — MDA 3.0 预览直接编辑（WYSIWYG）与源码模式
 
 > 输入：[`P1-architecture-v3-wysiwyg.md`](P1-architecture-v3-wysiwyg.md)（**v1.6**，已确认；含 P1-D15）
 > 需求：[`P0-requirements-v3-wysiwyg.md`](P0-requirements-v3-wysiwyg.md)（**v1.10**；F10–F18 / D15）
@@ -19,6 +19,7 @@
 | v1.2 | 2026-07-29 | 竞品截图沉淀 | 85% | §5.10 WPS 竞品交互风格（工具栏/widget/AI）；[`competitor-product/README.md`](competitor-product/README.md) |
 | v1.3 | 2026-07-29 | P0 D14 媒体交互 | 85% | §5.10.9 图片/流程图单击选中、双击全屏；2.0→3.0 手势变更；AC-35 |
 | v1.4 | 2026-07-30 | P0 D15 全程隐藏语法 | 85% | §4.1.1 hide-mark 终态 + atomicRanges；§4.9 开发配置；默认 reveal=never；M8-B8 坐标闸门 |
+| v1.5 | 2026-09-22 | 阶段模板 v2 拆分 | 85% | §6 内置模板 14→15：T5–T7 骨架对齐 requirement/design/dev-plan v2.0；新增 T15 `detailed-design`（P2） |
 
 ---
 
@@ -439,7 +440,7 @@ locate:     批注面板 → view.dispatch({ selection, effects: scrollIntoView 
 ### 5.7 新建空态与模板库（F15）
 
 - **空态**（`draft` 且 doc 为空）：正文首行占位「输入正文，或按 `/` 插入内容」；下方三个入口按钮「从模板开始」「AI 帮我写（Pro）」「打开已有文件」。输入任意字符即隐藏占位与按钮。
-- **模板列表来源**：内置 14 项（§6）+ 自定义目录（设置项 `mda-template-dir`）。
+- **模板列表来源**：内置 15 项（§6）+ 自定义目录（设置项 `mda-template-dir`）。
 - **主进程 IPC**：`list-templates()` → `{ builtin: [{id,name}], custom: [{id,name,path}] }`；`read-template(id)` → `{ success, content }`。仅读 `.md`，路径经 `resolveInWorkspace` 同级校验，目录不可读时**仅禁用自定义分组**（AC-24）。
 - **套用语义**：`draft` 中套用 → 整篇替换（单 transaction，可撤销）；已有文档经 `/` 面板 → 片段插入光标所在块之后（前后各补一个空行）。
 - 模板正文不得含 `@anno` 行（F15-7），构建期用测试断言校验。
@@ -672,9 +673,11 @@ onMediaDblClick(e) {
 
 ---
 
-## 6. 内置模板骨架（14 项）
+## 6. 内置模板骨架（15 项）
 
 正文文件在 P4 M8-F 落地为 `src/gui/templates/<id>.md`（随 `copy-gui` 拷入 dist）。本节定稿每个模板的**章节骨架**与素材来源。
+
+> **v2（2026-09-22）**：阶段模板拆分为「架构设计 / 详细设计」两套后，T5–T7 骨架与素材路径对齐 `docs/templates/*.template.md` v2；新增 T15 `detailed-design`。低档任务可按模板「适用档位」裁剪章节，插入时仍给出完整骨架（占位符由用户/AI 按档位删除）。
 
 | # | id | 名称 | 章节骨架 | 素材来源 |
 |---|----|------|---------|---------|
@@ -682,9 +685,9 @@ onMediaDblClick(e) {
 | T2 | `readme` | README | 项目简介 / 特性 / 安装 / 快速开始 / 用法示例 / 配置 / 常见问题 / 许可证 | 本仓库 `README.md` |
 | T3 | `agents` | AGENTS.md（AI 协作指南） | 项目背景 / 项目概述 / 术语表 / 架构设计 / 接口约定 / 编码规范 / 依赖 / 禁止事项 / 隐性规范 / 关键文件索引 | 本仓库 `AGENTS.md`（十节结构） |
 | T4 | `changelog` | CHANGELOG | 版本号 + 日期 / Added / Changed / Fixed / Removed | Keep a Changelog 惯例 |
-| T5 | `requirement` | 需求文档 | 背景与目标 / 成功指标 / 功能描述 / 用户故事 / 验收标准（Given-When-Then）/ 非功能需求 / 接口契约 / 关键假设 / 风险 / 开放问题 | `docs/templates/requirement.template.md` |
-| T6 | `design` | 设计文档 | 版本历史 / 预调研 / 方案对比 / 推荐方案详述（架构图 + 模块影响 + 任务拆分）/ 关键假设 / 预死亡 / 对抗审查 / 置信度 | `docs/templates/design.template.md` |
-| T7 | `dev-plan` | 开发计划 | 接口定义 / 架构图 / 任务 DAG（Phase + 依赖 + 并行）/ 预死亡 / 回滚策略 / 置信度 | `docs/templates/dev-plan.template.md` |
+| T5 | `requirement` | 需求文档（P0） | 模板元信息 / 背景与目标（含非目标）/ 干系人与场景 / 范围边界 / 术语表 / 功能需求 / 用户故事 / 验收标准（G/W/T + 验证层级）/ 非功能需求 / 数据与兼容性 / 接口契约 / 边界与异常 E 表 / 依赖与约束 / 假设 / 风险与对抗自检 / 排期 / 开放问题 / 追溯矩阵 / 退出门禁 | `docs/templates/requirement.template.md`（v2.0） |
+| T6 | `design` | 架构设计（P1） | 模板元信息 / 版本历史 / 预调研 / 架构驱动因素 / 约束与前提 / 方案对比（含加权评估矩阵与否决理由）/ 推荐方案详述（架构图 + 分层依赖 + 数据流 + 接口概览 + 模块影响 + 任务初稿）/ 质量属性达成策略 / 技术选型与依赖引入 / 演进与回滚 / 可测试性与可观测性 / 关键假设 / 预死亡 / 对抗审查 / 置信度 / 退出门禁 | `docs/templates/design.template.md`（v2.0） |
+| T7 | `dev-plan` | 实施计划（P3） | 模板元信息 / 设计引用 / 就绪检查 / 接口定义 / 架构图 / 任务 DAG（含输入/输出/验收 AC·E / 执行主体）/ 验证矩阵 / 人工配合清单 / 预死亡 / 回滚策略 / 置信度 / 退出门禁 | `docs/templates/dev-plan.template.md`（v2.0） |
 | T8 | `review` | 评审意见 | 评审对象与范围 / 结论 / 阻塞问题 / 一般问题 / 建议 / 待确认项 | MDA 批注等级体系（critical/major/minor/info） |
 | T9 | `meeting` | 会议纪要 | 时间地点参会人 / 议题 / 结论与决策 / 待办（负责人 + 截止）/ 遗留问题 | 通用办公惯例 |
 | T10 | `weekly` | 周报 / 日报 | 本周完成 / 数据与结论 / 下周计划 / 风险与求助 | 通用办公惯例 |
@@ -692,6 +695,7 @@ onMediaDblClick(e) {
 | T12 | `api` | API 文档 | 概述 / 认证 / 端点表 / 请求参数 / 响应示例 / 错误码 / 变更记录 | 通用惯例 |
 | T13 | `prompt` | Prompt / Skill 说明 | 用途与触发场景 / 输入约定 / 输出格式 / 约束与禁止 / 示例（正例 + 反例）/ 变更记录 | 本仓库 `docs/few-shot-examples.md` 与 skill 结构 |
 | T14 | `bug` | Bug 报告 | 环境 / 复现步骤 / 期望与实际 / 影响面与等级 / 日志与截图 / 根因与修复 / 回归验证 | 本仓库 bugfix 工作流 |
+| T15 | `detailed-design` | 详细设计（P2） | 模板元信息 / 版本历史 / 设计引用 / 数据结构与类型 / 公共接口规格（前置·后置·幂等·错误）/ 核心算法伪代码 / 状态机 / 并发时序与原子性 / 错误与降级矩阵 / 边界用例 E 表 / 兼容性与迁移 / 可观测性与诊断 / 性能预算 / 测试设计矩阵 / 对抗自检 / 退出门禁 | `docs/templates/detailed-design.template.md`（v1.0） |
 
 **统一约束**：每个模板首行为 H1；不含 `@anno`；不含 front matter（避免落入 S18 只读块）；示例内容用中文，`en` 界面下模板名走 i18n（模板正文不做双语，避免维护成本翻倍——此决定写入 P2 而非留白）。
 
@@ -758,7 +762,7 @@ onMediaDblClick(e) {
 | 不可见性（jest） | 装饰结果与文本 | **三断言**：无 `@anno`、无字段值、去批注等价 | AC-11 / E54–E55 |
 | 往返与最小 diff（jest） | 打开→不改→保存；改一处→保存 | 断言零 diff / 单点 diff | AC-10 / AC-18 / E49–E52 |
 | 批注一致性（jest） | `withFreshDisk` + core writer（临时目录真实文件） | 成功与失败两条路径 | AC-19 / E67–E68 |
-| 模板校验（jest） | 14 个模板文件 | 首行 H1、无 `@anno`、无 front matter、可被 `parseAnnotations` 解析 | F15-7 |
+| 模板校验（jest） | 15 个模板文件 | 首行 H1、无 `@anno`、无 front matter、可被 `parseAnnotations` 解析 | F15-7 |
 | core 回归（jest） | 现有 core / cli / mcp 测试 | 全部保持通过（core 零改动） | 接口契约 |
 | 人工验收（GUI 硬约束） | IME 长文输入、10 万字符性能、**widget 观感对照竞品 VIS-3–5**、导出与公众号复制回归、四处 AI 入口一致性、**模型设置**、模式切换手感 | 每 Phase 出口条件；用户实机确认后才推进 | E58、E64–E66、E82–E88、VIS |
 
@@ -790,7 +794,7 @@ H17 置信度偏低但影响可逆（后续可补 en 模板目录），已在 §
 | 3 | `P` 类只读块的拦截过宽，导致相邻正文也不能编辑 | 中低 | `changeFilter` 只拦截落在只读区间内的变更；E59–E61 覆盖边界；只读区间随文档变更重算 |
 | 4 | 「先保存后批注」在自动保存 interval 模式下双重写盘 | 中低 | H16：统一入口 + 写盘互斥锁；写盘中触发的批注操作排队等待 |
 | 5 | 批注隐藏行导致选区/复制出现越界或半行 | 中低 | E70–E71 覆盖；端点跳过隐藏行的逻辑作为纯函数单测 |
-| 6 | 模板库把 3.0 拖长（14 个模板正文写作量） | 中低 | 骨架已定稿，正文以复用现有资产为主；模板属 M8-F 可并行阶段，必要时先交 6 个高频模板（T2/T3/T5/T6/T8/T14），其余随后补 |
+| 6 | 模板库把 3.0 拖长（15 个模板正文写作量） | 中低 | 骨架已定稿，正文以复用现有资产为主；模板属 M8-F 可并行阶段，必要时先交 7 个高频模板（T2/T3/T5/T6/T8/T14/T15），其余随后补 |
 
 ---
 
