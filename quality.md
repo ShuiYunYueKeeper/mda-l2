@@ -1,4 +1,4 @@
-# 质量保障说明（Quality Assurance）
+﻿# 质量保障说明（Quality Assurance）
 
 本文件汇总 MDA 项目的质量保障策略，便于评审快速清点：测试体系、覆盖率、数据校验、
 源文件安全、人工审核点、Code Review 痕迹与协作资产。
@@ -122,7 +122,7 @@ npx playwright test tests/e2e/capture/docs-screenshots.spec.ts   # 刷新文档�
 |------|------|
 | AI 协作指南（架构/接口/禁止事项/隐性规范） | `AGENTS.md` |
 | Few-shot 正反例（易错点 ✅/❌ 对照） | `docs/few-shot-examples.md` |
-| 阶段模板（需求/设计/实施） | `docs/templates/*.template.md` |
+| 阶段模板（需求 / 架构 / 详细设计 / 实施） | `docs/templates/*.template.md`（含版本号、适用档位、退出门禁） |
 | 可配置规则 | `src/config/annotation-schema.json` |
 | 阶段设计文档 | `docs/P0–P3-*.md` |
 | AI 对话记录 | `docs/prompts/*.md` |

@@ -52,7 +52,7 @@
 |------|------|
 | [`prompts/`](prompts/) | 各阶段 Prompt 与人机协作记录（含 P4 GUI 迭代） |
 | [`few-shot-examples.md`](few-shot-examples.md) | 易错点 ✅/❌ 成对示例（core + CLI + GUI） |
-| [`templates/`](templates/) | 需求 / 设计 / 开发计划模板 |
+| [`templates/`](templates/) | 阶段模板（各含版本号、适用档位与退出门禁）：[需求](templates/requirement.template.md) / [架构](templates/design.template.md) / [详细设计](templates/detailed-design.template.md) / [实施计划](templates/dev-plan.template.md) |
 | [`screenshots/README.md`](screenshots/README.md) | GUI 截图与录屏清单；**v3 预览编辑截图**由 `tests/e2e/capture/docs-screenshots.spec.ts` 自动采集 |
 | [`packaging-windows.md`](packaging-windows.md) | Windows 签名、界面语言、自动更新与 `latest.yml` |
 | `demo/软著材料/` | 软著一般交存材料（操作说明书 + 代表性源程序）；`node scripts/generate-soft-copyright-materials.js` 生成 PDF |
@@ -78,4 +78,8 @@
 
 ## 工作流
 
-项目级人机协作流程见 [`.cursor/workflow.md`](../.cursor/workflow.md)（阶段门、六步循环、GUI 实机硬约束）。
+项目级人机协作流程见 [`.cursor/workflow.md`](../.cursor/workflow.md)（适用范围与阶段裁剪、六步循环、阶段门、GUI 实机硬约束、**推理侧工程组合**）。
+
+工作流适用于任意软件工程任务，不限于 L2 命题：技术栈相关命令由「项目适配层」声明，任务规模差异由 **T0–T5 任务分档**裁剪阶段与文档，门禁（方案确认 / 输出校验三层 / 人工验证 / 沉淀 / 提交规范）不可裁剪。
+
+「推理侧工程组合」章节规定每步用什么推理手段：思维链 / 少样本、RAG 私域检索、工具与内置探针、任务分解子代理、多模型路由、三层输出校验、自我反思、多结果投票；并按 L0–L3 风险分档决定开哪几件。
