@@ -1,0 +1,102 @@
+﻿# {project_name}
+
+> {one_line_description}
+
+## 目录结构
+
+```
+{project_name}/
+├── src/
+│   ├── core/                  # 共享核心库
+│   │   ├── model.ts           # 类型定义
+│   │   ├── {module}.ts        # 核心业务模块
+│   │   └── index.ts           # barrel export
+│   ├── config/
+│   │   └── {schema}.json      # 可配置规则（可选）
+│   ├── cli/                   # CLI（可选）
+│   │   ├── main.ts
+│   │   └── commands/
+│   └── gui/                   # GUI（可选）
+│       ├── main.js
+│       ├── preload.js
+│       └── renderer/
+├── tests/
+│   ├── core/
+│   └── cli/
+├── docs/
+│   ├── README.md
+│   ├── P0-requirements.md
+│   ├── P1-architecture.md
+│   ├── P2-detailed-design.md
+│   ├── P3-implementation-plan.md
+│   ├── prompts/
+│   ├── screenshots/
+│   ├── few-shot-examples.md
+│   └── templates/
+├── samples/
+├── scripts/
+├── quality.md
+├── AGENTS.md
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+
+## 技术栈
+
+| 组件 | 技术 | 版本要求 |
+|------|------|----------|
+| 运行时 | {runtime} | {version} |
+| 语言 | {language} | {version} |
+| {component} | {tech} | {version} |
+
+## 运行指引
+
+### 1. 安装依赖
+
+```bash
+{install_command}
+```
+
+### 2. 构建
+
+```bash
+{build_command}
+```
+
+### 3. 运行
+
+```bash
+# CLI
+{cli_run_example}
+
+# GUI（如有）
+{gui_run_example}
+```
+
+### 4. 测试
+
+```bash
+{test_command}
+```
+
+## 设计文档
+
+| 文档 | 说明 |
+|------|------|
+| [P0 需求分析](docs/P0-requirements.md) | 验收标准、风险 |
+| [P1 架构设计](docs/P1-architecture.md) | 模块边界、数据流 |
+| [P2 详细设计](docs/P2-detailed-design.md) | 算法、接口、边界用例 |
+| [P3 实现计划](docs/P3-implementation-plan.md) | 任务 DAG |
+
+## 质量保障
+
+详见 [quality.md](quality.md)。测试覆盖率与用例数以 `npm test` 实测为准。
+
+## AI 协作
+
+参与开发前请阅读 [AGENTS.md](AGENTS.md) 与 [.cursor/workflow.md](.cursor/workflow.md)。
+
+## 界面截图与演示（如有 GUI）
+
+见 [docs/screenshots/README.md](docs/screenshots/README.md)。

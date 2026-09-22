@@ -1,0 +1,85 @@
+﻿# 质量保障说明（Quality Assurance）
+
+本文件汇总 **{project_name}** 的质量保障策略，便于评审快速清点：测试体系、覆盖率、
+数据校验、写入安全、人工审核点、Code Review 痕迹与协作资产。
+
+---
+
+## 1. 测试体系
+
+| 套件 | 文件 | 说明 |
+|------|------|------|
+| {module} 单元测试 | `tests/{path}` | {coverage_description} |
+| 配置一致性测试 | `tests/core/config.test.ts` | 外置规则与代码派生值一致（如有 config） |
+| 集成测试 | `tests/{path}` | {e2e_description} |
+
+运行：
+
+```bash
+{test_command}    # 示例：npm test
+```
+
+**当前状态：{N} 用例全部通过。**（实现后更新）
+
+---
+
+## 2. 覆盖率
+
+| 指标 | 数值 |
+|------|------|
+| Statements | {xx}% |
+| Lines | {xx}% |
+| Functions | {xx}% |
+
+> 以 `{test_command_with_coverage}` 实测为准。
+
+---
+
+## 3. 数据校验与失败降级
+
+- **枚举守卫**：`{guards}` 在入口校验，非法值报错退出而非落盘
+- **非法输入降级**：{parser 跳过 + 告警 / 等策略}
+- **编辑态防护**：{如有 dirty 状态，说明互斥操作}
+- **可配置规则单一真相**：`src/config/{schema}.json`（如有）
+
+---
+
+## 4. 写入安全（如适用）
+
+- **原子写入**：临时文件 + `fs.rename`，失败清理，不直接覆盖
+- **源文件保护**：`{verify_function}` 校验只允许改动指定行/字段
+- **换行保留**：`detectEol` 保持原 CRLF/LF
+- **整篇写回 vs 局部写回**：区分场景与校验策略
+
+---
+
+## 5. 人工审核点（Human-in-the-loop）
+
+| 审核点 | 触发条件 | 原因 |
+|--------|----------|------|
+| UI 实机验证 | `{ui_path}/**` 改动 | 自动化 ≠ 实机验证完成 |
+| 阶段确认门禁 | P0–P3 每阶段产出后 | 设计取舍须人工确认 |
+| GUI 截图/录屏 | UI 功能变更且实机通过 | 交付素材须人工产出 |
+| {custom_review_1} | {trigger} | {reason} |
+
+任务级人/机分工见 `docs/P3-implementation-plan.md` 的「执行主体分工」表（如有）。
+
+---
+
+## 6. Code Review 痕迹
+
+- git 历史含 review 提交与问题清单 → 修复 → 回归
+- 提交遵循 Conventional Commits，小粒度原子提交
+
+---
+
+## 7. 协作资产
+
+| 资产 | 位置 |
+|------|------|
+| AI 协作指南 | `AGENTS.md` |
+| Few-shot 正反例 | `docs/few-shot-examples.md` |
+| 阶段模板 | `docs/templates/*.template.md` |
+| 阶段设计文档 | `docs/P0–P3-*.md` |
+| AI 对话记录 | `docs/prompts/*.md`（L2 ≥3 轮） |
+| UI 截图/录屏 | `docs/screenshots/`（如有） |

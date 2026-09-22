@@ -1,0 +1,36 @@
+﻿{
+  "name": "{package_name}",
+  "version": "0.1.0",
+  "description": "{one_line_description}",
+  "main": "dist/{entry}.js",
+  "bin": {
+    "{cli_bin}": "dist/cli/main.js",
+    "{gui_bin}": "dist/gui/main.js"
+  },
+  "scripts": {
+    "build:ts": "tsc",
+    "build:gui": "node scripts/copy-gui.js",
+    "build": "npm run build:ts && npm run build:gui",
+    "test": "jest --coverage",
+    "cli": "node dist/cli/main.js",
+    "gui": "electron dist/gui/main.js",
+    "prebuild": "node scripts/ensure-no-bom.js"
+  },
+  "keywords": [],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18",
+    "npm": ">=9"
+  },
+  "dependencies": {
+    "{core_dependency}": "^{version}"
+  },
+  "devDependencies": {
+    "@types/jest": "^{version}",
+    "@types/node": "^{version}",
+    "electron": "^{version}",
+    "jest": "^{version}",
+    "ts-jest": "^{version}",
+    "typescript": "^{version}"
+  }
+}

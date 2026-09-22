@@ -1,0 +1,177 @@
+﻿# AGENTS.md — {project_name} AI 协作指南
+
+> 本文件是面向 AI 协作者的项目级资产。任何在本仓库工作的 AI/人，**动手前必须读完本文件**，
+> 并严格遵守「禁止事项」与「隐性规范」。本文件与代码同步维护，发现不一致以代码为准并回头更新本文件。
+
+---
+
+## 1. 项目背景
+
+{project_background — 一段话说明项目来源、目标用户、核心价值}
+
+工具/产品提供的使用方式（按实际填写）：
+
+- **{interface_1}**（`{bin_or_entry_1}`）：{description}
+- **{interface_2}**（`{bin_or_entry_2}`）：{description}（可选）
+
+共享核心库位于 `src/core/`，保证各入口行为一致。
+
+---
+
+## 2. 项目概述
+
+| 维度 | 说明 |
+|------|------|
+| 形态 | {monorepo / single package / library / ...} |
+| 入口 | {列出 bin / main 入口} |
+| 核心库 | `{package_name}` = {module_list} |
+| 关键保证 | {列出 3-5 条不可妥协的质量保证} |
+| 平台 | {目标平台} |
+
+---
+
+## 3. 业务术语表
+
+| 术语 | 定义 |
+|------|------|
+| {term_1} | {definition} |
+| {term_2} | {definition} |
+| {term_3} | {definition} |
+
+> 新增领域概念时同步更新本表，避免 AI 与用户/代码用语漂移。
+
+---
+
+## 4. 架构设计
+
+分层、单向依赖：`{adapters}` → `core`。`core` 不依赖 UI/CLI 框架。
+
+```mermaid
+flowchart TD
+  subgraph core["{core_package} (src/core)"]
+    model[model — 类型 + 枚举]
+    {module_a}[{module_a} — {responsibility}]
+    {module_b}[{module_b} — {responsibility}]
+  end
+  {adapter_1}["{adapter_1}"] --> core
+  {adapter_2}["{adapter_2}"] --> core
+```
+
+模块职责边界：
+
+| 模块 | 路径 | 职责 | 禁止 |
+|------|------|------|------|
+| model | `src/core/model.ts` | 类型、枚举、守卫 | 不含 IO/业务逻辑 |
+| {module} | `src/core/{module}.ts` | {responsibility} | {forbidden} |
+| CLI | `src/cli/**` | 参数解析、输出格式化 | 不重写 core 逻辑 |
+| GUI | `src/gui/**` | 窗口、桥接、渲染 UI | 不直接实现 core 算法 |
+
+数据流（写操作示例，按 P2 填写）：
+
+`{read} → {parse} → {transform} → {verify} → {atomic_write}`
+
+---
+
+## 5. 接口约定
+
+### 5.1 核心数据类型
+
+```ts
+// 在 src/core/model.ts 定义，此处摘录或链接
+{core_types}
+```
+
+枚举守卫（入口必须校验）：`{guard_functions}`
+
+### 5.2 公共 API（`src/core/index.ts`）
+
+```ts
+{public_api_signatures}
+```
+
+### 5.3 外部契约
+
+- CLI：{命令列表与 stdout/stderr 规范}
+- GUI 桥接：{preload → window API 列表}
+- HTTP/API：{如有}
+
+---
+
+## 6. 编码规范
+
+- **语言/严格度**：{TypeScript strict / 等}
+- **分层依赖**：core 不得 import 适配层；适配层不得复制 core 逻辑
+- **CLI 输出**：stdout 仅承载结果数据，日志/警告/错误走 stderr
+- **写文件**：{原子写入 / 事务 / 等策略}
+- **输入校验**：枚举/边界须经守卫校验后再落盘
+- **错误处理**：core 抛可读错误；CLI 转 stderr + 退出码；GUI 转 `{success, error}`
+- **注释**：只解释「为什么」，不写复述代码的废话
+- **命名**：{项目命名约定}
+- **测试**：核心逻辑改动同步 `tests/`；边界用例延续 {E1-EN} 编号
+- **提交**：`<type>(<scope>): <desc>`
+
+---
+
+## 7. 项目依赖
+
+| 类别 | 依赖 | 版本 |
+|------|------|------|
+| 运行时 | {runtime} | {version} |
+| {category} | {package} | {version} |
+
+常用命令：
+
+```bash
+{install_command}
+{build_command}
+{test_command}
+{run_command}
+```
+
+---
+
+## 8. 禁止事项（违反即视为 bug / 不通过）
+
+1. **{prohibition_1}** — {detail}
+2. **{prohibition_2}** — {detail}
+3. **不得改主程序命名** — GUI=`{gui_bin}`，CLI=`{cli_bin}`（`package.json` bin）
+4. **CLI 不得污染 stdout** — JSON/数据模式 stdout 仅输出结构化数据
+5. **GUI 不得重写 core 逻辑** — 写操作经桥接调用 core
+6. **renderer/纯函数层保持纯净** — 不把 UI 专属注入混入可测试纯模块
+7. **GUI 禁用原生 alert/confirm/prompt** — {如适用，改用 DOM 模态}
+8. **不得削弱安全配置** — {Electron: contextIsolation 等}
+9. **不得写入非法枚举/状态** — 越过校验会导致静默数据丢失
+10. **派生物入库策略** — `node_modules/`、`coverage/` 不入库；`dist/` {策略}
+
+> 从 MDA 蒸馏：禁止事项是 AI 最易违反的硬约束，须具体、可验证。
+
+---
+
+## 9. 隐性规范（项目实战中沉淀，务必遵守）
+
+> 覆盖：输出格式 / 写入安全 / 渲染 / GUI / 数据校验 / 解析语义。
+> 每条规范说明「陷阱 → 正确做法」，新增陷阱时在此追加编号。
+
+1. **【解析语义】{rule}** — {detail}
+2. **【写入安全】换行保留** — 写回前检测 EOL，禁止静默 CRLF→LF
+3. **【写入安全】原子写入** — 临时文件 + rename，失败清理临时文件
+4. **【渲染/UI】{rule}** — {detail}
+5. **【GUI·Electron】桥接契约** — 渲染层仅通过 `{api_name}` 与外界交互
+6. **【数据校验】枚举守卫** — add/edit/scan 入口校验，非法值报错退出
+
+---
+
+## 10. 关键文件索引
+
+| 关注点 | 文件 |
+|--------|------|
+| 类型/枚举 | `src/core/model.ts` |
+| 可配置规则 | `src/config/{schema}.json` |
+| 核心业务 | `src/core/{module}.ts` |
+| CLI 命令 | `src/cli/commands/*.ts` |
+| GUI | `src/gui/main.js` / `preload.js` / `renderer/` |
+| 设计文档 | `docs/P0–P3-*.md` |
+| 工作流 | `.cursor/workflow.md` |
+| 质量保障 | `quality.md` |
+| Few-shot | `docs/few-shot-examples.md` |
+| 测试 | `tests/` |

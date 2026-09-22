@@ -1,0 +1,32 @@
+﻿# Dependencies
+node_modules/
+
+# Build & test artifacts
+dist/
+coverage/
+.tmp/
+*.tmp
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# IDE (optional — team may choose to commit shared settings)
+.idea/
+*.swp
+.vscode/settings.json
+
+# Release
+release/
+.snapshots/
+
+# Local drafts (add project-specific paths)
+# docs/drafts/

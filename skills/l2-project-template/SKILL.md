@@ -1,20 +1,25 @@
 ﻿---
 name: l2-project-template
 description: >
-  基于 MDA 蒸馏的 L2 工程脚手架：目录结构、P0-P4 阶段化工作流、AGENTS.md/quality.md
-  协作资产、设计文档模板与质量验证闭环。用于创建 L2 命题项目、阶段化 AI 协作工程、
-  从模板初始化新项目，或用户提到 l2-project-template、L2 脚手架、蒸馏模板、P0-P4 工作流时使用。
+  基于 MDA 蒸馏的阶段化工程脚手架：目录结构、P0-P4 工作流（含任务分档裁剪与推理侧工程组合）、
+  AGENTS.md/quality.md 协作资产、设计文档模板与质量验证闭环。适用于任意软件工程任务 ——
+  新建项目、既有项目迭代、缺陷修复、重构迁移、命题式考核（如 L2）。用于从模板初始化新项目、
+  建立阶段化 AI 协作流程，或用户提到 l2-project-template、L2 脚手架、蒸馏模板、P0-P4 工作流、
+  阶段化开发工作流时使用。
 ---
 
-# L2 工程模板 Skill
+# 阶段化工程模板 Skill
 
-从 MDA 蒸馏的可复用工程脚手架，覆盖 L2 三大维度：**资产沉淀**、**任务规划**、**质量保障**。
+从 MDA 蒸馏的可复用工程脚手架，覆盖三大维度：**资产沉淀**、**任务规划**、**质量保障**。
+
+**适用范围不限于命题式任务**：新建项目、既有项目迭代、缺陷修复、性能优化、重构与架构迁移、探索原型均适用。
+规模差异通过工作流的**任务分档（T0–T5）**裁剪阶段与文档，而不是另换一套流程。
 
 与 `create-project` skill 的分工：
 
 | Skill | 适用场景 |
 |-------|----------|
-| **l2-project-template**（本 skill） | L2 命题 / 需求明确 / 需 P0–P4 设计文档 + AGENTS.md 协作 |
+| **l2-project-template**（本 skill） | 需要 P0–P4 阶段门 + 设计文档 + AGENTS.md 协作资产的工程（含 L2 命题） |
 | create-project | 轻量通用项目，Phase 0–4 快速搭骨架 |
 
 ---
@@ -98,9 +103,13 @@ P0-需求分析 → P1-架构设计 → P2-详细设计 → P3-实现步骤 → 
 |------|------|------|
 | P0 | `docs/P0-requirements.md` | `docs/templates/requirement.template.md` |
 | P1 | `docs/P1-architecture.md` | `docs/templates/design.template.md` |
-| P2 | `docs/P2-detailed-design.md` | `docs/templates/design.template.md` |
+| P2 | `docs/P2-detailed-design.md` | `docs/templates/detailed-design.template.md` |
 | P3 | `docs/P3-implementation-plan.md` | `docs/templates/dev-plan.template.md` |
 | P4 | `src/` + `tests/` + 文档 | P3 任务 DAG |
+
+模板均自带「模板元信息」（版本号 / 适用档位 / 裁剪指引）与「退出门禁」。
+**低档任务不必跑满四份文档**：按工作流「任务分档与阶段裁剪」矩阵取舍 —— 缺陷修复（T1）只需根因说明 + 回归用例，
+小增强（T2）合并为一份设计文档，跨模块特性（T3）起才产出完整四份，架构迁移（T4）另加里程碑验收清单。
 
 ### 六步循环（每阶段）
 

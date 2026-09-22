@@ -26,6 +26,8 @@ docs/L2-evaluation-report.md
 .cursor/l2-exam-evaluator/
 
 release-smoke/
-# 本地 L2 skill 同步产物（由 scripts/sync-l2-skill.js 生成）
-l2-project-template
-skills
+# 脚手架编辑源目录：内容与 skills/l2-project-template/template/ 等价，
+# 由 scripts/sync-l2-skill.js 单向同步过去，故只把 skills/ 纳入版本控制。
+# 必须用根锚定（前导 /）：无斜杠的 l2-project-template 会匹配任意层级，
+# 连带把 skills/l2-project-template/ 一起忽略掉。
+/l2-project-template/
