@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 交付截图批量采集（README / 操作说明书 / 软著材料用）。
  *
  * 默认跳过：会写仓库文件且耗时，不应混进常规 e2e。
@@ -36,10 +36,53 @@ async function shotOf(selector: string, name: string) {
   await win.locator(selector).screenshot({ path: path.join(OUT_DIR, `${name}.png`) });
 }
 
-/** 把光标放到某个可见文字上（预览模式下点的是渲染结果） */
-async function clickText(text: string, nth = 0) {
-  await win.locator('.cm-line', { hasText: text }).nth(nth).click();
+/**
+ * 把光标放到某个可见文字上（预览模式下点的是渲染结果）。
+ * CM6 只渲染视口附近的行，滚到别处后目标行根本不在 DOM 里，
+ * 所以先按 dir 把文档滚到头/尾再找。
+ */
+async function clickText(text: string, nth = 0, dir: 'top' | 'bottom' = 'top') {
+  await win.locator('#cm-editor-host .cm-content').click({ position: { x: 20, y: 20 } });
+  await win.keyboard.press(dir === 'top' ? 'Control+Home' : 'Control+End');
+  await win.waitForTimeout(500);
+  const line = win.locator('.cm-line', { hasText: text }).nth(nth);
+  await line.scrollIntoViewIfNeeded({ timeout: 8_000 });
+  await line.click();
   await win.waitForTimeout(200);
+}
+
+async function scrollDocTo(dir: 'top' | 'bottom') {
+  await win.locator('#cm-editor-host .cm-content').click({ position: { x: 20, y: 20 } });
+  await win.keyboard.press(dir === 'top' ? 'Control+Home' : 'Control+End');
+  await win.waitForTimeout(700);
+}
+
+/**
+ * 补充场景的采集不应阻塞整套：serial 模式下任一失败会让后续用例全部不执行，
+ * 少一张图远比断掉采集划算，所以这些场景失败只告警。
+ */
+async function optional(label: string, fn: () => Promise<void>) {
+  try {
+    await fn();
+  } catch (e) {
+    console.warn(`[capture] 跳过「${label}」: ${(e as Error).message.split('\n')[0]}`);
+  }
+}
+
+/** 设置 / 帮助只挂在原生菜单上，Playwright 点不到菜单栏，改从主进程补发 IPC */
+async function sendMenuIpc(channel: string) {
+  await app.evaluate(({ BrowserWindow }, ch) => {
+    const w = BrowserWindow.getAllWindows()[0];
+    if (w) w.webContents.send(ch);
+  }, channel);
+  await win.waitForTimeout(700);
+}
+
+async function closeDialog(selector: string) {
+  if (await win.locator(selector).isVisible().catch(() => false)) {
+    await win.keyboard.press('Escape');
+    await win.waitForTimeout(400);
+  }
 }
 
 test.beforeAll(async () => {
@@ -170,4 +213,126 @@ test('13 深色主题', async () => {
   await shot('13-dark-mode');
   await win.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
   await win.waitForTimeout(500);
+});
+
+test('14 工具栏特写', async () => {
+  await shotOf('.mda-cm-edit-toolbar', '14-toolbar-closeup');
+});
+
+test('15 段落样式下拉', async () => {
+  await optional('段落样式下拉', async () => {
+    await clickText('背景');
+    await win.locator('.mda-cm-tb-paragraph').first().click();
+    await win.waitForTimeout(500);
+    await shot('15-paragraph-select');
+    await win.keyboard.press('Escape');
+    await win.waitForTimeout(300);
+  });
+});
+
+test('16 批注编辑对话框', async () => {
+  await optional('批注编辑对话框', async () => {
+    if (!(await win.locator('#panel-pane').isVisible())) await win.locator('#tb-panel').click();
+    await clickText('传统 Markdown');
+    await win.locator('#btn-add').click();
+    await expect(win.locator('#edit-dialog')).toBeVisible({ timeout: 8_000 });
+    await win.locator('#ed-content').fill('建议在此处补充与同类工具的对比表格。');
+    await win.locator('#ed-tags').fill('文档,定位');
+    await win.waitForTimeout(400);
+    await shot('16-anno-dialog');
+    await shotOf('#edit-dialog', '16b-anno-dialog-detail');
+    await win.locator('#ed-cancel').click();
+    await win.waitForTimeout(400);
+  });
+});
+
+test('17 批注筛选区', async () => {
+  await optional('批注筛选区', async () => {
+    await shotOf('#panel-pane', '17-anno-filters');
+  });
+});
+
+test('18 清空全部批注确认', async () => {
+  await optional('清空批注确认', async () => {
+    await win.locator('#btn-clear-all').click();
+    await win.waitForTimeout(700);
+    await shot('18-clear-annos-confirm');
+    await win.keyboard.press('Escape');
+    await win.waitForTimeout(400);
+  });
+});
+
+test('19 设置对话框', async () => {
+  await optional('设置对话框', async () => {
+    await sendMenuIpc('menu-settings');
+    await expect(win.locator('#settings-dialog')).toBeVisible({ timeout: 10_000 });
+    await shot('19-settings');
+    await shotOf('#settings-dialog', '19b-settings-detail');
+    await closeDialog('#settings-dialog');
+  });
+});
+
+test('20 帮助：功能与快捷键', async () => {
+  await optional('帮助对话框', async () => {
+    await sendMenuIpc('menu-show-help');
+    await expect(win.locator('#help-dialog')).toBeVisible({ timeout: 10_000 });
+    await shot('20-help');
+    await shotOf('#help-dialog', '20b-help-detail');
+    await closeDialog('#help-dialog');
+  });
+});
+
+test('21 代码块就地编辑', async () => {
+  await optional('代码块编辑', async () => {
+    const code = win.locator('.mda-cm-code-block').first();
+    await code.scrollIntoViewIfNeeded();
+    await code.click();
+    await win.waitForTimeout(600);
+    await shot('21-code-edit');
+  });
+});
+
+test('22 数学公式渲染', async () => {
+  await optional('数学公式', async () => {
+    await scrollDocTo('bottom');
+    const katex = win.locator('.katex').first();
+    await katex.scrollIntoViewIfNeeded({ timeout: 8_000 });
+    await win.waitForTimeout(600);
+    await shot('22-katex');
+  });
+});
+
+test('23 跳转到行', async () => {
+  await optional('跳转到行', async () => {
+    await win.keyboard.press('Control+g');
+    await win.waitForTimeout(700);
+    await shot('23-goto-line');
+    await win.keyboard.press('Escape');
+    await win.waitForTimeout(300);
+  });
+});
+
+test('24 大纲收起', async () => {
+  await optional('大纲收起', async () => {
+    // 收起按钮只在 hover 大纲区时出现（分隔线默认隐藏，见 AGENTS §9.4j）
+    await win.locator('#outline-host').hover();
+    await win.waitForTimeout(600);
+    await win.locator('#outline-float-toggle').click({ timeout: 8_000 });
+    await win.waitForTimeout(700);
+    await shot('24-outline-collapsed');
+    await win.locator('#outline-expand-rail').click({ timeout: 8_000 });
+    await win.waitForTimeout(400);
+  });
+});
+
+test('25 深色 + 源码模式', async () => {
+  await optional('深色源码', async () => {
+    await win.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+    await win.locator('#tb-edit').click();
+    await win.waitForTimeout(800);
+    await shot('25-dark-source');
+    await win.locator('#tb-edit').click();
+    await win.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+    await win.waitForTimeout(600);
+  });
 });

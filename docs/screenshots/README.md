@@ -1,4 +1,4 @@
-# GUI 截图与录屏清单
+﻿# GUI 截图与录屏清单
 
 > 本目录存放 MDA GUI 的交付截图与操作演示素材，供 `README.md` 引用。
 > **截图/录屏须由人工实机操作产出**（AI 无法代替）；GUI 功能变更并通过实机验证后，
@@ -72,6 +72,28 @@ npx playwright test tests/e2e/capture/docs-screenshots.spec.ts
 | `v3/11-source-mode.png` | 源码模式：同一文档中的 `@anno` 行 | ✅ |
 | `v3/12-file-sidebar.png` | 工作区文件列表 | — |
 | `v3/13-dark-mode.png` | 深色模式 | ✅ |
+| `v3/14-toolbar-closeup.png` | 工具栏特写（分组与按钮） | — |
+| `v3/15-paragraph-select.png` | 段落样式下拉（正文/标题一~六） | — |
+| `v3/16-anno-dialog.png` | 批注编辑对话框（全窗口） | — |
+| `v3/16b-anno-dialog-detail.png` | 批注对话框细节（内容/级别/标签） | — |
+| `v3/17-anno-filters.png` | 批注面板筛选区（状态/级别/标签） | — |
+| `v3/18-clear-annos-confirm.png` | 清空全部批注确认 | — |
+| `v3/19-settings.png` | 设置对话框（全窗口） | — |
+| `v3/19b-settings-detail.png` | 设置项细节 | — |
+| `v3/20-help.png` | 帮助：功能与快捷键 | — |
+| `v3/20b-help-detail.png` | 帮助正文细节 | — |
+| `v3/21-code-edit.png` | 代码块就地编辑 | — |
+| `v3/22-katex.png` | 数学公式渲染 | — |
+| `v3/23-goto-line.png` | 跳转到行 | — |
+| `v3/25-dark-source.png` | 深色 + 源码模式 | — |
+
+`v3/24-outline-collapsed.png`（大纲收起）尚未采到：收起按钮仅在 hover 大纲区时出现，
+自动化 hover 时机不稳定，该用例以「跳过只告警」方式处理，不阻塞整组采集。
+
+上表中未被 `README.md` 引用的图用于软著文档鉴别材料
+（`docs/demo/软著材料/Markdown工作台软件-V1.0-操作说明书.md`，共引用 28 张）。
+说明书与截图的对应关系由 `scripts/check-soft-copyright-pdf.js` 校验：
+引用了不存在的图会在生成的 PDF 里留下空白框，肉眼翻页容易漏掉。
 
 ---
 
