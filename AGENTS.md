@@ -336,11 +336,13 @@ npm test               # jest（含覆盖率）
 5. **【GUI·Electron】data-line 映射**：preload 仅对 `level===0` 的块级 token 注入 `data-line = map[0]+1`，其值等于段落 `startLine`，GUI 据此做「段落↔批注」双向定位与色条。
 6. **【GUI·Electron】运行前提**：preload `require('../core')` 需 `sandbox:false`；GUI 运行前必须 `npm run build`（否则 `dist/core` 不存在）。CM6 编辑器是**打包产物** `dist/gui/renderer/editor.bundle.js`，改 `src/gui/renderer/editor/**` 后只 `copy-gui` 无效，必须走 `npm run build`（含 `build:editor` → `scripts/bundle-editor.js`）。
 6b. **【GUI·Electron】单实例锁会让「重启」变成假重启**：`main.js` 有 `requestSingleInstanceLock()`，已开着 MDA 时再 `npm run gui` 会让**新进程直接退出**，仅把旧窗口（旧代码）激活并打开文件——改了代码却「问题依旧」多半是这个。验证改动生效须**先关掉所有 MDA 窗口**再启动，或 `Ctrl+R` 重载渲染进程。Playwright e2e 同理：`electron.launch` 必须带独立 `--user-data-dir=<临时目录>`，否则本机开着的 MDA 会让被测实例秒退（报 `Target page, context or browser has been closed`）。
+6c. **【GUI CM6】预览编辑是默认模式，开关判定在 `editor/pref.js`**：`localStorage` 的 `mda-cm6` **未设置或为空串时走预览编辑**，只有显式 `'0'`/`'false'` 才回退 2.0 源码模式。判定单独成模块是为了能单测默认值——嵌在 `editor/index.js` 的模块初始化里测不到。改默认行为须同步 `tests/gui/editor/pref.test.ts`，并确认 e2e 不再依赖「默认源码模式」的前提。点击诊断浮层（`clickDebug.devDefault`）**默认关闭**，别在发版前才想起来关。
 7. **【数据校验】枚举守卫**：add/edit/scan 入口用 `isAnnotationLevel/isAnnotationStatus` 校验，非法值报错退出而非落盘。
 8. **【CLI 输出】表格按显示宽度对齐**：中文为全角（2 列），用 `displayWidth/truncateToWidth/padToWidth` 对齐，勿用 `String.padEnd`（按码元数会错位）。
 9. **【CLI 输出】scan 目录模式**：每条批注的 `file` 必须是真实文件路径（在 `scanFile` 内回填），不可回退成目录名。
 10. **【选区批注】anchor 偏移**：`addAnnotation` 在段落上方插入批注行后，须 `shiftAnchorForInsert` 修正同文件内已有 anchor 的 UTF-16 偏移，否则选区批注一律失效。
 11. **【选区批注】预览映射**：`selection-anchor.js` 负责预览 DOM / 源码 textarea → UTF-16 `anchor`；围栏代码块经 `extractFenceContentRegions` 映射到源码字面内容；`anchor-highlights.js` 用 CSS Highlight API（降级 `<mark>`）着色。
+11b. **【选区批注】anchor 的权威坐标系是磁盘原文，不是编辑器文本**：anchor 要写进文件、被 CLI/MCP 读取，所以偏移必须按**磁盘表示**（原 EOL + 可能的 BOM）计算。CM6 文档恒为 LF 且不含 BOM，直接拿 `view.state.doc` 算偏移会在 CRLF 文件上每行少一个字符、整体错位（现象：定位跑偏、`validateAnchor` 的 quote 校验失败）。换算集中在 `renderer/doc-coords.js`，`app.js` 只在三处接线：`getSourceText()` 按 `docCoordsInfo` 还原磁盘文本、新建批注写盘前 `anchorToDisk`、定位前 `anchorToDoc`。`refreshDocCoords` 须在**打开 / 新建 / 关闭文档**时调用；另存为落到换行风格不同的文件上时也要重新探测（否则下次定位整体错位）。源码模式下 `currentText` 本就是磁盘文本，无需换算。
 12. **【GUI 定位同步】**：预览/源码**滚动互不拖动**；点击预览只定位源码（`skipPreview`，勿再改预览 scroll）；点击源码行或方向键移动光标才定位预览；大纲/`Ctrl+G` 可显式双边跳转。禁止滚动反馈环路；查找替换须同步预览高亮与 `scrollLeft`。
 13. **【Agent·MCP】同文件批量 add 批注**：每条 `mda_add`/`addAnnotation` 在段落上方插入一行，其后行号全部 +1。须 **串行**；优先 **自下而上**（高 `startLine` 先加），或每加一条后重新 `parse`/`mda_scan` 再定位下一条。`line` 必须属于某段落（空行会报「未找到第 N 行所属的段落」）。取 JSON 时用 MCP 或 `node dist/cli/main.js scan … --format json`，避免 `npm run cli` 横幅污染 stdout。细节与 ✅/❌ 见 `docs/few-shot-examples.md` §19。
 
@@ -364,6 +366,9 @@ npm test               # jest（含覆盖率）
 | GUI 工作区文件 IPC | `main/file-ops.js`（复制/移动/重名）、`main/workspace-prefs.js` |
 | GUI 剪贴板图片 / 粘贴落盘 | `main/clipboard-image.js`、`main/paste-assets.js`、`main/paste-prefs.js` |
 | GUI 选区/高亮/滚动/查找 | `renderer/selection-anchor.js`、`anchor-highlights.js`、`sync-scroll.js`、`find-replace.js` |
+| GUI 磁盘↔文档坐标换算（anchor） | `renderer/doc-coords.js` |
+| GUI CM6 默认模式开关 | `renderer/editor/pref.js` |
+| GUI 文档截图采集 | `tests/e2e/capture/docs-screenshots.spec.ts`、`scripts/seed-review-demo-annos.js` |
 | GUI CM6 空白行插入 / 大纲点击同步 | `renderer/editor/empty-line-insert.js`、`empty-line-insert-menu.js`、`outline-click-sync.js`、`outline-scroll.js` |
 | GUI CM6 空标题 / 分隔线插入 | `renderer/editor/heading-enter.js`、`widgets/block-insert-snippets.js`、`widgets/block-handle-ops.js` |
 | GUI CM6 块手柄 hover | `renderer/editor/widgets/block-drag-handle.js` |

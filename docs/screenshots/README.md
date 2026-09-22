@@ -1,4 +1,4 @@
-﻿# GUI 截图与录屏清单
+# GUI 截图与录屏清单
 
 > 本目录存放 MDA GUI 的交付截图与操作演示素材，供 `README.md` 引用。
 > **截图/录屏须由人工实机操作产出**（AI 无法代替）；GUI 功能变更并通过实机验证后，
@@ -41,6 +41,37 @@
 | `15-function-view.png` | 视图菜单能力概览 | ✅ |
 | `16-export-dialog.png` | 导出 HTML/PDF | ✅ |
 | `17-mcp-tools.png` | Cursor MCP 六 tools | ✅ |
+
+---
+
+## v3 · 预览编辑（自动采集，2026-09-21）
+
+`v3/` 下的截图**由脚本生成，不要手工替换**：
+
+```bash
+npx playwright test tests/e2e/capture/docs-screenshots.spec.ts
+```
+
+采集脚本 `tests/e2e/capture/docs-screenshots.spec.ts` 启动真实 Electron 实例，在临时工作区里打开 `samples/review-demo.md`（批注数据由 `scripts/seed-review-demo-annos.js` 预置），逐场景落图。改版后重跑即可整组刷新，避免文档截图与实际界面脱节。
+
+工作区须带 `workspace-prefs.json` 才能截到文件侧栏——没有工作区根时该按钮是禁用态。
+
+| 文件 | 内容 | README 引用 |
+|------|------|-------------|
+| `v3/01-preview-edit.png` | 预览编辑主界面（四栏） | ✅ |
+| `v3/02-anno-panel.png` | 批注面板与段落色条 | — |
+| `v3/02b-anno-panel-detail.png` | 批注条目细节（级别/标签/状态） | — |
+| `v3/03-anno-selection.png` | 选区批注：正文高亮 ↔ 面板条目 | ✅ |
+| `v3/04-toolbar-tip.png` | 工具栏按钮悬浮提示 | — |
+| `v3/05-insert-menu.png` | 插入菜单（空白行 `+` / `/`） | ✅ |
+| `v3/06-find-highlight.png` | 查找命中（含代码块内文字） | ✅ |
+| `v3/07-replace-bar.png` | 替换栏与全部替换 | — |
+| `v3/08-table-edit.png` | 表格就地编辑与行列手柄 | ✅ |
+| `v3/09-mermaid-code.png` | 流程图块（复制图片 / 复制源码） | ✅ |
+| `v3/10-outline.png` | 预览左侧大纲与当前标题高亮 | — |
+| `v3/11-source-mode.png` | 源码模式：同一文档中的 `@anno` 行 | ✅ |
+| `v3/12-file-sidebar.png` | 工作区文件列表 | — |
+| `v3/13-dark-mode.png` | 深色模式 | ✅ |
 
 ---
 

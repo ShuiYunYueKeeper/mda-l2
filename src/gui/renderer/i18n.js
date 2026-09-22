@@ -1047,6 +1047,15 @@
           '<li>Filter by status / level / tags; add / edit / remove notes (body lines protected)</li>' +
           '<li>Annotation writes are disabled while source edits are unsaved</li>' +
         '</ul>' +
+        '<h3>Preview editing</h3>' +
+        '<ul class="mda-help-list">' +
+          '<li>MDA starts in <strong>preview editing</strong>: you type on the rendered result while <code>**</code>, <code>~~</code> and friends stay hidden — the file on disk is still plain Markdown</li>' +
+          '<li>The <strong>Source</strong> toolbar button switches back to the classic source pane at any time; both modes share one document and one find bar</li>' +
+          '<li>On a blank line, the left <kbd>+</kbd> or typing <kbd>/</kbd> opens the insert menu: headings, image, table, code block, quote, link, divider, diagram, annotation</li>' +
+          '<li>The block handle reorders blocks and offers convert / duplicate / delete; a deleted block comes back whole with <kbd>Ctrl+Z</kbd></li>' +
+          '<li>Table cells, code blocks and diagram sources are edited in place, using the same inline-format rules as body text</li>' +
+          '<li>Find/replace also matches inside table cells and code blocks; <strong>Replace all</strong> undoes in one step</li>' +
+        '</ul>' +
         '<h3>Edit &amp; preview</h3>' +
         '<ul class="mda-help-list">' +
           '<li>Preview-first; editor pane toggles independently; notes pane remembers last open/closed</li>' +
@@ -1114,6 +1123,15 @@
         '<li>状态筛选默认仅勾选 open；可一键清空当前文件全部批注</li>' +
         '<li>按状态、级别、标签筛选；增 / 删 / 改批注（写操作保护正文，仅改批注行）</li>' +
         '<li>存在未保存的源码编辑时，批注写操作会暂时禁用</li>' +
+      '</ul>' +
+      '<h3>预览编辑</h3>' +
+      '<ul class="mda-help-list">' +
+        '<li>启动即进入<strong>预览编辑</strong>：直接在渲染结果上改字，<code>**</code>、<code>~~</code> 等定界符在预览中隐藏，磁盘里保存的仍是原始 Markdown</li>' +
+        '<li>工具栏「源码编辑」可随时切回源码模式；两种模式共用同一份文档与同一个查找栏</li>' +
+        '<li>空白行左侧 <kbd>+</kbd> 或输入 <kbd>/</kbd> 打开插入菜单：标题、图片、表格、代码块、引用、超链接、分隔线、流程图、批注</li>' +
+        '<li>块左侧手柄可拖动排序，菜单内可转换块类型、复制或删除；删掉的块用 <kbd>Ctrl+Z</kbd> 可整块还原</li>' +
+        '<li>表格单元格、代码块、流程图源码均可就地编辑，行内格式与正文共用同一套规则</li>' +
+        '<li>查找替换会一并命中表格单元格与代码块内的文字；「全部替换」按一次撤销整体回退</li>' +
       '</ul>' +
       '<h3>编辑与预览</h3>' +
       '<ul class="mda-help-list">' +

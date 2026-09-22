@@ -1,4 +1,4 @@
-﻿# 质量保障说明（Quality Assurance）
+# 质量保障说明（Quality Assurance）
 
 本文件汇总 MDA 项目的质量保障策略，便于评审快速清点：测试体系、覆盖率、数据校验、
 源文件安全、人工审核点、Code Review 痕迹与协作资产。
@@ -17,15 +17,22 @@
 | 配置一致性测试 | `tests/core/config.test.ts` | 锁定外置规则（枚举/配色/严重度/正则）与 core 派生值一致，防止漂移 |
 | CLI 集成测试 | `tests/cli/commands.test.ts` | 四命令端到端；**`add --anchor` JSON 校验** |
 | GUI 辅助单测 | `tests/gui/*.test.ts` | 选区/编辑辅助、文件操作边界、KaTeX 行内/块级/围栏/安全渲染、2× foreignObject 导出纯函数 |
+| 坐标换算单测 | `tests/gui/doc-coords.test.ts` | 磁盘（CRLF/BOM）↔ CM6 文档（LF）偏移互转，覆盖 anchor 双向映射 |
+| CM6 默认模式单测 | `tests/gui/editor/pref.test.ts` | `mda-cm6` 未设置/空串/显式关时的默认值判定 |
+| CM6 编辑器单测 | `tests/gui/editor/*.test.ts` | 行内定界符融合/拆分/清理、待输入格式、查找高亮的 DOM 偏移映射 |
 | MCP 集成测试 | `tests/mcp/handlers.test.ts` | 六 tools 与 CLI scan 对齐、真实路径工作区边界、空字段编辑 |
+| GUI e2e（Playwright） | `tests/e2e/gui/*.spec.ts` | 真实 Electron 下的定界符编辑、表格格内取消样式、IME 拼音上屏等 |
+| 文档截图采集 | `tests/e2e/capture/docs-screenshots.spec.ts` | 驱动真实实例逐场景落图到 `docs/screenshots/v3/`，使文档截图可随版本重跑刷新 |
 
 运行：
 
 ```bash
-npm test          # jest，含覆盖率
+npm test                                                # jest，含覆盖率
+npx playwright test tests/e2e/gui                       # GUI 行为 e2e
+npx playwright test tests/e2e/capture/docs-screenshots.spec.ts   # 刷新文档截图
 ```
 
-**当前状态：317 用例全部通过（52 套件）。**
+**当前状态：581 用例全部通过（79 套件）。**
 
 ---
 
@@ -33,9 +40,10 @@ npm test          # jest，含覆盖率
 
 | 指标 | 数值 |
 |------|------|
-| Statements | 88.63% |
-| Lines | 91.33% |
-| Functions | 95.69% |
+| Statements | 88.80% |
+| Lines | 91.70% |
+| Functions | 95.91% |
+| Branches | 70.89% |
 
 > 以 `npm test`（jest --coverage）实测为准；core 行覆盖率 95.98%，renderer 行覆盖率 100%。
 > 当前 Jest 统计仅收集 `src/**/*.ts`；主要 GUI JS 与打包脚本不在上述百分比内，仍以实机验收和后续 GUI 集成测试补足。
@@ -57,6 +65,7 @@ npm test          # jest，含覆盖率
 - **原子写入**：临时文件（`.<name>.<uuid>.tmp`）+ `fs.rename`，失败清理临时文件，绝不直接覆盖。
 - **源文件保护**：`verifySourceProtection` 校验写操作只改动批注行，正文逐字节不变。
 - **换行保留**：`detectEol` 保持原文件 CRLF/LF 风格。
+- **anchor 坐标系统一**：选区批注的偏移按磁盘原文（原 EOL + BOM）计算。CM6 文档恒为 LF 且无 BOM，GUI 经 `renderer/doc-coords.js` 在写盘前后双向换算，避免同一条批注在 GUI 与 CLI/MCP 之间指向不同位置。
 - **空行压缩**：删除批注产生的相邻空行压缩，但不触碰正文原有空行。
 - **整篇写回**：GUI 源码编辑保存走 `writeRawFile`（原子写入 + `detectEol`），是对正文的全量编辑，**不做**源文件保护校验（区别于批注增删改）。
 
