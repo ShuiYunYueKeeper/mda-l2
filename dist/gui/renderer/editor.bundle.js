@@ -64740,17 +64740,54 @@ var MDAEditorBundle = (() => {
         }
         return a || b || null;
       }
+      function clientRectsForDocRange(view, from, to) {
+        if (typeof document === "undefined" || from >= to) return null;
+        if (typeof view.domAtPos !== "function") return null;
+        try {
+          const a = view.domAtPos(from);
+          const b = view.domAtPos(to);
+          if (!a || !b || !a.node || !b.node) return null;
+          const range = document.createRange();
+          range.setStart(a.node, a.offset);
+          range.setEnd(b.node, b.offset);
+          const list = range.getClientRects();
+          if (!list || !list.length) return null;
+          const out = [];
+          for (let i = 0; i < list.length; i++) out.push(list[i]);
+          return out;
+        } catch (_) {
+          return null;
+        }
+      }
+      function markersFromDomRange(view, from, to, base, maxW, maxH) {
+        const rects = clientRectsForDocRange(view, from, to);
+        if (!rects || !rects.length) return null;
+        const markers = [];
+        for (let i = 0; i < rects.length; i++) {
+          const r = rects[i];
+          const w = r.right - r.left;
+          const h = r.bottom - r.top;
+          if (!(w >= 1 && h >= 1)) continue;
+          if (w > maxW || h > maxH) continue;
+          markers.push(
+            new RectangleMarker(TIGHT_MARK_CLASS, r.left - base.left, r.top - base.top, w, h)
+          );
+        }
+        return markers.length ? markers : null;
+      }
       function tightMarkersForRange(view, range) {
         if (!range || range.from === range.to) return [];
         if (range.to <= view.viewport.from || range.from >= view.viewport.to) return [];
         let from = Math.max(range.from, view.viewport.from);
         let to = Math.min(range.to, view.viewport.to);
         if (from >= to) return [];
-        if (rangeHasUnreliableCoords(view, from, to)) return [];
         const base = getBase(view);
-        const markers = [];
         const maxW = Math.max(400, view.scrollDOM && view.scrollDOM.clientWidth || 800) * 2;
         const maxH = Math.max(300, view.scrollDOM && view.scrollDOM.clientHeight || 600) * 2;
+        const domMarkers = markersFromDomRange(view, from, to, base, maxW, maxH);
+        if (domMarkers) return domMarkers;
+        if (rangeHasUnreliableCoords(view, from, to)) return [];
+        const markers = [];
         const len = to - from;
         const fromLine = view.state.doc.lineAt(from);
         const toLine = view.state.doc.lineAt(Math.max(from, to - 1));
@@ -64925,6 +64962,8 @@ var MDAEditorBundle = (() => {
         createTightSelectionLayer,
         tightMarkersForRange,
         charCoordsAt,
+        clientRectsForDocRange,
+        markersFromDomRange,
         rangeHasUnreliableCoords,
         focusInWidgetInlineEditable,
         TIGHT_LAYER_CLASS,

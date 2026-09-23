@@ -192,6 +192,46 @@ describe('tight-selection', () => {
     expect(tightMarkersForRange(view, { from: 0, to: 4 }).length).toBe(2);
   });
 
+  test('优先 DOM Range：coords 撑满整行时仍只画选区宽度', () => {
+    const rects = [
+      { left: 220, right: 300, top: 100, bottom: 120 },
+      { left: 80, right: 150, top: 120, bottom: 140 },
+    ];
+    (global as any).document = {
+      createRange: () => ({
+        setStart() {},
+        setEnd() {},
+        getClientRects: () => rects,
+      }),
+    };
+    const view: any = {
+      viewport: { from: 0, to: 1000 },
+      textDirection: 0,
+      scaleX: 1,
+      scaleY: 1,
+      state: { doc: { lineAt: () => ({ from: 0, to: 100, number: 1 }) } },
+      scrollDOM: {
+        getBoundingClientRect: () => ({ left: 0, right: 800, top: 0, bottom: 600 }),
+        scrollLeft: 0,
+        scrollTop: 0,
+        clientWidth: 800,
+        clientHeight: 600,
+      },
+      // 失真：每个字都返回接近整行宽
+      coordsAtPos: () => ({ left: 50, right: 750, top: 100, bottom: 120 }),
+      domAtPos: (pos: number) => ({ node: { nodeType: 3 }, offset: Math.max(0, pos) }),
+    };
+    try {
+      const markers = tightMarkersForRange(view, { from: 10, to: 40 });
+      expect(markers.length).toBe(2);
+      expect(markers[0].width).toBe(80);
+      expect(markers[1].width).toBe(70);
+      expect(Math.max(markers[0].width, markers[1].width)).toBeLessThan(200);
+    } finally {
+      delete (global as any).document;
+    }
+  });
+
   test('layer / mark class 不得含空格（否则 classList.add 崩溃）', () => {
     const { TIGHT_LAYER_CLASS, TIGHT_MARK_CLASS } = require(path.join(
       __dirname,

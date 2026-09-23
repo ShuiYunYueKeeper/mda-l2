@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 预览正文选区：原生 ::selection 透明 + 自绘层（只盖实际字符，叠在行内 code 之上）。
  *
  * 注意：layer({ class }) / classList.add 只能是单个 class token，不能含空格，
@@ -81,6 +81,61 @@ function charCoordsAt(view, from) {
 }
 
 /**
+ * 文档区间 → 视口 ClientRect 列表（软折行会拆成多段）。
+ * 块 widget 下方 coordsAtPos 易失真时，DOM Range 比逐字 coords 可靠。
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} from
+ * @param {number} to
+ * @returns {DOMRect[] | null}
+ */
+function clientRectsForDocRange(view, from, to) {
+  if (typeof document === 'undefined' || from >= to) return null;
+  if (typeof view.domAtPos !== 'function') return null;
+  try {
+    const a = view.domAtPos(from);
+    const b = view.domAtPos(to);
+    if (!a || !b || !a.node || !b.node) return null;
+    const range = document.createRange();
+    range.setStart(a.node, a.offset);
+    range.setEnd(b.node, b.offset);
+    const list = range.getClientRects();
+    if (!list || !list.length) return null;
+    const out = [];
+    for (let i = 0; i < list.length; i++) out.push(list[i]);
+    return out;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} from
+ * @param {number} to
+ * @param {{ left: number, top: number }} base
+ * @param {number} maxW
+ * @param {number} maxH
+ * @returns {InstanceType<typeof RectangleMarker>[] | null}
+ */
+function markersFromDomRange(view, from, to, base, maxW, maxH) {
+  const rects = clientRectsForDocRange(view, from, to);
+  if (!rects || !rects.length) return null;
+  const markers = [];
+  for (let i = 0; i < rects.length; i++) {
+    const r = rects[i];
+    const w = r.right - r.left;
+    const h = r.bottom - r.top;
+    // 零宽 hide-mark / 空行 caret 矩形丢掉
+    if (!(w >= 1 && h >= 1)) continue;
+    if (w > maxW || h > maxH) continue;
+    markers.push(
+      new RectangleMarker(TIGHT_MARK_CLASS, r.left - base.left, r.top - base.top, w, h)
+    );
+  }
+  return markers.length ? markers : null;
+}
+
+/**
  * 按视觉行切段，水平/垂直均来自 coordsAtPos（视口坐标），勿混用 lineBlockAt 文档坐标。
  * @param {import('@codemirror/view').EditorView} view
  * @param {{ from: number, to: number }} range
@@ -91,12 +146,18 @@ function tightMarkersForRange(view, range) {
   let from = Math.max(range.from, view.viewport.from);
   let to = Math.min(range.to, view.viewport.to);
   if (from >= to) return [];
-  if (rangeHasUnreliableCoords(view, from, to)) return [];
 
   const base = getBase(view);
-  const markers = [];
   const maxW = Math.max(400, (view.scrollDOM && view.scrollDOM.clientWidth) || 800) * 2;
   const maxH = Math.max(300, (view.scrollDOM && view.scrollDOM.clientHeight) || 600) * 2;
+
+  // 优先 DOM Range：长文档块 widget 下方 coordsAtPos 会把 left/right 撑成整行
+  const domMarkers = markersFromDomRange(view, from, to, base, maxW, maxH);
+  if (domMarkers) return domMarkers;
+
+  if (rangeHasUnreliableCoords(view, from, to)) return [];
+
+  const markers = [];
   const len = to - from;
   const fromLine = view.state.doc.lineAt(from);
   const toLine = view.state.doc.lineAt(Math.max(from, to - 1));
@@ -284,6 +345,8 @@ module.exports = {
   createTightSelectionLayer: createTightSelectionLayer,
   tightMarkersForRange: tightMarkersForRange,
   charCoordsAt: charCoordsAt,
+  clientRectsForDocRange: clientRectsForDocRange,
+  markersFromDomRange: markersFromDomRange,
   rangeHasUnreliableCoords: rangeHasUnreliableCoords,
   focusInWidgetInlineEditable: focusInWidgetInlineEditable,
   TIGHT_LAYER_CLASS: TIGHT_LAYER_CLASS,
