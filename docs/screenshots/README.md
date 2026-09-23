@@ -1,149 +1,82 @@
 ﻿# GUI 截图与录屏清单
 
-> 本目录存放 MDA GUI 的交付截图与操作演示素材，供 `README.md` 引用。
-> **截图/录屏须由人工实机操作产出**（AI 无法代替）；GUI 功能变更并通过实机验证后，
-> 按本清单补充或更新对应文件。
+> 本目录存放 MDA GUI 交付截图，供 `README.md` 与软著说明书引用。
+> **`v3/` 由自动化采集，不要手工替换旧文件顶替。**
 
 ---
 
-## 已有素材
-
-### 基础功能
-
-| 文件 | 内容 | README 引用 |
-|------|------|-------------|
-| `1.png` | 完整窗口（含标题栏） | ✅ |
-| `2.png` | 四级别色条 + 段落高亮 | ✅ |
-| `3.png` | 标签筛选后 | ✅ |
-| `4.png` | 添加批注弹窗 | ✅ |
-| `operation_demo.gif` | 段落↔批注双向定位、编辑、删除及新增 GUI 能力演示 | ✅ |
-
-### 新增 GUI 能力（第 3 次 L2 评估后）
-
-| 文件 | 内容 | README 引用 |
-|------|------|-------------|
-| `5-three-pane.png` | 三栏布局：编辑｜预览｜批注同时展开 | ✅ |
-| `6-dark-mode.png` | 深色模式整体效果 | ✅ |
-| `7-editor-highlight.png` | 源码编辑：语法高亮 + 行号 | ✅ |
-| `8-mermaid_picture.png` | 流程图与图片渲染 | ✅ |
-| `9-zoom-overlay.png` | 图片/流程图缩放遮罩 | ✅ |
-
-### Phase A / 扩展能力（用户已补，2026-07-17）
-
-| 文件 | 内容 | README 引用 |
-|------|------|-------------|
-| `10-welcome.png` | 欢迎页（新建/打开/最近） | ✅ |
-| `11-file-sidebar.png` | 文件夹树侧栏 | ✅ |
-| `12-search.png` | 查找栏 | ✅ |
-| `13-outline-katex.png` | 预览左侧大纲 + KaTeX | ✅ |
-| `14-selection-annotation.png` | 选区批注 | ✅ |
-| `15-function-file.png` | 文件菜单能力概览 | ✅ |
-| `15-function-view.png` | 视图菜单能力概览 | ✅ |
-| `16-export-dialog.png` | 导出 HTML/PDF | ✅ |
-| `17-mcp-tools.png` | Cursor MCP 六 tools | ✅ |
-
----
-
-## v3 · 预览编辑（自动采集，2026-09-21）
-
-`v3/` 下的截图**由脚本生成，不要手工替换**：
+## 采集方式
 
 ```bash
+# 须先关掉本机已开的 MDA（单实例锁）
+$env:MDA_CAPTURE='1'
 npx playwright test tests/e2e/capture/docs-screenshots.spec.ts
 ```
 
-采集脚本 `tests/e2e/capture/docs-screenshots.spec.ts` 启动真实 Electron 实例，在临时工作区里打开 `samples/review-demo.md`（批注数据由 `scripts/seed-review-demo-annos.js` 预置），逐场景落图。改版后重跑即可整组刷新，避免文档截图与实际界面脱节。
+脚本启动真实 Electron，打开临时工作区中的 `samples/review-demo.md`（批注由 `scripts/seed-review-demo-annos.js` 预置），逐场景写入 `docs/screenshots/v3/`。改版后重跑即可整组刷新。
 
-工作区须带 `workspace-prefs.json` 才能截到文件侧栏——没有工作区根时该按钮是禁用态。
+工作区须带 `workspace-prefs.json` 才能截到文件侧栏。
 
-| 文件 | 内容 | README 引用 |
-|------|------|-------------|
-| `v3/01-preview-edit.png` | 预览编辑主界面（四栏） | ✅ |
-| `v3/02-anno-panel.png` | 批注面板与段落色条 | — |
-| `v3/02b-anno-panel-detail.png` | 批注条目细节（级别/标签/状态） | — |
-| `v3/03-anno-selection.png` | 选区批注：正文高亮 ↔ 面板条目 | ✅ |
-| `v3/04-toolbar-tip.png` | 工具栏按钮悬浮提示 | — |
-| `v3/05-insert-menu.png` | 插入菜单（空白行 `+` / `/`） | ✅ |
-| `v3/06-find-highlight.png` | 查找命中（含代码块内文字） | ✅ |
-| `v3/07-replace-bar.png` | 替换栏与全部替换 | — |
-| `v3/08-table-edit.png` | 表格就地编辑与行列手柄 | ✅ |
-| `v3/09-mermaid-code.png` | 流程图块（复制图片 / 复制源码） | ✅ |
-| `v3/10-outline.png` | 预览左侧大纲与当前标题高亮 | — |
-| `v3/11-source-mode.png` | 源码模式：同一文档中的 `@anno` 行 | ✅ |
-| `v3/12-file-sidebar.png` | 工作区文件列表 | — |
+---
+
+## v3 · 当前界面（2026-09-23 刷新）
+
+| 文件 | 内容 | README |
+|------|------|--------|
+| `v3/01-preview-edit.png` | 预览编辑主界面 | ✅ |
+| `v3/02-anno-panel.png` | 批注面板与段落色条 | ✅ |
+| `v3/02b-anno-panel-detail.png` | 批注条目细节 | — |
+| `v3/03-anno-selection.png` | 选区批注 | ✅ |
+| `v3/04-toolbar-tip.png` | 工具栏悬浮提示 | — |
+| `v3/05-insert-menu.png` | 插入菜单 | ✅ |
+| `v3/06-find-highlight.png` | 查找命中 | ✅ |
+| `v3/07-replace-bar.png` | 替换栏 | — |
+| `v3/08-table-edit.png` | 表格就地编辑 | ✅ |
+| `v3/09-mermaid-code.png` | 流程图块 | ✅ |
+| `v3/10-outline.png` | 大纲与当前标题 | ✅ |
+| `v3/11-source-mode.png` | 源码模式 | ✅ |
+| `v3/12-file-sidebar.png` | 工作区文件侧栏 | ✅ |
 | `v3/13-dark-mode.png` | 深色模式 | ✅ |
-| `v3/14-toolbar-closeup.png` | 工具栏特写（分组与按钮） | — |
-| `v3/15-paragraph-select.png` | 段落样式下拉（正文/标题一~六） | — |
-| `v3/16-anno-dialog.png` | 批注编辑对话框（全窗口） | — |
-| `v3/16b-anno-dialog-detail.png` | 批注对话框细节（内容/级别/标签） | — |
-| `v3/17-anno-filters.png` | 批注面板筛选区（状态/级别/标签） | — |
-| `v3/18-clear-annos-confirm.png` | 清空全部批注确认 | — |
-| `v3/19-settings.png` | 设置对话框（全窗口） | — |
+| `v3/14-toolbar-closeup.png` | 工具栏特写 | ✅ |
+| `v3/15-paragraph-select.png` | 段落样式下拉 | ✅ |
+| `v3/16-anno-dialog.png` | 批注编辑对话框 | ✅ |
+| `v3/16b-anno-dialog-detail.png` | 批注对话框细节 | — |
+| `v3/17-anno-filters.png` | 批注筛选区 | — |
+| `v3/18-clear-annos-confirm.png` | 清空全部批注确认 | ✅ |
+| `v3/19-settings.png` | 设置对话框 | ✅ |
 | `v3/19b-settings-detail.png` | 设置项细节 | — |
-| `v3/20-help.png` | 帮助：功能与快捷键 | — |
+| `v3/20-help.png` | 帮助 | ✅ |
 | `v3/20b-help-detail.png` | 帮助正文细节 | — |
-| `v3/21-code-edit.png` | 代码块就地编辑 | — |
-| `v3/22-katex.png` | 数学公式渲染 | — |
+| `v3/21-code-edit.png` | 代码块就地编辑 | ✅ |
+| `v3/22-katex.png` | 数学公式 | ✅ |
 | `v3/23-goto-line.png` | 跳转到行 | — |
-| `v3/25-dark-source.png` | 深色 + 源码模式 | — |
+| `v3/25-dark-source.png` | 深色 + 源码 | ✅ |
+| `v3/26-zoom-overlay.png` | 流程图缩放遮罩 | ✅ |
+| `v3/27-welcome.png` | 欢迎页 | ✅ |
 
-`v3/24-outline-collapsed.png`（大纲收起）尚未采到：收起按钮仅在 hover 大纲区时出现，
-自动化 hover 时机不稳定，该用例以「跳过只告警」方式处理，不阻塞整组采集。
+`v3/24-outline-collapsed.png`：收起按钮仅 hover 出现，自动化不稳定，失败只告警不阻塞。
 
-上表中未被 `README.md` 引用的图用于软著文档鉴别材料
-（`docs/demo/软著材料/Markdown工作台软件-V1.0-操作说明书.md`，共引用 28 张）。
-说明书与截图的对应关系由 `scripts/check-soft-copyright-pdf.js` 校验：
-引用了不存在的图会在生成的 PDF 里留下空白框，肉眼翻页容易漏掉。
+未在 README 引用的图仍用于软著说明书（`docs/demo/软著材料/`）；引用完整性由 `scripts/check-soft-copyright-pdf.js` 校验。
 
 ---
 
-## 暂不补充（用户明确跳过）
+## 已移除（旧界面）
 
-| 建议文件 | 内容 | 说明 |
-|----------|------|------|
-| `11b-file-sidebar-ops.png` | 右键菜单 / 拖动高亮 | 暂不补 |
-| `11c-file-conflict.png` | 重名冲突弹窗 | 暂不补 |
-| `11d-lang-switch.png` | 界面语言切换 | 暂不补 |
-| `13b-outline-collapsed.png` | 大纲收起窄栏 | 暂不补 |
-| `15-codeblock-menu.png` | 代码块右键菜单 | 暂不补（可用 `15-function-*` 代替菜单类展示） |
-| `9b-zoom-copy.png` | 缩放层「复制」按钮特写 | 暂不补（能力见帮助与 README 文字说明） |
-| `9c-zoom-dark-mermaid.png` | 深色主题流程图全屏（深色底、文字清晰） | 建议补；暂不强制 |
-| `9d-zoom-timeline-lines.png` | 深色全屏 Timeline（虚线/轴线同色） | 建议补；暂不强制 |
-| `18-export-docx.png` | 导出 Word | 建议补；暂不强制 |
-| `19-autosave-menu.png` | ~~文件菜单自动保存~~（已迁入设置） | 改为补设置弹窗即可 |
-| `20-settings-dialog.png` | 视图 → 设置…（自动保存 / 记住会话 / 界面习惯 / **默认缩放**） | 建议补；暂不强制 |
-| `20b-media-scale-50.png` | 设置默认缩放 50%：Sequence 与 Class 相对自动尺寸均缩小 | 建议补（M6b-4） |
-| `20c-preview-resize-handle.png` | 预览图右下角拖拽调宽（仅悬停/当前拖动显示蓝角标） | 建议补（M6b-4） |
-| `21-clear-all-annos.png` | 批注栏「清空全部批注」确认 | 建议补；暂不强制 |
-| `13c-outline-fold.png` | 大纲子标题 ▸/▾ 折叠 | 建议补（M6b-3）；暂不强制 |
-| `9e-zoom-copy-mermaid.png` | 流程图全屏「复制图片」「复制源码」双按钮 | 建议补（M6b-1）；暂不强制 |
-| `13d-katex-preview-polish.png` | 浅/深主题下行内公式与块级紧凑卡片 | 建议补（M6b-2） |
-| `22-copy-preview-katex.png` | 微信公众号粘贴结果：行内/块级公式均为清晰 PNG | 建议补（M6b-5） |
-| `10b-welcome-pitch.png` | 欢迎页副文案 | 建议更新 `10-welcome.png`；暂不强制 |
-| `23-code-lang-submenu.png` | 代码块语言 ▾ 子菜单（移出 200ms 关闭） | 建议补；暂不强制 |
-| `23b-block-undo-selected.png` | 块删除后 Ctrl+Z 恢复选中蓝框 | 建议补；暂不强制 |
-
-录屏建议场景仍可选补，见下表；当前以静态截图为主。
+下列历史素材已删除，不再维护：`1.png`–`4.png`、`5-three-pane.png`–`9-zoom-overlay.png`、`10-welcome.png`–`17-mcp-tools.png`、`operation_demo.gif`。请一律改用 `v3/`。
 
 ---
 
-## 录屏建议（可选补充）
+## 暂不补充
 
-| 场景 | 建议时长 | 要点 |
-|------|----------|------|
-| 源码编辑保存 | 15–30s | 编辑 → 实时预览 → `Ctrl+S` → dirty 标记消失 |
-| 坏批注提示 | 10–20s | 编辑栏删掉 `]` → 预览不泄漏 → 保存弹窗提示 |
-| 图片/流程图缩放与复制 | 15–30s | 点击放大 → 复制（图→位图 / 流程图→源码）→ 滚轮/拖拽 → 双击复位；深色下文字清晰、默认尺寸约 3/4 视口 |
-| 分栏拖拽 + 双击复位 | 10–20s | 拖动手柄调宽 → 双击复位 |
-| 文件侧栏拖动移动 | 15–30s | 拖到文件夹行 → 移动成功；同名冲突弹窗；`Ctrl` 拖动复制 |
-
-可合并为单个 GIF 或 `video.mp4`；当前 `operation_demo.gif` 已覆盖主要交互。
+| 建议文件 | 说明 |
+|----------|------|
+| 侧栏右键 / 冲突弹窗 / 语言切换 | 暂不强制 |
+| 原生「文件 / 视图」菜单截图 | Electron 菜单栏自动化困难；能力见帮助截图 |
+| Cursor MCP 配置示意 | 属外部 IDE，README 以文字配置示例为准 |
+| 大纲收起窄栏 | 见上 `24` 采集说明 |
 
 ---
 
 ## 与工作流的关系
 
-凡涉及 `src/gui/**` 的提交，在 `.cursor/workflow.md` Step 5 中 AI 须：
-1. 对照本清单检查是否有**新增/变更**的 GUI 交互需要新截图；
-2. **明确提示用户**补充对应截图或录屏（列出建议文件名与拍摄要点）；
-3. 用户补充素材后，再更新 `README.md` 引用（可单独 `docs:` commit）；用户明确「暂不补充」的项记入上表，不阻塞提交。
+凡涉及 `src/gui/**` 且改动了用户可见界面：在 Step 5 重跑 `MDA_CAPTURE=1` 采集；或明确提示用户补拍后更新 `README.md` 引用。

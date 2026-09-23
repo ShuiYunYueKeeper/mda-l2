@@ -336,3 +336,30 @@ test('25 深色 + 源码模式', async () => {
     await win.waitForTimeout(600);
   });
 });
+
+test('26 缩放遮罩', async () => {
+  await optional('缩放遮罩', async () => {
+    await scrollDocTo('top');
+    const mermaid = win.locator('.mda-cm-mermaid-block, .mda-cm-mermaid-frame').first();
+    await mermaid.scrollIntoViewIfNeeded({ timeout: 8_000 });
+    await mermaid.dblclick();
+    await expect(win.locator('.mda-zoom')).toBeVisible({ timeout: 8_000 });
+    await win.waitForTimeout(500);
+    await shot('26-zoom-overlay');
+    await win.keyboard.press('Escape');
+    await win.waitForTimeout(400);
+  });
+});
+
+test('27 欢迎页', async () => {
+  await optional('欢迎页', async () => {
+    await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows()[0];
+      if (w) w.webContents.send('session-welcome');
+    });
+    await expect(win.locator('#welcome-pane')).toBeVisible({ timeout: 8_000 });
+    await expect(win.locator('#welcome-pane')).not.toHaveClass(/hidden/);
+    await win.waitForTimeout(400);
+    await shot('27-welcome');
+  });
+});

@@ -71,7 +71,7 @@ mda-l2/
 ## 技术栈
 
 | 组件 | 技术 | 版本要求 |
-|------|------|----------|
+| --- | --- | --- |
 | 运行时 | Node.js | ≥ 18 |
 | 包管理器 | npm | ≥ 9 |
 | 语言 | TypeScript | ^5.5 |
@@ -208,7 +208,7 @@ node dist/mcp/server.js --workspace D:\my-docs
 全局安装后可将 `command` 改为 `mda-mcp`（`npm install -g .`）。
 
 | Tool | 说明 |
-|------|------|
+| --- | --- |
 | `mda_scan` | 扫描批注，JSON 同 `mda-cli scan --format json` |
 | `mda_add` | 添加批注（支持 `anchor`） |
 | `mda_edit` | 编辑批注 |
@@ -233,7 +233,7 @@ node dist/mcp/server.js --workspace D:\my-docs
 Electron 应用启动时需要与 `MDA.exe` **同目录**下的多个运行时文件（`ffmpeg.dll`、`d3dcompiler_47.dll`、`libEGL.dll` 等共 6 个 DLL，以及 `locales/`、`resources/` 等）。**不能只拷贝 `MDA.exe` 一个文件**。
 
 | 分发方式 | 用法 | 说明 |
-|----------|------|------|
+| --- | --- | --- |
 | NSIS 安装包 `MDA-*-win-x64.exe` | 双击安装 | **最稳妥**，推荐发给一般用户 |
 | ZIP 绿色版 `MDA-*-win-x64.zip` | 解压整个文件夹 → 运行其中 `MDA.exe` | 无需安装；须保留解压后的**全部文件** |
 | 便携版 `MDA-*-portable-win-x64.exe` | 双击该 exe（不要只拷内部的 `MDA.exe`） | 每次运行解压到临时目录；部分杀毒软件会误删 `ffmpeg.dll` |
@@ -274,81 +274,63 @@ Electron 应用启动时需要与 `MDA.exe` **同目录**下的多个运行时�
 
 ## 界面截图与演示
 
-### 预览编辑（当前默认模式）
+以下截图由 `tests/e2e/capture/docs-screenshots.spec.ts` 驱动真实 Electron 实例采集（当前默认：**预览编辑**）。改版后执行：
 
-以下截图由 `tests/e2e/capture/docs-screenshots.spec.ts` 驱动真实 Electron 实例采集，随版本重跑即可刷新。
-
-| 预览编辑主界面（文件列表｜大纲｜预览编辑｜批注） | 源码模式下的同一文档 |
-|------------------------------------------------|----------------------|
-| ![预览编辑](docs/screenshots/v3/01-preview-edit.png) | ![源码模式](docs/screenshots/v3/11-source-mode.png) |
-
-预览里看到的是渲染结果，源码模式里能看到同一位置的 `[comment]: <> (@anno {...})` 批注行——批注始终以标准 Markdown 注释存在于源文件中。
-
-| 选区批注（正文高亮 ↔ 面板条目） | 插入菜单（空白行 `+` 或键入 `/`） |
-|--------------------------------|-----------------------------------|
-| ![选区批注](docs/screenshots/v3/03-anno-selection.png) | ![插入菜单](docs/screenshots/v3/05-insert-menu.png) |
-
-| 表格就地编辑 | 流程图块（可复制图片/源码） |
-|--------------|-----------------------------|
-| ![表格编辑](docs/screenshots/v3/08-table-edit.png) | ![流程图](docs/screenshots/v3/09-mermaid-code.png) |
-
-| 查找命中（含代码块内） | 深色模式 |
-|------------------------|----------|
-| ![查找](docs/screenshots/v3/06-find-highlight.png) | ![深色模式](docs/screenshots/v3/13-dark-mode.png) |
+```bash
+$env:MDA_CAPTURE='1'; npx playwright test tests/e2e/capture/docs-screenshots.spec.ts
+```
 
 完整清单见 [`docs/screenshots/README.md`](docs/screenshots/README.md)。
 
-### 基础功能（已入库）
+### 主界面与模式
 
-| 完整窗口（含标题栏） | 四级别色条 + 段落高亮 |
-|----------------------|------------------------|
-| ![完整窗口](docs/screenshots/1.png) | ![四级别色条](docs/screenshots/2.png) |
+| 预览编辑（文件列表｜大纲｜预览｜批注） | 源码模式（可见 `@anno` 批注行） |
+| --- | --- |
+| ![预览编辑](docs/screenshots/v3/01-preview-edit.png) | ![源码模式](docs/screenshots/v3/11-source-mode.png) |
 
-| 标签筛选后 | 添加批注弹窗 |
-|------------|--------------|
-| ![筛选](docs/screenshots/3.png) | ![添加批注](docs/screenshots/4.png) |
+| 批注面板与级别色条 | 选区批注（正文高亮 ↔ 面板） |
+| --- | --- |
+| ![批注面板](docs/screenshots/v3/02-anno-panel.png) | ![选区批注](docs/screenshots/v3/03-anno-selection.png) |
 
-操作演示（点击段落↔批注双向定位、编辑、删除）：
+| 深色模式 | 深色 + 源码 |
+| --- | --- |
+| ![深色模式](docs/screenshots/v3/13-dark-mode.png) | ![深色源码](docs/screenshots/v3/25-dark-source.png) |
 
-![操作演示](docs/screenshots/operation_demo.gif)
+### 编辑与块
 
-### 新增 GUI 能力
+| 插入菜单（工具栏 / 空白行 `+` · `/`） | 表格就地编辑 |
+| --- | --- |
+| ![插入菜单](docs/screenshots/v3/05-insert-menu.png) | ![表格编辑](docs/screenshots/v3/08-table-edit.png) |
 
-| 三栏布局（编辑｜预览｜批注） | 深色模式 |
-|------------------------------|----------|
-| ![三栏布局](docs/screenshots/5-three-pane.png) | ![深色模式](docs/screenshots/6-dark-mode.png) |
+| 流程图块 | 代码块就地编辑 |
+| --- | --- |
+| ![流程图](docs/screenshots/v3/09-mermaid-code.png) | ![代码块](docs/screenshots/v3/21-code-edit.png) |
 
-| 源码编辑（高亮+行号） | 流程图与图片渲染 |
-|----------------------|------------------|
-| ![源码编辑](docs/screenshots/7-editor-highlight.png) | ![流程图与图片](docs/screenshots/8-mermaid_picture.png) |
+| 查找命中（含代码块内） | 大纲与当前标题 |
+| --- | --- |
+| ![查找](docs/screenshots/v3/06-find-highlight.png) | ![大纲](docs/screenshots/v3/10-outline.png) |
 
-缩放遮罩（点击图片或流程图放大；工具栏可复制 — 图片为位图、流程图为源码）：
+| KaTeX 公式 | 缩放遮罩（流程图 / 图片） |
+| --- | --- |
+| ![公式](docs/screenshots/v3/22-katex.png) | ![缩放](docs/screenshots/v3/26-zoom-overlay.png) |
 
-![缩放遮罩](docs/screenshots/9-zoom-overlay.png)
+### 批注、设置与起始页
 
-### Phase A / 后续 GUI（已入库部分）
+| 添加 / 编辑批注对话框 | 清空全部批注确认 |
+| --- | --- |
+| ![批注对话框](docs/screenshots/v3/16-anno-dialog.png) | ![清空批注](docs/screenshots/v3/18-clear-annos-confirm.png) |
 
-| 欢迎页 | 文件侧栏 |
-|--------|----------|
-| ![欢迎页](docs/screenshots/10-welcome.png) | ![文件侧栏](docs/screenshots/11-file-sidebar.png) |
+| 设置（自动保存 / 会话 / 界面习惯） | 帮助：功能与快捷键 |
+| --- | --- |
+| ![设置](docs/screenshots/v3/19-settings.png) | ![帮助](docs/screenshots/v3/20-help.png) |
 
-| 查找 | 大纲 + KaTeX |
-|------|----------------|
-| ![查找](docs/screenshots/12-search.png) | ![大纲](docs/screenshots/13-outline-katex.png) |
+| 工作区文件侧栏 | 欢迎页 |
+| --- | --- |
+| ![文件侧栏](docs/screenshots/v3/12-file-sidebar.png) | ![欢迎页](docs/screenshots/v3/27-welcome.png) |
 
-| 选区批注 | 导出 |
-|----------|------|
-| ![选区批注](docs/screenshots/14-selection-annotation.png) | ![导出](docs/screenshots/16-export-dialog.png) |
-
-| 文件菜单 | 视图菜单 |
-|----------|----------|
-| ![文件菜单](docs/screenshots/15-function-file.png) | ![视图菜单](docs/screenshots/15-function-view.png) |
-
-MCP 六 tools（Cursor 配置示意）：
-
-![MCP](docs/screenshots/17-mcp-tools.png)
-
-其余素材（侧栏操作/冲突弹窗/语言切换/大纲收起/设置弹窗等）暂不补充，清单见 [`docs/screenshots/README.md`](docs/screenshots/README.md)。
+| 工具栏特写 | 段落样式下拉 |
+| --- | --- |
+| ![工具栏](docs/screenshots/v3/14-toolbar-closeup.png) | ![段落样式](docs/screenshots/v3/15-paragraph-select.png) |
 
 ## 批注语法
 
@@ -362,7 +344,7 @@ MCP 六 tools（Cursor 配置示意）：
 批注字段：
 
 | 字段 | 类型 | 说明 |
-|------|------|------|
+| --- | --- | --- |
 | id | UUID string | 唯一标识 |
 | content | string | 批注内容 |
 | tags | string[] | 标签列表 |
