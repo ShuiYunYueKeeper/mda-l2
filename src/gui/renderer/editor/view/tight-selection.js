@@ -109,6 +109,45 @@ function clientRectsForDocRange(view, from, to) {
 }
 
 /**
+ * 将 DOM getClientRects 按视觉行合并：行内 code/粗体等子矩形高度不一，
+ * 不合并会出现「阶梯」断续选区；合并后同行共用 top/bottom，水平仍贴合真实选区。
+ * @param {Array<{ left: number, right: number, top: number, bottom: number }>} rects
+ * @returns {Array<{ left: number, right: number, top: number, bottom: number }>}
+ */
+function mergeClientRectsByVisualRow(rects) {
+  if (!rects || !rects.length) return [];
+  const sorted = rects.slice().sort(function (a, b) {
+    if (a.top !== b.top) return a.top - b.top;
+    return a.left - b.left;
+  });
+  /** @type {Array<{ left: number, right: number, top: number, bottom: number }>} */
+  const rows = [];
+  let row = null;
+  for (let i = 0; i < sorted.length; i++) {
+    const r = sorted[i];
+    const w = r.right - r.left;
+    const h = r.bottom - r.top;
+    if (!(w >= 1 && h >= 1)) continue;
+    if (!row) {
+      row = { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+      continue;
+    }
+    // 与现有 coords 路径一致：纵向有重叠即同一视觉行
+    if (r.top < row.bottom - 1 && r.bottom > row.top + 1) {
+      row.left = Math.min(row.left, r.left);
+      row.right = Math.max(row.right, r.right);
+      row.top = Math.min(row.top, r.top);
+      row.bottom = Math.max(row.bottom, r.bottom);
+    } else {
+      rows.push(row);
+      row = { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+    }
+  }
+  if (row) rows.push(row);
+  return rows;
+}
+
+/**
  * @param {import('@codemirror/view').EditorView} view
  * @param {number} from
  * @param {number} to
@@ -120,12 +159,12 @@ function clientRectsForDocRange(view, from, to) {
 function markersFromDomRange(view, from, to, base, maxW, maxH) {
   const rects = clientRectsForDocRange(view, from, to);
   if (!rects || !rects.length) return null;
+  const merged = mergeClientRectsByVisualRow(rects);
   const markers = [];
-  for (let i = 0; i < rects.length; i++) {
-    const r = rects[i];
+  for (let i = 0; i < merged.length; i++) {
+    const r = merged[i];
     const w = r.right - r.left;
     const h = r.bottom - r.top;
-    // 零宽 hide-mark / 空行 caret 矩形丢掉
     if (!(w >= 1 && h >= 1)) continue;
     if (w > maxW || h > maxH) continue;
     markers.push(
@@ -347,6 +386,7 @@ module.exports = {
   charCoordsAt: charCoordsAt,
   clientRectsForDocRange: clientRectsForDocRange,
   markersFromDomRange: markersFromDomRange,
+  mergeClientRectsByVisualRow: mergeClientRectsByVisualRow,
   rangeHasUnreliableCoords: rangeHasUnreliableCoords,
   focusInWidgetInlineEditable: focusInWidgetInlineEditable,
   TIGHT_LAYER_CLASS: TIGHT_LAYER_CLASS,

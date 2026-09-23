@@ -64759,12 +64759,43 @@ var MDAEditorBundle = (() => {
           return null;
         }
       }
+      function mergeClientRectsByVisualRow(rects) {
+        if (!rects || !rects.length) return [];
+        const sorted = rects.slice().sort(function(a, b) {
+          if (a.top !== b.top) return a.top - b.top;
+          return a.left - b.left;
+        });
+        const rows = [];
+        let row = null;
+        for (let i = 0; i < sorted.length; i++) {
+          const r = sorted[i];
+          const w = r.right - r.left;
+          const h = r.bottom - r.top;
+          if (!(w >= 1 && h >= 1)) continue;
+          if (!row) {
+            row = { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+            continue;
+          }
+          if (r.top < row.bottom - 1 && r.bottom > row.top + 1) {
+            row.left = Math.min(row.left, r.left);
+            row.right = Math.max(row.right, r.right);
+            row.top = Math.min(row.top, r.top);
+            row.bottom = Math.max(row.bottom, r.bottom);
+          } else {
+            rows.push(row);
+            row = { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+          }
+        }
+        if (row) rows.push(row);
+        return rows;
+      }
       function markersFromDomRange(view, from, to, base, maxW, maxH) {
         const rects = clientRectsForDocRange(view, from, to);
         if (!rects || !rects.length) return null;
+        const merged = mergeClientRectsByVisualRow(rects);
         const markers = [];
-        for (let i = 0; i < rects.length; i++) {
-          const r = rects[i];
+        for (let i = 0; i < merged.length; i++) {
+          const r = merged[i];
           const w = r.right - r.left;
           const h = r.bottom - r.top;
           if (!(w >= 1 && h >= 1)) continue;
@@ -64964,6 +64995,7 @@ var MDAEditorBundle = (() => {
         charCoordsAt,
         clientRectsForDocRange,
         markersFromDomRange,
+        mergeClientRectsByVisualRow,
         rangeHasUnreliableCoords,
         focusInWidgetInlineEditable,
         TIGHT_LAYER_CLASS,

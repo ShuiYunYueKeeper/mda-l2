@@ -232,6 +232,22 @@ describe('tight-selection', () => {
     }
   });
 
+  test('DOM 同行碎矩形合并：行内 code 与正文统一高度', () => {
+    const {
+      mergeClientRectsByVisualRow,
+    } = require(path.join(__dirname, '../../../src/gui/renderer/editor/view/tight-selection.js'));
+    const merged = mergeClientRectsByVisualRow([
+      { left: 100, right: 200, top: 22, bottom: 40 },
+      { left: 200, right: 350, top: 18, bottom: 44 },
+      { left: 350, right: 420, top: 22, bottom: 40 },
+    ]);
+    expect(merged.length).toBe(1);
+    expect(merged[0].left).toBe(100);
+    expect(merged[0].right).toBe(420);
+    expect(merged[0].top).toBe(18);
+    expect(merged[0].bottom).toBe(44);
+  });
+
   test('layer / mark class 不得含空格（否则 classList.add 崩溃）', () => {
     const { TIGHT_LAYER_CLASS, TIGHT_MARK_CLASS } = require(path.join(
       __dirname,
