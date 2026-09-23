@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-C3 表格竞品式交互：行/列选区、增删、剪贴板、右键菜单。
  */
 'use strict';
@@ -1571,13 +1571,17 @@ function mountTableChrome(ctx) {
     const table = tableWrap.querySelector('table');
     if (!table) return;
     syncGutterLayout(table);
-    if (resizeCtl) resizeCtl.rebuildHandles();
+    // 拖拽中禁止全量重建手柄（会卸掉 pointer capture 目标 → 粘鼠标）
+    if (resizeCtl && !(resizeCtl.isDragging && resizeCtl.isDragging())) {
+      resizeCtl.rebuildHandles();
+    }
   }
   tableWrap.addEventListener('scroll', onTableWrapScroll, { passive: true });
 
   let resizeObserver = null;
   if (typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver(function () {
+      if (resizeCtl && resizeCtl.isDragging && resizeCtl.isDragging()) return;
       const table = tableWrap.querySelector('table');
       if (table) syncGutterLayout(table);
       if (resizeCtl) resizeCtl.rebuildHandles();

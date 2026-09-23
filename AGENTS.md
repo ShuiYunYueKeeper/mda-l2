@@ -1,4 +1,4 @@
-# AGENTS.md — MDA（Markdown 工作台）AI 协作指南
+﻿# AGENTS.md — MDA（Markdown 工作台）AI 协作指南
 
 > 本文件是面向 AI 协作者的项目级资产。任何在本仓库工作的 AI/人，**动手前必须读完本文件**，
 > 并严格遵守「禁止事项」与「隐性规范」。本文件与代码同步维护，发现不一致以代码为准并回头更新本文件。
@@ -321,6 +321,7 @@ npm test               # jest（含覆盖率）
  - `app.js` 的 `saveFile` / `tryAutosave`：`flushActiveWidgetEditsBeforeSave()` 必须在 **`if (!dirty) return` 之前**调用，否则保存直接被跳过（无声失败）。该函数已扩展为先 `MDAEditor.flushAllTableWidgets(view)`（同步读 DOM 写回文档），再 blur 代码块 / Mermaid —— 表格的 blur 提交是 rAF 异步的，保存时来不及。
  - `app.js` 的 `handleAppCloseRequest`：同理先 flush 再判脏，否则「改了格子就关窗」会被当成没改过直接关掉。
  - **flush 会把光标踢出单元格**：写回文档 → widget 重建 → 正在编辑的 `td` 被销毁，焦点掉回 body。Ctrl+S 是编辑途中的高频动作，故 `flushAllTableWidgets` 须 `captureFocusedCellPos` 记下（块序号/行/列 + 可见偏移），写回后 `restoreFocusedCellPos` 落回去。
+4m2f. **【GUI 表格列宽/行高拖拽不得粘鼠标】**：`table-resize.js` 拖拽中**禁止** `rebuildHandles`（`innerHTML=''` 会卸掉 pointer capture / mousedown 目标，Electron 易丢 `mouseup`，`body.mda-cm-table-resizing-col` 的 `col-resize` 光标永久残留）。拖拽中只 `syncActiveHandleGeometry`；`ResizeObserver`/scroll 须 `isDragging()` 时跳过重建；结束须覆盖 `pointerup`/`pointercancel`/`lostpointercapture`/`buttons===0`/`blur`。回归：`tests/e2e/gui/table-col-resize.spec.ts`。
 4n. **【GUI CM6 块选中 / 删除撤销 / 悬停菜单】**：
    - **空白行插入**：正文空白行 hover 左侧「+」→ 扁平插入菜单（图片…/表格/代码块/引用/流程图/分隔线）；光标落空白行显示占位提示；**按 `/`** 弹出同一菜单（不写入 `/`）。菜单 `empty-line-insert-menu.js`；插入 `insertSnippetAtBlankLine`（替换空行）。**块手柄菜单插入**前须 `pinSelectionForHistory`（`addToHistory: false`），避免 undo 光标回到文档头。
    - **空标题行**：占位「标题一」~「标题六」（i18n）；空行也应用 `mda-cm-hN-line` 行高；光标落在 `#` 之后；Backspace 删整行（`heading-enter.js`，勿让 atomic hide-mark 只剥前缀）。
@@ -375,6 +376,7 @@ npm test               # jest（含覆盖率）
 | GUI CM6 hide-mark 点击/剪贴板 | `renderer/editor/caret-syntax-adjust.js`、`syntax-clipboard.js`、`click-collapse.js` |
 | GUI CM6 行内定界符融合/拆分/清理 | `renderer/editor/model/inline-delimiters.js`、`state/inline-delimiter-ops.js`、`state/inline-mark-context.js`、`state/markdown-probe.js` |
 | GUI CM6 单元格复用定界符规划器 | `renderer/editor/state/inline-string-ops.js`、`widgets/table-cell-content.js`、`widgets/table-chrome.js` |
+| GUI CM6 表格列宽/行高拖拽 | `renderer/editor/widgets/table-resize.js`、`table-chrome.js`；e2e `tests/e2e/gui/table-col-resize.spec.ts` |
 | GUI CM6 预览紧致选区 / widget 内拖选 | `renderer/editor/view/tight-selection.js`、`widget-editable-guard.js` |
 | GUI CM6 右键菜单 / 选区快照 | `renderer/editor/context-menu.js`、`context-selection.js`、`widget-context-menu-guard.js`、`link-edit-popover.js` |
 | GUI 文件/欢迎/大纲 | `renderer/welcome.js`、`file-sidebar.js`、`outline-panel.js` |

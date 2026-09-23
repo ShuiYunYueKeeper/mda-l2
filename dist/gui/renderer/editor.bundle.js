@@ -55439,8 +55439,13 @@ var MDAEditorBundle = (() => {
         wrap.appendChild(overlay);
         let dragging = null;
         let layoutCaptured = false;
+        let activePointerId = null;
         let activeHandle = null;
         function rebuildHandles() {
+          if (dragging) {
+            syncActiveHandleGeometry();
+            return;
+          }
           overlay.innerHTML = "";
           if (!table.isConnected || !wrap.isConnected) return;
           const origin = getWrapContentOrigin(wrap);
@@ -55492,6 +55497,30 @@ var MDAEditorBundle = (() => {
             overlay.appendChild(handle);
           }
         }
+        function syncActiveHandleGeometry() {
+          if (!dragging || !activeHandle || !activeHandle.isConnected) return;
+          const origin = getWrapContentOrigin(wrap);
+          const tableRect = table.getBoundingClientRect();
+          const tableTop = tableRect.top - origin.top;
+          const tableLeft = tableRect.left - origin.left;
+          const tableW = table.offsetWidth;
+          const tableH = table.offsetHeight;
+          if (dragging.kind === "col") {
+            const th = table.querySelectorAll("thead th")[dragging.col];
+            if (!th) return;
+            const borderX = th.getBoundingClientRect().right - origin.left;
+            activeHandle.style.left = Math.round(borderX - RESIZE_HANDLE_HALF) + "px";
+            activeHandle.style.top = Math.round(tableTop) + "px";
+            activeHandle.style.height = tableH + "px";
+          } else {
+            const tr = table.querySelectorAll("tr")[dragging.row];
+            if (!tr) return;
+            const borderY = tr.getBoundingClientRect().bottom - origin.top;
+            activeHandle.style.top = Math.round(borderY - RESIZE_HANDLE_HALF) + "px";
+            activeHandle.style.left = Math.round(tableLeft) + "px";
+            activeHandle.style.width = tableW + "px";
+          }
+        }
         function ensureCaptured() {
           if (layoutCaptured) return;
           const parsed = ctx.getParsed();
@@ -55500,6 +55529,75 @@ var MDAEditorBundle = (() => {
           layoutCaptured = true;
           rebuildHandles();
         }
+        function clearBodyResizeCursor() {
+          wrap.classList.remove("mda-cm-table-resizing-active");
+          document.body.classList.remove("mda-cm-table-resizing");
+          document.body.classList.remove("mda-cm-table-resizing-col", "mda-cm-table-resizing-row");
+        }
+        function endDragVisual() {
+          if (activeHandle) {
+            activeHandle.classList.remove("mda-cm-table-resize-dragging");
+            activeHandle = null;
+          }
+          activePointerId = null;
+          clearBodyResizeCursor();
+        }
+        function finishDrag(commit) {
+          if (!dragging) {
+            endDragVisual();
+            return;
+          }
+          dragging = null;
+          endDragVisual();
+          if (commit && typeof ctx.onLayoutCommit === "function") {
+            ctx.onLayoutCommit(ctx.getParsed());
+          }
+          rebuildHandles();
+        }
+        function beginDrag(e, colHandle, rowHandle) {
+          if (dragging) return;
+          ensureCaptured();
+          const col = colHandle ? parseInt(colHandle.getAttribute("data-col") || "0", 10) : -1;
+          const row = rowHandle ? parseInt(rowHandle.getAttribute("data-row") || "0", 10) : -1;
+          const liveCol = col >= 0 ? overlay.querySelector('.mda-cm-table-col-resize-handle[data-col="' + col + '"]') : null;
+          const liveRow = row >= 0 ? overlay.querySelector('.mda-cm-table-row-resize-handle[data-row="' + row + '"]') : null;
+          const handle = liveCol || liveRow;
+          if (!handle) return;
+          const parsed = ctx.getParsed();
+          wrap.classList.add("mda-cm-table-resizing-active");
+          activeHandle = handle;
+          activeHandle.classList.add("mda-cm-table-resize-dragging");
+          if (liveCol) {
+            const th = table.querySelectorAll("thead th")[col];
+            const startW = th ? th.getBoundingClientRect().width : parsed.colWidths[col] || MIN_COL_WIDTH;
+            dragging = { kind: "col", col, startX: e.clientX, startW };
+            document.body.classList.add("mda-cm-table-resizing-col");
+          } else {
+            const tr = table.querySelectorAll("tr")[row];
+            const startH = tr ? tr.getBoundingClientRect().height : parsed.rowHeights[row] || MIN_ROW_HEIGHT;
+            dragging = { kind: "row", row, startY: e.clientY, startH };
+            document.body.classList.add("mda-cm-table-resizing-row");
+          }
+          document.body.classList.add("mda-cm-table-resizing");
+          if (typeof e.pointerId === "number" && handle.setPointerCapture) {
+            try {
+              handle.setPointerCapture(e.pointerId);
+              activePointerId = e.pointerId;
+            } catch (_) {
+              activePointerId = null;
+            }
+          }
+        }
+        overlay.addEventListener("pointerdown", function(e) {
+          if (e.button !== 0) return;
+          if (e.target && e.target.closest && e.target.closest(".mda-cm-table-add-btn")) return;
+          const colHandle = e.target && e.target.closest ? e.target.closest(".mda-cm-table-col-resize-handle") : null;
+          const rowHandle = e.target && e.target.closest ? e.target.closest(".mda-cm-table-row-resize-handle") : null;
+          if (!colHandle && !rowHandle) return;
+          e.preventDefault();
+          e.stopPropagation();
+          beginDrag(e, colHandle, rowHandle);
+        });
         overlay.addEventListener("mousedown", function(e) {
           if (e.button !== 0) return;
           if (e.target && e.target.closest && e.target.closest(".mda-cm-table-add-btn")) return;
@@ -55508,30 +55606,14 @@ var MDAEditorBundle = (() => {
           if (!colHandle && !rowHandle) return;
           e.preventDefault();
           e.stopPropagation();
-          ensureCaptured();
-          const parsed = ctx.getParsed();
-          wrap.classList.add("mda-cm-table-resizing-active");
-          if (colHandle) {
-            const col = parseInt(colHandle.getAttribute("data-col") || "0", 10);
-            activeHandle = colHandle;
-            activeHandle.classList.add("mda-cm-table-resize-dragging");
-            const th = table.querySelectorAll("thead th")[col];
-            const startW = th ? th.getBoundingClientRect().width : parsed.colWidths[col] || MIN_COL_WIDTH;
-            dragging = { kind: "col", col, startX: e.clientX, startW };
-            document.body.classList.add("mda-cm-table-resizing-col");
-          } else if (rowHandle) {
-            const row = parseInt(rowHandle.getAttribute("data-row") || "0", 10);
-            activeHandle = rowHandle;
-            activeHandle.classList.add("mda-cm-table-resize-dragging");
-            const tr = table.querySelectorAll("tr")[row];
-            const startH = tr ? tr.getBoundingClientRect().height : parsed.rowHeights[row] || MIN_ROW_HEIGHT;
-            dragging = { kind: "row", row, startY: e.clientY, startH };
-            document.body.classList.add("mda-cm-table-resizing-row");
-          }
-          document.body.classList.add("mda-cm-table-resizing");
+          beginDrag(e, colHandle, rowHandle);
         });
         function onMove(e) {
           if (!dragging) return;
+          if (typeof e.buttons === "number" && e.buttons === 0) {
+            finishDrag(true);
+            return;
+          }
           const parsed = ctx.getParsed();
           if (dragging.kind === "col") {
             const nw = Math.max(
@@ -55540,8 +55622,7 @@ var MDAEditorBundle = (() => {
             );
             parsed.colWidths[dragging.col] = nw;
             applyTableLayout(table, parsed, wrap);
-            rebuildHandles();
-            if (activeHandle) activeHandle.classList.add("mda-cm-table-resize-dragging");
+            syncActiveHandleGeometry();
           } else {
             const nh = Math.max(
               MIN_ROW_HEIGHT,
@@ -55549,44 +55630,55 @@ var MDAEditorBundle = (() => {
             );
             parsed.rowHeights[dragging.row] = nh;
             applyTableLayout(table, parsed, wrap);
-            rebuildHandles();
-            if (activeHandle) activeHandle.classList.add("mda-cm-table-resize-dragging");
+            syncActiveHandleGeometry();
           }
         }
-        function endDrag() {
-          if (activeHandle) {
-            activeHandle.classList.remove("mda-cm-table-resize-dragging");
-            activeHandle = null;
-          }
-          wrap.classList.remove("mda-cm-table-resizing-active");
-          document.body.classList.remove("mda-cm-table-resizing");
-          document.body.classList.remove("mda-cm-table-resizing-col", "mda-cm-table-resizing-row");
-        }
-        function onUp() {
+        function onUp(e) {
           if (!dragging) return;
-          dragging = null;
-          endDrag();
-          if (typeof ctx.onLayoutCommit === "function") {
-            ctx.onLayoutCommit(ctx.getParsed());
+          if (activePointerId != null && typeof e.pointerId === "number" && e.pointerId !== activePointerId) {
+            return;
           }
+          finishDrag(true);
         }
+        function onLostCapture() {
+          if (!dragging) return;
+          finishDrag(true);
+        }
+        function onWindowBlur() {
+          if (!dragging) return;
+          finishDrag(true);
+        }
+        document.addEventListener("pointermove", onMove);
+        document.addEventListener("pointerup", onUp);
+        document.addEventListener("pointercancel", onUp);
+        document.addEventListener("lostpointercapture", onLostCapture, true);
         document.addEventListener("mousemove", onMove);
         document.addEventListener("mouseup", onUp);
+        window.addEventListener("blur", onWindowBlur);
         return {
           applyLayout: function(parsed) {
+            if (dragging) return;
             layoutCaptured = hasTableLayoutMeta(parsed);
             if (layoutCaptured) applyTableLayout(table, parsed, wrap);
             else clearTableLayout(table, wrap);
             rebuildHandles();
           },
           rebuildHandles,
+          isDragging: function() {
+            return !!dragging;
+          },
           refreshAddBtnI18n: function(tFn) {
             refreshTableAddBtnI18n(wrap, tFn);
           },
           dispose: function() {
+            document.removeEventListener("pointermove", onMove);
+            document.removeEventListener("pointerup", onUp);
+            document.removeEventListener("pointercancel", onUp);
+            document.removeEventListener("lostpointercapture", onLostCapture, true);
             document.removeEventListener("mousemove", onMove);
             document.removeEventListener("mouseup", onUp);
-            endDrag();
+            window.removeEventListener("blur", onWindowBlur);
+            finishDrag(false);
             if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
           }
         };
@@ -56991,12 +57083,15 @@ var MDAEditorBundle = (() => {
           const table = tableWrap.querySelector("table");
           if (!table) return;
           syncGutterLayout(table);
-          if (resizeCtl) resizeCtl.rebuildHandles();
+          if (resizeCtl && !(resizeCtl.isDragging && resizeCtl.isDragging())) {
+            resizeCtl.rebuildHandles();
+          }
         }
         tableWrap.addEventListener("scroll", onTableWrapScroll, { passive: true });
         let resizeObserver = null;
         if (typeof ResizeObserver !== "undefined") {
           resizeObserver = new ResizeObserver(function() {
+            if (resizeCtl && resizeCtl.isDragging && resizeCtl.isDragging()) return;
             const table = tableWrap.querySelector("table");
             if (table) syncGutterLayout(table);
             if (resizeCtl) resizeCtl.rebuildHandles();

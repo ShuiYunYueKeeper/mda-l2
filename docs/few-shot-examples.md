@@ -842,3 +842,35 @@ if (clickPos != null && clickPos >= from && clickPos <= to) return true;
 - ❌ 仅在 `view.dom` 捕获快照、晚于 document 表监听 → 快照时选区已被清空。
 - ❌ mousedown 快照前 `ensurePlainForEdit` 压平 hljs → 可见选区闪没。
 - ❌ 正文 `cmClickInSelection` 只用 `posAtCoords` + `coordsAtPos` 像素框 → 靠后段落右键误判为区外、不 `preventDefault` 而丢选区。
+
+---
+
+## 表格列宽拖拽「粘鼠标」（GUI / table-resize）
+
+**规则**：拖拽列宽/行高时不得销毁手柄 DOM；松手必须清掉 `body.mda-cm-table-resizing*`。
+
+### ✅ 正确
+
+```javascript
+function onMove(e) {
+  if (!dragging) return;
+  if (e.buttons === 0) { finishDrag(true); return; }
+  applyTableLayout(table, parsed, wrap);
+  syncActiveHandleGeometry(); // 只改当前手柄 left/top，不 innerHTML=''
+}
+
+// ResizeObserver / scroll
+if (resizeCtl.isDragging()) return;
+resizeCtl.rebuildHandles();
+```
+
+### ❌ 错误
+
+```javascript
+// 每次 mousemove 全量重建 → 卸掉 mousedown 目标，Electron 丢 mouseup
+applyTableLayout(...);
+rebuildHandles(); // overlay.innerHTML = ''
+activeHandle.classList.add('dragging'); // activeHandle 已是游离节点
+```
+
+现象：松手后光标仍是 `col-resize`，再移动鼠标列宽还跟着变。
