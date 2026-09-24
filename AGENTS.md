@@ -346,6 +346,7 @@ npm test               # jest（含覆盖率）
 11. **【选区批注】预览映射**：`selection-anchor.js` 负责预览 DOM / 源码 textarea → UTF-16 `anchor`；围栏代码块经 `extractFenceContentRegions` 映射到源码字面内容；`anchor-highlights.js` 用 CSS Highlight API（降级 `<mark>`）着色。
 11b. **【选区批注】anchor 的权威坐标系是磁盘原文，不是编辑器文本**：anchor 要写进文件、被 CLI/MCP 读取，所以偏移必须按**磁盘表示**（原 EOL + 可能的 BOM）计算。CM6 文档恒为 LF 且不含 BOM，直接拿 `view.state.doc` 算偏移会在 CRLF 文件上每行少一个字符、整体错位（现象：定位跑偏、`validateAnchor` 的 quote 校验失败）。换算集中在 `renderer/doc-coords.js`，`app.js` 只在三处接线：`getSourceText()` 按 `docCoordsInfo` 还原磁盘文本、新建批注写盘前 `anchorToDisk`、定位前 `anchorToDoc`。`refreshDocCoords` 须在**打开 / 新建 / 关闭文档**时调用；另存为落到换行风格不同的文件上时也要重新探测（否则下次定位整体错位）。源码模式下 `currentText` 本就是磁盘文本，无需换算。
 12. **【GUI 定位同步】**：预览/源码**滚动互不拖动**；点击预览只定位源码（`skipPreview`，勿再改预览 scroll）；点击源码行或方向键移动光标才定位预览；大纲/`Ctrl+G` 可显式双边跳转。禁止滚动反馈环路；查找替换须同步预览高亮与 `scrollLeft`。
+12b. **【GUI 查找种子 / widget】**：有选区打开查找须填词且**不** `refreshMatches(true)` 跳文档首命中——种子为 `{ text, from?, to?, skipScroll: true }`，`indexOfMatchForSelection` 对齐当前选区。CM6 正文选区不够：代码块/表格格选区在 DOM，须 `widget-find-seed.getWidgetFindSeed`（fence body / cell markdown 映射到文档偏移）。`Ctrl+F`/`Ctrl+H` 须在 **window 捕获阶段**处理（代码块 `keydown` 冒泡会 `stopPropagation`）。代码块点击/聚焦**不得**再 `ensurePlainForEdit` 压平 hljs（选区色已由 `*::selection` 覆盖）；输入时重绘 hljs 后须 `reapplyWidgetFindHighlights`；仅右键菜单路径可短暂压平。
 13. **【Agent·MCP】同文件批量 add 批注**：每条 `mda_add`/`addAnnotation` 在段落上方插入一行，其后行号全部 +1。须 **串行**；优先 **自下而上**（高 `startLine` 先加），或每加一条后重新 `parse`/`mda_scan` 再定位下一条。`line` 必须属于某段落（空行会报「未找到第 N 行所属的段落」）。取 JSON 时用 MCP 或 `node dist/cli/main.js scan … --format json`，避免 `npm run cli` 横幅污染 stdout。细节与 ✅/❌ 见 `docs/few-shot-examples.md` §19。
 
 ---
@@ -367,7 +368,7 @@ npm test               # jest（含覆盖率）
 | GUI i18n | `main/i18n.js`、`renderer/i18n.js` |
 | GUI 工作区文件 IPC | `main/file-ops.js`（复制/移动/重名）、`main/workspace-prefs.js` |
 | GUI 剪贴板图片 / 粘贴落盘 | `main/clipboard-image.js`、`main/paste-assets.js`、`main/paste-prefs.js` |
-| GUI 选区/高亮/滚动/查找 | `renderer/selection-anchor.js`、`anchor-highlights.js`、`sync-scroll.js`、`find-replace.js` |
+| GUI 选区/高亮/滚动/查找 | `renderer/selection-anchor.js`、`anchor-highlights.js`、`sync-scroll.js`、`find-replace.js`、`editor/widget-find-seed.js`、`editor/widget-find-highlight.js` |
 | GUI 磁盘↔文档坐标换算（anchor） | `renderer/doc-coords.js` |
 | GUI CM6 默认模式开关 | `renderer/editor/pref.js` |
 | GUI 文档截图采集 | `tests/e2e/capture/docs-screenshots.spec.ts`、`scripts/seed-review-demo-annos.js` |

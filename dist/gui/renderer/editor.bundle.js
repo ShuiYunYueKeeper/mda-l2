@@ -58741,6 +58741,514 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widget-find-dom.js
+  var require_widget_find_dom = __commonJS({
+    "src/gui/renderer/editor/widget-find-dom.js"(exports, module) {
+      "use strict";
+      var FIND_MARK_CLS = "mda-cm-table-find";
+      var FIND_ACTIVE_CLS = "mda-cm-table-find-active";
+      function clearContainerFindMarks(container) {
+        if (!container) return;
+        const marks = container.querySelectorAll(
+          "mark." + FIND_MARK_CLS + ", mark." + FIND_ACTIVE_CLS + ", span." + FIND_MARK_CLS + ", span." + FIND_ACTIVE_CLS
+        );
+        for (let i = 0; i < marks.length; i++) {
+          const mark = marks[i];
+          const parent = mark.parentNode;
+          if (!parent) continue;
+          while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+          parent.removeChild(mark);
+          if (parent.normalize) parent.normalize();
+        }
+      }
+      function logicalTextCharLength(text) {
+        return String(text || "").replace(/\u200b/g, "").replace(/\u00a0/g, " ").length;
+      }
+      function logicalToRawSlice(raw, localLogicalStart, localLogicalEnd) {
+        let logical = 0;
+        let rawStart = -1;
+        let rawEnd = raw.length;
+        const s = String(raw || "");
+        for (let i = 0; i < s.length; i++) {
+          const ch = s.charAt(i);
+          if (ch === "\u200B") continue;
+          if (logical === localLogicalStart && rawStart < 0) rawStart = i;
+          if (logical >= localLogicalEnd) {
+            rawEnd = i;
+            break;
+          }
+          logical += 1;
+        }
+        if (rawStart < 0) rawStart = 0;
+        return { start: rawStart, end: rawEnd };
+      }
+      function indexTextNodes(container) {
+        const list = [];
+        if (!container) return list;
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+          acceptNode: function(node2) {
+            const p = node2.parentElement;
+            if (p && p.closest && p.closest("[data-mda-widget-find]")) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        });
+        let pos = 0;
+        let node = walker.nextNode();
+        while (node) {
+          const len = logicalTextCharLength(node.nodeValue);
+          if (len > 0) {
+            list.push({ node, globalStart: pos, globalEnd: pos + len });
+          }
+          pos += len;
+          node = walker.nextNode();
+        }
+        return list;
+      }
+      function indexLogicalTextNodes(container) {
+        const list = [];
+        if (!container) return list;
+        function walk(node) {
+          for (let child = node.firstChild; child; child = child.nextSibling) {
+            if (child.nodeType === Node.TEXT_NODE) {
+              const p = child.parentElement;
+              if (p && p.closest && p.closest("[data-mda-widget-find]")) continue;
+              const len = logicalTextCharLength(child.nodeValue);
+              if (len > 0) {
+                list.push({
+                  node: child,
+                  globalStart: logicalPos,
+                  globalEnd: logicalPos + len
+                });
+              }
+              logicalPos += len;
+            } else if (child.nodeName === "BR") {
+              const p = child.parentElement;
+              if (p && p.closest && p.closest("[data-mda-widget-find]")) continue;
+              logicalPos += 1;
+            } else if (child.nodeType === Node.ELEMENT_NODE) {
+              walk(child);
+            }
+          }
+        }
+        let logicalPos = 0;
+        walk(container);
+        return list;
+      }
+      function collectVisibleTextSegments(container, visStart, visEnd) {
+        const segments = [];
+        if (!container || visEnd <= visStart) return segments;
+        const useLogical = !!(container.querySelector && container.querySelector("br"));
+        const nodes = useLogical ? indexLogicalTextNodes(container) : indexTextNodes(container);
+        for (let i = 0; i < nodes.length; i++) {
+          const entry = nodes[i];
+          const overlapStart = Math.max(visStart, entry.globalStart);
+          const overlapEnd = Math.min(visEnd, entry.globalEnd);
+          if (overlapEnd <= overlapStart) continue;
+          const localLogicalStart = overlapStart - entry.globalStart;
+          const localLogicalEnd = overlapEnd - entry.globalStart;
+          const raw = logicalToRawSlice(entry.node.nodeValue || "", localLogicalStart, localLogicalEnd);
+          segments.push({
+            node: entry.node,
+            start: raw.start,
+            end: raw.end
+          });
+        }
+        return segments;
+      }
+      function splitAndWrapTextNode(textNode, start, end, className) {
+        if (!textNode || start >= end) return;
+        const parent = textNode.parentNode;
+        if (!parent) return;
+        const full = textNode.nodeValue || "";
+        const safeStart = Math.max(0, Math.min(start, full.length));
+        const safeEnd = Math.max(safeStart, Math.min(end, full.length));
+        if (safeEnd <= safeStart) return;
+        const before = full.slice(0, safeStart);
+        const mid = full.slice(safeStart, safeEnd);
+        const after = full.slice(safeEnd);
+        const wrap = document.createElement("span");
+        wrap.className = className;
+        wrap.setAttribute("data-mda-widget-find", "1");
+        wrap.textContent = mid;
+        if (before) parent.insertBefore(document.createTextNode(before), textNode);
+        parent.insertBefore(wrap, textNode);
+        if (after) parent.insertBefore(document.createTextNode(after), textNode);
+        parent.removeChild(textNode);
+      }
+      function applyVisibleHighlightsInContainer(container, ranges) {
+        if (!container || !ranges.length) return;
+        const sorted = ranges.slice().sort(function(a, b) {
+          return b.visStart - a.visStart;
+        });
+        for (let i = 0; i < sorted.length; i++) {
+          const r = sorted[i];
+          if (r.visEnd <= r.visStart) continue;
+          const segs = collectVisibleTextSegments(container, r.visStart, r.visEnd);
+          for (let j = segs.length - 1; j >= 0; j--) {
+            const seg = segs[j];
+            if (!seg.node.isConnected) continue;
+            splitAndWrapTextNode(seg.node, seg.start, seg.end, r.cls);
+          }
+        }
+      }
+      module.exports = {
+        FIND_MARK_CLS,
+        FIND_ACTIVE_CLS,
+        clearContainerFindMarks,
+        collectVisibleTextSegments,
+        splitAndWrapTextNode,
+        applyVisibleHighlightsInContainer,
+        indexTextNodes,
+        indexLogicalTextNodes
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/table-find-highlight.js
+  var require_table_find_highlight = __commonJS({
+    "src/gui/renderer/editor/table-find-highlight.js"(exports, module) {
+      "use strict";
+      var { parseTableMetaLine, splitRow, isSepRow } = require_parse_table();
+      var { markdownToVisibleOffset } = require_table_cell_content();
+      var {
+        FIND_MARK_CLS,
+        FIND_ACTIVE_CLS,
+        clearContainerFindMarks,
+        applyVisibleHighlightsInContainer
+      } = require_widget_find_dom();
+      function cellContentRangesInLine(line, lineStart) {
+        const ranges = [];
+        let i = 0;
+        const s = String(line || "");
+        if (s.charAt(i) === "|") i += 1;
+        let col = 0;
+        while (i <= s.length) {
+          while (i < s.length && s.charAt(i) === " ") i += 1;
+          const start = i;
+          while (i < s.length) {
+            if (s.charAt(i) === "\\" && i + 1 < s.length) {
+              i += 2;
+              continue;
+            }
+            if (s.charAt(i) === "|") break;
+            i += 1;
+          }
+          ranges.push({ col, docFrom: lineStart + start, docTo: lineStart + i });
+          col += 1;
+          if (i < s.length && s.charAt(i) === "|") i += 1;
+          else break;
+        }
+        return ranges;
+      }
+      function buildTableCellDocMap(blockText, blockFrom) {
+        const normalized = String(blockText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        const lines = normalized.split("\n");
+        let lineStart = blockFrom;
+        let tableLineIdx = -1;
+        const cells = [];
+        for (let li = 0; li < lines.length; li++) {
+          const line = lines[li];
+          const trimmed = line.trim();
+          const nextLineStart = lineStart + line.length + (li < lines.length - 1 ? 1 : 0);
+          if (!trimmed) {
+            lineStart = nextLineStart;
+            continue;
+          }
+          if (parseTableMetaLine(line)) {
+            lineStart = nextLineStart;
+            continue;
+          }
+          if (!trimmed.startsWith("|")) {
+            lineStart = nextLineStart;
+            continue;
+          }
+          tableLineIdx += 1;
+          if (tableLineIdx === 1 || isSepRow(line)) {
+            lineStart = nextLineStart;
+            continue;
+          }
+          const row = tableLineIdx === 0 ? -1 : tableLineIdx - 2;
+          const colRanges = cellContentRangesInLine(line, lineStart);
+          const parts = splitRow(line);
+          for (let c = 0; c < colRanges.length; c++) {
+            const r = colRanges[c];
+            if (r.docTo <= r.docFrom) continue;
+            cells.push({
+              row,
+              col: c,
+              docFrom: r.docFrom,
+              docTo: r.docTo,
+              markdown: parts[c] != null ? parts[c] : ""
+            });
+          }
+          lineStart = nextLineStart;
+        }
+        return cells;
+      }
+      function getTableBlockRanges(view) {
+        const ranges = [];
+        if (!view || !view.dom) return ranges;
+        const blocks = view.dom.querySelectorAll(".mda-cm-table-block");
+        for (let i = 0; i < blocks.length; i++) {
+          const from = parseInt(blocks[i].getAttribute("data-mda-block-from") || "", 10);
+          const to = parseInt(blocks[i].getAttribute("data-mda-block-to") || "", 10);
+          if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
+            ranges.push({ from, to });
+          }
+        }
+        return ranges;
+      }
+      function clearCellFindMarks(cell) {
+        clearContainerFindMarks(cell);
+      }
+      function clearTableFindHighlights(view) {
+        if (!view || !view.dom) return;
+        const cells = view.dom.querySelectorAll(".mda-cm-table th, .mda-cm-table td");
+        for (let i = 0; i < cells.length; i++) clearCellFindMarks(cells[i]);
+      }
+      function queryTableCell(tableRoot, row, col) {
+        if (!tableRoot) return null;
+        const table = tableRoot.querySelector("table");
+        if (!table) return null;
+        const sel = (row < 0 ? "thead th" : "tbody td") + '[data-mda-row="' + row + '"][data-mda-col="' + col + '"]';
+        return table.querySelector(sel);
+      }
+      function applyTableFindHighlights(view, matches, activeIndex) {
+        if (!view || !view.dom) return;
+        clearTableFindHighlights(view);
+        if (!matches || !matches.length) return;
+        const doc = view.state.doc.toString();
+        const blocks = view.dom.querySelectorAll(".mda-cm-table-block");
+        const cellRanges = /* @__PURE__ */ new Map();
+        for (let bi = 0; bi < blocks.length; bi++) {
+          const root = blocks[bi];
+          const blockFrom = parseInt(root.getAttribute("data-mda-block-from") || "", 10);
+          const blockTo = parseInt(root.getAttribute("data-mda-block-to") || "", 10);
+          if (!Number.isFinite(blockFrom) || !Number.isFinite(blockTo) || blockTo <= blockFrom) {
+            continue;
+          }
+          const blockText = doc.slice(blockFrom, blockTo);
+          const cellMap = buildTableCellDocMap(blockText, blockFrom);
+          for (let mi = 0; mi < matches.length; mi++) {
+            const m = matches[mi];
+            if (m.end <= m.start) continue;
+            if (m.end <= blockFrom || m.start >= blockTo) continue;
+            const isActive = mi === activeIndex;
+            const cls = isActive ? FIND_ACTIVE_CLS : FIND_MARK_CLS;
+            const matchFrom = Math.max(m.start, blockFrom);
+            const matchTo = Math.min(m.end, blockTo);
+            for (let ci = 0; ci < cellMap.length; ci++) {
+              const cellInfo = cellMap[ci];
+              if (matchTo <= cellInfo.docFrom || matchFrom >= cellInfo.docTo) continue;
+              const localFrom = Math.max(0, matchFrom - cellInfo.docFrom);
+              const localTo = Math.min(cellInfo.docTo - cellInfo.docFrom, matchTo - cellInfo.docFrom);
+              const cellMd = doc.slice(cellInfo.docFrom, cellInfo.docTo);
+              const visStart = markdownToVisibleOffset(cellMd, localFrom);
+              const visEnd = markdownToVisibleOffset(cellMd, localTo);
+              if (visEnd <= visStart) continue;
+              const cellEl = queryTableCell(root, cellInfo.row, cellInfo.col);
+              if (!cellEl) continue;
+              if (!cellRanges.has(cellEl)) cellRanges.set(cellEl, []);
+              cellRanges.get(cellEl).push({ visStart, visEnd, cls });
+            }
+          }
+        }
+        cellRanges.forEach(function(ranges, cell) {
+          applyVisibleHighlightsInContainer(cell, ranges);
+        });
+      }
+      module.exports = {
+        applyTableFindHighlights,
+        clearTableFindHighlights,
+        buildTableCellDocMap,
+        getTableBlockRanges
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/code-find-highlight.js
+  var require_code_find_highlight = __commonJS({
+    "src/gui/renderer/editor/code-find-highlight.js"(exports, module) {
+      "use strict";
+      var { readPlainCodeDom } = require_code();
+      var {
+        FIND_MARK_CLS,
+        FIND_ACTIVE_CLS,
+        clearContainerFindMarks,
+        applyVisibleHighlightsInContainer,
+        indexLogicalTextNodes,
+        indexTextNodes
+      } = require_widget_find_dom();
+      function getFenceBodyDocRange(blockFrom, blockText) {
+        const text = String(blockText || "").replace(/\r\n/g, "\n");
+        const openNl = text.indexOf("\n");
+        if (openNl < 0) return null;
+        const openLine = text.slice(0, openNl);
+        const openM = /^ {0,3}(`{3,}|~{3,})/.exec(openLine);
+        if (!openM) return null;
+        const marker = openM[1];
+        const ch = marker.charAt(0);
+        const minLen = marker.length;
+        const closeRe = new RegExp("^ {0,3}\\" + ch + "{" + minLen + ",}\\s*$");
+        const bodyStartRel = openNl + 1;
+        let bodyEndRel = text.length;
+        const tail = text.slice(bodyStartRel);
+        let scan = 0;
+        while (scan < tail.length) {
+          const nl = tail.indexOf("\n", scan);
+          const lineEnd = nl < 0 ? tail.length : nl;
+          const line = tail.slice(scan, lineEnd);
+          if (closeRe.test(line)) {
+            bodyEndRel = bodyStartRel + scan;
+            break;
+          }
+          scan = nl < 0 ? tail.length : nl + 1;
+        }
+        const code = text.slice(bodyStartRel, bodyEndRel);
+        return {
+          bodyFrom: blockFrom + bodyStartRel,
+          bodyTo: blockFrom + bodyEndRel,
+          code
+        };
+      }
+      function getCodeInputPlainText(codeInput) {
+        if (!codeInput) return "";
+        if (codeInput.querySelector && codeInput.querySelector("br")) {
+          return readPlainCodeDom(codeInput).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        }
+        return String(codeInput.textContent || "").replace(/\u200b/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      }
+      function fencePlainAligns(a, b) {
+        if (a === b) return true;
+        if (a.endsWith("\n") && a.slice(0, -1) === b) return true;
+        if (b.endsWith("\n") && b.slice(0, -1) === a) return true;
+        return false;
+      }
+      function getCodeBlockRanges(view) {
+        const ranges = [];
+        if (!view || !view.dom) return ranges;
+        const blocks = view.dom.querySelectorAll(".mda-cm-code-block");
+        for (let i = 0; i < blocks.length; i++) {
+          const from = parseInt(blocks[i].getAttribute("data-mda-block-from") || "", 10);
+          const to = parseInt(blocks[i].getAttribute("data-mda-block-to") || "", 10);
+          if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
+            ranges.push({ from, to });
+          }
+        }
+        return ranges;
+      }
+      function clearCodeFindHighlights(view) {
+        if (!view || !view.dom) return;
+        const inputs = view.dom.querySelectorAll(".mda-cm-code-input");
+        for (let i = 0; i < inputs.length; i++) clearContainerFindMarks(inputs[i]);
+      }
+      function applyCodeFindHighlights(view, matches, activeIndex) {
+        if (!view || !view.dom) return;
+        clearCodeFindHighlights(view);
+        if (!matches || !matches.length) return;
+        const doc = view.state.doc.toString();
+        const blocks = view.dom.querySelectorAll(".mda-cm-code-block");
+        const inputRanges = /* @__PURE__ */ new Map();
+        for (let bi = 0; bi < blocks.length; bi++) {
+          const root = blocks[bi];
+          const blockFrom = parseInt(root.getAttribute("data-mda-block-from") || "", 10);
+          const blockTo = parseInt(root.getAttribute("data-mda-block-to") || "", 10);
+          if (!Number.isFinite(blockFrom) || !Number.isFinite(blockTo) || blockTo <= blockFrom) {
+            continue;
+          }
+          const blockText = doc.slice(blockFrom, blockTo);
+          const body = getFenceBodyDocRange(blockFrom, blockText);
+          if (!body) continue;
+          const codeInput = root.querySelector(".mda-cm-code-input");
+          if (!codeInput) continue;
+          const plain = getCodeInputPlainText(codeInput);
+          if (!fencePlainAligns(plain, body.code)) continue;
+          const useLogical = !!(codeInput.querySelector && codeInput.querySelector("br"));
+          const indexFn = useLogical ? indexLogicalTextNodes : indexTextNodes;
+          const plainLen = indexFn(codeInput).reduce(function(sum, n) {
+            return sum + (n.globalEnd - n.globalStart);
+          }, 0);
+          const codeLen = body.code.length;
+          const lenOk = plainLen === codeLen || plainLen === codeLen + 1 || plainLen === codeLen - 1;
+          for (let mi = 0; mi < matches.length; mi++) {
+            const m = matches[mi];
+            if (m.end <= m.start) continue;
+            if (m.end <= body.bodyFrom || m.start >= body.bodyTo) continue;
+            const matchFrom = Math.max(m.start, body.bodyFrom);
+            const matchTo = Math.min(m.end, body.bodyTo);
+            const visStart = matchFrom - body.bodyFrom;
+            const visEnd = matchTo - body.bodyFrom;
+            if (visEnd <= visStart) continue;
+            if (visEnd > codeLen || lenOk && visEnd > plainLen) continue;
+            const slice = body.code.slice(visStart, visEnd);
+            const docSlice = doc.slice(matchFrom, matchTo);
+            if (slice !== docSlice) continue;
+            const isActive = mi === activeIndex;
+            const cls = isActive ? FIND_ACTIVE_CLS : FIND_MARK_CLS;
+            if (!inputRanges.has(codeInput)) inputRanges.set(codeInput, []);
+            inputRanges.get(codeInput).push({ visStart, visEnd, cls });
+          }
+        }
+        inputRanges.forEach(function(ranges, input) {
+          applyVisibleHighlightsInContainer(input, ranges);
+        });
+      }
+      module.exports = {
+        applyCodeFindHighlights,
+        clearCodeFindHighlights,
+        getCodeBlockRanges,
+        getFenceBodyDocRange,
+        getCodeInputPlainText
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/widget-find-highlight.js
+  var require_widget_find_highlight = __commonJS({
+    "src/gui/renderer/editor/widget-find-highlight.js"(exports, module) {
+      "use strict";
+      var {
+        applyTableFindHighlights,
+        clearTableFindHighlights,
+        getTableBlockRanges
+      } = require_table_find_highlight();
+      var {
+        applyCodeFindHighlights,
+        clearCodeFindHighlights,
+        getCodeBlockRanges
+      } = require_code_find_highlight();
+      var lastWidgetFind = null;
+      function getWidgetBlockRanges(view) {
+        return getTableBlockRanges(view).concat(getCodeBlockRanges(view));
+      }
+      function applyWidgetFindHighlights(view, matches, activeIndex) {
+        const list = Array.isArray(matches) ? matches : [];
+        const idx = activeIndex == null ? -1 : activeIndex;
+        lastWidgetFind = list.length ? { matches: list, activeIndex: idx } : null;
+        applyTableFindHighlights(view, list, idx);
+        applyCodeFindHighlights(view, list, idx);
+      }
+      function reapplyWidgetFindHighlights(view) {
+        if (!view || !lastWidgetFind || !lastWidgetFind.matches.length) return;
+        applyTableFindHighlights(view, lastWidgetFind.matches, lastWidgetFind.activeIndex);
+        applyCodeFindHighlights(view, lastWidgetFind.matches, lastWidgetFind.activeIndex);
+      }
+      function clearWidgetFindHighlights(view) {
+        lastWidgetFind = null;
+        clearTableFindHighlights(view);
+        clearCodeFindHighlights(view);
+      }
+      module.exports = {
+        getWidgetBlockRanges,
+        applyWidgetFindHighlights,
+        reapplyWidgetFindHighlights,
+        clearWidgetFindHighlights
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/code.js
   var require_code = __commonJS({
     "src/gui/renderer/editor/widgets/code.js"(exports, module) {
@@ -59257,6 +59765,11 @@ var MDAEditorBundle = (() => {
             } finally {
               applyingProgrammatic = false;
             }
+            try {
+              const { reapplyWidgetFindHighlights } = require_widget_find_highlight();
+              reapplyWidgetFindHighlights(view);
+            } catch (_) {
+            }
           }
           function renderFromLocalCode(caretOffset) {
             applyingProgrammatic = true;
@@ -59277,6 +59790,13 @@ var MDAEditorBundle = (() => {
               applyingProgrammatic = false;
             }
             syncLineNumbers();
+            if (!plainEditing) {
+              try {
+                const { reapplyWidgetFindHighlights } = require_widget_find_highlight();
+                reapplyWidgetFindHighlights(view);
+              } catch (_) {
+              }
+            }
           }
           function pushUndoSnapshot() {
             undoStack.push(localCode);
@@ -59491,7 +60011,6 @@ var MDAEditorBundle = (() => {
               enterEditMode();
               if (e.shiftKey) {
                 const head = caretOffsetFromClient(codeInput, e.clientX, e.clientY);
-                ensurePlainForEdit({ caret: selectionAnchor });
                 setLogicalSelection(codeInput, selectionAnchor, head);
                 e.preventDefault();
               }
@@ -59506,14 +60025,8 @@ var MDAEditorBundle = (() => {
               enterEditMode();
               if (e.shiftKey) return;
               const offsets = getLogicalSelectionOffsets(codeInput);
-              if (offsets) {
-                ensurePlainForEdit({ start: offsets.start, end: offsets.end });
-                selectionAnchor = offsets.start;
-              } else {
-                const caret = caretOffsetFromClient(codeInput, e.clientX, e.clientY);
-                ensurePlainForEdit({ caret });
-                selectionAnchor = caret;
-              }
+              if (offsets) selectionAnchor = offsets.start;
+              else selectionAnchor = caretOffsetFromClient(codeInput, e.clientX, e.clientY);
             },
             true
           );
@@ -59538,18 +60051,24 @@ var MDAEditorBundle = (() => {
           codeInput.addEventListener("compositionend", function() {
             composing = false;
             localCode = readDomCodeText();
+            paintHighlight(true);
             syncCodeLayout();
             markCodeDirty();
           });
           codeInput.addEventListener("input", function() {
             if (composing || applyingProgrammatic) return;
             localCode = readDomCodeText();
+            paintHighlight(true);
             syncCodeLayout();
             markCodeDirty();
           });
           codeInput.addEventListener("keydown", function(e) {
-            e.stopPropagation();
             const mod = e.ctrlKey || e.metaKey;
+            if (mod && !e.altKey && !e.shiftKey) {
+              const fk = (e.key || "").toLowerCase();
+              if (fk === "f" || fk === "h") return;
+            }
+            e.stopPropagation();
             if (mod && !e.altKey && (e.key === "b" || e.key === "B" || e.key === "i" || e.key === "I" || e.key === "`" || (e.key === "x" || e.key === "X") && e.shiftKey)) {
               e.preventDefault();
               return;
@@ -59581,14 +60100,6 @@ var MDAEditorBundle = (() => {
             const session = { undo: undoLocal, redo: redoLocal };
             activeCodeEditSession = session;
             root._mdaCodeEditSession = session;
-            if (plainEditing || isWidgetDomMenuGuard()) return;
-            requestAnimationFrame(function() {
-              if (isWidgetDomMenuGuard() || plainEditing) return;
-              if (document.activeElement !== codeInput) return;
-              const offsets = getLogicalSelectionOffsets(codeInput);
-              if (offsets) ensurePlainForEdit({ start: offsets.start, end: offsets.end });
-              else ensurePlainForEdit({ caret: getCaretOffset() });
-            });
           });
           codeInput.addEventListener("blur", function() {
             requestAnimationFrame(function() {
@@ -59637,7 +60148,6 @@ var MDAEditorBundle = (() => {
           if (resumed) {
             requestAnimationFrame(function() {
               enterEditMode();
-              flattenToPlain({});
               codeInput.focus();
               setCaretOffset(resumed.caret);
             });
@@ -59678,7 +60188,8 @@ var MDAEditorBundle = (() => {
         setPlainCodeDom,
         highlightHtmlWithTrailingLines,
         tryCodeBlockUndo,
-        tryCodeBlockRedo
+        tryCodeBlockRedo,
+        getLogicalSelectionOffsets
       };
     }
   });
@@ -65365,499 +65876,126 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/widget-find-dom.js
-  var require_widget_find_dom = __commonJS({
-    "src/gui/renderer/editor/widget-find-dom.js"(exports, module) {
+  // src/gui/renderer/editor/widget-find-seed.js
+  var require_widget_find_seed = __commonJS({
+    "src/gui/renderer/editor/widget-find-seed.js"(exports, module) {
       "use strict";
-      var FIND_MARK_CLS = "mda-cm-table-find";
-      var FIND_ACTIVE_CLS = "mda-cm-table-find-active";
-      function clearContainerFindMarks(container) {
-        if (!container) return;
-        const marks = container.querySelectorAll(
-          "mark." + FIND_MARK_CLS + ", mark." + FIND_ACTIVE_CLS + ", span." + FIND_MARK_CLS + ", span." + FIND_ACTIVE_CLS
-        );
-        for (let i = 0; i < marks.length; i++) {
-          const mark = marks[i];
-          const parent = mark.parentNode;
-          if (!parent) continue;
-          while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
-          parent.removeChild(mark);
-          if (parent.normalize) parent.normalize();
-        }
-      }
-      function logicalTextCharLength(text) {
-        return String(text || "").replace(/\u200b/g, "").replace(/\u00a0/g, " ").length;
-      }
-      function logicalToRawSlice(raw, localLogicalStart, localLogicalEnd) {
-        let logical = 0;
-        let rawStart = -1;
-        let rawEnd = raw.length;
-        const s = String(raw || "");
-        for (let i = 0; i < s.length; i++) {
-          const ch = s.charAt(i);
-          if (ch === "\u200B") continue;
-          if (logical === localLogicalStart && rawStart < 0) rawStart = i;
-          if (logical >= localLogicalEnd) {
-            rawEnd = i;
-            break;
-          }
-          logical += 1;
-        }
-        if (rawStart < 0) rawStart = 0;
-        return { start: rawStart, end: rawEnd };
-      }
-      function indexTextNodes(container) {
-        const list = [];
-        if (!container) return list;
-        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-          acceptNode: function(node2) {
-            const p = node2.parentElement;
-            if (p && p.closest && p.closest("[data-mda-widget-find]")) {
-              return NodeFilter.FILTER_REJECT;
-            }
-            return NodeFilter.FILTER_ACCEPT;
-          }
-        });
-        let pos = 0;
-        let node = walker.nextNode();
-        while (node) {
-          const len = logicalTextCharLength(node.nodeValue);
-          if (len > 0) {
-            list.push({ node, globalStart: pos, globalEnd: pos + len });
-          }
-          pos += len;
-          node = walker.nextNode();
-        }
-        return list;
-      }
-      function indexLogicalTextNodes(container) {
-        const list = [];
-        if (!container) return list;
-        function walk(node) {
-          for (let child = node.firstChild; child; child = child.nextSibling) {
-            if (child.nodeType === Node.TEXT_NODE) {
-              const p = child.parentElement;
-              if (p && p.closest && p.closest("[data-mda-widget-find]")) continue;
-              const len = logicalTextCharLength(child.nodeValue);
-              if (len > 0) {
-                list.push({
-                  node: child,
-                  globalStart: logicalPos,
-                  globalEnd: logicalPos + len
-                });
-              }
-              logicalPos += len;
-            } else if (child.nodeName === "BR") {
-              const p = child.parentElement;
-              if (p && p.closest && p.closest("[data-mda-widget-find]")) continue;
-              logicalPos += 1;
-            } else if (child.nodeType === Node.ELEMENT_NODE) {
-              walk(child);
-            }
-          }
-        }
-        let logicalPos = 0;
-        walk(container);
-        return list;
-      }
-      function collectVisibleTextSegments(container, visStart, visEnd) {
-        const segments = [];
-        if (!container || visEnd <= visStart) return segments;
-        const useLogical = !!(container.querySelector && container.querySelector("br"));
-        const nodes = useLogical ? indexLogicalTextNodes(container) : indexTextNodes(container);
-        for (let i = 0; i < nodes.length; i++) {
-          const entry = nodes[i];
-          const overlapStart = Math.max(visStart, entry.globalStart);
-          const overlapEnd = Math.min(visEnd, entry.globalEnd);
-          if (overlapEnd <= overlapStart) continue;
-          const localLogicalStart = overlapStart - entry.globalStart;
-          const localLogicalEnd = overlapEnd - entry.globalStart;
-          const raw = logicalToRawSlice(entry.node.nodeValue || "", localLogicalStart, localLogicalEnd);
-          segments.push({
-            node: entry.node,
-            start: raw.start,
-            end: raw.end
-          });
-        }
-        return segments;
-      }
-      function splitAndWrapTextNode(textNode, start, end, className) {
-        if (!textNode || start >= end) return;
-        const parent = textNode.parentNode;
-        if (!parent) return;
-        const full = textNode.nodeValue || "";
-        const safeStart = Math.max(0, Math.min(start, full.length));
-        const safeEnd = Math.max(safeStart, Math.min(end, full.length));
-        if (safeEnd <= safeStart) return;
-        const before = full.slice(0, safeStart);
-        const mid = full.slice(safeStart, safeEnd);
-        const after = full.slice(safeEnd);
-        const wrap = document.createElement("span");
-        wrap.className = className;
-        wrap.setAttribute("data-mda-widget-find", "1");
-        wrap.textContent = mid;
-        if (before) parent.insertBefore(document.createTextNode(before), textNode);
-        parent.insertBefore(wrap, textNode);
-        if (after) parent.insertBefore(document.createTextNode(after), textNode);
-        parent.removeChild(textNode);
-      }
-      function applyVisibleHighlightsInContainer(container, ranges) {
-        if (!container || !ranges.length) return;
-        const sorted = ranges.slice().sort(function(a, b) {
-          return b.visStart - a.visStart;
-        });
-        for (let i = 0; i < sorted.length; i++) {
-          const r = sorted[i];
-          if (r.visEnd <= r.visStart) continue;
-          const segs = collectVisibleTextSegments(container, r.visStart, r.visEnd);
-          for (let j = segs.length - 1; j >= 0; j--) {
-            const seg = segs[j];
-            if (!seg.node.isConnected) continue;
-            splitAndWrapTextNode(seg.node, seg.start, seg.end, r.cls);
-          }
-        }
-      }
-      module.exports = {
-        FIND_MARK_CLS,
-        FIND_ACTIVE_CLS,
-        clearContainerFindMarks,
-        collectVisibleTextSegments,
-        splitAndWrapTextNode,
-        applyVisibleHighlightsInContainer,
-        indexTextNodes,
-        indexLogicalTextNodes
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/table-find-highlight.js
-  var require_table_find_highlight = __commonJS({
-    "src/gui/renderer/editor/table-find-highlight.js"(exports, module) {
-      "use strict";
-      var { parseTableMetaLine, splitRow, isSepRow } = require_parse_table();
-      var { markdownToVisibleOffset } = require_table_cell_content();
+      var { classifyWidgetEditable } = require_widget_editable_guard();
+      var { getFenceBodyDocRange, getCodeInputPlainText } = require_code_find_highlight();
+      var { getLogicalSelectionOffsets } = require_code();
+      var { buildTableCellDocMap } = require_table_find_highlight();
       var {
-        FIND_MARK_CLS,
-        FIND_ACTIVE_CLS,
-        clearContainerFindMarks,
-        applyVisibleHighlightsInContainer
-      } = require_widget_find_dom();
-      function cellContentRangesInLine(line, lineStart) {
-        const ranges = [];
-        let i = 0;
-        const s = String(line || "");
-        if (s.charAt(i) === "|") i += 1;
-        let col = 0;
-        while (i <= s.length) {
-          while (i < s.length && s.charAt(i) === " ") i += 1;
-          const start = i;
-          while (i < s.length) {
-            if (s.charAt(i) === "\\" && i + 1 < s.length) {
-              i += 2;
-              continue;
-            }
-            if (s.charAt(i) === "|") break;
-            i += 1;
-          }
-          ranges.push({ col, docFrom: lineStart + start, docTo: lineStart + i });
-          col += 1;
-          if (i < s.length && s.charAt(i) === "|") i += 1;
-          else break;
-        }
-        return ranges;
-      }
-      function buildTableCellDocMap(blockText, blockFrom) {
-        const normalized = String(blockText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-        const lines = normalized.split("\n");
-        let lineStart = blockFrom;
-        let tableLineIdx = -1;
-        const cells = [];
-        for (let li = 0; li < lines.length; li++) {
-          const line = lines[li];
-          const trimmed = line.trim();
-          const nextLineStart = lineStart + line.length + (li < lines.length - 1 ? 1 : 0);
-          if (!trimmed) {
-            lineStart = nextLineStart;
-            continue;
-          }
-          if (parseTableMetaLine(line)) {
-            lineStart = nextLineStart;
-            continue;
-          }
-          if (!trimmed.startsWith("|")) {
-            lineStart = nextLineStart;
-            continue;
-          }
-          tableLineIdx += 1;
-          if (tableLineIdx === 1 || isSepRow(line)) {
-            lineStart = nextLineStart;
-            continue;
-          }
-          const row = tableLineIdx === 0 ? -1 : tableLineIdx - 2;
-          const colRanges = cellContentRangesInLine(line, lineStart);
-          const parts = splitRow(line);
-          for (let c = 0; c < colRanges.length; c++) {
-            const r = colRanges[c];
-            if (r.docTo <= r.docFrom) continue;
-            cells.push({
-              row,
-              col: c,
-              docFrom: r.docFrom,
-              docTo: r.docTo,
-              markdown: parts[c] != null ? parts[c] : ""
-            });
-          }
-          lineStart = nextLineStart;
-        }
-        return cells;
-      }
-      function getTableBlockRanges(view) {
-        const ranges = [];
-        if (!view || !view.dom) return ranges;
-        const blocks = view.dom.querySelectorAll(".mda-cm-table-block");
-        for (let i = 0; i < blocks.length; i++) {
-          const from = parseInt(blocks[i].getAttribute("data-mda-block-from") || "", 10);
-          const to = parseInt(blocks[i].getAttribute("data-mda-block-to") || "", 10);
-          if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
-            ranges.push({ from, to });
-          }
-        }
-        return ranges;
-      }
-      function clearCellFindMarks(cell) {
-        clearContainerFindMarks(cell);
-      }
-      function clearTableFindHighlights(view) {
-        if (!view || !view.dom) return;
-        const cells = view.dom.querySelectorAll(".mda-cm-table th, .mda-cm-table td");
-        for (let i = 0; i < cells.length; i++) clearCellFindMarks(cells[i]);
-      }
-      function queryTableCell(tableRoot, row, col) {
-        if (!tableRoot) return null;
-        const table = tableRoot.querySelector("table");
-        if (!table) return null;
-        const sel = (row < 0 ? "thead th" : "tbody td") + '[data-mda-row="' + row + '"][data-mda-col="' + col + '"]';
-        return table.querySelector(sel);
-      }
-      function applyTableFindHighlights(view, matches, activeIndex) {
-        if (!view || !view.dom) return;
-        clearTableFindHighlights(view);
-        if (!matches || !matches.length) return;
-        const doc = view.state.doc.toString();
-        const blocks = view.dom.querySelectorAll(".mda-cm-table-block");
-        const cellRanges = /* @__PURE__ */ new Map();
-        for (let bi = 0; bi < blocks.length; bi++) {
-          const root = blocks[bi];
-          const blockFrom = parseInt(root.getAttribute("data-mda-block-from") || "", 10);
-          const blockTo = parseInt(root.getAttribute("data-mda-block-to") || "", 10);
-          if (!Number.isFinite(blockFrom) || !Number.isFinite(blockTo) || blockTo <= blockFrom) {
-            continue;
-          }
-          const blockText = doc.slice(blockFrom, blockTo);
-          const cellMap = buildTableCellDocMap(blockText, blockFrom);
-          for (let mi = 0; mi < matches.length; mi++) {
-            const m = matches[mi];
-            if (m.end <= m.start) continue;
-            if (m.end <= blockFrom || m.start >= blockTo) continue;
-            const isActive = mi === activeIndex;
-            const cls = isActive ? FIND_ACTIVE_CLS : FIND_MARK_CLS;
-            const matchFrom = Math.max(m.start, blockFrom);
-            const matchTo = Math.min(m.end, blockTo);
-            for (let ci = 0; ci < cellMap.length; ci++) {
-              const cellInfo = cellMap[ci];
-              if (matchTo <= cellInfo.docFrom || matchFrom >= cellInfo.docTo) continue;
-              const localFrom = Math.max(0, matchFrom - cellInfo.docFrom);
-              const localTo = Math.min(cellInfo.docTo - cellInfo.docFrom, matchTo - cellInfo.docFrom);
-              const cellMd = doc.slice(cellInfo.docFrom, cellInfo.docTo);
-              const visStart = markdownToVisibleOffset(cellMd, localFrom);
-              const visEnd = markdownToVisibleOffset(cellMd, localTo);
-              if (visEnd <= visStart) continue;
-              const cellEl = queryTableCell(root, cellInfo.row, cellInfo.col);
-              if (!cellEl) continue;
-              if (!cellRanges.has(cellEl)) cellRanges.set(cellEl, []);
-              cellRanges.get(cellEl).push({ visStart, visEnd, cls });
-            }
-          }
-        }
-        cellRanges.forEach(function(ranges, cell) {
-          applyVisibleHighlightsInContainer(cell, ranges);
-        });
-      }
-      module.exports = {
-        applyTableFindHighlights,
-        clearTableFindHighlights,
-        buildTableCellDocMap,
-        getTableBlockRanges
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/code-find-highlight.js
-  var require_code_find_highlight = __commonJS({
-    "src/gui/renderer/editor/code-find-highlight.js"(exports, module) {
-      "use strict";
-      var { readPlainCodeDom } = require_code();
-      var {
-        FIND_MARK_CLS,
-        FIND_ACTIVE_CLS,
-        clearContainerFindMarks,
-        applyVisibleHighlightsInContainer,
-        indexLogicalTextNodes,
-        indexTextNodes
-      } = require_widget_find_dom();
-      function getFenceBodyDocRange(blockFrom, blockText) {
-        const text = String(blockText || "").replace(/\r\n/g, "\n");
-        const openNl = text.indexOf("\n");
-        if (openNl < 0) return null;
-        const openLine = text.slice(0, openNl);
-        const openM = /^ {0,3}(`{3,}|~{3,})/.exec(openLine);
-        if (!openM) return null;
-        const marker = openM[1];
-        const ch = marker.charAt(0);
-        const minLen = marker.length;
-        const closeRe = new RegExp("^ {0,3}\\" + ch + "{" + minLen + ",}\\s*$");
-        const bodyStartRel = openNl + 1;
-        let bodyEndRel = text.length;
-        const tail = text.slice(bodyStartRel);
-        let scan = 0;
-        while (scan < tail.length) {
-          const nl = tail.indexOf("\n", scan);
-          const lineEnd = nl < 0 ? tail.length : nl;
-          const line = tail.slice(scan, lineEnd);
-          if (closeRe.test(line)) {
-            bodyEndRel = bodyStartRel + scan;
-            break;
-          }
-          scan = nl < 0 ? tail.length : nl + 1;
-        }
-        const code = text.slice(bodyStartRel, bodyEndRel);
-        return {
-          bodyFrom: blockFrom + bodyStartRel,
-          bodyTo: blockFrom + bodyEndRel,
-          code
-        };
-      }
-      function getCodeInputPlainText(codeInput) {
-        if (!codeInput) return "";
-        if (codeInput.querySelector && codeInput.querySelector("br")) {
-          return readPlainCodeDom(codeInput).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-        }
-        return String(codeInput.textContent || "").replace(/\u200b/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-      }
+        getCellMarkdownContent,
+        getCellVisibleSelection,
+        visibleToMarkdownOffset
+      } = require_table_cell_content();
       function fencePlainAligns(a, b) {
         if (a === b) return true;
         if (a.endsWith("\n") && a.slice(0, -1) === b) return true;
         if (b.endsWith("\n") && b.slice(0, -1) === a) return true;
         return false;
       }
-      function getCodeBlockRanges(view) {
-        const ranges = [];
-        if (!view || !view.dom) return ranges;
-        const blocks = view.dom.querySelectorAll(".mda-cm-code-block");
-        for (let i = 0; i < blocks.length; i++) {
-          const from = parseInt(blocks[i].getAttribute("data-mda-block-from") || "", 10);
-          const to = parseInt(blocks[i].getAttribute("data-mda-block-to") || "", 10);
-          if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
-            ranges.push({ from, to });
-          }
+      function seedFromCodeSelection(view, codeInput, selText) {
+        const offsets = getLogicalSelectionOffsets(codeInput);
+        const text = String(selText || "");
+        if (!text) return null;
+        const root = codeInput.closest && codeInput.closest(".mda-cm-code-block");
+        if (!root || !view) {
+          return { text, skipScroll: true };
         }
-        return ranges;
-      }
-      function clearCodeFindHighlights(view) {
-        if (!view || !view.dom) return;
-        const inputs = view.dom.querySelectorAll(".mda-cm-code-input");
-        for (let i = 0; i < inputs.length; i++) clearContainerFindMarks(inputs[i]);
-      }
-      function applyCodeFindHighlights(view, matches, activeIndex) {
-        if (!view || !view.dom) return;
-        clearCodeFindHighlights(view);
-        if (!matches || !matches.length) return;
+        const blockFrom = parseInt(root.getAttribute("data-mda-block-from") || "", 10);
+        const blockTo = parseInt(root.getAttribute("data-mda-block-to") || "", 10);
+        if (!Number.isFinite(blockFrom) || !Number.isFinite(blockTo) || blockTo <= blockFrom) {
+          return { text, skipScroll: true };
+        }
+        if (!offsets || offsets.end <= offsets.start) {
+          return { text, skipScroll: true };
+        }
         const doc = view.state.doc.toString();
-        const blocks = view.dom.querySelectorAll(".mda-cm-code-block");
-        const inputRanges = /* @__PURE__ */ new Map();
-        for (let bi = 0; bi < blocks.length; bi++) {
-          const root = blocks[bi];
-          const blockFrom = parseInt(root.getAttribute("data-mda-block-from") || "", 10);
-          const blockTo = parseInt(root.getAttribute("data-mda-block-to") || "", 10);
-          if (!Number.isFinite(blockFrom) || !Number.isFinite(blockTo) || blockTo <= blockFrom) {
-            continue;
-          }
-          const blockText = doc.slice(blockFrom, blockTo);
-          const body = getFenceBodyDocRange(blockFrom, blockText);
-          if (!body) continue;
-          const codeInput = root.querySelector(".mda-cm-code-input");
-          if (!codeInput) continue;
-          const plain = getCodeInputPlainText(codeInput);
-          if (!fencePlainAligns(plain, body.code)) continue;
-          const useLogical = !!(codeInput.querySelector && codeInput.querySelector("br"));
-          const indexFn = useLogical ? indexLogicalTextNodes : indexTextNodes;
-          const plainLen = indexFn(codeInput).reduce(function(sum, n) {
-            return sum + (n.globalEnd - n.globalStart);
-          }, 0);
-          const codeLen = body.code.length;
-          const lenOk = plainLen === codeLen || plainLen === codeLen + 1 || plainLen === codeLen - 1;
-          for (let mi = 0; mi < matches.length; mi++) {
-            const m = matches[mi];
-            if (m.end <= m.start) continue;
-            if (m.end <= body.bodyFrom || m.start >= body.bodyTo) continue;
-            const matchFrom = Math.max(m.start, body.bodyFrom);
-            const matchTo = Math.min(m.end, body.bodyTo);
-            const visStart = matchFrom - body.bodyFrom;
-            const visEnd = matchTo - body.bodyFrom;
-            if (visEnd <= visStart) continue;
-            if (visEnd > codeLen || lenOk && visEnd > plainLen) continue;
-            const slice = body.code.slice(visStart, visEnd);
-            const docSlice = doc.slice(matchFrom, matchTo);
-            if (slice !== docSlice) continue;
-            const isActive = mi === activeIndex;
-            const cls = isActive ? FIND_ACTIVE_CLS : FIND_MARK_CLS;
-            if (!inputRanges.has(codeInput)) inputRanges.set(codeInput, []);
-            inputRanges.get(codeInput).push({ visStart, visEnd, cls });
+        const body = getFenceBodyDocRange(blockFrom, doc.slice(blockFrom, blockTo));
+        if (!body) return { text, skipScroll: true };
+        const plain = getCodeInputPlainText(codeInput);
+        if (!fencePlainAligns(plain, body.code)) {
+          return { text, skipScroll: true };
+        }
+        const from = body.bodyFrom + offsets.start;
+        const to = body.bodyFrom + offsets.end;
+        if (to <= from || to > body.bodyTo + 1) {
+          return { text, skipScroll: true };
+        }
+        return { text, from, to: Math.min(to, body.bodyTo), skipScroll: true };
+      }
+      function seedFromTableCellSelection(view, cell, selText) {
+        const text = String(selText || "");
+        if (!text) return null;
+        const root = cell.closest && cell.closest(".mda-cm-table-block");
+        if (!root || !view) {
+          return { text, skipScroll: true };
+        }
+        const blockFrom = parseInt(root.getAttribute("data-mda-block-from") || "", 10);
+        const blockTo = parseInt(root.getAttribute("data-mda-block-to") || "", 10);
+        if (!Number.isFinite(blockFrom) || !Number.isFinite(blockTo) || blockTo <= blockFrom) {
+          return { text, skipScroll: true };
+        }
+        const vis = getCellVisibleSelection(cell);
+        if (!vis || vis.end <= vis.start) {
+          return { text, skipScroll: true };
+        }
+        const row = parseInt(cell.getAttribute("data-mda-row") || "0", 10);
+        const col = parseInt(cell.getAttribute("data-mda-col") || "0", 10);
+        const doc = view.state.doc.toString();
+        const cellMap = buildTableCellDocMap(doc.slice(blockFrom, blockTo), blockFrom);
+        let cellInfo = null;
+        for (let i = 0; i < cellMap.length; i++) {
+          if (cellMap[i].row === row && cellMap[i].col === col) {
+            cellInfo = cellMap[i];
+            break;
           }
         }
-        inputRanges.forEach(function(ranges, input) {
-          applyVisibleHighlightsInContainer(input, ranges);
-        });
+        if (!cellInfo) return { text, skipScroll: true };
+        const liveMd = getCellMarkdownContent(cell);
+        const docMd = doc.slice(cellInfo.docFrom, cellInfo.docTo);
+        if (liveMd !== docMd) {
+          return { text, skipScroll: true };
+        }
+        const mdFrom = visibleToMarkdownOffset(docMd, vis.start);
+        const mdTo = visibleToMarkdownOffset(docMd, vis.end);
+        if (mdTo <= mdFrom) return { text, skipScroll: true };
+        return {
+          text,
+          from: cellInfo.docFrom + mdFrom,
+          to: cellInfo.docFrom + mdTo,
+          skipScroll: true
+        };
+      }
+      function getWidgetFindSeed(view) {
+        if (typeof window === "undefined" || !window.getSelection) return null;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount < 1 || sel.isCollapsed) return null;
+        const range = sel.getRangeAt(0);
+        let text = range.toString();
+        if (!text) return null;
+        text = String(text).replace(/\u200b/g, "").replace(/\u00a0/g, " ");
+        if (!text) return null;
+        const live = classifyWidgetEditable(document.activeElement) || classifyWidgetEditable(sel.anchorNode) || classifyWidgetEditable(sel.focusNode) || classifyWidgetEditable(range.commonAncestorContainer);
+        if (!live || !live.el) return null;
+        try {
+          if (!live.el.contains(range.startContainer) || !live.el.contains(range.endContainer)) {
+            return null;
+          }
+        } catch (_) {
+          return null;
+        }
+        if (live.kind === "code") {
+          return seedFromCodeSelection(view, live.el, text);
+        }
+        if (live.kind === "table-cell") {
+          return seedFromTableCellSelection(view, live.el, text);
+        }
+        return { text, skipScroll: true };
       }
       module.exports = {
-        applyCodeFindHighlights,
-        clearCodeFindHighlights,
-        getCodeBlockRanges,
-        getFenceBodyDocRange,
-        getCodeInputPlainText
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widget-find-highlight.js
-  var require_widget_find_highlight = __commonJS({
-    "src/gui/renderer/editor/widget-find-highlight.js"(exports, module) {
-      "use strict";
-      var {
-        applyTableFindHighlights,
-        clearTableFindHighlights,
-        getTableBlockRanges
-      } = require_table_find_highlight();
-      var {
-        applyCodeFindHighlights,
-        clearCodeFindHighlights,
-        getCodeBlockRanges
-      } = require_code_find_highlight();
-      function getWidgetBlockRanges(view) {
-        return getTableBlockRanges(view).concat(getCodeBlockRanges(view));
-      }
-      function applyWidgetFindHighlights(view, matches, activeIndex) {
-        applyTableFindHighlights(view, matches, activeIndex);
-        applyCodeFindHighlights(view, matches, activeIndex);
-      }
-      function clearWidgetFindHighlights(view) {
-        clearTableFindHighlights(view);
-        clearCodeFindHighlights(view);
-      }
-      module.exports = {
-        getWidgetBlockRanges,
-        applyWidgetFindHighlights,
-        clearWidgetFindHighlights
+        getWidgetFindSeed
       };
     }
   });
@@ -67484,6 +67622,7 @@ var MDAEditorBundle = (() => {
       var { refreshEmptyLineInsertI18n } = require_empty_line_insert();
       var { sliceDocForClipboard } = require_syntax_clipboard();
       var { getWidgetInlineSelectionText } = require_widget_editable_guard();
+      var { getWidgetFindSeed } = require_widget_find_seed();
       var { adjustCaretForKeyboardNav } = require_caret_syntax_adjust();
       var { createEditorToolbar } = require_toolbar();
       var { createFormatKeymap } = require_format_commands();
@@ -67754,6 +67893,22 @@ var MDAEditorBundle = (() => {
             const sel = view.state.selection.main;
             if (sel.from === sel.to) return "";
             return sliceDocForClipboard(view.state, sel.from, sel.to).text;
+          },
+          /**
+           * 打开查找栏用：优先 CM6 文档选区，否则块 widget（代码/表格格）DOM 选区。
+           * @returns {{ text: string, from?: number, to?: number, skipScroll?: boolean } | null}
+           */
+          getFindSeedFromSelection: function() {
+            const sel = view.state.selection.main;
+            if (!sel.empty) {
+              return {
+                text: view.state.doc.sliceString(sel.from, sel.to),
+                from: sel.from,
+                to: sel.to,
+                skipScroll: true
+              };
+            }
+            return getWidgetFindSeed(view);
           },
           replaceSelection: function(text) {
             view.dispatch(view.state.replaceSelection(text == null ? "" : String(text)));

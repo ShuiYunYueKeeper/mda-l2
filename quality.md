@@ -85,7 +85,7 @@ npx playwright test tests/e2e/capture/docs-screenshots.spec.ts   # 刷新文档�
 | **文件列表 / 大纲** | 改动侧栏或大纲 UI | 字号/行距可读；收起钮明显；大纲子标题可 ▸/▾ 折叠，高亮时自动展开祖先 |
 | **KaTeX 公式预览** | 改动 KaTeX 插件/字体/CSS | `samples/katex.md`：行内基线、块级紧凑卡片、复杂/超宽公式、代码围栏负例；浅/深主题与 Windows 100%/125% 显示缩放均清晰 |
 | **复制预览（微信公众号）** | 改动 `copyPreviewForArticle` / Mermaid·公式导出 / 剪贴板 IPC | 实机：`Ctrl+Shift+C` 粘贴公众号编辑器，正文+图+流程图+**公式图**齐全；复制过程无滚动跳动/闪烁 |
-| **同步滚动 / 查找替换** | 改动 `sync-scroll.js` / `find-replace.js` | **点击双向定位**（滚动互不跟随）；点预览只滚源码且预览视口不变；点源码/方向键才滚预览；大纲/Ctrl+G 仍可双边定位；查找高亮与 ↑/↓ 跳转；IME 焦点不丢失 |
+| **同步滚动 / 查找替换** | 改动 `sync-scroll.js` / `find-replace.js` / `widget-find-seed` | **点击双向定位**（滚动互不跟随）；点预览只滚源码且预览视口不变；点源码/方向键才滚预览；大纲/Ctrl+G 仍可双边定位；查找高亮与 ↑/↓ 跳转；IME 焦点不丢失；**选区打开查找不跳首命中**；代码块/表格格内 `Ctrl+F` 可用 |
 | **选区批注** | 改动 `selection-anchor.js` / `anchor-highlights.js` / anchor 写入 | 预览/源码双路径选区→`anchor`；插入批注行后偏移不失效；代码块/表格可批注；orphan 标记 |
 | **MCP / 导出** | 改动 `src/mcp/**` 或导出/更新 IPC | `mda_scan` 与 CLI JSON 一致；HTML/PDF/**Word** 导出（docx 用 WPS/Word 打开抽检）；打包版检查更新 |
 | **同文件批量 add 批注** | Agent/脚本对同一 `.md` 多次 `mda_add`/`add` | 须串行；自下而上或每条后重扫行号；`line` 勿用空行；JSON 用 MCP 或 `node dist/cli/main.js`（见 few-shot §19 / AGENTS §9.13） |
@@ -99,7 +99,7 @@ npx playwright test tests/e2e/capture/docs-screenshots.spec.ts   # 刷新文档�
 | **CM6 hide-mark 点击/剪贴板** | 改动 `caret-syntax-adjust` / `syntax-clipboard` / `click-collapse` | 点击标题/粗体/code 左缘→开定界符左侧、右缘→闭定界符右侧；拖选单侧定界符粘贴无 `**`/`` ` ``；完整选中保留 Markdown |
 | **CM6 widget 内文字拖选** | 改动 `widget-editable-guard` / `tight-selection` / widget `contenteditable` | 表格格、代码块、Mermaid/公式源码内可拖选（浅蓝 `--table-text-sel`）；表格内拖选后仍可切文件/关窗；**禁止**对 widget 指针事件 `domEventHandlers` `return true` |
 | **CM6 右键菜单（widget 选区）** | 改动 `context-menu` / `context-selection` / `table-chrome` `onDocPointer` | 长文档多表：靠后代码块/表格单元格拖选→右键选区保留、复制/剪切可用；选区外右键折叠；与表格局部菜单不互抢 |
-| **CM6 代码块 Enter** | 改动 `code.js` / `parse-fence.serializeFencedCode` | 中间/末尾 Enter 光标落新行；尾部空行可见；块内 Ctrl+Z 可撤销；撤销后标脏同步；失焦写回源码 |
+| **CM6 代码块 Enter** | 改动 `code.js` / `parse-fence.serializeFencedCode` | 中间/末尾 Enter 光标落新行；尾部空行可见；块内 Ctrl+Z 可撤销；撤销后标脏同步；失焦写回源码；**点击块内保留 hljs**（查找 mark 仍可见）；仅右键菜单可短暂压平 |
 | **悬停菜单 200ms** | 改动语言子菜单 / 块手柄菜单 / `HOVER_LEAVE_MS` | 鼠标移出菜单或触发器后约 200ms 关闭；移回取消关闭 |
 | **Free 门禁（M6-5）** | Phase A 集成完成 | 对照 `.project-setup/verification-report.md`；用户明确确认前不得开工 M7 |
 | 阶段确认门禁 | P0–P3 每阶段产出后 | 设计取舍需人工确认后才进入下一阶段 |

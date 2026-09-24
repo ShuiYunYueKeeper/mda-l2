@@ -1,5 +1,7 @@
 /**
- * 围栏代码块 widget：单层 contenteditable + 输入时重绘 hljs（避免透明叠层在 Electron 丢光标/选区字）。
+ * 围栏代码块 widget：单层 contenteditable + 保持/输入时重绘 hljs；
+ * 选区浅蓝靠 `*::selection` CSS，不再在点击时压平为纯文本（以免破坏查找高亮）。
+ * 右键菜单路径仍可压平以稳定逻辑选区快照。
  */
 'use strict';
 
@@ -691,6 +693,13 @@ class CodeFenceWidget extends BlockReplaceWidget {
       } finally {
         applyingProgrammatic = false;
       }
+      // 重绘会清掉查找 mark，须立刻补回
+      try {
+        const { reapplyWidgetFindHighlights } = require('../widget-find-highlight');
+        reapplyWidgetFindHighlights(view);
+      } catch (_) {
+        /* ignore */
+      }
     }
 
     function renderFromLocalCode(caretOffset) {
@@ -712,6 +721,14 @@ class CodeFenceWidget extends BlockReplaceWidget {
         applyingProgrammatic = false;
       }
       syncLineNumbers();
+      if (!plainEditing) {
+        try {
+          const { reapplyWidgetFindHighlights } = require('../widget-find-highlight');
+          reapplyWidgetFindHighlights(view);
+        } catch (_) {
+          /* ignore */
+        }
+      }
     }
 
     function pushUndoSnapshot() {
@@ -957,7 +974,6 @@ class CodeFenceWidget extends BlockReplaceWidget {
         enterEditMode();
         if (e.shiftKey) {
           const head = caretOffsetFromClient(codeInput, e.clientX, e.clientY);
-          ensurePlainForEdit({ caret: selectionAnchor });
           setLogicalSelection(codeInput, selectionAnchor, head);
           e.preventDefault();
         }
@@ -972,14 +988,8 @@ class CodeFenceWidget extends BlockReplaceWidget {
         enterEditMode();
         if (e.shiftKey) return;
         const offsets = getLogicalSelectionOffsets(codeInput);
-        if (offsets) {
-          ensurePlainForEdit({ start: offsets.start, end: offsets.end });
-          selectionAnchor = offsets.start;
-        } else {
-          const caret = caretOffsetFromClient(codeInput, e.clientX, e.clientY);
-          ensurePlainForEdit({ caret: caret });
-          selectionAnchor = caret;
-        }
+        if (offsets) selectionAnchor = offsets.start;
+        else selectionAnchor = caretOffsetFromClient(codeInput, e.clientX, e.clientY);
       },
       true
     );
@@ -1004,18 +1014,25 @@ class CodeFenceWidget extends BlockReplaceWidget {
     codeInput.addEventListener('compositionend', function () {
       composing = false;
       localCode = readDomCodeText();
+      paintHighlight(true);
       syncCodeLayout();
       markCodeDirty();
     });
     codeInput.addEventListener('input', function () {
       if (composing || applyingProgrammatic) return;
       localCode = readDomCodeText();
+      paintHighlight(true);
       syncCodeLayout();
       markCodeDirty();
     });
     codeInput.addEventListener('keydown', function (e) {
-      e.stopPropagation();
       const mod = e.ctrlKey || e.metaKey;
+      // Ctrl/Cmd+F/H 放行到 app 捕获/冒泡查找（勿 stopPropagation）
+      if (mod && !e.altKey && !e.shiftKey) {
+        const fk = (e.key || '').toLowerCase();
+        if (fk === 'f' || fk === 'h') return;
+      }
+      e.stopPropagation();
       if (
         mod &&
         !e.altKey &&
@@ -1056,14 +1073,7 @@ class CodeFenceWidget extends BlockReplaceWidget {
       const session = { undo: undoLocal, redo: redoLocal };
       activeCodeEditSession = session;
       root._mdaCodeEditSession = session;
-      if (plainEditing || isWidgetDomMenuGuard()) return;
-      requestAnimationFrame(function () {
-        if (isWidgetDomMenuGuard() || plainEditing) return;
-        if (document.activeElement !== codeInput) return;
-        const offsets = getLogicalSelectionOffsets(codeInput);
-        if (offsets) ensurePlainForEdit({ start: offsets.start, end: offsets.end });
-        else ensurePlainForEdit({ caret: getCaretOffset() });
-      });
+      // 保持 hljs 语法高亮（选区色已由 *::selection CSS 覆盖）；仅右键菜单路径才压平
     });
     codeInput.addEventListener('blur', function () {
       requestAnimationFrame(function () {
@@ -1117,7 +1127,6 @@ class CodeFenceWidget extends BlockReplaceWidget {
     if (resumed) {
       requestAnimationFrame(function () {
         enterEditMode();
-        flattenToPlain({});
         codeInput.focus();
         setCaretOffset(resumed.caret);
       });
@@ -1161,4 +1170,5 @@ module.exports = {
   highlightHtmlWithTrailingLines: highlightHtmlWithTrailingLines,
   tryCodeBlockUndo: tryCodeBlockUndo,
   tryCodeBlockRedo: tryCodeBlockRedo,
+  getLogicalSelectionOffsets: getLogicalSelectionOffsets,
 };

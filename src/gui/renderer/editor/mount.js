@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 创建 / 销毁 CM6 EditorView；BOM 不进模型，由调用方在保存时拼回。
  */
 'use strict';
@@ -38,6 +38,7 @@ const { invalidateLayerBuildCache, notifyAnnoFilterChanged } = require('./live-p
 const { refreshEmptyLineInsertI18n } = require('./empty-line-insert');
 const { sliceDocForClipboard } = require('./syntax-clipboard');
 const { getWidgetInlineSelectionText } = require('./widget-editable-guard');
+const { getWidgetFindSeed } = require('./widget-find-seed');
 const { adjustCaretForKeyboardNav } = require('./caret-syntax-adjust');
 const { createEditorToolbar } = require('./toolbar');
 const { createFormatKeymap } = require('./format-commands');
@@ -348,6 +349,22 @@ function createEditor(opts) {
       const sel = view.state.selection.main;
       if (sel.from === sel.to) return '';
       return sliceDocForClipboard(view.state, sel.from, sel.to).text;
+    },
+    /**
+     * 打开查找栏用：优先 CM6 文档选区，否则块 widget（代码/表格格）DOM 选区。
+     * @returns {{ text: string, from?: number, to?: number, skipScroll?: boolean } | null}
+     */
+    getFindSeedFromSelection: function () {
+      const sel = view.state.selection.main;
+      if (!sel.empty) {
+        return {
+          text: view.state.doc.sliceString(sel.from, sel.to),
+          from: sel.from,
+          to: sel.to,
+          skipScroll: true,
+        };
+      }
+      return getWidgetFindSeed(view);
     },
     replaceSelection: function (text) {
       view.dispatch(view.state.replaceSelection(text == null ? '' : String(text)));

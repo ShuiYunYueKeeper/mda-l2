@@ -874,3 +874,23 @@ activeHandle.classList.add('dragging'); // activeHandle 已是游离节点
 ```
 
 现象：松手后光标仍是 `col-resize`，再移动鼠标列宽还跟着变。
+
+---
+
+## 29. 选区打开查找 / 代码块保持高亮（GUI find-replace + code.js）
+
+**规则**：有选区打开查找须填词且不跳文档首命中；代码块/表格格选区在 DOM；`Ctrl+F` 捕获阶段；点击代码块保留 hljs。
+
+### ✅ 正确
+
+- `show(mode, { text, from, to, skipScroll: true })` → `refreshMatches(false, { skipScroll: true })` + `indexOfMatchForSelection`
+- `window.addEventListener('keydown', onFind, true)` 处理 `Ctrl+F/H`（代码块冒泡会 `stopPropagation`）
+- `getWidgetFindSeed(view)` 把代码块/格内选区映射到文档偏移
+- 点击/聚焦代码块**不** `ensurePlainForEdit`；输入后 `paintHighlight` + `reapplyWidgetFindHighlights`
+
+### ❌ 错误
+
+- 有选区仍 `refreshMatches(true)` → 视口飞到第一个命中
+- 只读 CM6 `selection.main` 当种子 → 代码块/格内选区打开查找词为空并跳首命中
+- 查找快捷键只挂冒泡阶段 → 块内 `Ctrl+F` 无效（工具栏却正常）
+- focus/mouseup 压平 hljs → 查找 mark 与语法色一起消失

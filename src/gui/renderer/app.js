@@ -1137,7 +1137,10 @@
     }
     setupAiPanel();
     api.onAppCloseRequest(function () {
-      if (document.getElementById('settings-dialog')) return;
+      if (document.getElementById('settings-dialog')) {
+        if (api.abortClose) api.abortClose();
+        return;
+      }
       handleAppCloseRequest();
     });
     if (api.onSettingsModalBlockedClose) {
@@ -1152,6 +1155,22 @@
     }
 
     setupDragAndDrop();
+    // 捕获阶段处理查找/替换：代码块等 contenteditable 会在冒泡阶段 stopPropagation
+    window.addEventListener(
+      'keydown',
+      function (e) {
+        if (document.getElementById('settings-dialog')) return;
+        if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+        var k = (e.key || '').toLowerCase();
+        if (k !== 'f' && k !== 'h') return;
+        if (e.target && e.target.closest && e.target.closest('#find-replace-bar')) return;
+        if (docState === 'welcome' || !findReplaceUi) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openFindReplace(k === 'f' ? 'find' : 'replace');
+      },
+      true
+    );
     window.addEventListener('keydown', function (e) {
       // 设置模态打开时不响应应用级快捷键（菜单加速键由主进程禁用）
       // 但输入框内须放行复制/粘贴/剪切/全选/撤销，否则激活码与 API Key 无法编辑
@@ -1179,20 +1198,8 @@
         saveAs();
         return;
       }
-      if (k === 'f' && !e.shiftKey) {
-        if (docState !== 'welcome' && findReplaceUi) {
-          e.preventDefault();
-          openFindReplace('find');
-        }
-        return;
-      }
-      if (k === 'h' && !e.shiftKey) {
-        if (docState !== 'welcome' && findReplaceUi) {
-          e.preventDefault();
-          openFindReplace('replace');
-        }
-        return;
-      }
+      // Ctrl+F / Ctrl+H 已在捕获阶段处理
+      if (k === 'f' || k === 'h') return;
       if (k === 'g' && !e.shiftKey) {
         e.preventDefault();
         showGotoLineDialog();
@@ -1268,19 +1275,61 @@
     };
   }
 
-  /** 打开查找栏时：若有非空选区则作为查找词（单行输入框仅取首行） */
-  function getFindSeedFromSelection() {
-    var text = '';
-    if (isCm6Ready() && cm6Editor && typeof cm6Editor.getSelectionText === 'function') {
-      text = cm6Editor.getSelectionText();
-    } else if (editorEl && editorEl.selectionStart < editorEl.selectionEnd) {
-      text = editorEl.value.slice(editorEl.selectionStart, editorEl.selectionEnd);
-    }
-    text = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  /** 打开查找栏时：若有非空选区则作为查找词（单行输入框仅取首行），并带回选区坐标以免跳到首个命中 */
+  function normalizeFindSeed(raw) {
+    if (!raw) return null;
+    var text = String(raw.text != null ? raw.text : '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    var from = typeof raw.from === 'number' ? raw.from : null;
+    var to = typeof raw.to === 'number' ? raw.to : null;
     if (!text) return null;
-    if (text.indexOf('\n') !== -1) text = text.split('\n')[0];
+    if (text.indexOf('\n') !== -1) {
+      var first = text.split('\n')[0];
+      if (from != null) to = from + first.length;
+      text = first;
+    }
+    var lead = text.match(/^\s*/);
+    var trail = text.match(/\s*$/);
+    var leadLen = lead ? lead[0].length : 0;
+    var trailLen = trail ? trail[0].length : 0;
     text = text.trim();
-    return text.length ? text : null;
+    if (!text.length) return null;
+    if (from != null && to != null) {
+      from += leadLen;
+      to -= trailLen;
+    }
+    var out = { text: text, skipScroll: true };
+    if (from != null && to != null && from < to) {
+      out.from = from;
+      out.to = to;
+    }
+    return out;
+  }
+
+  function getFindSeedFromSelection() {
+    if (isCm6Ready() && cm6Editor) {
+      if (typeof cm6Editor.getFindSeedFromSelection === 'function') {
+        return normalizeFindSeed(cm6Editor.getFindSeedFromSelection());
+      }
+      if (cm6Editor.view) {
+        var sel = cm6Editor.view.state.selection.main;
+        if (!sel.empty) {
+          return normalizeFindSeed({
+            text: cm6Editor.view.state.doc.sliceString(sel.from, sel.to),
+            from: sel.from,
+            to: sel.to,
+          });
+        }
+      }
+      return null;
+    }
+    if (editorEl && editorEl.selectionStart < editorEl.selectionEnd) {
+      return normalizeFindSeed({
+        text: editorEl.value.slice(editorEl.selectionStart, editorEl.selectionEnd),
+        from: editorEl.selectionStart,
+        to: editorEl.selectionEnd,
+      });
+    }
+    return null;
   }
 
   function openFindReplace(mode) {
@@ -5968,7 +6017,10 @@
   }
 
   function handleAppCloseRequest() {
-    if (document.getElementById('settings-dialog')) return;
+    if (document.getElementById('settings-dialog')) {
+      if (api.abortClose) api.abortClose();
+      return;
+    }
     // 同 saveFile：格内编辑未经 CM6 事务，不先 flush 会被当成「没改过」直接关掉
     flushActiveWidgetEditsBeforeSave();
     if (!dirty) {
@@ -5980,7 +6032,11 @@
     closePromptOpen = true;
     uiCloseConfirm().then(function (choice) {
       closePromptOpen = false;
-      if (choice === 'cancel') return;
+      if (choice === 'cancel') {
+        // 主进程可能已 hide（脏标记不同步）；取消时必须把窗口拉回来
+        if (api.abortClose) api.abortClose();
+        return;
+      }
       if (choice === 'discard') {
         clearCloseTimers();
         api.confirmClose();

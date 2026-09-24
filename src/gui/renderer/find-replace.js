@@ -1,4 +1,4 @@
-// 查找 / 替换浮层（Ctrl+F / Ctrl+H）
+﻿// 查找 / 替换浮层（Ctrl+F / Ctrl+H）
 (function (global) {
   function findAll(text, query, opts) {
     opts = opts || {};
@@ -28,6 +28,31 @@
       from = idx + (query.length || 1);
     }
     return matches;
+  }
+
+  /**
+   * 在命中列表中选与当前选区重叠（或落点相同）的一项；找不到则 -1。
+   * @param {{ start: number, end: number }[]} matches
+   * @param {number} from
+   * @param {number} to
+   */
+  function indexOfMatchForSelection(matches, from, to) {
+    if (!matches || !matches.length || from == null || to == null || from >= to) return -1;
+    var i;
+    var m;
+    for (i = 0; i < matches.length; i++) {
+      m = matches[i];
+      if (m.start === from && m.end === to) return i;
+    }
+    for (i = 0; i < matches.length; i++) {
+      m = matches[i];
+      if (m.start >= from && m.end <= to) return i;
+    }
+    for (i = 0; i < matches.length; i++) {
+      m = matches[i];
+      if (m.start < to && m.end > from) return i;
+    }
+    return -1;
   }
 
   function mount(hostEl, editorEl, onDirty, hooks) {
@@ -332,18 +357,50 @@
 
     /**
      * @param {'find'|'replace'} [mode]
-     * @param {string} [initialQuery] 非空时填入查找框（如来自编辑器选区）
+     * @param {string|{ text: string, from?: number, to?: number, skipScroll?: boolean }|null} [initialQuery]
+     *        字符串，或带选区坐标的对象（来自选区种子：填词但不跳转到文档首个命中）
      */
     function show(mode, initialQuery) {
       state.mode = mode || 'find';
       bar.classList.remove('hidden');
       replaceRow.classList.toggle('hidden', state.mode !== 'replace');
-      if (initialQuery != null && String(initialQuery).length > 0) {
-        findInput.value = String(initialQuery);
+
+      var seedText = null;
+      var seedFrom = null;
+      var seedTo = null;
+      var seedSkipScroll = false;
+      if (initialQuery != null && typeof initialQuery === 'object') {
+        seedText = initialQuery.text != null ? String(initialQuery.text) : '';
+        if (typeof initialQuery.from === 'number') seedFrom = initialQuery.from;
+        if (typeof initialQuery.to === 'number') seedTo = initialQuery.to;
+        seedSkipScroll = !!initialQuery.skipScroll;
+      } else if (initialQuery != null && String(initialQuery).length > 0) {
+        seedText = String(initialQuery);
+      }
+
+      var fromSelection = !!(seedText && seedFrom != null && seedTo != null && seedFrom < seedTo);
+      var stayPut = fromSelection || seedSkipScroll;
+      if (seedText != null && seedText.length > 0) {
+        findInput.value = seedText;
       }
       findInput.focus();
       findInput.select();
-      refreshMatches(true);
+
+      if (stayPut) {
+        // 选区打开：高亮命中，但保持视口/光标不跳到文档第一个匹配
+        refreshMatches(false, { skipScroll: true });
+        if (fromSelection) {
+          var idx = indexOfMatchForSelection(state.matches, seedFrom, seedTo);
+          if (idx >= 0) {
+            state.index = idx;
+            updateCount();
+            notifyMatches();
+            syncSearchSession();
+          }
+        }
+      } else {
+        refreshMatches(true);
+      }
     }
 
     function hide() {
@@ -428,7 +485,11 @@
     };
   }
 
-  var api = { findAll: findAll, mount: mount };
+  var api = {
+    findAll: findAll,
+    mount: mount,
+    indexOfMatchForSelection: indexOfMatchForSelection,
+  };
   global.MDAFindReplace = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : global);
