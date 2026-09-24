@@ -92,6 +92,9 @@ let ipcHandlersRegistered = false;
 let autoUpdaterApi = null;
 /** 设置弹窗打开时：菜单不可点（保留顶栏标签），并拦截窗口关闭 */
 let settingsModalOpen = false;
+/** 关窗已 hide、等待渲染进程 confirmClose；超时则强制退出，避免幽灵进程占住单实例锁 */
+let closeWatchdogTimer = null;
+const CLOSE_WATCHDOG_MS = 8000;
 /** @type {ReturnType<typeof createAiSettingsStore>|null} */
 let aiSettingsStore = null;
 /** @type {AbortController|null} */
@@ -1022,10 +1025,50 @@ function registerIpcHandlers() {
   ipcMain.on('confirm-close', () => {
     finishAppClose();
   });
+  ipcMain.on('abort-close', () => {
+    abortAppClose();
+  });
+}
+
+function clearCloseWatchdog() {
+  if (closeWatchdogTimer) {
+    clearTimeout(closeWatchdogTimer);
+    closeWatchdogTimer = null;
+  }
+}
+
+function armCloseWatchdog() {
+  clearCloseWatchdog();
+  closeWatchdogTimer = setTimeout(() => {
+    closeWatchdogTimer = null;
+    // 仍隐藏 → 渲染进程未 confirm/abort；强制退出以释放单实例锁
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) return;
+    finishAppClose();
+  }, CLOSE_WATCHDOG_MS);
+}
+
+/** 取消关闭：清看门狗并重新显示窗口（脏确认取消 / 二次启动唤醒） */
+function abortAppClose() {
+  clearCloseWatchdog();
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+    mainWindow.show();
+  }
+}
+
+/** 激活已有窗口；无窗口则新建（幽灵进程 / 关窗半途的二次启动） */
+function focusOrCreateMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (app.isReady()) createWindow(null);
+    return;
+  }
+  if (!mainWindow.isVisible()) mainWindow.show();
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
 }
 
 /** 尽快结束进程，避免窗口隐藏后 Chromium/Electron 收尾拖住系统输入 */
 function finishAppClose() {
+  clearCloseWatchdog();
   allowClose = true;
   if (boundsSaveTimer) {
     clearTimeout(boundsSaveTimer);
@@ -1155,10 +1198,12 @@ function createWindow(initialFile) {
     if (!rendererDirty && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.hide();
     }
-
+    // 若渲染进程未 confirmClose（崩溃/卡死/脏状态不同步），看门狗强制退出，避免幽灵进程
+    armCloseWatchdog();
     sendToRenderer('app-close-request');
   });
   mainWindow.on('closed', () => {
+    clearCloseWatchdog();
     mainWindow = null;
     allowClose = false;
     rendererDirty = false;
@@ -1199,9 +1244,9 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
-    if (!mainWindow) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+    // 关窗半途（已 hide）或幽灵进程：取消关闭并强制显示，否则 focus 对隐藏窗无效
+    abortAppClose();
+    focusOrCreateMainWindow();
     const argFile = argv.find((a) => !a.startsWith('-') && isMarkdownPath(a));
     if (argFile) {
       sendToRenderer('file-opened', path.resolve(argFile));

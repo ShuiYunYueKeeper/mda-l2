@@ -251,6 +251,7 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   },
   setDirty: (dirty) => ipcRenderer.send('set-dirty', !!dirty),
   confirmClose: () => ipcRenderer.send('confirm-close'),
+  abortClose: () => ipcRenderer.send('abort-close'),
 
   showSaveDialog: (opts) => ipcRenderer.invoke('show-save-dialog', opts || {}),
   showOpenFileDialog: () => ipcRenderer.invoke('show-open-file-dialog'),

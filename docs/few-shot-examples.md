@@ -894,3 +894,21 @@ activeHandle.classList.add('dragging'); // activeHandle 已是游离节点
 - 只读 CM6 `selection.main` 当种子 → 代码块/格内选区打开查找词为空并跳首命中
 - 查找快捷键只挂冒泡阶段 → 块内 `Ctrl+F` 无效（工具栏却正常）
 - focus/mouseup 压平 hljs → 查找 mark 与语法色一起消失
+
+---
+
+## 30. 关窗幽灵进程与单实例锁（GUI main.js）
+
+**规则**：关窗先 hide 再等 `confirmClose` 时，必须有超时退出与取消恢复；二次启动须能唤醒隐藏窗。
+
+### ✅ 正确
+
+- 关窗 `armCloseWatchdog`；超时仍隐藏 → `finishAppClose`
+- 取消关闭 / 设置拦截 → `abortClose` 清看门狗并 `show`
+- `second-instance` → `abortAppClose` + `focusOrCreateMainWindow`
+
+### ❌ 错误
+
+- hide 后只等渲染回调、无看门狗 → 幽灵进程占锁，双击 md 打不开
+- 取消关闭不 `show` → 窗口消失但进程仍在
+- 二次启动只 `focus` 隐藏窗 → 用户看不见任何窗口
