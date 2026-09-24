@@ -32,6 +32,18 @@ let codeEditResume = null;
 let activeCodeEditSession = null;
 
 /**
+ * 若文本是完整代码围栏（任意语言），返回围栏内正文；否则原样返回。
+ * @param {string} text
+ * @returns {string}
+ */
+function stripCodeFenceWrapper(text) {
+  const raw = String(text == null ? '' : text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const m = /^[ \t]*(```|~~~)[^\n]*\n([\s\S]*?)\n[ \t]*\1[ \t]*\s*$/.exec(raw.trim());
+  if (m) return m[2];
+  return raw;
+}
+
+/**
  * @returns {boolean}
  */
 function tryCodeBlockUndo() {
@@ -1046,6 +1058,30 @@ class CodeFenceWidget extends BlockReplaceWidget {
         e.preventDefault();
         return;
       }
+      // Ctrl+A：只选中代码框，勿冒泡成整篇文档全选
+      if (mod && !e.altKey && !e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        try {
+          const range = document.createRange();
+          range.selectNodeContents(codeInput);
+          const sel = window.getSelection();
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        } catch (_) {
+          /* ignore */
+        }
+        return;
+      }
+      // 无拖选时 Ctrl+C：复制整块围栏源码
+      if (mod && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+        const sel = window.getSelection && window.getSelection();
+        if (sel && !sel.isCollapsed && String(sel.toString() || '').length > 0) return;
+        e.preventDefault();
+        copyText(self.source, opts.copyText);
+        return;
+      }
       if (mod && !e.altKey && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
         if (e.shiftKey) redoLocal();
@@ -1064,8 +1100,10 @@ class CodeFenceWidget extends BlockReplaceWidget {
     codeInput.addEventListener('paste', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      const text = e.clipboardData && e.clipboardData.getData('text/plain');
+      let text = e.clipboardData && e.clipboardData.getData('text/plain');
       if (text == null) return;
+      // 若剪贴板是完整代码围栏，只贴入正文，避免嵌套 ```
+      text = stripCodeFenceWrapper(text);
       spliceLocalCode(getCaretOffset(), text, 0);
     });
     codeInput.addEventListener('focus', function () {

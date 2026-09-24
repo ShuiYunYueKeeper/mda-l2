@@ -7,6 +7,7 @@ const {
   copyBlockSource,
   insertSnippetAtBlankLine,
   insertSnippetNearBlock,
+  promptInsertLink,
   deleteBlock,
 } = require('./block-handle-ops');
 
@@ -86,6 +87,10 @@ function createBlockMenuHandlers(liveOpts) {
       opts.onPickImageInsert(where, block);
       return;
     }
+    if (type === 'link') {
+      promptInsertLink(view, where, block, { t: opts.t });
+      return;
+    }
     if (insertSnippetNearBlock(view, block, where, type)) return;
     if (typeof opts.onSoon === 'function') opts.onSoon('insert-' + where, type);
   }
@@ -95,6 +100,10 @@ function createBlockMenuHandlers(liveOpts) {
     if (!view) return;
     if (type === 'image' && typeof opts.onPickImageInsert === 'function') {
       opts.onPickImageInsert('blank', block);
+      return;
+    }
+    if (type === 'link') {
+      promptInsertLink(view, 'blank', block, { t: opts.t });
       return;
     }
     if (insertSnippetAtBlankLine(view, block, type)) return;

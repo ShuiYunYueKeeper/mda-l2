@@ -5,6 +5,7 @@
 
 const { EditorView } = require('@codemirror/view');
 const { syntaxTree } = require('@codemirror/language');
+const { normalizeExternalHref } = require('./model/auto-link');
 
 const SHOW_DELAY_MS = 450;
 const HIDE_DELAY_MS = 80;
@@ -34,7 +35,11 @@ function hrefAtPointer(view, event) {
   const target = event.target;
   if (target && target.closest) {
     const el = target.closest('[data-mda-href], a.mda-cm-link[href]');
-    if (el) return el.getAttribute('data-mda-href') || el.getAttribute('href') || '';
+    if (el) {
+      return normalizeExternalHref(
+        el.getAttribute('data-mda-href') || el.getAttribute('href') || ''
+      );
+    }
   }
   const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
   if (pos == null) return '';
@@ -44,13 +49,13 @@ function hrefAtPointer(view, event) {
     if (node.name === 'Link') {
       const slice = text.slice(node.from, node.to);
       const m = /^\[([\s\S]*?)\]\(([\s\S]*?)\)$/.exec(slice);
-      return m ? String(m[2] || '').trim() : '';
+      return m ? normalizeExternalHref(String(m[2] || '').trim()) : '';
     }
     if (node.name === 'Autolink') {
-      return text.slice(node.from + 1, node.to - 1).trim();
+      return normalizeExternalHref(text.slice(node.from + 1, node.to - 1).trim());
     }
     if (node.name === 'URL') {
-      return text.slice(node.from, node.to).trim();
+      return normalizeExternalHref(text.slice(node.from, node.to).trim());
     }
     node = node.parent;
   }

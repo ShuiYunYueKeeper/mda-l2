@@ -46756,11 +46756,197 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/widgets/block-insert-snippets.js
+  var require_block_insert_snippets = __commonJS({
+    "src/gui/renderer/editor/widgets/block-insert-snippets.js"(exports, module) {
+      "use strict";
+      var INSERT_SNIPPETS = {
+        text: "",
+        h1: "# ",
+        h2: "## ",
+        h3: "### ",
+        h4: "#### ",
+        h5: "##### ",
+        h6: "###### ",
+        bullet: "- ",
+        ordered: "1. ",
+        task: "- [ ] ",
+        code: "```\n\n```",
+        mermaid: "```mermaid\ngraph TD\n  A-->B\n```",
+        // 行末保留空格：hide-mark 不藏「仅空格」行，便于落点输入
+        quote: "> ",
+        table: "| \u52171 | \u52172 |\n| --- | --- |\n|  |  |",
+        hr: "---",
+        image: "![](path/to/image.png)"
+      };
+      var AFTER_BLANK_INSERT_TYPES = {
+        mermaid: true,
+        image: true,
+        hr: true
+      };
+      var INSIDE_TRAILING_BLANK_INSERT_TYPES = {
+        code: true,
+        table: true,
+        quote: true,
+        link: true
+      };
+      function isAfterBlankInsertType(type) {
+        return !!AFTER_BLANK_INSERT_TYPES[type];
+      }
+      function isInsideTrailingBlankInsertType(type) {
+        return !!INSIDE_TRAILING_BLANK_INSERT_TYPES[type];
+      }
+      function needsTrailingBlankInsert(type) {
+        return isAfterBlankInsertType(type) || isInsideTrailingBlankInsertType(type);
+      }
+      function getInsertSnippet(type) {
+        if (!Object.prototype.hasOwnProperty.call(INSERT_SNIPPETS, type)) return null;
+        return INSERT_SNIPPETS[type];
+      }
+      function caretOffsetInSnippet(type, snippet) {
+        const s = String(snippet || "");
+        if (type === "code") {
+          const nl = s.indexOf("\n");
+          return nl >= 0 ? nl + 1 : s.length;
+        }
+        if (type === "table") {
+          const cell = s.indexOf("|  |");
+          return cell >= 0 ? cell + 2 : s.length;
+        }
+        if (type === "ordered") {
+          return 3;
+        }
+        if (type === "task") {
+          return 6;
+        }
+        if (isAfterBlankInsertType(type)) {
+          return s.endsWith("\n") ? s.length : s.length + 1;
+        }
+        return s.length;
+      }
+      var LINE_ORIENTED_INSERT_TYPES = {
+        text: true,
+        h1: true,
+        h2: true,
+        h3: true,
+        h4: true,
+        h5: true,
+        h6: true,
+        bullet: true,
+        ordered: true,
+        task: true
+      };
+      function isLineOrientedInsertType(type) {
+        return !!LINE_ORIENTED_INSERT_TYPES[type];
+      }
+      function planLineOrientedInsert(where, lineFrom, lineTo, type, snippet) {
+        const off = caretOffsetInSnippet(type, snippet);
+        if (where === "above") {
+          const insert2 = snippet + "\n";
+          return { pos: lineFrom, insert: insert2, caret: lineFrom + off };
+        }
+        const insert = "\n" + snippet;
+        return { pos: lineTo, insert, caret: lineTo + 1 + off };
+      }
+      function hrLeadingNewline(doc, pos) {
+        if (pos <= 0) return "";
+        const line = doc.lineAt(pos);
+        if (line.number < 2) return "";
+        const prev = doc.line(line.number - 1);
+        if (String(prev.text || "").trim() === "") return "";
+        if (line.from === pos && String(line.text || "").trim() === "") {
+          return "\n";
+        }
+        if (typeof doc.sliceString === "function") {
+          const gap = doc.sliceString(prev.to, pos);
+          if (/\n\s*\n/.test(gap)) return "";
+        }
+        if (pos <= prev.to) return "\n";
+        return "\n";
+      }
+      function formatBlankLineInsert(type, snippet, doc, line) {
+        let insert = snippet;
+        let leadLen = 0;
+        if (type === "hr") {
+          const lead = hrLeadingNewline(doc, line.from != null ? line.from : 0);
+          if (lead) {
+            insert = lead + snippet;
+            leadLen = lead.length;
+          }
+        }
+        if (needsTrailingBlankInsert(type)) {
+          if (!insert.endsWith("\n")) insert += "\n";
+          if (isAfterBlankInsertType(type)) {
+            return { insert, caretOffset: insert.length };
+          }
+          return {
+            insert,
+            caretOffset: leadLen + caretOffsetInSnippet(type, snippet)
+          };
+        }
+        return {
+          insert,
+          caretOffset: caretOffsetInSnippet(type, snippet)
+        };
+      }
+      function planBlockTrailingBlank(pos, insert, snippet, type) {
+        const lead = insert.indexOf(snippet);
+        const snippetStart = pos + (lead >= 0 ? lead : 0);
+        const fenceEnd = snippetStart + snippet.length;
+        const rel = fenceEnd - pos;
+        let next = insert;
+        if (rel < 0) {
+          return {
+            insert: next,
+            caret: snippetStart + caretOffsetInSnippet(type, snippet)
+          };
+        }
+        if (rel >= next.length || next.charAt(rel) !== "\n") {
+          next = next.slice(0, rel) + "\n" + next.slice(rel);
+        }
+        if (isAfterBlankInsertType(type)) {
+          return { insert: next, caret: fenceEnd + 1 };
+        }
+        return {
+          insert: next,
+          caret: snippetStart + caretOffsetInSnippet(type, snippet)
+        };
+      }
+      function planMermaidInsert(pos, insert, snippet) {
+        return planBlockTrailingBlank(pos, insert, snippet, "mermaid");
+      }
+      function planHrInsertCaret(doc, pos, insert, snippet) {
+        const lead = hrLeadingNewline(doc, pos);
+        let next = insert;
+        if (lead && !next.startsWith(lead)) {
+          next = lead + next;
+        }
+        return planBlockTrailingBlank(pos, next, snippet, "hr");
+      }
+      module.exports = {
+        INSERT_SNIPPETS,
+        getInsertSnippet,
+        caretOffsetInSnippet,
+        isLineOrientedInsertType,
+        planLineOrientedInsert,
+        hrLeadingNewline,
+        formatBlankLineInsert,
+        planBlockTrailingBlank,
+        planMermaidInsert,
+        planHrInsertCaret,
+        isAfterBlankInsertType,
+        isInsideTrailingBlankInsertType,
+        needsTrailingBlankInsert
+      };
+    }
+  });
+
   // src/gui/renderer/editor/widgets/image-block-ops.js
   var require_image_block_ops = __commonJS({
     "src/gui/renderer/editor/widgets/image-block-ops.js"(exports, module) {
       "use strict";
       var { Transaction } = require_dist2();
+      var { planBlockTrailingBlank } = require_block_insert_snippets();
       var IMAGE_LINE_RE = /^\s*!\[[^\]]*\]\([^)]*\)/;
       function docText(doc) {
         if (typeof doc.toString === "function") return doc.toString();
@@ -47067,12 +47253,14 @@ var MDAEditorBundle = (() => {
       function insertImageAt(view, pos, markdownLine) {
         if (!view || !markdownLine) return;
         const doc = view.state.doc;
-        let insert = String(markdownLine);
+        const snippet = String(markdownLine);
+        let insert = snippet;
         if (pos > 0 && doc.sliceString(pos - 1, pos) !== "\n") insert = "\n" + insert;
         if (pos < doc.length && doc.sliceString(pos, pos + 1) !== "\n") insert += "\n";
+        const planned = planBlockTrailingBlank(pos, insert, snippet, "image");
         view.dispatch({
-          changes: { from: pos, to: pos, insert },
-          selection: { anchor: pos + insert.length },
+          changes: { from: pos, to: pos, insert: planned.insert },
+          selection: { anchor: planned.caret, head: planned.caret },
           userEvent: "input.paste"
         });
       }
@@ -51472,6 +51660,242 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/caret-syntax-adjust.js
+  var require_caret_syntax_adjust = __commonJS({
+    "src/gui/renderer/editor/caret-syntax-adjust.js"(exports, module) {
+      "use strict";
+      var { syntaxTree } = require_dist7();
+      var { SYNTAX_RULES } = require_syntax_rules();
+      var ATX_LINE_RE = /^( {0,3})(#{1,6})(\s*)(.*)$/;
+      function adaptSyntaxNode(node) {
+        return { from: node.from, to: node.to, type: node.name };
+      }
+      function findLeadingMark(marks, content) {
+        var leading = null;
+        for (var i = 0; i < marks.length; i++) {
+          if (marks[i].to <= content.from) {
+            if (!leading || marks[i].from < leading.from) leading = marks[i];
+          }
+        }
+        return leading || (marks.length ? marks[0] : null);
+      }
+      function findTrailingMark(marks, content) {
+        var trailing = null;
+        for (var i = 0; i < marks.length; i++) {
+          if (marks[i].from >= content.to) {
+            if (!trailing || marks[i].to > trailing.to) trailing = marks[i];
+          }
+        }
+        return trailing;
+      }
+      function adjustCaretForHiddenMarks(state, pos) {
+        if (pos == null || pos < 0) return pos;
+        const tree = syntaxTree(state);
+        if (!tree) return pos;
+        const doc = state.doc.toString();
+        const len = doc.length;
+        if (pos > len) return len;
+        var snapLeft = null;
+        var snapRight = null;
+        var bestLeftSpan = Infinity;
+        var bestRightSpan = Infinity;
+        tree.iterate({
+          enter: function(node) {
+            const rule = SYNTAX_RULES[node.name];
+            if (!rule || rule.class !== "R" || typeof rule.contentRange !== "function") return;
+            if (pos < node.from || pos > node.to) return;
+            const adapted = adaptSyntaxNode(node);
+            const content = rule.contentRange(adapted, doc);
+            if (!content || content.from > content.to) return;
+            const marks = typeof rule.markRanges === "function" ? rule.markRanges(adapted, doc) || [] : [];
+            if (!marks.length) return;
+            const leading = findLeadingMark(marks, content);
+            const trailing = findTrailingMark(marks, content);
+            const span = Math.max(0, content.to - content.from);
+            if (leading && pos > leading.from && pos <= content.from) {
+              if (span < bestLeftSpan) {
+                bestLeftSpan = span;
+                snapLeft = /^ATXHeading/.test(node.name) ? content.from : leading.from;
+              }
+            }
+            if (trailing && pos >= content.to && pos < trailing.to) {
+              if (span < bestRightSpan) {
+                bestRightSpan = span;
+                snapRight = content.to;
+              }
+            }
+          }
+        });
+        var result = pos;
+        if (snapLeft != null && snapRight != null) {
+          result = bestLeftSpan <= bestRightSpan ? snapLeft : snapRight;
+        } else if (snapLeft != null) {
+          result = snapLeft;
+        } else if (snapRight != null) {
+          result = snapRight;
+        }
+        return adjustCaretForHeadingClick(state, result);
+      }
+      function adjustCaretForHeadingClick(state, pos) {
+        if (pos == null || pos < 0) return pos;
+        const doc = state.doc;
+        if (pos > doc.length) return doc.length;
+        const line = doc.lineAt(pos);
+        const m = ATX_LINE_RE.exec(line.text);
+        if (!m) return pos;
+        const contentStart = line.from + m[1].length + m[2].length + m[3].length;
+        if (contentStart <= line.to && pos < contentStart) return contentStart;
+        return pos;
+      }
+      function adjustCaretForKeyboardNav(state, pos) {
+        if (pos == null || pos < 0) return pos;
+        const doc = state.doc;
+        if (pos > doc.length) return doc.length;
+        const line = doc.lineAt(pos);
+        const m = ATX_LINE_RE.exec(line.text);
+        if (m) {
+          const contentStart = line.from + m[1].length + m[2].length + m[3].length;
+          if (contentStart <= line.to) {
+            if (pos < contentStart) return contentStart;
+            if (pos <= line.to) return pos;
+          }
+        }
+        return adjustCaretForHiddenMarks(state, pos);
+      }
+      function clampSelectionBleed(state, pos, other) {
+        if (pos == null || pos < 0) return pos;
+        const doc = state.doc;
+        if (pos > doc.length) return doc.length;
+        const line = doc.lineAt(pos);
+        const m = ATX_LINE_RE.exec(line.text);
+        if (!m) return pos;
+        const prefixEnd = line.from + m[1].length + m[2].length + m[3].length;
+        if (pos > prefixEnd) return pos;
+        const otherLine = doc.lineAt(other);
+        if (otherLine.number < line.number && line.number > 1) {
+          return doc.line(line.number - 1).to;
+        }
+        return pos;
+      }
+      function clampEmptyLineSelectionBleed(state, pos, other) {
+        if (pos == null || pos < 0) return pos;
+        const doc = state.doc;
+        const line = doc.lineAt(pos);
+        if (line.text.trim() !== "") return pos;
+        if (pos !== line.from) return pos;
+        const otherLine = doc.lineAt(other);
+        if (otherLine.number !== line.number - 1) return pos;
+        return otherLine.to;
+      }
+      function expandRangeOverLinks(state, from, to) {
+        let lo = Math.min(from, to);
+        let hi = Math.max(from, to);
+        if (hi <= lo) return { from, to };
+        const tree = syntaxTree(state);
+        if (!tree) return { from: lo, to: hi };
+        const doc = state.doc.toString();
+        let changed = false;
+        tree.iterate({
+          enter: function(node) {
+            if (node.name !== "Link" && node.name !== "Image") return;
+            const rule = SYNTAX_RULES[node.name];
+            if (!rule || typeof rule.contentRange !== "function") return;
+            if (hi <= node.from || lo >= node.to) return;
+            const adapted = adaptSyntaxNode(node);
+            const content = rule.contentRange(adapted, doc);
+            if (!content || content.from > content.to) return;
+            const coversContent = lo <= content.from && hi >= content.to;
+            if (!coversContent) return;
+            if (lo <= node.from && hi >= node.to) return;
+            lo = Math.min(lo, node.from);
+            hi = Math.max(hi, node.to);
+            changed = true;
+          }
+        });
+        return changed ? { from: lo, to: hi } : { from: Math.min(from, to), to: Math.max(from, to) };
+      }
+      function adjustSelectionForHiddenMarks(state, anchor, head) {
+        let a = clampSelectionBleed(state, anchor, head);
+        let h = clampSelectionBleed(state, head, anchor);
+        a = clampEmptyLineSelectionBleed(state, a, h);
+        h = clampEmptyLineSelectionBleed(state, h, a);
+        a = adjustCaretForHiddenMarks(state, a);
+        h = adjustCaretForHiddenMarks(state, h);
+        const expanded = expandRangeOverLinks(state, a, h);
+        if (a <= h) {
+          return { anchor: expanded.from, head: expanded.to };
+        }
+        return { anchor: expanded.to, head: expanded.from };
+      }
+      module.exports = {
+        ATX_LINE_RE,
+        findLeadingMark,
+        findTrailingMark,
+        clampSelectionBleed,
+        clampEmptyLineSelectionBleed,
+        adjustCaretForHiddenMarks,
+        adjustCaretForHeadingClick,
+        adjustCaretForKeyboardNav,
+        adjustSelectionForHiddenMarks,
+        expandRangeOverLinks
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/model/inline-mark-break.js
+  var require_inline_mark_break = __commonJS({
+    "src/gui/renderer/editor/model/inline-mark-break.js"(exports, module) {
+      "use strict";
+      var { SYNTAX_RULES } = require_syntax_rules();
+      var { findTrailingMark } = require_caret_syntax_adjust();
+      var EXITABLE_INLINE = /* @__PURE__ */ new Set([
+        "StrongEmphasis",
+        "Emphasis",
+        "Strikethrough",
+        "InlineCode"
+      ]);
+      function adaptSyntaxNode(node) {
+        return { from: node.from, to: node.to, type: node.name };
+      }
+      function planExitTrailingMarksBreak(doc, tree, head, breakChar) {
+        if (!tree || head == null || head < 0) return null;
+        const s = String(doc || "");
+        if (head > s.length) return null;
+        const ch = breakChar == null ? "\n" : String(breakChar);
+        if (!ch) return null;
+        let exitTo = null;
+        let node = tree.resolveInner(head, -1);
+        while (node) {
+          if (EXITABLE_INLINE.has(node.name)) {
+            const rule = SYNTAX_RULES[node.name];
+            if (rule && typeof rule.contentRange === "function") {
+              const adapted = adaptSyntaxNode(node);
+              const content = rule.contentRange(adapted, s);
+              const marks = typeof rule.markRanges === "function" ? rule.markRanges(adapted, s) || [] : [];
+              const trailing = content ? findTrailingMark(marks, content) : null;
+              if (content && trailing && head >= content.to && head < trailing.to) {
+                exitTo = Math.max(exitTo == null ? 0 : exitTo, trailing.to);
+              }
+            }
+          }
+          node = node.parent;
+        }
+        if (exitTo == null || exitTo < head) return null;
+        if (exitTo === head) return null;
+        return {
+          from: exitTo,
+          to: exitTo,
+          insert: ch,
+          caret: exitTo + ch.length
+        };
+      }
+      module.exports = {
+        EXITABLE_INLINE,
+        planExitTrailingMarksBreak
+      };
+    }
+  });
+
   // src/gui/renderer/editor/state/inline-format-debug.js
   var require_inline_format_debug = __commonJS({
     "src/gui/renderer/editor/state/inline-format-debug.js"(exports, module) {
@@ -51617,6 +52041,9 @@ var MDAEditorBundle = (() => {
       } = require_inline_delimiters();
       var { getInlineToolbarStateAt } = require_block_format();
       var { getEffectiveWidgetEditTarget } = require_widget_editable_guard();
+      var { expandRangeOverLinks } = require_caret_syntax_adjust();
+      var { planExitTrailingMarksBreak } = require_inline_mark_break();
+      var { syntaxTree, ensureSyntaxTree } = require_dist7();
       var inlineDbg = require_inline_format_debug();
       var DELIM = {
         bold: "**",
@@ -51810,6 +52237,17 @@ var MDAEditorBundle = (() => {
         if (getEffectiveWidgetEditTarget()) return false;
         const win = lineWindow(state, sel.from, sel.to);
         const regions = collectAllMarkRegions(state, win);
+        if (!sel.empty) {
+          const linkExp = expandRangeOverLinks(state, sel.from, sel.to);
+          if (linkExp.from < sel.from || linkExp.to > sel.to) {
+            return dispatchWithDelimiterCleanup(
+              view,
+              [{ from: linkExp.from, to: linkExp.to, insert: "" }],
+              { from: linkExp.from, to: linkExp.from },
+              forward ? "delete.forward" : "delete.backward"
+            );
+          }
+        }
         if (!regions.length) return false;
         if (sel.empty && !forward && inLeadingWhitespace(state, sel.head)) return false;
         const runs = collectDelimiterRuns(state, win);
@@ -51861,6 +52299,28 @@ var MDAEditorBundle = (() => {
       function handleInlineDelimiterDelete(view) {
         return deleteAcrossDelimiters(view, true);
       }
+      function handleInlineMarkBreakEnter(view) {
+        if (!view || view.state.readOnly) return false;
+        if (getEffectiveWidgetEditTarget()) return false;
+        const state = view.state;
+        const sel = state.selection.main;
+        if (!sel.empty || sel.from !== sel.to) return false;
+        const head = sel.head;
+        try {
+          if (typeof ensureSyntaxTree === "function") {
+            ensureSyntaxTree(state, Math.min(state.doc.length, head + 1), 50);
+          }
+        } catch (_) {
+        }
+        const plan = planExitTrailingMarksBreak(state.doc.toString(), syntaxTree(state), head, "\n");
+        if (!plan) return false;
+        view.dispatch({
+          changes: { from: plan.from, to: plan.to, insert: plan.insert },
+          selection: { anchor: plan.caret, head: plan.caret },
+          userEvent: "input.type"
+        });
+        return true;
+      }
       function dispatchTypedInsertWithCleanup(view, change, cursor, effects) {
         const state = view.state;
         const win = lineWindow(state, change.from, change.to);
@@ -51901,6 +52361,7 @@ var MDAEditorBundle = (() => {
         deleteAcrossDelimiters,
         handleInlineDelimiterBackspace,
         handleInlineDelimiterDelete,
+        handleInlineMarkBreakEnter,
         dispatchTypedInsertWithCleanup
       };
     }
@@ -54192,157 +54653,6 @@ var MDAEditorBundle = (() => {
         createBlockFocusField,
         setBlockFocus,
         readBlockFocus
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/caret-syntax-adjust.js
-  var require_caret_syntax_adjust = __commonJS({
-    "src/gui/renderer/editor/caret-syntax-adjust.js"(exports, module) {
-      "use strict";
-      var { syntaxTree } = require_dist7();
-      var { SYNTAX_RULES } = require_syntax_rules();
-      var ATX_LINE_RE = /^( {0,3})(#{1,6})(\s*)(.*)$/;
-      function adaptSyntaxNode(node) {
-        return { from: node.from, to: node.to, type: node.name };
-      }
-      function findLeadingMark(marks, content) {
-        var leading = null;
-        for (var i = 0; i < marks.length; i++) {
-          if (marks[i].to <= content.from) {
-            if (!leading || marks[i].from < leading.from) leading = marks[i];
-          }
-        }
-        return leading || (marks.length ? marks[0] : null);
-      }
-      function findTrailingMark(marks, content) {
-        var trailing = null;
-        for (var i = 0; i < marks.length; i++) {
-          if (marks[i].from >= content.to) {
-            if (!trailing || marks[i].to > trailing.to) trailing = marks[i];
-          }
-        }
-        return trailing;
-      }
-      function adjustCaretForHiddenMarks(state, pos) {
-        if (pos == null || pos < 0) return pos;
-        const tree = syntaxTree(state);
-        if (!tree) return pos;
-        const doc = state.doc.toString();
-        const len = doc.length;
-        if (pos > len) return len;
-        var snapLeft = null;
-        var snapRight = null;
-        var bestLeftSpan = Infinity;
-        var bestRightSpan = Infinity;
-        tree.iterate({
-          enter: function(node) {
-            const rule = SYNTAX_RULES[node.name];
-            if (!rule || rule.class !== "R" || typeof rule.contentRange !== "function") return;
-            if (pos < node.from || pos > node.to) return;
-            const adapted = adaptSyntaxNode(node);
-            const content = rule.contentRange(adapted, doc);
-            if (!content || content.from > content.to) return;
-            const marks = typeof rule.markRanges === "function" ? rule.markRanges(adapted, doc) || [] : [];
-            if (!marks.length) return;
-            const leading = findLeadingMark(marks, content);
-            const trailing = findTrailingMark(marks, content);
-            const span = Math.max(0, content.to - content.from);
-            if (leading && pos > leading.from && pos <= content.from) {
-              if (span < bestLeftSpan) {
-                bestLeftSpan = span;
-                snapLeft = /^ATXHeading/.test(node.name) ? content.from : leading.from;
-              }
-            }
-            if (trailing && pos >= content.to && pos < trailing.to) {
-              if (span < bestRightSpan) {
-                bestRightSpan = span;
-                snapRight = content.to;
-              }
-            }
-          }
-        });
-        var result = pos;
-        if (snapLeft != null && snapRight != null) {
-          result = bestLeftSpan <= bestRightSpan ? snapLeft : snapRight;
-        } else if (snapLeft != null) {
-          result = snapLeft;
-        } else if (snapRight != null) {
-          result = snapRight;
-        }
-        return adjustCaretForHeadingClick(state, result);
-      }
-      function adjustCaretForHeadingClick(state, pos) {
-        if (pos == null || pos < 0) return pos;
-        const doc = state.doc;
-        if (pos > doc.length) return doc.length;
-        const line = doc.lineAt(pos);
-        const m = ATX_LINE_RE.exec(line.text);
-        if (!m) return pos;
-        const contentStart = line.from + m[1].length + m[2].length + m[3].length;
-        if (contentStart <= line.to && pos < contentStart) return contentStart;
-        return pos;
-      }
-      function adjustCaretForKeyboardNav(state, pos) {
-        if (pos == null || pos < 0) return pos;
-        const doc = state.doc;
-        if (pos > doc.length) return doc.length;
-        const line = doc.lineAt(pos);
-        const m = ATX_LINE_RE.exec(line.text);
-        if (m) {
-          const contentStart = line.from + m[1].length + m[2].length + m[3].length;
-          if (contentStart <= line.to) {
-            if (pos < contentStart) return contentStart;
-            if (pos <= line.to) return pos;
-          }
-        }
-        return adjustCaretForHiddenMarks(state, pos);
-      }
-      function clampSelectionBleed(state, pos, other) {
-        if (pos == null || pos < 0) return pos;
-        const doc = state.doc;
-        if (pos > doc.length) return doc.length;
-        const line = doc.lineAt(pos);
-        const m = ATX_LINE_RE.exec(line.text);
-        if (!m) return pos;
-        const prefixEnd = line.from + m[1].length + m[2].length + m[3].length;
-        if (pos > prefixEnd) return pos;
-        const otherLine = doc.lineAt(other);
-        if (otherLine.number < line.number && line.number > 1) {
-          return doc.line(line.number - 1).to;
-        }
-        return pos;
-      }
-      function clampEmptyLineSelectionBleed(state, pos, other) {
-        if (pos == null || pos < 0) return pos;
-        const doc = state.doc;
-        const line = doc.lineAt(pos);
-        if (line.text.trim() !== "") return pos;
-        if (pos !== line.from) return pos;
-        const otherLine = doc.lineAt(other);
-        if (otherLine.number !== line.number - 1) return pos;
-        return otherLine.to;
-      }
-      function adjustSelectionForHiddenMarks(state, anchor, head) {
-        let a = clampSelectionBleed(state, anchor, head);
-        let h = clampSelectionBleed(state, head, anchor);
-        a = clampEmptyLineSelectionBleed(state, a, h);
-        h = clampEmptyLineSelectionBleed(state, h, a);
-        return {
-          anchor: adjustCaretForHiddenMarks(state, a),
-          head: adjustCaretForHiddenMarks(state, h)
-        };
-      }
-      module.exports = {
-        ATX_LINE_RE,
-        findLeadingMark,
-        findTrailingMark,
-        clampSelectionBleed,
-        clampEmptyLineSelectionBleed,
-        adjustCaretForHiddenMarks,
-        adjustCaretForHeadingClick,
-        adjustCaretForKeyboardNav,
-        adjustSelectionForHiddenMarks
       };
     }
   });
@@ -59274,6 +59584,12 @@ var MDAEditorBundle = (() => {
       var { Transaction } = require_dist2();
       var codeEditResume = null;
       var activeCodeEditSession = null;
+      function stripCodeFenceWrapper(text) {
+        const raw = String(text == null ? "" : text).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        const m = /^[ \t]*(```|~~~)[^\n]*\n([\s\S]*?)\n[ \t]*\1[ \t]*\s*$/.exec(raw.trim());
+        if (m) return m[2];
+        return raw;
+      }
       function tryCodeBlockUndo() {
         return !!(activeCodeEditSession && activeCodeEditSession.undo());
       }
@@ -60073,6 +60389,27 @@ var MDAEditorBundle = (() => {
               e.preventDefault();
               return;
             }
+            if (mod && !e.altKey && !e.shiftKey && (e.key === "a" || e.key === "A")) {
+              e.preventDefault();
+              try {
+                const range = document.createRange();
+                range.selectNodeContents(codeInput);
+                const sel = window.getSelection();
+                if (sel) {
+                  sel.removeAllRanges();
+                  sel.addRange(range);
+                }
+              } catch (_) {
+              }
+              return;
+            }
+            if (mod && !e.altKey && !e.shiftKey && (e.key === "c" || e.key === "C")) {
+              const sel = window.getSelection && window.getSelection();
+              if (sel && !sel.isCollapsed && String(sel.toString() || "").length > 0) return;
+              e.preventDefault();
+              copyText(self2.source, opts.copyText);
+              return;
+            }
             if (mod && !e.altKey && (e.key === "z" || e.key === "Z")) {
               e.preventDefault();
               if (e.shiftKey) redoLocal();
@@ -60091,8 +60428,9 @@ var MDAEditorBundle = (() => {
           codeInput.addEventListener("paste", function(e) {
             e.preventDefault();
             e.stopPropagation();
-            const text = e.clipboardData && e.clipboardData.getData("text/plain");
+            let text = e.clipboardData && e.clipboardData.getData("text/plain");
             if (text == null) return;
+            text = stripCodeFenceWrapper(text);
             spliceLocalCode(getCaretOffset(), text, 0);
           });
           codeInput.addEventListener("focus", function() {
@@ -61599,6 +61937,176 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/model/auto-link.js
+  var require_auto_link = __commonJS({
+    "src/gui/renderer/editor/model/auto-link.js"(exports, module) {
+      "use strict";
+      var URL_TOKEN_RE = /[A-Za-z0-9\-._~:/?#@!$&'*+,;=%]/;
+      var WWW_TERMINATORS = /[\s,;!?）\]、。；！？\t]/;
+      function isUrlTokenChar(ch) {
+        return ch.length === 1 && URL_TOKEN_RE.test(ch);
+      }
+      function isWwwTerminator(ch) {
+        return ch.length === 1 && WWW_TERMINATORS.test(ch);
+      }
+      function findUrlTokenBefore(text, pos) {
+        const s = String(text || "");
+        let end = Math.max(0, Math.min(pos | 0, s.length));
+        if (end > 0 && isWwwTerminator(s.charAt(end - 1)) && !isUrlTokenChar(s.charAt(end - 1))) {
+          end -= 1;
+        }
+        let start = end;
+        while (start > 0 && isUrlTokenChar(s.charAt(start - 1))) {
+          start -= 1;
+        }
+        if (start >= end) return null;
+        return { from: start, to: end, token: s.slice(start, end) };
+      }
+      function classifyUrlToken(token) {
+        const raw = String(token || "").trim();
+        if (!raw) return null;
+        const lower = raw.toLowerCase();
+        if (lower.startsWith("https://")) {
+          if (raw.length <= "https://".length) return null;
+          return { kind: "scheme", text: raw, href: raw };
+        }
+        if (lower.startsWith("http://")) {
+          if (raw.length <= "http://".length) return null;
+          return { kind: "scheme", text: raw, href: raw };
+        }
+        if (/^www\.[^\s/]+/i.test(raw)) {
+          return { kind: "www", text: raw, href: "https://" + raw };
+        }
+        return null;
+      }
+      function wrapMarkdownLink(text, href) {
+        return "[" + text + "](" + href + ")";
+      }
+      function planAutoLinkWrap(tokenFrom, tokenTo, classified, opts) {
+        const insert = wrapMarkdownLink(classified.text, classified.href);
+        const mode = opts && opts.caret === "afterLink" ? "afterLink" : "textEnd";
+        const caret = mode === "afterLink" ? tokenFrom + insert.length : tokenFrom + 1 + classified.text.length;
+        return { from: tokenFrom, to: tokenTo, insert, caret };
+      }
+      function planRepairNewlineInsideLink(doc, nlPos) {
+        const s = String(doc || "");
+        if (nlPos < 0 || nlPos >= s.length || s.charAt(nlPos) !== "\n") return null;
+        let open = -1;
+        for (let i = nlPos - 1; i >= 0; i--) {
+          if (s.charAt(i) === "\n") break;
+          if (s.charAt(i) === "[") {
+            open = i;
+            break;
+          }
+        }
+        if (open < 0) return null;
+        const after = s.slice(nlPos + 1);
+        const m = /^\]\(([^)]*)\)/.exec(after);
+        if (!m) return null;
+        const text = s.slice(open + 1, nlPos);
+        const href = m[1];
+        const linkEnd = nlPos + 1 + m[0].length;
+        const insert = wrapMarkdownLink(text, href) + "\n";
+        return {
+          from: open,
+          to: linkEnd,
+          insert,
+          caret: open + insert.length
+        };
+      }
+      function parseSimpleMarkdownLink(doc, from, to) {
+        const slice = String(doc || "").slice(from, to);
+        const m = /^\[([^\]]*)\]\(([^)]*)\)$/.exec(slice);
+        if (!m) return null;
+        const text = m[1];
+        const href = m[2];
+        const textFrom = from + 1;
+        const textTo = textFrom + text.length;
+        const hrefFrom = textTo + 2;
+        const hrefTo = hrefFrom + href.length;
+        return {
+          text,
+          href,
+          textFrom,
+          textTo,
+          hrefFrom,
+          hrefTo
+        };
+      }
+      function isAutoLinkedPair(text, href) {
+        if (!text || !href) return false;
+        if (text === href) {
+          const lower = text.toLowerCase();
+          return lower.startsWith("https://") || lower.startsWith("http://");
+        }
+        return href === "https://" + text && /^www\./i.test(text);
+      }
+      function planGrowAutoLink(linkFrom, linkTo, newText, newHref) {
+        const insert = wrapMarkdownLink(newText, newHref);
+        const caret = linkFrom + 1 + newText.length;
+        return { from: linkFrom, to: linkTo, insert, caret };
+      }
+      function planPasteAutoLink(pasted) {
+        const raw = String(pasted == null ? "" : pasted);
+        if (/[\r\n]/.test(raw.trim() ? raw.replace(/^\s+|\s+$/g, "") : "")) {
+          const inner = raw.replace(/^\s+|\s+$/g, "");
+          if (/[\r\n]/.test(inner)) return null;
+        }
+        const token = raw.replace(/^\s+|\s+$/g, "");
+        if (!token || /\s/.test(token)) return null;
+        const classified = classifyUrlToken(token);
+        if (!classified) return null;
+        return wrapMarkdownLink(classified.text, classified.href);
+      }
+      function planAutoLinkAtHead(docText, head, opts) {
+        opts = opts || {};
+        const found = findUrlTokenBefore(docText, head);
+        if (!found) return null;
+        const classified = classifyUrlToken(found.token);
+        if (!classified) return null;
+        if (classified.kind === "scheme") {
+          if (!opts.justExtendedScheme && !opts.force) {
+          }
+          return planAutoLinkWrap(found.from, found.to, classified);
+        }
+        if (classified.kind === "www") {
+          if (opts.force) {
+            return planAutoLinkWrap(found.from, found.to, classified);
+          }
+          if (!opts.justInsertedTerminator) return null;
+          if (head > 0 && isWwwTerminator(docText.charAt(head - 1))) {
+            return planAutoLinkWrap(found.from, found.to, classified);
+          }
+          return null;
+        }
+        return null;
+      }
+      function normalizeExternalHref(href) {
+        const h = String(href == null ? "" : href).trim();
+        if (!h) return h;
+        if (/^(https?:|mailto:|file:|tel:)/i.test(h)) return h;
+        if (/^\/\//.test(h)) return "https:" + h;
+        if (/^www\./i.test(h)) return "https://" + h;
+        return h;
+      }
+      module.exports = {
+        isUrlTokenChar,
+        isWwwTerminator,
+        findUrlTokenBefore,
+        classifyUrlToken,
+        wrapMarkdownLink,
+        planAutoLinkWrap,
+        parseSimpleMarkdownLink,
+        isAutoLinkedPair,
+        planGrowAutoLink,
+        planPasteAutoLink,
+        planAutoLinkAtHead,
+        normalizeExternalHref,
+        planRepairNewlineInsideLink
+      };
+    }
+  });
+
   // src/gui/renderer/editor/context-menu.js
   var require_context_menu = __commonJS({
     "src/gui/renderer/editor/context-menu.js"(exports, module) {
@@ -61632,6 +62140,7 @@ var MDAEditorBundle = (() => {
       var { getSelectedMermaidBlock } = require_mermaid_selection();
       var { getSelectedBlockOfKind } = require_block_selection();
       var { showLinkEditPopover } = require_link_edit_popover();
+      var { normalizeExternalHref } = require_auto_link();
       var {
         setWidgetDomMenuGuard,
         isWidgetDomMenuGuard
@@ -61736,24 +62245,103 @@ var MDAEditorBundle = (() => {
           keyHint ? '<span class="mda-menu-key">' + keyHint + "</span>" : ""
         );
       }
-      function getLinkAtCoords(view, clientX, clientY) {
-        const pos = view.posAtCoords({ x: clientX, y: clientY });
-        if (pos == null) return null;
-        let node = syntaxTree(view.state).resolveInner(pos, 1);
-        const doc = view.state.doc.toString();
-        while (node) {
-          if (node.name === "Link") {
-            const slice = doc.slice(node.from, node.to);
-            const m = /^\[([\s\S]*?)\]\(([\s\S]*?)\)$/.exec(slice);
-            if (!m) return null;
-            return {
-              from: node.from,
-              to: node.to,
-              text: m[1],
-              href: String(m[2] || "").trim()
-            };
+      function linkFromSyntaxAt(state, pos) {
+        if (pos == null || pos < 0) return null;
+        const doc = state.doc.toString();
+        for (const side of [1, -1, 0]) {
+          let node = syntaxTree(state).resolveInner(pos, side);
+          while (node) {
+            if (node.name === "Link") {
+              const slice = doc.slice(node.from, node.to);
+              const m = /^\[([\s\S]*?)\]\(([\s\S]*?)\)$/.exec(slice);
+              if (m) {
+                return {
+                  from: node.from,
+                  to: node.to,
+                  text: m[1],
+                  href: normalizeExternalHref(String(m[2] || "").trim())
+                };
+              }
+            } else if (node.name === "Autolink") {
+              const raw = doc.slice(node.from + 1, node.to - 1).trim();
+              return {
+                from: node.from,
+                to: node.to,
+                text: raw,
+                href: normalizeExternalHref(raw)
+              };
+            } else if (node.name === "URL") {
+              const raw = doc.slice(node.from, node.to).trim();
+              return {
+                from: node.from,
+                to: node.to,
+                text: raw,
+                href: normalizeExternalHref(raw)
+              };
+            }
+            node = node.parent;
           }
-          node = node.parent;
+        }
+        return null;
+      }
+      function getLinkAtCoords(view, clientX, clientY, target) {
+        let domEl = null;
+        if (target && /** @type {HTMLElement} */
+        target.closest) {
+          domEl = /** @type {HTMLElement} */
+          /** @type {HTMLElement} */
+          target.closest("[data-mda-href], .mda-cm-link");
+        }
+        let pos = view.posAtCoords({ x: clientX, y: clientY });
+        if ((pos == null || isNaN(pos)) && domEl) {
+          try {
+            pos = view.posAtDOM(domEl, 0);
+          } catch (_) {
+          }
+        }
+        const fromTree = linkFromSyntaxAt(view.state, pos);
+        if (fromTree) return fromTree;
+        if (domEl) {
+          const rawAttr = domEl.getAttribute("data-mda-href") || "";
+          const href = normalizeExternalHref(rawAttr);
+          if (!href) return null;
+          const doc = view.state.doc.toString();
+          const probe = pos != null ? pos : 0;
+          const line = view.state.doc.lineAt(Math.max(0, Math.min(probe, doc.length)));
+          const lineText = line.text;
+          const display = /^www\./i.test(rawAttr) || /^https?:\/\//i.test(rawAttr) ? rawAttr : href.replace(/^https:\/\//i, "");
+          let idx = lineText.indexOf(display);
+          if (idx < 0 && rawAttr) idx = lineText.indexOf(rawAttr);
+          if (idx < 0) {
+            const wrapped = "[" + display + "](" + href + ")";
+            const widx = lineText.indexOf(wrapped);
+            if (widx >= 0) {
+              return {
+                from: line.from + widx,
+                to: line.from + widx + wrapped.length,
+                text: display,
+                href
+              };
+            }
+            if (pos != null) {
+              return { from: pos, to: pos, text: display || rawAttr, href };
+            }
+            return null;
+          }
+          const from = line.from + idx;
+          const to = from + display.length;
+          if (from > 0 && doc.charAt(from - 1) === "[" && doc.slice(to, to + 2) === "](") {
+            const close = doc.indexOf(")", to + 2);
+            if (close > to) {
+              return {
+                from: from - 1,
+                to: close + 1,
+                text: display,
+                href
+              };
+            }
+          }
+          return { from, to, text: display || rawAttr, href };
         }
         return null;
       }
@@ -61915,7 +62503,7 @@ var MDAEditorBundle = (() => {
         );
         const cmSel = view.state.selection.main;
         const hasCmSelection = cmSel.from !== cmSel.to;
-        const link = getLinkAtCoords(view, e.clientX, e.clientY);
+        const link = getLinkAtCoords(view, e.clientX, e.clientY, e.target);
         if (link) {
           return { type: "link", link };
         }
@@ -62588,156 +63176,6 @@ var MDAEditorBundle = (() => {
     }
   });
 
-  // src/gui/renderer/editor/widgets/block-insert-snippets.js
-  var require_block_insert_snippets = __commonJS({
-    "src/gui/renderer/editor/widgets/block-insert-snippets.js"(exports, module) {
-      "use strict";
-      var INSERT_SNIPPETS = {
-        text: "",
-        h1: "# ",
-        h2: "## ",
-        h3: "### ",
-        h4: "#### ",
-        h5: "##### ",
-        h6: "###### ",
-        bullet: "- ",
-        ordered: "1. ",
-        task: "- [ ] ",
-        code: "```\n\n```",
-        mermaid: "```mermaid\ngraph TD\n  A-->B\n```",
-        // 行末保留空格：hide-mark 不藏「仅空格」行，便于落点输入
-        quote: "> ",
-        table: "| \u52171 | \u52172 |\n| --- | --- |\n|  |  |",
-        hr: "---",
-        image: "![](path/to/image.png)"
-      };
-      function getInsertSnippet(type) {
-        if (!Object.prototype.hasOwnProperty.call(INSERT_SNIPPETS, type)) return null;
-        return INSERT_SNIPPETS[type];
-      }
-      function caretOffsetInSnippet(type, snippet) {
-        const s = String(snippet || "");
-        if (type === "code") {
-          const nl = s.indexOf("\n");
-          return nl >= 0 ? nl + 1 : s.length;
-        }
-        if (type === "table") {
-          const cell = s.indexOf("|  |");
-          return cell >= 0 ? cell + 2 : s.length;
-        }
-        if (type === "ordered") {
-          return 3;
-        }
-        if (type === "task") {
-          return 6;
-        }
-        if (type === "mermaid") {
-          return s.endsWith("\n") ? s.length : s.length + 1;
-        }
-        return s.length;
-      }
-      var LINE_ORIENTED_INSERT_TYPES = {
-        text: true,
-        h1: true,
-        h2: true,
-        h3: true,
-        h4: true,
-        h5: true,
-        h6: true,
-        bullet: true,
-        ordered: true,
-        task: true
-      };
-      function isLineOrientedInsertType(type) {
-        return !!LINE_ORIENTED_INSERT_TYPES[type];
-      }
-      function planLineOrientedInsert(where, lineFrom, lineTo, type, snippet) {
-        const off = caretOffsetInSnippet(type, snippet);
-        if (where === "above") {
-          const insert2 = snippet + "\n";
-          return { pos: lineFrom, insert: insert2, caret: lineFrom + off };
-        }
-        const insert = "\n" + snippet;
-        return { pos: lineTo, insert, caret: lineTo + 1 + off };
-      }
-      function hrLeadingNewline(doc, pos) {
-        if (pos <= 0) return "";
-        const line = doc.lineAt(pos);
-        if (line.number < 2) return "";
-        const prev = doc.line(line.number - 1);
-        if (String(prev.text || "").trim() === "") return "";
-        if (line.from === pos && String(line.text || "").trim() === "") {
-          return "\n";
-        }
-        if (typeof doc.sliceString === "function") {
-          const gap = doc.sliceString(prev.to, pos);
-          if (/\n\s*\n/.test(gap)) return "";
-        }
-        if (pos <= prev.to) return "\n";
-        return "\n";
-      }
-      function formatBlankLineInsert(type, snippet, doc, line) {
-        let insert = snippet;
-        if (type === "hr") {
-          const lead = hrLeadingNewline(doc, line.from);
-          insert = lead + snippet;
-          if (lead) {
-            return { insert, caretOffset: 0 };
-          }
-        }
-        if (type === "mermaid") {
-          insert = snippet.endsWith("\n") ? snippet : snippet + "\n";
-          return { insert, caretOffset: insert.length };
-        }
-        return {
-          insert,
-          caretOffset: caretOffsetInSnippet(type, snippet)
-        };
-      }
-      function planMermaidInsert(pos, insert, snippet) {
-        const lead = insert.indexOf(snippet);
-        const snippetStart = pos + (lead >= 0 ? lead : 0);
-        const fenceEnd = snippetStart + snippet.length;
-        const rel = fenceEnd - pos;
-        let next = insert;
-        if (rel < 0) {
-          return {
-            insert: next,
-            caret: snippetStart + caretOffsetInSnippet("mermaid", snippet)
-          };
-        }
-        if (rel >= next.length || next.charAt(rel) !== "\n") {
-          next = next.slice(0, rel) + "\n" + next.slice(rel);
-        }
-        return { insert: next, caret: fenceEnd + 1 };
-      }
-      function planHrInsertCaret(doc, pos, insert, snippet) {
-        const lead = hrLeadingNewline(doc, pos);
-        let next = insert;
-        if (lead && !next.startsWith(lead)) {
-          next = lead + next;
-          return { insert: next, caret: pos };
-        }
-        const snippetStart = pos + next.indexOf(snippet);
-        return {
-          insert: next,
-          caret: snippetStart + caretOffsetInSnippet("hr", snippet)
-        };
-      }
-      module.exports = {
-        INSERT_SNIPPETS,
-        getInsertSnippet,
-        caretOffsetInSnippet,
-        isLineOrientedInsertType,
-        planLineOrientedInsert,
-        hrLeadingNewline,
-        formatBlankLineInsert,
-        planMermaidInsert,
-        planHrInsertCaret
-      };
-    }
-  });
-
   // src/gui/renderer/editor/widgets/block-handle-ops.js
   var require_block_handle_ops = __commonJS({
     "src/gui/renderer/editor/widgets/block-handle-ops.js"(exports, module) {
@@ -62748,8 +63186,97 @@ var MDAEditorBundle = (() => {
         deleteBlockRange,
         expandBlockRange
       } = require_image_block_ops();
-      var { getInsertSnippet, caretOffsetInSnippet, isLineOrientedInsertType, planLineOrientedInsert, formatBlankLineInsert, planHrInsertCaret, planMermaidInsert } = require_block_insert_snippets();
+      var {
+        getInsertSnippet,
+        caretOffsetInSnippet,
+        isLineOrientedInsertType,
+        planLineOrientedInsert,
+        formatBlankLineInsert,
+        planHrInsertCaret,
+        planBlockTrailingBlank,
+        needsTrailingBlankInsert
+      } = require_block_insert_snippets();
       var { copyText } = require_widget_common();
+      var { setCellVisibleSelection } = require_table_cell_content();
+      var { setCaretOffsetIn } = require_code();
+      function findInsertedBlockRoot(view, sel, blockFrom) {
+        if (!view || !view.dom || blockFrom == null) return null;
+        const exact = view.dom.querySelector(sel + '[data-mda-block-from="' + blockFrom + '"]');
+        if (exact) return (
+          /** @type {HTMLElement} */
+          exact
+        );
+        const nodes = view.dom.querySelectorAll(sel + "[data-mda-block-from]");
+        let best = null;
+        let bestDist = Infinity;
+        for (let i = 0; i < nodes.length; i++) {
+          const f = parseInt(nodes[i].getAttribute("data-mda-block-from") || "", 10);
+          if (!(f >= 0)) continue;
+          const d = Math.abs(f - blockFrom);
+          if (d < bestDist) {
+            bestDist = d;
+            best = nodes[i];
+          }
+        }
+        return bestDist <= 2 ? (
+          /** @type {HTMLElement} */
+          best
+        ) : null;
+      }
+      function findFirstEmptyTableCell(root) {
+        const cells = root.querySelectorAll("td[contenteditable]");
+        for (let i = 0; i < cells.length; i++) {
+          if (String(cells[i].textContent || "").trim() === "") {
+            return (
+              /** @type {HTMLElement} */
+              cells[i]
+            );
+          }
+        }
+        return cells.length ? (
+          /** @type {HTMLElement} */
+          cells[0]
+        ) : null;
+      }
+      function scheduleFocusInsertedBlockEdit(view, type, blockFrom) {
+        if (type !== "table" && type !== "code") return;
+        const run = function() {
+          if (!view || !view.dom) return;
+          try {
+            view.dispatch({
+              selection: { anchor: blockFrom, head: blockFrom },
+              annotations: Transaction.addToHistory.of(false)
+            });
+          } catch (_) {
+          }
+          if (type === "table") {
+            const root2 = findInsertedBlockRoot(view, ".mda-cm-table-block", blockFrom);
+            if (!root2) return;
+            const cell = findFirstEmptyTableCell(root2);
+            if (!cell) return;
+            try {
+              cell.focus();
+            } catch (_) {
+            }
+            setCellVisibleSelection(cell, 0, 0);
+            return;
+          }
+          const root = findInsertedBlockRoot(view, ".mda-cm-code-block", blockFrom);
+          if (!root) return;
+          const frame = root.querySelector(".mda-cm-code-frame");
+          const input = root.querySelector(".mda-cm-code-input");
+          if (frame) frame.classList.add("mda-cm-code-editing");
+          if (!input) return;
+          try {
+            input.focus();
+          } catch (_) {
+          }
+          setCaretOffsetIn(input, 0);
+        };
+        requestAnimationFrame(function() {
+          requestAnimationFrame(run);
+        });
+      }
       function getBlockSource(view, block) {
         if (!view) return "";
         if (block && block.source) return String(block.source);
@@ -62796,6 +63323,7 @@ var MDAEditorBundle = (() => {
             if (anchor) anchor.classList.add("mda-cm-block-handle-show");
           });
         }
+        scheduleFocusInsertedBlockEdit(view, type, line.from);
         try {
           view.focus();
         } catch (_) {
@@ -62841,21 +63369,19 @@ var MDAEditorBundle = (() => {
           if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
           if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
         }
-        let hrCaret = null;
+        let plannedCaret = null;
         if (type === "hr") {
           const planned = planHrInsertCaret(view.state.doc, pos, insert, snippet);
           insert = planned.insert;
-          hrCaret = planned.caret;
-        }
-        let mermaidCaret = null;
-        if (type === "mermaid") {
-          const planned = planMermaidInsert(pos, insert, snippet);
+          plannedCaret = planned.caret;
+        } else if (needsTrailingBlankInsert(type)) {
+          const planned = planBlockTrailingBlank(pos, insert, snippet, type);
           insert = planned.insert;
-          mermaidCaret = planned.caret;
+          plannedCaret = planned.caret;
         }
         const lead = insert.indexOf(snippet);
         const snippetStart = pos + (lead >= 0 ? lead : 0);
-        const caret = hrCaret != null ? hrCaret : mermaidCaret != null ? mermaidCaret : snippetStart + caretOffsetInSnippet(type, snippet);
+        const caret = plannedCaret != null ? plannedCaret : snippetStart + caretOffsetInSnippet(type, snippet);
         pinSelectionForHistory(view, pos);
         view.dispatch({
           changes: { from: pos, to: pos, insert },
@@ -62870,21 +63396,24 @@ var MDAEditorBundle = (() => {
             if (anchor) anchor.classList.add("mda-cm-block-handle-show");
           });
         }
+        scheduleFocusInsertedBlockEdit(view, type, snippetStart);
         try {
           view.focus();
         } catch (_) {
         }
         return true;
       }
-      function insertMarkdownAtBlankLine(view, block, markdownLine) {
+      function insertMarkdownAtBlankLine(view, block, markdownLine, type) {
         if (!view || !markdownLine) return false;
         const line = view.state.doc.lineAt(block && block.from != null ? block.from : 0);
         if (String(line.text || "").trim() !== "") return false;
         const snippet = String(markdownLine);
-        const caret = line.from + snippet.length;
+        const kind = type || "image";
+        const formatted = formatBlankLineInsert(kind, snippet, view.state.doc, line);
+        const caret = line.from + formatted.caretOffset;
         pinSelectionForHistory(view, line.from);
         view.dispatch({
-          changes: { from: line.from, to: line.to, insert: snippet },
+          changes: { from: line.from, to: line.to, insert: formatted.insert },
           selection: { anchor: caret, head: caret },
           userEvent: "input"
         });
@@ -62894,11 +63423,12 @@ var MDAEditorBundle = (() => {
         }
         return true;
       }
-      function insertMarkdownNearBlock(view, block, where, markdownLine) {
+      function insertMarkdownNearBlock(view, block, where, markdownLine, type) {
         if (!view || !markdownLine) return false;
         const range = resolveBlockRange(view, block || {});
         if (!range) return false;
         const snippet = String(markdownLine);
+        const kind = type || "image";
         const doc = view.state.doc.toString();
         const pos = where === "above" ? range.from : range.to;
         let insert = snippet;
@@ -62909,19 +63439,55 @@ var MDAEditorBundle = (() => {
           if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
           if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
         }
-        const lead = insert.indexOf(snippet);
-        const snippetStart = pos + (lead >= 0 ? lead : 0);
-        const caret = snippetStart + snippet.length;
+        const planned = planBlockTrailingBlank(pos, insert, snippet, kind);
         pinSelectionForHistory(view, pos);
         view.dispatch({
-          changes: { from: pos, to: pos, insert },
-          selection: { anchor: caret, head: caret },
+          changes: { from: pos, to: pos, insert: planned.insert },
+          selection: { anchor: planned.caret, head: planned.caret },
           userEvent: "input"
         });
         try {
           view.focus();
         } catch (_) {
         }
+        return true;
+      }
+      function promptInsertLink(view, where, block, opts) {
+        if (!view) return false;
+        const { showLinkEditPopover } = require_link_edit_popover();
+        let x = 80;
+        let y = 80;
+        try {
+          let pos = 0;
+          if (where === "blank") {
+            pos = block && block.from != null ? block.from : view.state.selection.main.head;
+          } else {
+            const range = resolveBlockRange(view, block || {});
+            pos = range ? where === "above" ? range.from : range.to : view.state.selection.main.head;
+          }
+          const coords = view.coordsAtPos(pos);
+          if (coords) {
+            x = coords.left;
+            y = coords.bottom + 4;
+          }
+        } catch (_) {
+        }
+        const t = opts && typeof opts.t === "function" ? opts.t : void 0;
+        showLinkEditPopover({
+          x,
+          y,
+          text: "text",
+          href: "url",
+          t,
+          onConfirm: function(text, href) {
+            const line = "[" + String(text || "") + "](" + String(href || "") + ")";
+            if (where === "blank") {
+              insertMarkdownAtBlankLine(view, block, line, "link");
+            } else {
+              insertMarkdownNearBlock(view, block, where, line, "link");
+            }
+          }
+        });
         return true;
       }
       function deleteBlock(view, block) {
@@ -62937,8 +63503,10 @@ var MDAEditorBundle = (() => {
         insertMarkdownAtBlankLine,
         insertMarkdownNearBlock,
         insertSnippetNearBlock,
+        promptInsertLink,
         deleteBlock,
-        expandBlockRange
+        expandBlockRange,
+        scheduleFocusInsertedBlockEdit
       };
     }
   });
@@ -62951,6 +63519,7 @@ var MDAEditorBundle = (() => {
         copyBlockSource,
         insertSnippetAtBlankLine,
         insertSnippetNearBlock,
+        promptInsertLink,
         deleteBlock
       } = require_block_handle_ops();
       function createBlockMenuHandlers(liveOpts) {
@@ -63009,6 +63578,10 @@ var MDAEditorBundle = (() => {
             opts.onPickImageInsert(where, block);
             return;
           }
+          if (type === "link") {
+            promptInsertLink(view, where, block, { t: opts.t });
+            return;
+          }
           if (insertSnippetNearBlock(view, block, where, type)) return;
           if (typeof opts.onSoon === "function") opts.onSoon("insert-" + where, type);
         }
@@ -63017,6 +63590,10 @@ var MDAEditorBundle = (() => {
           if (!view) return;
           if (type === "image" && typeof opts.onPickImageInsert === "function") {
             opts.onPickImageInsert("blank", block);
+            return;
+          }
+          if (type === "link") {
+            promptInsertLink(view, "blank", block, { t: opts.t });
             return;
           }
           if (insertSnippetAtBlankLine(view, block, type)) return;
@@ -63101,6 +63678,7 @@ var MDAEditorBundle = (() => {
       "use strict";
       var { EditorView } = require_dist4();
       var { syntaxTree } = require_dist7();
+      var { normalizeExternalHref } = require_auto_link();
       var SHOW_DELAY_MS = 450;
       var HIDE_DELAY_MS = 80;
       function decodeFileUrl(fileUrl) {
@@ -63118,7 +63696,11 @@ var MDAEditorBundle = (() => {
         const target = event.target;
         if (target && target.closest) {
           const el = target.closest("[data-mda-href], a.mda-cm-link[href]");
-          if (el) return el.getAttribute("data-mda-href") || el.getAttribute("href") || "";
+          if (el) {
+            return normalizeExternalHref(
+              el.getAttribute("data-mda-href") || el.getAttribute("href") || ""
+            );
+          }
         }
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
         if (pos == null) return "";
@@ -63128,13 +63710,13 @@ var MDAEditorBundle = (() => {
           if (node.name === "Link") {
             const slice = text.slice(node.from, node.to);
             const m = /^\[([\s\S]*?)\]\(([\s\S]*?)\)$/.exec(slice);
-            return m ? String(m[2] || "").trim() : "";
+            return m ? normalizeExternalHref(String(m[2] || "").trim()) : "";
           }
           if (node.name === "Autolink") {
-            return text.slice(node.from + 1, node.to - 1).trim();
+            return normalizeExternalHref(text.slice(node.from + 1, node.to - 1).trim());
           }
           if (node.name === "URL") {
-            return text.slice(node.from, node.to).trim();
+            return normalizeExternalHref(text.slice(node.from, node.to).trim());
           }
           node = node.parent;
         }
@@ -63269,6 +63851,292 @@ var MDAEditorBundle = (() => {
       module.exports = {
         createLinkHoverTipExtension,
         hrefAtPointer
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/auto-link.js
+  var require_auto_link2 = __commonJS({
+    "src/gui/renderer/editor/auto-link.js"(exports, module) {
+      "use strict";
+      var { EditorView, keymap } = require_dist4();
+      var { Prec } = require_dist2();
+      var { syntaxTree, ensureSyntaxTree } = require_dist7();
+      var {
+        isWwwTerminator,
+        isUrlTokenChar,
+        findUrlTokenBefore,
+        classifyUrlToken,
+        planAutoLinkWrap,
+        parseSimpleMarkdownLink,
+        planGrowAutoLink,
+        planPasteAutoLink,
+        wrapMarkdownLink,
+        planRepairNewlineInsideLink
+      } = require_auto_link();
+      var AUTO_LINK_EVENT = "input.autoLink";
+      var BLOCKED_WRAP_NODES = /* @__PURE__ */ new Set([
+        "FencedCode",
+        "CodeText",
+        "InlineCode",
+        "Link",
+        "Autolink",
+        "URL",
+        "Image",
+        "Comment"
+      ]);
+      function posInNamedNodes(state, pos, names) {
+        try {
+          if (typeof ensureSyntaxTree === "function") {
+            ensureSyntaxTree(state, Math.min(state.doc.length, pos + 1), 50);
+          }
+        } catch (_) {
+        }
+        let node = syntaxTree(state).resolveInner(pos, -1);
+        while (node) {
+          if (names.has(node.name)) return true;
+          if (node.name === "Interpolation" || /Math/i.test(node.name)) return true;
+          node = node.parent;
+        }
+        return false;
+      }
+      function isBlockedWrapContext(state, pos) {
+        return posInNamedNodes(state, pos, BLOCKED_WRAP_NODES);
+      }
+      function isHardBlockedContext(state, pos) {
+        return posInNamedNodes(
+          state,
+          pos,
+          /* @__PURE__ */ new Set(["FencedCode", "CodeText", "InlineCode", "Image", "Comment"])
+        );
+      }
+      function isUserTypingOrPaste(tr) {
+        if (!tr.docChanged) return false;
+        if (tr.isUserEvent(AUTO_LINK_EVENT)) return false;
+        return tr.isUserEvent("input.type") || tr.isUserEvent("input.paste") || tr.isUserEvent("input.complete") || tr.isUserEvent("input");
+      }
+      function singleInsertInfo(tr) {
+        let info = null;
+        let count = 0;
+        tr.changes.iterChanges(function(fromA, toA, fromB, toB, inserted) {
+          count += 1;
+          if (count === 1) {
+            info = {
+              fromA,
+              toA,
+              fromB,
+              toB,
+              inserted: inserted.toString()
+            };
+          }
+        });
+        if (count !== 1 || !info) return null;
+        return info;
+      }
+      function hrefForAutoText(text) {
+        const classified = classifyUrlToken(text);
+        if (classified) return classified.href;
+        const lower = String(text || "").toLowerCase();
+        if (lower.startsWith("https://") && text.length > "https://".length) return text;
+        if (lower.startsWith("http://") && text.length > "http://".length) return text;
+        if (/^www\./i.test(text)) return "https://" + text;
+        return null;
+      }
+      function linkContentAtCaret(state, head) {
+        let node = syntaxTree(state).resolveInner(head, -1);
+        while (node && node.name !== "Link") {
+          node = node.parent;
+        }
+        if (!node || node.name !== "Link") return null;
+        const parsed = parseSimpleMarkdownLink(state.doc.toString(), node.from, node.to);
+        if (!parsed) return null;
+        if (head < parsed.textFrom || head > parsed.textTo) return null;
+        return { linkFrom: node.from, linkTo: node.to, parsed };
+      }
+      function dispatchAutoLink(view, plan) {
+        view.dispatch({
+          changes: { from: plan.from, to: plan.to, insert: plan.insert },
+          selection: { anchor: plan.caret, head: plan.caret },
+          userEvent: AUTO_LINK_EVENT
+        });
+      }
+      function linkAroundCaret(state, head) {
+        try {
+          if (typeof ensureSyntaxTree === "function") {
+            ensureSyntaxTree(state, Math.min(state.doc.length, head + 1), 50);
+          }
+        } catch (_) {
+        }
+        let node = syntaxTree(state).resolveInner(head, -1);
+        while (node && node.name !== "Link") {
+          node = node.parent;
+        }
+        if (!node || node.name !== "Link") {
+          node = syntaxTree(state).resolveInner(head, 1);
+          while (node && node.name !== "Link") {
+            node = node.parent;
+          }
+        }
+        if (!node || node.name !== "Link") return null;
+        const parsed = parseSimpleMarkdownLink(state.doc.toString(), node.from, node.to);
+        if (!parsed) return null;
+        if (state.doc.lineAt(node.from).number !== state.doc.lineAt(head).number) return null;
+        if (head < parsed.textTo || head > node.to) return null;
+        return { linkFrom: node.from, linkTo: node.to, parsed };
+      }
+      function exitAutoLinkWith(view, insert) {
+        const head = view.state.selection.main.head;
+        if (view.state.selection.main.from !== head) return false;
+        const inLink = linkAroundCaret(view.state, head);
+        if (!inLink) return false;
+        const at = inLink.linkTo;
+        view.dispatch({
+          changes: { from: at, to: at, insert },
+          selection: { anchor: at + insert.length, head: at + insert.length },
+          userEvent: "input.type"
+        });
+        return true;
+      }
+      function wrapBareUrlThenBreak(view, breakChar) {
+        const head = view.state.selection.main.head;
+        if (view.state.selection.main.from !== head) return false;
+        if (isHardBlockedContext(view.state, Math.max(0, head - 1))) return false;
+        const docText = view.state.doc.toString();
+        const found = findUrlTokenBefore(docText, head);
+        if (!found || found.to !== head) return false;
+        if (found.from > 0 && docText.charAt(found.from - 1) === "[") return false;
+        const classified = classifyUrlToken(found.token);
+        if (!classified) return false;
+        const wrapped = wrapMarkdownLink(classified.text, classified.href);
+        const insert = wrapped + breakChar;
+        view.dispatch({
+          changes: { from: found.from, to: found.to, insert },
+          selection: { anchor: found.from + insert.length, head: found.from + insert.length },
+          userEvent: AUTO_LINK_EVENT
+        });
+        return true;
+      }
+      function handleAutoLinkBreak(view, breakChar) {
+        if (exitAutoLinkWith(view, breakChar)) return true;
+        if (wrapBareUrlThenBreak(view, breakChar)) return true;
+        return false;
+      }
+      function onAutoLinkUpdate(update) {
+        if (!update.docChanged) return;
+        const view = update.view;
+        if (view.composing) return;
+        let lastUserTr = null;
+        for (let i = 0; i < update.transactions.length; i++) {
+          const tr = update.transactions[i];
+          if (isUserTypingOrPaste(tr)) lastUserTr = tr;
+        }
+        if (!lastUserTr) return;
+        const head = update.state.selection.main.head;
+        if (update.state.selection.main.from !== update.state.selection.main.to) return;
+        if (isHardBlockedContext(update.state, Math.max(0, head - 1))) return;
+        const insertInfo = singleInsertInfo(lastUserTr);
+        const docText = update.state.doc.toString();
+        if (insertInfo && insertInfo.inserted === "\n") {
+          const repaired = planRepairNewlineInsideLink(docText, insertInfo.fromB);
+          if (repaired) {
+            dispatchAutoLink(view, repaired);
+            return;
+          }
+        }
+        const inLink = linkContentAtCaret(update.state, head);
+        if (inLink && insertInfo && insertInfo.inserted.length > 0 && head === inLink.parsed.textTo && isUrlTokenChar(insertInfo.inserted.slice(-1))) {
+          const newText = inLink.parsed.text;
+          const newHref = hrefForAutoText(newText);
+          if (newHref && newHref !== inLink.parsed.href) {
+            const plan = planGrowAutoLink(inLink.linkFrom, inLink.linkTo, newText, newHref);
+            const cur = docText.slice(inLink.linkFrom, inLink.linkTo);
+            if (cur !== plan.insert) {
+              dispatchAutoLink(view, plan);
+              return;
+            }
+          }
+          return;
+        }
+        if (isBlockedWrapContext(update.state, Math.max(0, head - 1))) return;
+        const justTerm = !!insertInfo && insertInfo.inserted.length === 1 && isWwwTerminator(insertInfo.inserted);
+        const justSchemeChar = !!insertInfo && insertInfo.inserted.length === 1 && isUrlTokenChar(insertInfo.inserted);
+        const tokenHead = justTerm ? head - 1 : head;
+        const found = findUrlTokenBefore(docText, tokenHead);
+        if (!found) return;
+        if (isBlockedWrapContext(update.state, found.from)) return;
+        const classified = classifyUrlToken(found.token);
+        if (!classified) return;
+        if (found.from > 0 && docText.charAt(found.from - 1) === "[") return;
+        if (classified.kind === "scheme") {
+          if (!justSchemeChar && !lastUserTr.isUserEvent("input.paste")) return;
+          const caretMode = lastUserTr.isUserEvent("input.paste") ? "afterLink" : "textEnd";
+          dispatchAutoLink(view, planAutoLinkWrap(found.from, found.to, classified, { caret: caretMode }));
+          return;
+        }
+        if (classified.kind === "www") {
+          if (!justTerm && !lastUserTr.isUserEvent("input.paste")) return;
+          const term = justTerm && insertInfo ? insertInfo.inserted : "";
+          const wrapped = wrapMarkdownLink(classified.text, classified.href);
+          dispatchAutoLink(view, {
+            from: found.from,
+            to: found.to + term.length,
+            insert: wrapped + term,
+            caret: found.from + wrapped.length + term.length
+          });
+        }
+      }
+      function createAutoLinkExtension() {
+        return [
+          // 须高于 heading Enter 等 Prec.high，否则链尾回车会先走默认插入拆坏链接
+          Prec.highest(
+            keymap.of([
+              {
+                key: "Enter",
+                run: function(view) {
+                  return handleAutoLinkBreak(view, "\n");
+                }
+              },
+              {
+                key: "Space",
+                run: function(view) {
+                  return handleAutoLinkBreak(view, " ");
+                }
+              }
+            ])
+          ),
+          EditorView.updateListener.of(onAutoLinkUpdate)
+        ];
+      }
+      function createAutoLinkPasteHandler() {
+        return function(event, view) {
+          if (!event || !event.clipboardData || !view) return false;
+          const raw = event.clipboardData.getData("text/plain");
+          if (raw == null || raw === "") return false;
+          const wrapped = planPasteAutoLink(raw);
+          if (!wrapped) return false;
+          const sel = view.state.selection.main;
+          if (isHardBlockedContext(view.state, sel.from)) return false;
+          event.preventDefault();
+          view.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: wrapped },
+            selection: { anchor: sel.from + wrapped.length, head: sel.from + wrapped.length },
+            userEvent: AUTO_LINK_EVENT
+          });
+          return true;
+        };
+      }
+      module.exports = {
+        createAutoLinkExtension,
+        createAutoLinkPasteHandler,
+        AUTO_LINK_EVENT,
+        isHardBlockedContext,
+        isBlockedWrapContext,
+        hrefForAutoText,
+        wrapMarkdownLink,
+        exitAutoLinkWith,
+        wrapBareUrlThenBreak,
+        handleAutoLinkBreak,
+        linkAroundCaret
       };
     }
   });
@@ -63596,18 +64464,55 @@ var MDAEditorBundle = (() => {
       var { keymap, EditorView } = require_dist4();
       var { Prec } = require_dist2();
       var { getSelectedCodeBlock } = require_code_selection();
+      var { copyText } = require_widget_common();
       var globalKeysInstalled = false;
+      function focusInCodeInput() {
+        const ae = typeof document !== "undefined" ? document.activeElement : null;
+        return !!(ae && ae.closest && ae.closest(".mda-cm-code-input"));
+      }
+      function hasDomTextSelection() {
+        const sel = typeof window !== "undefined" && window.getSelection && window.getSelection();
+        return !!(sel && !sel.isCollapsed && String(sel.toString() || "").length > 0);
+      }
+      function copySelectedCodeSource(block, opts) {
+        if (!block) return false;
+        const text = block.source != null ? String(block.source) : "";
+        if (!text) return false;
+        copyText(text, opts && opts.copyText);
+        return true;
+      }
       function tryDeleteSelectedCodeBlock(event, opts) {
         if (event.key !== "Delete" && event.key !== "Backspace") return false;
         const block = getSelectedCodeBlock();
         if (!block || typeof opts.onDeleteCodeBlock !== "function") return false;
         const ae = document.activeElement;
         if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return false;
-        if (ae && ae.closest && ae.closest(".mda-cm-code-input")) return false;
+        if (focusInCodeInput()) return false;
         if (ae && ae.closest && ae.closest("#settings-dialog, #find-replace-bar")) return false;
         event.preventDefault();
         if (typeof event.stopPropagation === "function") event.stopPropagation();
         opts.onDeleteCodeBlock(block);
+        return true;
+      }
+      function tryCopySelectedCodeBlock(event, opts) {
+        const key = (event.key || "").toLowerCase();
+        if (key !== "c" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) {
+          return false;
+        }
+        if (focusInCodeInput() && hasDomTextSelection()) return false;
+        const block = getSelectedCodeBlock();
+        if (!block) return false;
+        const ae = document.activeElement;
+        if (ae && ae.closest && ae.closest("#settings-dialog, #find-replace-bar")) return false;
+        if (typeof opts.onCopyCodeBlock === "function") {
+          event.preventDefault();
+          if (typeof event.stopPropagation === "function") event.stopPropagation();
+          opts.onCopyCodeBlock(block);
+          return true;
+        }
+        if (!copySelectedCodeSource(block, opts)) return false;
+        event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
         return true;
       }
       function installCodeGlobalKeys(opts) {
@@ -63616,7 +64521,8 @@ var MDAEditorBundle = (() => {
         window.addEventListener(
           "keydown",
           function(e) {
-            tryDeleteSelectedCodeBlock(e, opts);
+            if (tryDeleteSelectedCodeBlock(e, opts)) return;
+            tryCopySelectedCodeBlock(e, opts);
           },
           true
         );
@@ -63642,6 +64548,19 @@ var MDAEditorBundle = (() => {
                 opts.onDeleteCodeBlock(block);
                 return true;
               }
+            },
+            {
+              key: "Mod-c",
+              run: function() {
+                if (focusInCodeInput() && hasDomTextSelection()) return false;
+                const block = getSelectedCodeBlock();
+                if (!block) return false;
+                if (typeof opts.onCopyCodeBlock === "function") {
+                  opts.onCopyCodeBlock(block);
+                  return true;
+                }
+                return copySelectedCodeSource(block, opts);
+              }
             }
           ])
         );
@@ -63649,12 +64568,15 @@ var MDAEditorBundle = (() => {
       function createCodeKeydownHandler(opts) {
         return EditorView.domEventHandlers({
           keydown: function(event) {
-            return tryDeleteSelectedCodeBlock(event, opts);
+            if (tryDeleteSelectedCodeBlock(event, opts)) return true;
+            return tryCopySelectedCodeBlock(event, opts);
           }
         });
       }
       module.exports = {
         tryDeleteSelectedCodeBlock,
+        tryCopySelectedCodeBlock,
+        copySelectedCodeSource,
         createCodeShortcutKeymap,
         createCodeKeydownHandler
       };
@@ -64147,6 +65069,7 @@ var MDAEditorBundle = (() => {
       } = require_inline_math_selection();
       var { createBlockMenuHandlers } = require_block_menu_handlers();
       var { createLinkHoverTipExtension, hrefAtPointer } = require_link_hover_tip();
+      var { createAutoLinkExtension, createAutoLinkPasteHandler } = require_auto_link2();
       var { createEmptyLineInsertExtension } = require_empty_line_insert();
       var { createOutlineClickSyncExtension } = require_outline_click_sync();
       var {
@@ -64171,7 +65094,8 @@ var MDAEditorBundle = (() => {
       var { handlePreviewHeadingEnter, handlePreviewHeadingBackspace } = require_heading_enter();
       var {
         handleInlineDelimiterBackspace,
-        handleInlineDelimiterDelete
+        handleInlineDelimiterDelete,
+        handleInlineMarkBreakEnter
       } = require_inline_delimiter_ops();
       var { createDocLineCursorKeymap } = require_doc_line_cursor();
       var { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require_block_widget_base();
@@ -65058,7 +65982,7 @@ var MDAEditorBundle = (() => {
         ].concat(makeLayerPlugin("hide", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("style", liveOpts, {}, blockFocusField)).concat(makeLayerPlugin("widget", liveOpts, { atomic: true }, blockFocusField)).concat(makeLayerPlugin("line", liveOpts, {}, blockFocusField)).concat([
           createDocLineCursorKeymap(blockDecoField),
           linkClick
-        ]).concat(createLinkHoverTipExtension(liveOpts)).concat([
+        ]).concat(createLinkHoverTipExtension(liveOpts)).concat(createAutoLinkExtension()).concat([
           createClickCollapseExtension(),
           createContextMenuExtension(liveOpts),
           createOutlineClickSyncExtension(liveOpts.onHeadingClick),
@@ -65066,6 +65990,8 @@ var MDAEditorBundle = (() => {
           theme,
           Prec.high(
             keymap.of([
+              // 须先于标题 Enter：纯加粗行末回车先退出定界符
+              { key: "Enter", run: handleInlineMarkBreakEnter },
               { key: "Enter", run: handlePreviewHeadingEnter },
               { key: "Backspace", run: handlePreviewHeadingBackspace },
               // 定界符隐藏时删除须作用到可见字符，并清掉被删空的定界符对
@@ -65075,6 +66001,7 @@ var MDAEditorBundle = (() => {
           ),
           EditorView.domEventHandlers({
             paste: function(event, view) {
+              if (createAutoLinkPasteHandler()(event, view)) return true;
               if (createTableMarkdownPasteHandler()(event, view)) return true;
               if (handleMarkdownSyntaxPaste(event, view)) return true;
               return createImagePasteHandler(liveOpts)(event, view);
@@ -66308,6 +67235,15 @@ var MDAEditorBundle = (() => {
           const line2 = view.state.doc.lineAt(view.state.selection.main.head);
           opts.onPickImageInsert("blank", { from: line2.from, to: line2.to, source: line2.text });
           return true;
+        }
+        if (type === "link") {
+          const { promptInsertLink } = require_block_handle_ops();
+          const line2 = view.state.doc.lineAt(view.state.selection.main.head);
+          const block2 = { from: line2.from, to: line2.to, source: line2.text };
+          if (String(line2.text || "").trim() === "") {
+            return promptInsertLink(view, "blank", block2, opts);
+          }
+          return promptInsertLink(view, "below", { from: line2.to, to: line2.to, source: "" }, opts);
         }
         const line = view.state.doc.lineAt(view.state.selection.main.head);
         const block = { from: line.from, to: line.to, source: line.text };

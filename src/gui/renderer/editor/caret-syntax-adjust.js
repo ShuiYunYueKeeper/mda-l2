@@ -191,6 +191,49 @@ function clampEmptyLineSelectionBleed(state, pos, other) {
 }
 
 /**
+ * Link/Image 的闭标记是 `](…)` / `](…)` 整段后缀，不像 `**` 可留给删除规划器成对清理。
+ * 选区若盖住可见文本（常见：左缘已扩到 `[`、右缘停在文本末），必须扩到整段节点，
+ * 否则 Backspace/Delete 会只删掉 `[text` 留下 `](url)`。
+ * @param {import('@codemirror/state').EditorState} state
+ * @param {number} from
+ * @param {number} to
+ * @returns {{ from: number, to: number }}
+ */
+function expandRangeOverLinks(state, from, to) {
+  let lo = Math.min(from, to);
+  let hi = Math.max(from, to);
+  if (hi <= lo) return { from: from, to: to };
+
+  const tree = syntaxTree(state);
+  if (!tree) return { from: lo, to: hi };
+  const doc = state.doc.toString();
+  let changed = false;
+
+  tree.iterate({
+    enter: function (node) {
+      if (node.name !== 'Link' && node.name !== 'Image') return;
+      const rule = SYNTAX_RULES[node.name];
+      if (!rule || typeof rule.contentRange !== 'function') return;
+      if (hi <= node.from || lo >= node.to) return;
+
+      const adapted = adaptSyntaxNode(node);
+      const content = rule.contentRange(adapted, doc);
+      if (!content || content.from > content.to) return;
+
+      // 选区覆盖全部可见文本，或已含开标记且伸到文本末
+      const coversContent = lo <= content.from && hi >= content.to;
+      if (!coversContent) return;
+      if (lo <= node.from && hi >= node.to) return;
+      lo = Math.min(lo, node.from);
+      hi = Math.max(hi, node.to);
+      changed = true;
+    },
+  });
+
+  return changed ? { from: lo, to: hi } : { from: Math.min(from, to), to: Math.max(from, to) };
+}
+
+/**
  * 拖选区间两端分别做 hide-mark 边缘校准。
  * @param {import('@codemirror/state').EditorState} state
  * @param {number} anchor
@@ -201,10 +244,13 @@ function adjustSelectionForHiddenMarks(state, anchor, head) {
   let h = clampSelectionBleed(state, head, anchor);
   a = clampEmptyLineSelectionBleed(state, a, h);
   h = clampEmptyLineSelectionBleed(state, h, a);
-  return {
-    anchor: adjustCaretForHiddenMarks(state, a),
-    head: adjustCaretForHiddenMarks(state, h),
-  };
+  a = adjustCaretForHiddenMarks(state, a);
+  h = adjustCaretForHiddenMarks(state, h);
+  const expanded = expandRangeOverLinks(state, a, h);
+  if (a <= h) {
+    return { anchor: expanded.from, head: expanded.to };
+  }
+  return { anchor: expanded.to, head: expanded.from };
 }
 
 module.exports = {
@@ -217,4 +263,5 @@ module.exports = {
   adjustCaretForHeadingClick: adjustCaretForHeadingClick,
   adjustCaretForKeyboardNav: adjustCaretForKeyboardNav,
   adjustSelectionForHiddenMarks: adjustSelectionForHiddenMarks,
+  expandRangeOverLinks: expandRangeOverLinks,
 };

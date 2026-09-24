@@ -23,6 +23,9 @@ const {
 } = require('../model/inline-delimiters');
 const { getInlineToolbarStateAt } = require('./block-format');
 const { getEffectiveWidgetEditTarget } = require('../widget-editable-guard');
+const { expandRangeOverLinks } = require('../caret-syntax-adjust');
+const { planExitTrailingMarksBreak } = require('../model/inline-mark-break');
+const { syntaxTree, ensureSyntaxTree } = require('@codemirror/language');
 const inlineDbg = require('./inline-format-debug');
 
 /** 与 pending-inline-format 保持同一套定界符 */
@@ -318,6 +321,18 @@ function deleteAcrossDelimiters(view, forward) {
 
   const win = lineWindow(state, sel.from, sel.to);
   const regions = collectAllMarkRegions(state, win);
+  // Link/Image：选区盖住可见文本时先扩成整段，再删（避免留下 ](url)）
+  if (!sel.empty) {
+    const linkExp = expandRangeOverLinks(state, sel.from, sel.to);
+    if (linkExp.from < sel.from || linkExp.to > sel.to) {
+      return dispatchWithDelimiterCleanup(
+        view,
+        [{ from: linkExp.from, to: linkExp.to, insert: '' }],
+        { from: linkExp.from, to: linkExp.from },
+        forward ? 'delete.forward' : 'delete.backward'
+      );
+    }
+  }
   // 本行没有行内标记时交回 CM6 默认命令（保留缩进删除、IME 等原生行为）
   if (!regions.length) return false;
   if (sel.empty && !forward && inLeadingWhitespace(state, sel.head)) return false;
@@ -384,6 +399,35 @@ function handleInlineDelimiterDelete(view) {
 }
 
 /**
+ * 行内样式可见文本末按 Enter：换行插到闭定界符之后（避免 `**text\n**`）。
+ * @param {import('@codemirror/view').EditorView} view
+ * @returns {boolean}
+ */
+function handleInlineMarkBreakEnter(view) {
+  if (!view || view.state.readOnly) return false;
+  if (getEffectiveWidgetEditTarget()) return false;
+  const state = view.state;
+  const sel = state.selection.main;
+  if (!sel.empty || sel.from !== sel.to) return false;
+  const head = sel.head;
+  try {
+    if (typeof ensureSyntaxTree === 'function') {
+      ensureSyntaxTree(state, Math.min(state.doc.length, head + 1), 50);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  const plan = planExitTrailingMarksBreak(state.doc.toString(), syntaxTree(state), head, '\n');
+  if (!plan) return false;
+  view.dispatch({
+    changes: { from: plan.from, to: plan.to, insert: plan.insert },
+    selection: { anchor: plan.caret, head: plan.caret },
+    userEvent: 'input.type',
+  });
+  return true;
+}
+
+/**
  * 供 pending 输入层复用：按已有 changes 派发并补清理。
  * @param {import('@codemirror/view').EditorView} view
  * @param {{ from: number, to: number, insert: string }} change
@@ -433,5 +477,6 @@ module.exports = {
   deleteAcrossDelimiters: deleteAcrossDelimiters,
   handleInlineDelimiterBackspace: handleInlineDelimiterBackspace,
   handleInlineDelimiterDelete: handleInlineDelimiterDelete,
+  handleInlineMarkBreakEnter: handleInlineMarkBreakEnter,
   dispatchTypedInsertWithCleanup: dispatchTypedInsertWithCleanup,
 };

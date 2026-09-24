@@ -1,4 +1,4 @@
-// MDA Renderer — Markdown 工作台 GUI
+﻿// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -444,6 +444,8 @@
           if (cm6Editor && typeof cm6Editor.refreshToolbar === 'function') {
             cm6Editor.refreshToolbar();
           }
+          // 回车/方向键移动光标：立即按行同步大纲（不等 parse debounce）
+          scheduleOutlineActiveFromCaret();
         },
         alert: function (msg) {
           uiAlert(msg);
@@ -696,6 +698,28 @@
           var text = block.source != null ? String(block.source) : '';
           if (!text && isCm6Ready() && cm6Editor && cm6Editor.view && window.MDAEditor) {
             // 回退：从文档切片
+            try {
+              if (block.from != null && block.to != null) {
+                text = cm6Editor.view.state.doc.sliceString(block.from, block.to);
+              }
+            } catch (_) {
+              /* ignore */
+            }
+          }
+          if (!text) {
+            showToast(uiT('toastNoCopy'));
+            return;
+          }
+          if (api.copyToClipboard) api.copyToClipboard(text);
+          showToast(uiT('toastCopied'));
+        },
+        onCopyCodeBlock: function (block) {
+          if (!block) {
+            showToast(uiT('toastNoCopy'));
+            return;
+          }
+          var text = block.source != null ? String(block.source) : '';
+          if (!text && isCm6Ready() && cm6Editor && cm6Editor.view) {
             try {
               if (block.from != null && block.to != null) {
                 text = cm6Editor.view.state.doc.sliceString(block.from, block.to);
@@ -2336,7 +2360,39 @@
 
   function updateOutline(text) {
     if (!outlinePanelUi || !api.extractHeadings) return;
-    outlinePanelUi.setHeadings(api.extractHeadings(text || ''));
+    // 同步传入光标行，paint 时直接带 .active，避免先空后亮闪烁
+    outlinePanelUi.setHeadings(api.extractHeadings(text || ''), {
+      caretLine: getEditorCaretLineNumber(),
+    });
+  }
+
+  /** CM6 / 源码编辑：当前光标所在 1-based 行号 */
+  function getEditorCaretLineNumber() {
+    if (isCm6Ready() && cm6Editor && cm6Editor.view && !cm6Editor.view.destroyed) {
+      try {
+        var head = cm6Editor.view.state.selection.main.head;
+        return cm6Editor.view.state.doc.lineAt(head).number;
+      } catch (e) { /* ignore */ }
+    }
+    if (window.MDASyncScroll && editorEl) {
+      return window.MDASyncScroll.lineAtCaret(editorEl);
+    }
+    return cursorLine;
+  }
+
+  /** 选区/光标变化时按行刷新大纲高亮（不重建标题树） */
+  var outlineCaretRaf = null;
+  function scheduleOutlineActiveFromCaret() {
+    if (outlineJumpLock) return;
+    if (outlineCaretRaf) cancelAnimationFrame(outlineCaretRaf);
+    outlineCaretRaf = requestAnimationFrame(function () {
+      outlineCaretRaf = null;
+      if (outlineJumpLock) return;
+      var line = getEditorCaretLineNumber();
+      if (line != null && !isNaN(line)) {
+        updateOutlineActiveFromLine(line, { skipScroll: true, expandAncestors: false });
+      }
+    });
   }
 
   function wrapPreviewTables() {
@@ -6372,9 +6428,13 @@
   function handleLinkClick(href) {
     if (!href) return;
     if (href.charAt(0) === '#') return;
-    if (/^(https?:|mailto:|file:)/i.test(href)) { api.openExternal(href); return; }
-    if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return;
-    var clean = href.split('#')[0].split('?')[0];
+    // www. 等裸主机补 https://，避免被当成相对文件路径
+    var openHref = href;
+    if (/^www\./i.test(openHref)) openHref = 'https://' + openHref;
+    else if (/^\/\//.test(openHref)) openHref = 'https:' + openHref;
+    if (/^(https?:|mailto:|file:)/i.test(openHref)) { api.openExternal(openHref); return; }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(openHref)) return;
+    var clean = openHref.split('#')[0].split('?')[0];
     try { clean = decodeURIComponent(clean); } catch (e) { /* keep */ }
     if (!clean) return;
     if (api.isMarkdownPath && api.isMarkdownPath(clean)) {
@@ -6886,6 +6946,7 @@
       renderMarkdownContent(text, opts);
     } else {
       renderPanel();
+      // 大纲高亮已在 updateOutline→setHeadings(caretLine) 同步写入，无需再 rAF
     }
     if (isCm6Ready() && opts.selectAnnoId && !opts.forceHtmlPreview) {
       if (!panelVisible) {

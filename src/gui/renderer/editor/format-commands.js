@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 将 editor-assist 纯函数结果应用到 CM6 EditorView。
  */
 'use strict';
@@ -155,6 +155,15 @@ function insertTypeAtCursor(view, type, opts) {
     const line = view.state.doc.lineAt(view.state.selection.main.head);
     opts.onPickImageInsert('blank', { from: line.from, to: line.to, source: line.text });
     return true;
+  }
+  if (type === 'link') {
+    const { promptInsertLink } = require('./widgets/block-handle-ops');
+    const line = view.state.doc.lineAt(view.state.selection.main.head);
+    const block = { from: line.from, to: line.to, source: line.text };
+    if (String(line.text || '').trim() === '') {
+      return promptInsertLink(view, 'blank', block, opts);
+    }
+    return promptInsertLink(view, 'below', { from: line.to, to: line.to, source: '' }, opts);
   }
   const line = view.state.doc.lineAt(view.state.selection.main.head);
   const block = { from: line.from, to: line.to, source: line.text };

@@ -1,38 +1,41 @@
-﻿/**
- * M8-C4：围栏代码块 Delete / Backspace 快捷键
+/**
+ * M8-C4：围栏代码块 Delete / Backspace / Ctrl+C 快捷键
  */
 import * as path from 'path';
 
-const { tryDeleteSelectedCodeBlock } = require(path.join(
+const {
+  tryDeleteSelectedCodeBlock,
+  tryCopySelectedCodeBlock,
+} = require(path.join(__dirname, '../../../src/gui/renderer/editor/code-shortcuts.js'));
+const {
+  setSelectedCodeBlock,
+  clearSelectedCodeBlock,
+} = require(path.join(
   __dirname,
-  '../../../src/gui/renderer/editor/code-shortcuts.js'
+  '../../../src/gui/renderer/editor/widgets/code-selection.js'
 ));
 
 describe('code delete shortcuts', () => {
   beforeEach(() => {
-    // @ts-expect-error test stub
-    global.document = {
+    (global as any).document = {
       activeElement: null,
-      querySelector: jest.fn(() => null),
+      querySelector: function () {
+        return null;
+      },
+      querySelectorAll: function () {
+        return [];
+      },
     };
   });
 
   afterEach(() => {
-    // @ts-expect-error cleanup
-    delete global.document;
+    clearSelectedCodeBlock();
+    delete (global as any).document;
+    delete (global as any).window;
   });
 
   test('选中代码块时 Delete 触发 onDeleteCodeBlock', () => {
-    const block = { from: 1, to: 20, source: '```js\na\n```' };
-    global.document.querySelector = jest.fn(() => ({
-      classList: { contains: () => true },
-      getAttribute: function (name: string) {
-        if (name === 'data-mda-block-from') return '1';
-        if (name === 'data-mda-block-to') return '20';
-        if (name === 'data-mda-block-source') return block.source;
-        return '';
-      },
-    }));
+    setSelectedCodeBlock({ from: 1, to: 20, source: '```js\na\n```' });
     const onDelete = jest.fn();
     const event = {
       key: 'Delete',
@@ -44,21 +47,13 @@ describe('code delete shortcuts', () => {
   });
 
   test('代码编辑聚焦时不删除块', () => {
-    global.document.querySelector = jest.fn(() => ({
-      classList: { contains: () => true },
-      getAttribute: function (name: string) {
-        if (name === 'data-mda-block-from') return '1';
-        if (name === 'data-mda-block-to') return '20';
-        return '';
-      },
-    }));
+    setSelectedCodeBlock({ from: 1, to: 20, source: '```js\na\n```' });
     const editor = {
       closest: function (sel: string) {
         return sel === '.mda-cm-code-input' ? editor : null;
       },
     };
-    // @ts-expect-error test stub
-    global.document.activeElement = editor;
+    (global as any).document.activeElement = editor;
     const onDelete = jest.fn();
     const event = {
       key: 'Backspace',
@@ -67,5 +62,56 @@ describe('code delete shortcuts', () => {
     };
     expect(tryDeleteSelectedCodeBlock(event, { onDeleteCodeBlock: onDelete })).toBe(false);
     expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  test('选中代码块时 Ctrl+C 触发 onCopyCodeBlock', () => {
+    setSelectedCodeBlock({ from: 1, to: 30, source: '```js\nconsole.log(1)\n```' });
+    const onCopy = jest.fn();
+    const event = {
+      key: 'c',
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      preventDefault: jest.fn(),
+      stopPropagation: jest.fn(),
+    };
+    expect(tryCopySelectedCodeBlock(event, { onCopyCodeBlock: onCopy })).toBe(true);
+    expect(onCopy).toHaveBeenCalledWith(
+      expect.objectContaining({ source: expect.stringContaining('console.log') })
+    );
+    expect(event.preventDefault).toHaveBeenCalled();
+  });
+
+  test('代码框内有拖选时 Ctrl+C 不拦截', () => {
+    setSelectedCodeBlock({ from: 1, to: 20, source: '```js\na\n```' });
+    const editor = {
+      closest: function (sel: string) {
+        return sel === '.mda-cm-code-input' ? editor : null;
+      },
+    };
+    (global as any).document.activeElement = editor;
+    (global as any).window = {
+      getSelection: function () {
+        return {
+          isCollapsed: false,
+          toString: function () {
+            return 'log';
+          },
+        };
+      },
+    };
+    const onCopy = jest.fn();
+    const event = {
+      key: 'c',
+      ctrlKey: true,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      preventDefault: jest.fn(),
+      stopPropagation: jest.fn(),
+    };
+    expect(tryCopySelectedCodeBlock(event, { onCopyCodeBlock: onCopy })).toBe(false);
+    expect(onCopy).not.toHaveBeenCalled();
   });
 });

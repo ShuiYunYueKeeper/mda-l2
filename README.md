@@ -1,7 +1,7 @@
 # MDA — Markdown 工作台
 
-> **当前发版**：Phase A Free · tag [`v2.0.0-alpha`](docs/RELEASE-2.0.0-alpha.md)（2026-07-15）  
-> Pro AI（M7）未包含在本 tag。
+> **当前发版**：tag [`v3.0.0`](docs/RELEASE-3.0.0.md)（2026-09-24）— CM6 预览编辑基础能力稳定版  
+> 历史：Phase A Free · [`v2.0.0-alpha`](docs/RELEASE-2.0.0-alpha.md)（2026-07-15）
 
 生成式 AI 普及后，Markdown 已成为人机协作的「通用中介语言」。办公套件往往把 `.md` 转成私有格式，专业编辑器又偏重；用户真正需要的是：**能打开、能看懂、能改几句、能批注、能导出，并能交给 Agent**。
 
@@ -152,7 +152,7 @@ npm run dist           # 当前平台默认目标
 ```
 
 | 平台 | 典型产物（`release/` 下） |
-|------|---------------------------|
+| --- | --- |
 | Windows | `MDA-1.0.0-win-x64.exe`（NSIS 安装程序，**推荐**）、`MDA-1.0.0-win-x64.zip`（解压后运行，**推荐**）、`MDA-1.0.0-portable-win-x64.exe`（单文件便携版） |
 | macOS | `MDA-1.0.0-mac-x64.dmg`、`MDA-1.0.0-mac-arm64.dmg` 等 |
 | Linux | `MDA-1.0.0-linux-x86_64.AppImage`、`mda_1.0.0_amd64.deb` |
@@ -336,7 +336,7 @@ $env:MDA_CAPTURE='1'; npx playwright test tests/e2e/capture/docs-screenshots.spe
 
 批注通过 Markdown 标准注释语法嵌入，渲染后完全不可见：
 
-```markdown
+```
 [comment]: <> (@anno {"id":"<UUID>","content":"批注内容","tags":["tag1"],"level":"major","status":"open","created_at":"2026-06-26T00:00:00+08:00"})
 被批注的正文段落。
 ```

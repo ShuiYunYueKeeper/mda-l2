@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 块手柄菜单：上/下方插入的 Markdown 片段模板。
  */
 'use strict';
@@ -23,6 +23,45 @@ const INSERT_SNIPPETS = {
   hr: '---',
   image: '![](path/to/image.png)',
 };
+
+/** 块后补空白行，光标落在该空白行行首 */
+const AFTER_BLANK_INSERT_TYPES = {
+  mermaid: true,
+  image: true,
+  hr: true,
+};
+
+/** 块后补空白行，光标仍落在块内可输入处 */
+const INSIDE_TRAILING_BLANK_INSERT_TYPES = {
+  code: true,
+  table: true,
+  quote: true,
+  link: true,
+};
+
+/**
+ * @param {string} type
+ * @returns {boolean}
+ */
+function isAfterBlankInsertType(type) {
+  return !!AFTER_BLANK_INSERT_TYPES[type];
+}
+
+/**
+ * @param {string} type
+ * @returns {boolean}
+ */
+function isInsideTrailingBlankInsertType(type) {
+  return !!INSIDE_TRAILING_BLANK_INSERT_TYPES[type];
+}
+
+/**
+ * @param {string} type
+ * @returns {boolean}
+ */
+function needsTrailingBlankInsert(type) {
+  return isAfterBlankInsertType(type) || isInsideTrailingBlankInsertType(type);
+}
 
 /**
  * @param {string} type
@@ -57,11 +96,11 @@ function caretOffsetInSnippet(type, snippet) {
   if (type === 'task') {
     return 6; // "- [ ] "
   }
-  if (type === 'mermaid') {
-    // 围栏后空白行行首；snippet 本身不含尾随 \n，由 formatBlankLineInsert / planMermaidInsert 补
+  if (isAfterBlankInsertType(type)) {
+    // 块后空白行行首；snippet 本身不含尾随 \n，由 formatBlankLineInsert / planBlockTrailingBlank 补
     return s.endsWith('\n') ? s.length : s.length + 1;
   }
-  // quote / hr / image / heading / bullet / text：snippet 末尾
+  // quote / heading / bullet / text：snippet 末尾（块内）
   return s.length;
 }
 
@@ -133,26 +172,64 @@ function hrLeadingNewline(doc, pos) {
  * @param {string} type
  * @param {string} snippet
  * @param {{ lineAt: (n: number) => { text: string, number: number } }} doc
- * @param {{ number: number }} line
+ * @param {{ number: number, from?: number }} line
  * @returns {{ insert: string, caretOffset: number }}
  */
 function formatBlankLineInsert(type, snippet, doc, line) {
   let insert = snippet;
+  let leadLen = 0;
   if (type === 'hr') {
-    const lead = hrLeadingNewline(doc, line.from);
-    insert = lead + snippet;
+    const lead = hrLeadingNewline(doc, line.from != null ? line.from : 0);
     if (lead) {
-      return { insert: insert, caretOffset: 0 };
+      insert = lead + snippet;
+      leadLen = lead.length;
     }
   }
-  if (type === 'mermaid') {
-    // 空白行替换为围栏后，再留一行空行并把光标落在行首
-    insert = snippet.endsWith('\n') ? snippet : snippet + '\n';
-    return { insert: insert, caretOffset: insert.length };
+  if (needsTrailingBlankInsert(type)) {
+    if (!insert.endsWith('\n')) insert += '\n';
+    if (isAfterBlankInsertType(type)) {
+      return { insert: insert, caretOffset: insert.length };
+    }
+    return {
+      insert: insert,
+      caretOffset: leadLen + caretOffsetInSnippet(type, snippet),
+    };
   }
   return {
     insert: insert,
     caretOffset: caretOffsetInSnippet(type, snippet),
+  };
+}
+
+/**
+ * 保证 snippet 后有空白行；光标按类型落在空白行首或块内。
+ * @param {number} pos 插入起点
+ * @param {string} insert
+ * @param {string} snippet
+ * @param {string} type
+ * @returns {{ insert: string, caret: number }}
+ */
+function planBlockTrailingBlank(pos, insert, snippet, type) {
+  const lead = insert.indexOf(snippet);
+  const snippetStart = pos + (lead >= 0 ? lead : 0);
+  const fenceEnd = snippetStart + snippet.length;
+  const rel = fenceEnd - pos;
+  let next = insert;
+  if (rel < 0) {
+    return {
+      insert: next,
+      caret: snippetStart + caretOffsetInSnippet(type, snippet),
+    };
+  }
+  if (rel >= next.length || next.charAt(rel) !== '\n') {
+    next = next.slice(0, rel) + '\n' + next.slice(rel);
+  }
+  if (isAfterBlankInsertType(type)) {
+    return { insert: next, caret: fenceEnd + 1 };
+  }
+  return {
+    insert: next,
+    caret: snippetStart + caretOffsetInSnippet(type, snippet),
   };
 }
 
@@ -164,21 +241,7 @@ function formatBlankLineInsert(type, snippet, doc, line) {
  * @returns {{ insert: string, caret: number }}
  */
 function planMermaidInsert(pos, insert, snippet) {
-  const lead = insert.indexOf(snippet);
-  const snippetStart = pos + (lead >= 0 ? lead : 0);
-  const fenceEnd = snippetStart + snippet.length;
-  const rel = fenceEnd - pos;
-  let next = insert;
-  if (rel < 0) {
-    return {
-      insert: next,
-      caret: snippetStart + caretOffsetInSnippet('mermaid', snippet),
-    };
-  }
-  if (rel >= next.length || next.charAt(rel) !== '\n') {
-    next = next.slice(0, rel) + '\n' + next.slice(rel);
-  }
-  return { insert: next, caret: fenceEnd + 1 };
+  return planBlockTrailingBlank(pos, insert, snippet, 'mermaid');
 }
 
 /**
@@ -193,13 +256,8 @@ function planHrInsertCaret(doc, pos, insert, snippet) {
   let next = insert;
   if (lead && !next.startsWith(lead)) {
     next = lead + next;
-    return { insert: next, caret: pos };
   }
-  const snippetStart = pos + next.indexOf(snippet);
-  return {
-    insert: next,
-    caret: snippetStart + caretOffsetInSnippet('hr', snippet),
-  };
+  return planBlockTrailingBlank(pos, next, snippet, 'hr');
 }
 
 module.exports = {
@@ -210,6 +268,10 @@ module.exports = {
   planLineOrientedInsert: planLineOrientedInsert,
   hrLeadingNewline: hrLeadingNewline,
   formatBlankLineInsert: formatBlankLineInsert,
+  planBlockTrailingBlank: planBlockTrailingBlank,
   planMermaidInsert: planMermaidInsert,
   planHrInsertCaret: planHrInsertCaret,
+  isAfterBlankInsertType: isAfterBlankInsertType,
+  isInsideTrailingBlankInsertType: isInsideTrailingBlankInsertType,
+  needsTrailingBlankInsert: needsTrailingBlankInsert,
 };

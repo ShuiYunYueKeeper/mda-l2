@@ -122,7 +122,7 @@ export function createMdaMcpServer(workspace: string): Server {
   const ctx = { workspace };
 
   const server = new Server(
-    { name: 'mda-mcp', version: '2.0.0-alpha' },
+    { name: 'mda-mcp', version: '3.0.0' },
     {
       capabilities: { tools: {} },
       instructions:

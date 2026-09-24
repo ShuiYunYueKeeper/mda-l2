@@ -1,6 +1,7 @@
-﻿'use strict';
+'use strict';
 
 const { Transaction } = require('@codemirror/state');
+const { planBlockTrailingBlank } = require('./block-insert-snippets');
 
 const IMAGE_LINE_RE = /^\s*!\[[^\]]*\]\([^)]*\)/;
 
@@ -465,12 +466,14 @@ function dropReplaceImageBlock(view, dragBlock, targetBlock) {
 function insertImageAt(view, pos, markdownLine) {
   if (!view || !markdownLine) return;
   const doc = view.state.doc;
-  let insert = String(markdownLine);
+  const snippet = String(markdownLine);
+  let insert = snippet;
   if (pos > 0 && doc.sliceString(pos - 1, pos) !== '\n') insert = '\n' + insert;
   if (pos < doc.length && doc.sliceString(pos, pos + 1) !== '\n') insert += '\n';
+  const planned = planBlockTrailingBlank(pos, insert, snippet, 'image');
   view.dispatch({
-    changes: { from: pos, to: pos, insert: insert },
-    selection: { anchor: pos + insert.length },
+    changes: { from: pos, to: pos, insert: planned.insert },
+    selection: { anchor: planned.caret, head: planned.caret },
     userEvent: 'input.paste',
   });
 }

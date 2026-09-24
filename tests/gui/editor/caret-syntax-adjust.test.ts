@@ -113,4 +113,40 @@ describe('caret-syntax-adjust', () => {
     expect(next.anchor).toBe(line1.to);
     expect(next.head).toBe(line1.from + 2);
   });
+
+  test('拖选链接可见文本 → 扩成整段 [text](href)', () => {
+    const { expandRangeOverLinks } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/caret-syntax-adjust.js'
+    ));
+    const doc = '[https://www.baidu.com](https://www.baidu.com)';
+    const state = mdState(doc);
+    const contentStart = 1;
+    const contentEnd = 1 + 'https://www.baidu.com'.length;
+    // 模拟 hide-mark 校准后的非对称选区：含 [、止于文本末
+    const asymmetric = expandRangeOverLinks(state, 0, contentEnd);
+    expect(asymmetric.from).toBe(0);
+    expect(asymmetric.to).toBe(doc.length);
+
+    const onlyContent = expandRangeOverLinks(state, contentStart, contentEnd);
+    expect(onlyContent.from).toBe(0);
+    expect(onlyContent.to).toBe(doc.length);
+
+    const next = adjustSelectionForHiddenMarks(state, contentStart, contentEnd);
+    expect(Math.min(next.anchor, next.head)).toBe(0);
+    expect(Math.max(next.anchor, next.head)).toBe(doc.length);
+  });
+
+  test('只选链接文本中间不扩', () => {
+    const { expandRangeOverLinks } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/caret-syntax-adjust.js'
+    ));
+    const doc = '[https://www.baidu.com](https://www.baidu.com)';
+    const state = mdState(doc);
+    const mid = doc.indexOf('baidu');
+    const expanded = expandRangeOverLinks(state, mid, mid + 5);
+    expect(expanded.from).toBe(mid);
+    expect(expanded.to).toBe(mid + 5);
+  });
 });

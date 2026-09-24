@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CM6 编辑面右键菜单（剪贴板 / 复制为 / 链接编辑 / AI 占位入口）。
  */
 'use strict';
@@ -32,6 +32,7 @@ const { getSelectedImageBlock } = require('./widgets/image-selection');
 const { getSelectedMermaidBlock } = require('./widgets/mermaid-selection');
 const { getSelectedBlockOfKind } = require('./widgets/block-selection');
 const { showLinkEditPopover } = require('./link-edit-popover');
+const { normalizeExternalHref } = require('./model/auto-link');
 const {
   setWidgetDomMenuGuard,
   isWidgetDomMenuGuard,
@@ -208,25 +209,134 @@ function menuItemWithKey(label, iconName, keyHint) {
  * @param {number} clientY
  * @returns {{ from: number, to: number, text: string, href: string } | null}
  */
-function getLinkAtCoords(view, clientX, clientY) {
-  const pos = view.posAtCoords({ x: clientX, y: clientY });
-  if (pos == null) return null;
-  let node = syntaxTree(view.state).resolveInner(pos, 1);
-  const doc = view.state.doc.toString();
-  while (node) {
-    if (node.name === 'Link') {
-      const slice = doc.slice(node.from, node.to);
-      const m = /^\[([\s\S]*?)\]\(([\s\S]*?)\)$/.exec(slice);
-      if (!m) return null;
-      return {
-        from: node.from,
-        to: node.to,
-        text: m[1],
-        href: String(m[2] || '').trim(),
-      };
+/**
+ * @param {import('@codemirror/state').EditorState} state
+ * @param {number} pos
+ * @returns {{ from: number, to: number, text: string, href: string } | null}
+ */
+function linkFromSyntaxAt(state, pos) {
+  if (pos == null || pos < 0) return null;
+  const doc = state.doc.toString();
+  for (const side of [1, -1, 0]) {
+    let node = syntaxTree(state).resolveInner(pos, side);
+    while (node) {
+      if (node.name === 'Link') {
+        const slice = doc.slice(node.from, node.to);
+        const m = /^\[([\s\S]*?)\]\(([\s\S]*?)\)$/.exec(slice);
+        if (m) {
+          return {
+            from: node.from,
+            to: node.to,
+            text: m[1],
+            href: normalizeExternalHref(String(m[2] || '').trim()),
+          };
+        }
+      } else if (node.name === 'Autolink') {
+        const raw = doc.slice(node.from + 1, node.to - 1).trim();
+        return {
+          from: node.from,
+          to: node.to,
+          text: raw,
+          href: normalizeExternalHref(raw),
+        };
+      } else if (node.name === 'URL') {
+        const raw = doc.slice(node.from, node.to).trim();
+        return {
+          from: node.from,
+          to: node.to,
+          text: raw,
+          href: normalizeExternalHref(raw),
+        };
+      }
+      node = node.parent;
     }
-    node = node.parent;
   }
+  return null;
+}
+
+/**
+ * @param {import('@codemirror/view').EditorView} view
+ * @param {number} clientX
+ * @param {number} clientY
+ * @param {EventTarget | null} [target]
+ * @returns {{ from: number, to: number, text: string, href: string } | null}
+ */
+function getLinkAtCoords(view, clientX, clientY, target) {
+  // 与 Ctrl+点击 / 悬停同一路径：装饰层 span[data-mda-href] 优先
+  let domEl = null;
+  if (target && /** @type {HTMLElement} */ (target).closest) {
+    domEl = /** @type {HTMLElement} */ (
+      /** @type {HTMLElement} */ (target).closest('[data-mda-href], .mda-cm-link')
+    );
+  }
+
+  let pos = view.posAtCoords({ x: clientX, y: clientY });
+  if ((pos == null || isNaN(pos)) && domEl) {
+    try {
+      pos = view.posAtDOM(domEl, 0);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  const fromTree = linkFromSyntaxAt(view.state, pos);
+  if (fromTree) return fromTree;
+
+  // 语法树未命中时：用装饰 href + 光标附近文本反查区间（裸 www / 已包装链接）
+  if (domEl) {
+    const rawAttr = domEl.getAttribute('data-mda-href') || '';
+    const href = normalizeExternalHref(rawAttr);
+    if (!href) return null;
+    const doc = view.state.doc.toString();
+    const probe = pos != null ? pos : 0;
+    const line = view.state.doc.lineAt(Math.max(0, Math.min(probe, doc.length)));
+    const lineText = line.text;
+    // 可见文案：www 裸链用属性原值；https 链用属性
+    const display =
+      /^www\./i.test(rawAttr) || /^https?:\/\//i.test(rawAttr)
+        ? rawAttr
+        : href.replace(/^https:\/\//i, '');
+    let idx = lineText.indexOf(display);
+    if (idx < 0 && rawAttr) idx = lineText.indexOf(rawAttr);
+    if (idx < 0) {
+      // 已是 [text](href) 源码但 hide-mark 只露 text
+      const wrapped = '[' + display + '](' + href + ')';
+      const widx = lineText.indexOf(wrapped);
+      if (widx >= 0) {
+        return {
+          from: line.from + widx,
+          to: line.from + widx + wrapped.length,
+          text: display,
+          href: href,
+        };
+      }
+      // 仅能打开、粗略用当前 pos 单点（编辑时扩成包装）
+      if (pos != null) {
+        return { from: pos, to: pos, text: display || rawAttr, href: href };
+      }
+      return null;
+    }
+    const from = line.from + idx;
+    const to = from + display.length;
+    // 若两侧是 [text](href) 定界符，扩到整段
+    if (
+      from > 0 &&
+      doc.charAt(from - 1) === '[' &&
+      doc.slice(to, to + 2) === ']('
+    ) {
+      const close = doc.indexOf(')', to + 2);
+      if (close > to) {
+        return {
+          from: from - 1,
+          to: close + 1,
+          text: display,
+          href: href,
+        };
+      }
+    }
+    return { from: from, to: to, text: display || rawAttr, href: href };
+  }
+
   return null;
 }
 
@@ -446,7 +556,7 @@ function resolveMenuContext(view, e) {
   const cmSel = view.state.selection.main;
   const hasCmSelection = cmSel.from !== cmSel.to;
 
-  const link = getLinkAtCoords(view, e.clientX, e.clientY);
+  const link = getLinkAtCoords(view, e.clientX, e.clientY, e.target);
   if (link) {
     return { type: 'link', link: link };
   }

@@ -1,6 +1,6 @@
 {
   "name": "mda",
-  "version": "2.0.0-alpha",
+  "version": "3.0.0",
   "description": "Markdown 工作台 — 预览 · 编辑 · 批注 · 文件管理（CLI / GUI / MCP）",
   "author": "MDA <mda.markdown@gmail.com>",
   "desktopName": "mda.desktop",

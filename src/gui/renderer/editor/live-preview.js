@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-B/C 实时预览视图层：语法隐藏（D15 = hide-mark 零宽 replace widget + atomicRanges）。
  */
 'use strict';
@@ -54,6 +54,7 @@ const {
 } = require('./widgets/inline-math-selection');
 const { createBlockMenuHandlers } = require('./widgets/block-menu-handlers');
 const { createLinkHoverTipExtension, hrefAtPointer } = require('./link-hover-tip');
+const { createAutoLinkExtension, createAutoLinkPasteHandler } = require('./auto-link');
 const { createEmptyLineInsertExtension } = require('./empty-line-insert');
 const { createOutlineClickSyncExtension } = require('./outline-click-sync');
 const {
@@ -79,6 +80,7 @@ const { handlePreviewHeadingEnter, handlePreviewHeadingBackspace } = require('./
 const {
   handleInlineDelimiterBackspace,
   handleInlineDelimiterDelete,
+  handleInlineMarkBreakEnter,
 } = require('./state/inline-delimiter-ops');
 const { createDocLineCursorKeymap } = require('./doc-line-cursor');
 const { BlockReplaceWidget, DEFAULT_LINE_HEIGHT } = require('./widgets/block-widget-base');
@@ -1151,6 +1153,7 @@ function livePreview(opts) {
       linkClick,
     ])
     .concat(createLinkHoverTipExtension(liveOpts))
+    .concat(createAutoLinkExtension())
     .concat([
       createClickCollapseExtension(),
       createContextMenuExtension(liveOpts),
@@ -1159,6 +1162,8 @@ function livePreview(opts) {
       theme,
       Prec.high(
         keymap.of([
+          // 须先于标题 Enter：纯加粗行末回车先退出定界符
+          { key: 'Enter', run: handleInlineMarkBreakEnter },
           { key: 'Enter', run: handlePreviewHeadingEnter },
           { key: 'Backspace', run: handlePreviewHeadingBackspace },
           // 定界符隐藏时删除须作用到可见字符，并清掉被删空的定界符对
@@ -1168,6 +1173,7 @@ function livePreview(opts) {
       ),
       EditorView.domEventHandlers({
         paste: function (event, view) {
+          if (createAutoLinkPasteHandler()(event, view)) return true;
           if (createTableMarkdownPasteHandler()(event, view)) return true;
           if (handleMarkdownSyntaxPaste(event, view)) return true;
           return createImagePasteHandler(liveOpts)(event, view);

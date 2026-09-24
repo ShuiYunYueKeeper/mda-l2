@@ -20,6 +20,36 @@
     return out;
   }
 
+  /**
+   * 光标行对应的大纲高亮目标：≤ line 的最近标题行号。
+   * @param {number|null|undefined} line
+   * @param {{ line: number }[]} flat
+   * @returns {number|null}
+   */
+  function headingLineAtOrBefore(line, flat) {
+    if (line == null || isNaN(line) || !flat || !flat.length) return null;
+    var active = flat[0].line;
+    for (var i = 0; i < flat.length; i++) {
+      if (flat[i].line <= line) active = flat[i].line;
+      else break;
+    }
+    return active;
+  }
+
+  /**
+   * setHeadings 重建后：若旧高亮行仍在标题列表中则保留，否则 null。
+   * @param {number|null} prevActive
+   * @param {{ line: number }[]} flat
+   * @returns {number|null}
+   */
+  function preserveActiveLine(prevActive, flat) {
+    if (prevActive == null || isNaN(prevActive) || !flat || !flat.length) return null;
+    for (var i = 0; i < flat.length; i++) {
+      if (flat[i].line === prevActive) return prevActive;
+    }
+    return null;
+  }
+
   function mount(container, onJump, opts) {
     opts = opts || {};
     var onCollapsedChange = opts.onCollapsedChange;
@@ -88,7 +118,9 @@
                   (isFolded ? '\u25B8' : '\u25BE') +
                   '</button>'
                 : '<span class="mda-outline-fold-spacer" aria-hidden="true"></span>') +
-              '<button type="button" class="mda-outline-link" data-line="' + n.line + '">' +
+              '<button type="button" class="mda-outline-link' +
+                (n.line === activeLine ? ' active' : '') +
+                '" data-line="' + n.line + '">' +
                 escHtml(n.title) +
               '</button>' +
             '</div>';
@@ -190,13 +222,24 @@
       onJump(line);
     });
 
-    function setHeadings(roots) {
+    function setHeadings(roots, opts2) {
+      opts2 = opts2 || {};
+      var prevActive = activeLine;
       lastRoots = roots || [];
       flatHeadings = flattenHeadings(lastRoots, []);
-      activeLine = null;
+      // 有光标行时以光标为准（≤ 最近标题）；否则才保留旧高亮
+      // 若优先 preserve，回车后光标已到下节仍会钉在旧标题上
+      var kept = null;
+      if (opts2.caretLine != null && !isNaN(opts2.caretLine)) {
+        kept = headingLineAtOrBefore(opts2.caretLine, flatHeadings);
+      }
+      if (kept == null) {
+        kept = preserveActiveLine(prevActive, flatHeadings);
+      }
+      activeLine = kept;
+      var alive = {};
       // 丢弃已不存在的折叠键
       if (lastRoots.length) {
-        var alive = {};
         for (var i = 0; i < flatHeadings.length; i++) alive[flatHeadings[i].line] = true;
         Object.keys(folded).forEach(function (k) {
           if (!alive[k]) delete folded[k];
@@ -218,6 +261,16 @@
     };
   }
 
-  global.MDAOutlinePanel = { mount: mount };
-  if (typeof module !== 'undefined' && module.exports) module.exports = { mount: mount };
+  global.MDAOutlinePanel = {
+    mount: mount,
+    preserveActiveLine: preserveActiveLine,
+    headingLineAtOrBefore: headingLineAtOrBefore,
+  };
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+      mount: mount,
+      preserveActiveLine: preserveActiveLine,
+      headingLineAtOrBefore: headingLineAtOrBefore,
+    };
+  }
 })(typeof window !== 'undefined' ? window : global);

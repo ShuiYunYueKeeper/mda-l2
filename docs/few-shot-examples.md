@@ -1,4 +1,4 @@
-﻿# Few-shot 正反例资产（AI 协作易错点）
+# Few-shot 正反例资产（AI 协作易错点）
 
 > 本文件为「可被 AI 直接复用的 few-shot 资产」：针对 MDA 项目中反复出现、且仅靠
 > 自然语言规则不易约束的易错点，给出成对的 **✅ 正确 / ❌ 错误** 示例。
@@ -414,7 +414,7 @@ function resolveInWorkspace(inputPath, workspaceRoot) {
 
 ## 15. 大纲高亮按源码行归属（GUI）
 
-**规则**：高亮「≤ 当前行的最近标题」；编辑定位与预览点击须直接更新；滚动锚点约视口 20%（勿用固定 64px，易偏上一节）。
+**规则**：高亮「≤ 当前行的最近标题」；编辑定位与预览点击须直接更新；滚动锚点约视口 20%（勿用固定 64px，易偏上一节）。CM6 选区变化须 `scheduleOutlineActiveFromCaret`；`setHeadings` 有 `caretLine` 时**优先**按光标算高亮（勿优先 preserve 旧行）。
 
 ### ✅ 正确
 
@@ -428,12 +428,15 @@ function headingLineAtOrBefore(line) {
   return active;
 }
 // 预览点击 / onPreviewLocate → updateOutlineActiveFromLine(cursorLine)
+// setHeadings(roots, { caretLine }) → paint 前写入 active，HTML 带 .active
 ```
 
 ### ❌ 错误
 
 - ❌ 仅依赖滚动 + `top + 64` → 点在 1.2 却高亮 1.1。
 - ❌ 预览点击不更新大纲 → 大纲高亮不动。
+- ❌ `setHeadings` 优先 preserve 旧 active → 标题行末回车后光标在本节空行，大纲仍钉上级。
+- ❌ 先 `activeLine=null` 再 paint、再 rAF 补高亮 → 大纲闪烁。
 
 ---
 
@@ -466,6 +469,7 @@ function refreshWorkspaceTree(opts) {
 - 块工具栏「复制图片」须截取**完整卡片边框**（含顶栏），`capturePageRect` 向外取整并保留设备像素（勿把 DPR 图平滑缩到 1×）。
 - 「复制源码」须带 ` ```mermaid ` 围栏（可直接粘贴回 Markdown）。
 - **选中流程图块后编辑器 `Ctrl+C`** 须复制该块围栏源码（勿空选区沿用剪贴板旧内容）；源码框 `paste` 须 `stopPropagation`，贴入完整围栏时只取正文。
+- **选中代码块后 `Ctrl+C`** 同理复制围栏源码（`code-shortcuts` / `onCopyCodeBlock`）；代码框无拖选时 `Ctrl+C` / `Ctrl+A` 行为对齐流程图源码框。
 
 ### ✅ 正确
 
@@ -487,6 +491,7 @@ copyTextWithToast(fenceMermaidSource(opts.mermaidSrc), ...);
 - ❌ 只有源码按钮、无法复制图片 → 无法贴进公众号/文档当插图。
 - ❌ 打开缩放时未传入 `mermaidSrc` / `svgNode` → 复制空内容或失败。
 - ❌ 选中流程图后 `Ctrl+C` 无处理 → 剪贴板仍是旧文档片段，粘贴进源码框导致渲染失败。
+- ❌ 选中代码块后 `Ctrl+C` 无处理 → 同上，粘贴得到错误/残缺内容。
 - ❌ 源码框 `paste` 不 `stopPropagation` → 同一段文本再写入 CM6 文档，围栏被拆坏。
 - ❌ 块「复制图片」只栅格化 SVG、或把截图 2×→1× 平滑缩小 → 缺边框/边框发糊。
 
@@ -938,3 +943,49 @@ activeHandle.classList.add('dragging'); // activeHandle 已是游离节点
 
 - 槽位仍 `hidden` 时按 `scrollWidth - 0` 判溢出 → 误加 `is-overflowing` / 初始化异常，看起来像「版本回退」丢了中间工具栏
 - 溢出时仍居中 auto margin → `scrollLeft=0` 却看不到左端，左钮逻辑失真
+
+---
+
+## 32. 自动 URL → 超链接（GUI auto-link）
+
+**规则**：
+- `www.*` 收尾（空格/Enter 等）→ `[www…](https://www…)`
+- `http(s)://` 后再输入一字 → `[url](url)`，继续输入同步 text/href
+- 粘贴单一 URL/www 立刻包装；围栏/行内 code 内不转换
+- 链文本末 Enter/Space → 收尾符须在整段 `](…)` 之后；选中可见 URL 删除须整段去掉
+
+### ✅ 正确
+
+```javascript
+planPasteAutoLink('www.baidu.com')
+// → '[www.baidu.com](https://www.baidu.com)'
+exitAutoLinkWith(view, '\n') // 或 wrapBareUrlThenBreak
+// → 文档 '...](url)\n'，caret 在换行后
+expandRangeOverLinks(state, 0, contentEnd) // 含 [ 止于文本末
+// → 扩到整段 link.to，Backspace 不留 ](url)
+```
+
+### ❌ 错误
+
+- ❌ 只靠 GFM 裸 URL 节点、不写 `[text](href)` → `www` 文案与可打开 href 无法分离
+- ❌ 在 `Link` 文本内继续输入却不同步 href → 可见 `https://ww`、打开仍是 `https://w`
+- ❌ 代码块内也自动包装 → 样例 URL 被改坏
+- ❌ 链文本末 Enter 插在 `]` 前 → `[url\n](url)`
+- ❌ 选中可见 URL 只删 `[text` → 留下 `](url)`
+
+---
+
+## 33. 行内样式段末 Enter（GUI inline-mark-break）
+
+**规则**：纯加粗/斜体等行，光标在可见文本末（闭定界符 hide-mark 内侧）按 Enter，换行插到闭定界符之后。
+
+### ✅ 正确
+
+```javascript
+planExitTrailingMarksBreak('**CLI 模式：**', tree, contentEnd, '\n')
+// → from=doc.length, insert='\n'  →  '**CLI 模式：**\n'
+```
+
+### ❌ 错误
+
+- ❌ 默认在 `content.to` 插入 `\n` → `**CLI 模式：\n**`（定界符拆行）

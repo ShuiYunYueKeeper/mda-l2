@@ -29,7 +29,8 @@
 
 **回归用例**：`tests/e2e/gui/inline-delimiter-edit.spec.ts`（正文）、`table-cell-inline-matrix.spec.ts`（格内矩阵）、`table-cell-punct-cancel.spec.ts`（顿号紧贴开定界符 + 连续输入）；单测 `tests/gui/editor/inline-input-sweep.test.ts`（300 例扫掠）。
 
-| [`RELEASE-2.0.0-alpha.md`](RELEASE-2.0.0-alpha.md) | **Phase A Free 发版说明**（tag `v2.0.0-alpha`） |
+| [`RELEASE-3.0.0.md`](RELEASE-3.0.0.md) | **3.0.0 发版说明**（tag `v3.0.0`，CM6 预览编辑稳定版） |
+| [`RELEASE-2.0.0-alpha.md`](RELEASE-2.0.0-alpha.md) | Phase A Free 发版说明（tag `v2.0.0-alpha`） |
 | [`P2-detailed-design.md`](P2-detailed-design.md) | 详细设计（算法、接口、批注语法） |
 | [`P3-implementation-plan.md`](P3-implementation-plan.md) | 实现计划（Phase 任务 DAG、人机分工） |
 
