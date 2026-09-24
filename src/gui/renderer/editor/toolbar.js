@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M8-E1 常驻编辑工具栏（F11-6，布局对齐竞品）。
  */
 'use strict';
@@ -185,6 +185,7 @@ function createEditorToolbar(host, view, opts) {
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-orientation', 'horizontal');
   bar.innerHTML =
+    '<button type="button" class="mda-cm-tb-scroll mda-cm-tb-scroll-prev" hidden aria-hidden="true" tabindex="-1">‹</button>' +
     '<div class="mda-cm-tb-main">' +
     '<div class="mda-cm-tb-group" data-group="history">' +
     tbButtonHtml('undo', { icon: 'undo', keyshortcuts: 'Control+Z', tip: true }) +
@@ -285,9 +286,92 @@ function createEditorToolbar(host, view, opts) {
     '<span class="mda-cm-tb-ai-caret" aria-hidden="true">▾</span>' +
     '</button>' +
     '</div>' +
-    '</div>';
+    '</div>' +
+    '<button type="button" class="mda-cm-tb-scroll mda-cm-tb-scroll-next" hidden aria-hidden="true" tabindex="-1">›</button>';
 
   host.appendChild(bar);
+
+  const tbMain = /** @type {HTMLElement} */ (bar.querySelector('.mda-cm-tb-main'));
+  const scrollPrevBtn = /** @type {HTMLButtonElement} */ (
+    bar.querySelector('.mda-cm-tb-scroll-prev')
+  );
+  const scrollNextBtn = /** @type {HTMLButtonElement} */ (
+    bar.querySelector('.mda-cm-tb-scroll-next')
+  );
+  const SCROLL_EPS = 2;
+
+  function syncToolbarScrollButtons() {
+    if (!tbMain || !scrollPrevBtn || !scrollNextBtn) return;
+    const viewW = tbMain.clientWidth || 0;
+    // display:none / 槽位未展开时 clientWidth 为 0，勿当成溢出（否则会误加 is-overflowing）
+    if (viewW < 1) {
+      tbMain.classList.remove('is-overflowing');
+      scrollPrevBtn.hidden = true;
+      scrollNextBtn.hidden = true;
+      scrollPrevBtn.setAttribute('aria-hidden', 'true');
+      scrollNextBtn.setAttribute('aria-hidden', 'true');
+      return;
+    }
+    const maxScroll = Math.max(0, tbMain.scrollWidth - viewW);
+    const overflowing = maxScroll > SCROLL_EPS;
+    tbMain.classList.toggle('is-overflowing', overflowing);
+    if (!overflowing && tbMain.scrollLeft !== 0) {
+      tbMain.scrollLeft = 0;
+    }
+    const sl = tbMain.scrollLeft || 0;
+    // 左侧已完全可见时不显示左按钮；右侧同理
+    const showPrev = overflowing && sl > SCROLL_EPS;
+    const showNext = overflowing && sl < maxScroll - SCROLL_EPS;
+    scrollPrevBtn.hidden = !showPrev;
+    scrollPrevBtn.setAttribute('aria-hidden', showPrev ? 'false' : 'true');
+    scrollNextBtn.hidden = !showNext;
+    scrollNextBtn.setAttribute('aria-hidden', showNext ? 'false' : 'true');
+  }
+
+  function scrollToolbarBy(dir) {
+    if (!tbMain) return;
+    const step = Math.max(80, Math.floor(tbMain.clientWidth * 0.7));
+    tbMain.scrollBy({ left: dir * step, behavior: 'smooth' });
+  }
+
+  if (scrollPrevBtn) {
+    scrollPrevBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      scrollToolbarBy(-1);
+    });
+  }
+  if (scrollNextBtn) {
+    scrollNextBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      scrollToolbarBy(1);
+    });
+  }
+  if (tbMain) {
+    tbMain.addEventListener(
+      'scroll',
+      function () {
+        syncToolbarScrollButtons();
+      },
+      { passive: true }
+    );
+  }
+
+  let scrollRo = null;
+  if (typeof ResizeObserver === 'function' && tbMain) {
+    scrollRo = new ResizeObserver(function () {
+      syncToolbarScrollButtons();
+    });
+    scrollRo.observe(tbMain);
+    if (bar.parentElement) scrollRo.observe(bar.parentElement);
+  }
+  window.addEventListener('resize', syncToolbarScrollButtons);
+  // 初次布局后同步（字体/标签宽度可能稍后变化）；槽位从 hidden 展开时靠 RO 再算
+  requestAnimationFrame(function () {
+    syncToolbarScrollButtons();
+    requestAnimationFrame(syncToolbarScrollButtons);
+  });
 
   const paraBtn = /** @type {HTMLButtonElement} */ (bar.querySelector('[data-cmd="paragraph-open"]'));
   const paraLabel = bar.querySelector('.mda-cm-tb-paragraph-label');
@@ -374,7 +458,19 @@ function createEditorToolbar(host, view, opts) {
     if (exportLabel) exportLabel.textContent = t('tbExport');
     const aiText = bar.querySelector('.mda-cm-tb-ai-text');
     if (aiText) aiText.textContent = t('tbAi');
+    if (scrollPrevBtn) {
+      const prevLabel = t('tbToolbarScrollPrev');
+      scrollPrevBtn.setAttribute('aria-label', prevLabel);
+      scrollPrevBtn.setAttribute('title', prevLabel);
+    }
+    if (scrollNextBtn) {
+      const nextLabel = t('tbToolbarScrollNext');
+      scrollNextBtn.setAttribute('aria-label', nextLabel);
+      scrollNextBtn.setAttribute('title', nextLabel);
+    }
     refreshCommentTip();
+    // 文案变宽后可能溢出，延迟一帧再算
+    requestAnimationFrame(syncToolbarScrollButtons);
   }
 
   function refreshCommentTip() {
@@ -731,6 +827,7 @@ function createEditorToolbar(host, view, opts) {
     refreshCommentTip();
     const focused = bar.querySelector('[tabindex="0"]');
     setRovingTabindex(focused && !focused.disabled ? focused : null);
+    syncToolbarScrollButtons();
   }
 
   function placeToolbarPopup(menu, anchorEl) {
@@ -996,6 +1093,15 @@ function createEditorToolbar(host, view, opts) {
       setWidgetPendingListener(null);
       document.removeEventListener('focusin', onDocFocusIn);
       document.removeEventListener('selectionchange', onDocSelectionChange);
+      window.removeEventListener('resize', syncToolbarScrollButtons);
+      if (scrollRo) {
+        try {
+          scrollRo.disconnect();
+        } catch (_) {
+          /* ignore */
+        }
+        scrollRo = null;
+      }
       if (selRefreshRaf) cancelAnimationFrame(selRefreshRaf);
       selRefreshRaf = 0;
       closeToolbarInsertMenu();

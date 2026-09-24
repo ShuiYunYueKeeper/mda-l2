@@ -912,3 +912,20 @@ activeHandle.classList.add('dragging'); // activeHandle 已是游离节点
 - hide 后只等渲染回调、无看门狗 → 幽灵进程占锁，双击 md 打不开
 - 取消关闭不 `show` → 窗口消失但进程仍在
 - 二次启动只 `focus` 隐藏窗 → 用户看不见任何窗口
+
+---
+
+## 31. 编辑工具栏溢出左右滚动（GUI toolbar.js）
+
+**规则**：放不下才出左右钮；`scrollLeft≈0` 无左钮；槽位宽度为 0 时不判溢出。
+
+### ✅ 正确
+
+- `viewW < 1` → 清 `is-overflowing`、隐藏两钮
+- `showPrev = overflowing && scrollLeft > EPS`；`showNext` 对称
+- 溢出时去掉首尾 `margin:auto`，保证左端完全可见对应 `scrollLeft=0`
+
+### ❌ 错误
+
+- 槽位仍 `hidden` 时按 `scrollWidth - 0` 判溢出 → 误加 `is-overflowing` / 初始化异常，看起来像「版本回退」丢了中间工具栏
+- 溢出时仍居中 auto margin → `scrollLeft=0` 却看不到左端，左钮逻辑失真

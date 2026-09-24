@@ -1,4 +1,4 @@
-// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
+﻿// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
 (function (global) {
   var STRINGS = {
     zh: {
@@ -67,6 +67,8 @@
       tbTipCommentWhere: '为当前段落或块添加批注',
       tbTipCommentSel: '添加选区批注',
       tbTipCommentSelWhere: '为当前选中的文字添加批注',
+      tbToolbarScrollPrev: '向左滚动工具栏',
+      tbToolbarScrollNext: '向右滚动工具栏',
       tbTextColor: '字体颜色',
       tbHighlight: '高亮',
       tbSuperscript: '上标',
@@ -572,6 +574,8 @@
       tbTipCommentWhere: 'Add an annotation to the current paragraph or block',
       tbTipCommentSel: 'Add selection annotation',
       tbTipCommentSelWhere: 'Add an annotation to the selected text',
+      tbToolbarScrollPrev: 'Scroll toolbar left',
+      tbToolbarScrollNext: 'Scroll toolbar right',
       tbTextColor: 'Text color',
       tbHighlight: 'Highlight',
       tbSuperscript: 'Superscript',

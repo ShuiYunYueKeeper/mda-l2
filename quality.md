@@ -77,6 +77,7 @@ npx playwright test tests/e2e/capture/docs-screenshots.spec.ts   # 刷新文档�
 |--------|----------|------|
 | **GUI 实机验证（硬约束）** | 任何 `src/gui/**` 改动 | 自动化测试 + `build` 通过 ≠ 验证完成；渲染、双向定位、拖拽、原生模态失焦、代码块右键/快捷键等缺陷只有实机能暴露。详见 `.cursor/workflow.md` / `.claude/workflow.md` Step 4 |
 | **关窗 / 单实例锁** | 改动 `main.js` 关窗、`confirmClose`/`abortClose`、second-instance | 关窗后无残留进程；双击 `.md` 可再开；取消关闭窗口重新显示；二次启动能唤醒已 hide 的窗口 |
+| **编辑工具栏溢出** | 改动 `toolbar.js` / `.mda-cm-tb-main` 滚动 | 窗口够宽无左右钮；变窄后仅右钮→中段左右都有→最右仅左钮；左侧已尽不显示左钮 |
 | **编辑器三层对齐** | 改动源码编辑栏（高亮层/行号槽/textarea） | 字体/行高/padding/`tab-size`/`white-space:pre` 不一致会导致光标与着色错位；须实机输入、滚动、换行验证 |
 | **坏批注容错隐藏** | 改动 `ANNO_ISH` / `hideLooseAnnotations` / 保存校验 | 故意删掉 `[comment]` 的 `]` 或改坏 JSON：预览不得泄漏、保存须弹窗提示、围栏内样例仍原样显示 |
 | **缩放遮罩** | 改动图片/流程图缩放逻辑 | 矢量清晰（SVG 用改宽高放大，勿舞台 `scale`/`will-change`）；深色全屏预览 SVG 深色底+字可读；默认约 72%–75% 视口；0.3×–8×；连点 +/- 不误复位；**复制**：图→位图；流程图→「图片」+「源码」（围栏），Ctrl+C 默认图片 |

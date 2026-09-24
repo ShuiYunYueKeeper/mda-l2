@@ -66857,7 +66857,7 @@ var MDAEditorBundle = (() => {
         bar.className = "mda-cm-edit-toolbar";
         bar.setAttribute("role", "toolbar");
         bar.setAttribute("aria-orientation", "horizontal");
-        bar.innerHTML = '<div class="mda-cm-tb-main"><div class="mda-cm-tb-group" data-group="history">' + tbButtonHtml("undo", { icon: "undo", keyshortcuts: "Control+Z", tip: true }) + tbButtonHtml("redo", { icon: "redo", keyshortcuts: "Control+Y", tip: true }) + tbButtonHtml("clear-format", { icon: "clearFormat", tip: true }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="paragraph"><span class="mda-cm-tb-tip-host" data-tip-cmd="paragraph"><button type="button" class="mda-cm-tb-select mda-cm-tb-paragraph" data-cmd="paragraph-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-paragraph-menu"><span class="mda-cm-tb-paragraph-label"></span></button></span></div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="inline">' + tbButtonHtml("bold", {
+        bar.innerHTML = '<button type="button" class="mda-cm-tb-scroll mda-cm-tb-scroll-prev" hidden aria-hidden="true" tabindex="-1">\u2039</button><div class="mda-cm-tb-main"><div class="mda-cm-tb-group" data-group="history">' + tbButtonHtml("undo", { icon: "undo", keyshortcuts: "Control+Z", tip: true }) + tbButtonHtml("redo", { icon: "redo", keyshortcuts: "Control+Y", tip: true }) + tbButtonHtml("clear-format", { icon: "clearFormat", tip: true }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="paragraph"><span class="mda-cm-tb-tip-host" data-tip-cmd="paragraph"><button type="button" class="mda-cm-tb-select mda-cm-tb-paragraph" data-cmd="paragraph-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-paragraph-menu"><span class="mda-cm-tb-paragraph-label"></span></button></span></div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="inline">' + tbButtonHtml("bold", {
           toggle: true,
           pressed: true,
           icon: "bold",
@@ -66905,8 +66905,87 @@ var MDAEditorBundle = (() => {
           icon: "ol",
           keyshortcuts: "Control+Shift+U",
           tip: true
-        }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="utility">' + tbButtonHtml("save", { icon: "save", keyshortcuts: "Control+S", tip: true }) + tbButtonHtml("copy-preview", { icon: "copyPreview", keyshortcuts: "Control+Alt+C", tip: true }) + '<button type="button" class="mda-cm-tb-btn mda-cm-tb-export" data-cmd="export-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-export-menu" title="">' + toolbarIconHtml("export") + '<span class="mda-cm-tb-export-label"></span><span class="mda-cm-tb-export-caret" aria-hidden="true">\u25BE</span></button>' + tbButtonHtml("find", { icon: "find", keyshortcuts: "Control+F", tip: true }) + tbButtonHtml("comment", { icon: "comment", keyshortcuts: "Control+Shift+B", tip: true }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="insert"><button type="button" class="mda-cm-tb-btn mda-cm-tb-insert" data-cmd="insert-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-insert-menu" title=""><span class="mda-cm-tb-insert-plus" aria-hidden="true">+</span><span class="mda-cm-tb-insert-label"></span></button><button type="button" class="mda-cm-tb-btn mda-cm-tb-ai" data-cmd="ai" data-soon="1" title="">' + toolbarIconHtml("ai") + '<span class="mda-cm-tb-ai-text"></span><span class="mda-cm-tb-ai-caret" aria-hidden="true">\u25BE</span></button></div></div>';
+        }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="utility">' + tbButtonHtml("save", { icon: "save", keyshortcuts: "Control+S", tip: true }) + tbButtonHtml("copy-preview", { icon: "copyPreview", keyshortcuts: "Control+Alt+C", tip: true }) + '<button type="button" class="mda-cm-tb-btn mda-cm-tb-export" data-cmd="export-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-export-menu" title="">' + toolbarIconHtml("export") + '<span class="mda-cm-tb-export-label"></span><span class="mda-cm-tb-export-caret" aria-hidden="true">\u25BE</span></button>' + tbButtonHtml("find", { icon: "find", keyshortcuts: "Control+F", tip: true }) + tbButtonHtml("comment", { icon: "comment", keyshortcuts: "Control+Shift+B", tip: true }) + '</div><span class="mda-cm-tb-sep" aria-hidden="true"></span><div class="mda-cm-tb-group" data-group="insert"><button type="button" class="mda-cm-tb-btn mda-cm-tb-insert" data-cmd="insert-open" aria-haspopup="menu" aria-expanded="false" aria-controls="mda-toolbar-insert-menu" title=""><span class="mda-cm-tb-insert-plus" aria-hidden="true">+</span><span class="mda-cm-tb-insert-label"></span></button><button type="button" class="mda-cm-tb-btn mda-cm-tb-ai" data-cmd="ai" data-soon="1" title="">' + toolbarIconHtml("ai") + '<span class="mda-cm-tb-ai-text"></span><span class="mda-cm-tb-ai-caret" aria-hidden="true">\u25BE</span></button></div></div><button type="button" class="mda-cm-tb-scroll mda-cm-tb-scroll-next" hidden aria-hidden="true" tabindex="-1">\u203A</button>';
         host.appendChild(bar);
+        const tbMain = (
+          /** @type {HTMLElement} */
+          bar.querySelector(".mda-cm-tb-main")
+        );
+        const scrollPrevBtn = (
+          /** @type {HTMLButtonElement} */
+          bar.querySelector(".mda-cm-tb-scroll-prev")
+        );
+        const scrollNextBtn = (
+          /** @type {HTMLButtonElement} */
+          bar.querySelector(".mda-cm-tb-scroll-next")
+        );
+        const SCROLL_EPS = 2;
+        function syncToolbarScrollButtons() {
+          if (!tbMain || !scrollPrevBtn || !scrollNextBtn) return;
+          const viewW = tbMain.clientWidth || 0;
+          if (viewW < 1) {
+            tbMain.classList.remove("is-overflowing");
+            scrollPrevBtn.hidden = true;
+            scrollNextBtn.hidden = true;
+            scrollPrevBtn.setAttribute("aria-hidden", "true");
+            scrollNextBtn.setAttribute("aria-hidden", "true");
+            return;
+          }
+          const maxScroll = Math.max(0, tbMain.scrollWidth - viewW);
+          const overflowing = maxScroll > SCROLL_EPS;
+          tbMain.classList.toggle("is-overflowing", overflowing);
+          if (!overflowing && tbMain.scrollLeft !== 0) {
+            tbMain.scrollLeft = 0;
+          }
+          const sl = tbMain.scrollLeft || 0;
+          const showPrev = overflowing && sl > SCROLL_EPS;
+          const showNext = overflowing && sl < maxScroll - SCROLL_EPS;
+          scrollPrevBtn.hidden = !showPrev;
+          scrollPrevBtn.setAttribute("aria-hidden", showPrev ? "false" : "true");
+          scrollNextBtn.hidden = !showNext;
+          scrollNextBtn.setAttribute("aria-hidden", showNext ? "false" : "true");
+        }
+        function scrollToolbarBy(dir) {
+          if (!tbMain) return;
+          const step = Math.max(80, Math.floor(tbMain.clientWidth * 0.7));
+          tbMain.scrollBy({ left: dir * step, behavior: "smooth" });
+        }
+        if (scrollPrevBtn) {
+          scrollPrevBtn.addEventListener("click", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            scrollToolbarBy(-1);
+          });
+        }
+        if (scrollNextBtn) {
+          scrollNextBtn.addEventListener("click", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            scrollToolbarBy(1);
+          });
+        }
+        if (tbMain) {
+          tbMain.addEventListener(
+            "scroll",
+            function() {
+              syncToolbarScrollButtons();
+            },
+            { passive: true }
+          );
+        }
+        let scrollRo = null;
+        if (typeof ResizeObserver === "function" && tbMain) {
+          scrollRo = new ResizeObserver(function() {
+            syncToolbarScrollButtons();
+          });
+          scrollRo.observe(tbMain);
+          if (bar.parentElement) scrollRo.observe(bar.parentElement);
+        }
+        window.addEventListener("resize", syncToolbarScrollButtons);
+        requestAnimationFrame(function() {
+          syncToolbarScrollButtons();
+          requestAnimationFrame(syncToolbarScrollButtons);
+        });
         const paraBtn = (
           /** @type {HTMLButtonElement} */
           bar.querySelector('[data-cmd="paragraph-open"]')
@@ -66989,7 +67068,18 @@ var MDAEditorBundle = (() => {
           if (exportLabel) exportLabel.textContent = t("tbExport");
           const aiText = bar.querySelector(".mda-cm-tb-ai-text");
           if (aiText) aiText.textContent = t("tbAi");
+          if (scrollPrevBtn) {
+            const prevLabel = t("tbToolbarScrollPrev");
+            scrollPrevBtn.setAttribute("aria-label", prevLabel);
+            scrollPrevBtn.setAttribute("title", prevLabel);
+          }
+          if (scrollNextBtn) {
+            const nextLabel = t("tbToolbarScrollNext");
+            scrollNextBtn.setAttribute("aria-label", nextLabel);
+            scrollNextBtn.setAttribute("title", nextLabel);
+          }
           refreshCommentTip();
+          requestAnimationFrame(syncToolbarScrollButtons);
         }
         function refreshCommentTip() {
           const host2 = bar.querySelector('[data-tip-cmd="comment"]');
@@ -67299,6 +67389,7 @@ var MDAEditorBundle = (() => {
           refreshCommentTip();
           const focused = bar.querySelector('[tabindex="0"]');
           setRovingTabindex(focused && !focused.disabled ? focused : null);
+          syncToolbarScrollButtons();
         }
         function placeToolbarPopup(menu, anchorEl) {
           menu.style.left = "0px";
@@ -67566,6 +67657,14 @@ var MDAEditorBundle = (() => {
             setWidgetPendingListener(null);
             document.removeEventListener("focusin", onDocFocusIn);
             document.removeEventListener("selectionchange", onDocSelectionChange);
+            window.removeEventListener("resize", syncToolbarScrollButtons);
+            if (scrollRo) {
+              try {
+                scrollRo.disconnect();
+              } catch (_) {
+              }
+              scrollRo = null;
+            }
             if (selRefreshRaf) cancelAnimationFrame(selRefreshRaf);
             selRefreshRaf = 0;
             closeToolbarInsertMenu();

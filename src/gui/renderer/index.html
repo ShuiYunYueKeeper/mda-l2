@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -1748,6 +1748,29 @@
       user-select: none;
       box-sizing: border-box;
     }
+    .mda-cm-tb-scroll {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 28px;
+      padding: 0;
+      margin: 0;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .mda-cm-tb-scroll:hover {
+      background: var(--bg-tertiary);
+      border-color: var(--border-light);
+      color: var(--text);
+    }
+    .mda-cm-tb-scroll[hidden] { display: none !important; }
     .mda-cm-tb-main {
       display: flex;
       align-items: center;
@@ -1762,6 +1785,9 @@
     }
     .mda-cm-tb-main > :first-child { margin-left: auto; }
     .mda-cm-tb-main > :last-child { margin-right: auto; }
+    /* 溢出时取消居中，保证 scrollLeft=0 对应工具栏左端完全可见 */
+    .mda-cm-tb-main.is-overflowing > :first-child { margin-left: 0; }
+    .mda-cm-tb-main.is-overflowing > :last-child { margin-right: 0; }
     .mda-cm-tb-main::-webkit-scrollbar { display: none; }
     .mda-cm-tb-group { display: flex; align-items: center; gap: 2px; }
     .mda-cm-tb-sep {

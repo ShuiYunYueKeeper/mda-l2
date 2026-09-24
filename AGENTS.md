@@ -340,6 +340,7 @@ npm test               # jest（含覆盖率）
 6b. **【GUI·Electron】单实例锁会让「重启」变成假重启**：`main.js` 有 `requestSingleInstanceLock()`，已开着 MDA 时再 `npm run gui` 会让**新进程直接退出**，仅把旧窗口（旧代码）激活并打开文件——改了代码却「问题依旧」多半是这个。验证改动生效须**先关掉所有 MDA 窗口**再启动，或 `Ctrl+R` 重载渲染进程。Playwright e2e 同理：`electron.launch` 必须带独立 `--user-data-dir=<临时目录>`，否则本机开着的 MDA 会让被测实例秒退（报 `Target page, context or browser has been closed`）。
 6b2. **【GUI·Electron】关窗半途不得留下幽灵进程**：关窗路径常先 `hide` 再等渲染进程 `confirmClose`；若渲染未回调（崩溃/卡死/脏标记不同步），进程仍活着占住单实例锁 → 双击 `.md` / 再启 GUI 只会唤醒「看不见」的旧进程。须：① 关窗启动看门狗（约 8s）超时仍隐藏则 `finishAppClose`；② 渲染取消关闭（脏确认取消 / 设置弹窗拦截）走 `abortClose` 清看门狗并 `show`；③ `second-instance` 先 `abortAppClose` + `focusOrCreateMainWindow`（隐藏窗不可只 `focus`）。
 6c. **【GUI CM6】预览编辑是默认模式，开关判定在 `editor/pref.js`**：`localStorage` 的 `mda-cm6` **未设置或为空串时走预览编辑**，只有显式 `'0'`/`'false'` 才回退 2.0 源码模式。判定单独成模块是为了能单测默认值——嵌在 `editor/index.js` 的模块初始化里测不到。改默认行为须同步 `tests/gui/editor/pref.test.ts`，并确认 e2e 不再依赖「默认源码模式」的前提。点击诊断浮层（`clickDebug.devDefault`）**默认关闭**，别在发版前才想起来关。
+6d. **【GUI 编辑工具栏溢出滚动】**：顶栏 `#cm-edit-toolbar-slot` 内 `.mda-cm-tb-main` 放不下时显示左右滚动钮；**`scrollLeft≈0` 不显示左钮**，滚到最右不显示右钮；未溢出两钮皆隐。槽位 `clientWidth<1`（仍 `hidden`）时**不得**判溢出（勿误加 `is-overflowing` 取消居中）。溢出时去掉首尾 `margin:auto` 居中，保证 `scrollLeft=0` 即左端完全可见。实现：`toolbar.js` + `index.html` `.mda-cm-tb-scroll-*`。
 7. **【数据校验】枚举守卫**：add/edit/scan 入口用 `isAnnotationLevel/isAnnotationStatus` 校验，非法值报错退出而非落盘。
 8. **【CLI 输出】表格按显示宽度对齐**：中文为全角（2 列），用 `displayWidth/truncateToWidth/padToWidth` 对齐，勿用 `String.padEnd`（按码元数会错位）。
 9. **【CLI 输出】scan 目录模式**：每条批注的 `file` 必须是真实文件路径（在 `scanFile` 内回填），不可回退成目录名。
@@ -372,6 +373,7 @@ npm test               # jest（含覆盖率）
 | GUI 选区/高亮/滚动/查找 | `renderer/selection-anchor.js`、`anchor-highlights.js`、`sync-scroll.js`、`find-replace.js`、`editor/widget-find-seed.js`、`editor/widget-find-highlight.js` |
 | GUI 磁盘↔文档坐标换算（anchor） | `renderer/doc-coords.js` |
 | GUI CM6 默认模式开关 | `renderer/editor/pref.js` |
+| GUI CM6 顶栏编辑工具栏 | `renderer/editor/toolbar.js`（含溢出左右滚动） |
 | GUI 文档截图采集 | `tests/e2e/capture/docs-screenshots.spec.ts`、`scripts/seed-review-demo-annos.js` |
 | GUI CM6 空白行插入 / 大纲点击同步 | `renderer/editor/empty-line-insert.js`、`empty-line-insert-menu.js`、`outline-click-sync.js`、`outline-scroll.js` |
 | GUI CM6 空标题 / 分隔线插入 | `renderer/editor/heading-enter.js`、`widgets/block-insert-snippets.js`、`widgets/block-handle-ops.js` |
