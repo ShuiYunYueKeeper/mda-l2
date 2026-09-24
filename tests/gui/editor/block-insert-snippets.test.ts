@@ -34,6 +34,46 @@ describe('block-insert-snippets', () => {
 
     const task = getInsertSnippet('task')!;
     expect(caretOffsetInSnippet('task', task)).toBe(6);
+
+    const mermaid = getInsertSnippet('mermaid')!;
+    expect(mermaid.endsWith('\n')).toBe(false);
+    expect(caretOffsetInSnippet('mermaid', mermaid)).toBe(mermaid.length + 1);
+  });
+
+  test('formatBlankLineInsert：流程图后补空白行且光标在行首', () => {
+    const doc = {
+      line: function () {
+        return { number: 1, from: 0, to: 0, text: '' };
+      },
+      lineAt: function () {
+        return { number: 1, from: 0, to: 0, text: '' };
+      },
+    };
+    const mermaid = getInsertSnippet('mermaid')!;
+    const planned = formatBlankLineInsert('mermaid', mermaid, doc, { number: 1, from: 0 });
+    expect(planned.insert).toBe(mermaid + '\n');
+    expect(planned.caretOffset).toBe(planned.insert.length);
+    expect(planned.insert.endsWith('```\n')).toBe(true);
+  });
+
+  test('planMermaidInsert：近旁插入也保证围栏后空白行', () => {
+    const { planMermaidInsert } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/widgets/block-insert-snippets.js'
+    ));
+    const mermaid = getInsertSnippet('mermaid')!;
+    // 已有尾随 \n
+    const a = planMermaidInsert(10, mermaid + '\n', mermaid);
+    expect(a.insert).toBe(mermaid + '\n');
+    expect(a.caret).toBe(10 + mermaid.length + 1);
+    // 缺少尾随 \n 时补上
+    const b = planMermaidInsert(10, mermaid, mermaid);
+    expect(b.insert).toBe(mermaid + '\n');
+    expect(b.caret).toBe(10 + mermaid.length + 1);
+    // 前导换行
+    const c = planMermaidInsert(5, '\n' + mermaid, mermaid);
+    expect(c.insert).toBe('\n' + mermaid + '\n');
+    expect(c.caret).toBe(5 + 1 + mermaid.length + 1);
   });
 
   test('planLineOrientedInsert：上/下方独占新行', () => {

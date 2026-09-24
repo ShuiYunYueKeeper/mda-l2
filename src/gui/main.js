@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
+﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -573,12 +573,12 @@ function registerIpcHandlers() {
       if (!rect || rect.width <= 0 || rect.height <= 0) {
         return { success: false, error: '截图区域无效' };
       }
-      const image = await event.sender.capturePage({
-        x: Math.round(rect.x),
-        y: Math.round(rect.y),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      });
+      // 与渲染进程一致：DIP 坐标向外取整，避免边框被裁
+      const x = Math.floor(Number(rect.x));
+      const y = Math.floor(Number(rect.y));
+      const width = Math.max(1, Math.ceil(Number(rect.width)));
+      const height = Math.max(1, Math.ceil(Number(rect.height)));
+      const image = await event.sender.capturePage({ x, y, width, height });
       return { success: true, dataUrl: image.toDataURL() };
     } catch (err) {
       return { success: false, error: err.message };

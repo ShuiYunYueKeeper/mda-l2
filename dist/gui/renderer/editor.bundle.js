@@ -60202,143 +60202,25 @@ var MDAEditorBundle = (() => {
         if (!stage) return;
         const frame = stage.closest(".mda-cm-mermaid-frame");
         if (!frame) return;
-        const attrW = parseInt(stage.getAttribute("data-mda-display-width") || "", 10);
-        const w = attrW > 0 ? attrW : Math.round(stage.getBoundingClientRect().width || stage.clientWidth || 0);
-        if (!(w > 0)) return;
-        frame.style.width = w + "px";
-        if (attrW > 0) {
-          frame.classList.add("mda-cm-mermaid-sized");
-          stage.classList.add("mda-cm-mermaid-sized");
-          frame.style.maxWidth = "none";
-          stage.style.maxWidth = "none";
-        } else {
-          frame.classList.remove("mda-cm-mermaid-sized");
-          stage.classList.remove("mda-cm-mermaid-sized");
-          frame.style.width = "";
-          frame.style.maxWidth = "";
-          stage.style.maxWidth = "100%";
-        }
-      }
-      function applyLiveMermaidWidth(stage, widthPx) {
-        if (!stage) return 0;
-        const w = Math.round(widthPx);
-        if (!(w > 16)) return 0;
-        stage.style.width = w + "px";
-        stage.style.maxWidth = "none";
-        stage.style.marginLeft = "auto";
-        stage.style.marginRight = "auto";
-        stage.setAttribute("data-mda-display-width", String(w));
-        const svg = stage.querySelector("svg");
-        if (svg) {
-          svg.style.width = "100%";
-          svg.style.maxWidth = "100%";
-          svg.style.height = "auto";
-        }
-        syncMermaidFrameToStage(stage);
-        return w;
-      }
-      function clearLiveMermaidWidth(stage) {
-        if (!stage) return;
+        frame.classList.remove("mda-cm-mermaid-sized");
+        stage.classList.remove("mda-cm-mermaid-sized");
+        frame.style.width = "";
+        frame.style.maxWidth = "";
         stage.style.width = "";
         stage.style.maxWidth = "100%";
         stage.removeAttribute("data-mda-display-width");
-        const svg = stage.querySelector("svg");
-        if (svg) {
-          svg.style.width = "";
-          svg.style.maxWidth = "100%";
-          svg.style.height = "auto";
-        }
+      }
+      function applyLiveMermaidWidth(stage, _widthPx) {
+        syncMermaidFrameToStage(stage);
+        return 0;
+      }
+      function clearLiveMermaidWidth(stage) {
         syncMermaidFrameToStage(stage);
       }
       module.exports = {
         syncMermaidFrameToStage,
         applyLiveMermaidWidth,
         clearLiveMermaidWidth
-      };
-    }
-  });
-
-  // src/gui/renderer/editor/widgets/mermaid-edge-resize.js
-  var require_mermaid_edge_resize = __commonJS({
-    "src/gui/renderer/editor/widgets/mermaid-edge-resize.js"(exports, module) {
-      "use strict";
-      var { isNearFrameResizeCorner } = require_image_edge_resize();
-      var { applyLiveMermaidWidth } = require_mermaid_layout();
-      function attachMermaidCornerResize(frame, stage, opts, selectFrame) {
-        if (!frame || !stage) return;
-        let resizing = false;
-        function updateCursor(e) {
-          if (resizing) {
-            frame.style.cursor = "nwse-resize";
-            return;
-          }
-          if (!frame.classList.contains("mda-cm-media-selected")) {
-            frame.style.cursor = "";
-            return;
-          }
-          frame.style.cursor = isNearFrameResizeCorner(frame, e.clientX, e.clientY) ? "nwse-resize" : "";
-        }
-        frame.addEventListener("pointermove", updateCursor);
-        frame.addEventListener("pointerleave", function() {
-          if (!resizing) frame.style.cursor = "";
-        });
-        frame.addEventListener(
-          "pointerdown",
-          function(e) {
-            if (e.button !== 0) return;
-            if (e.target && e.target.closest && e.target.closest(".mda-cm-block-toolbar")) return;
-            if (!frame.classList.contains("mda-cm-media-selected")) return;
-            const onHandle = e.target && e.target.closest && e.target.closest(".mda-cm-mermaid-handle-br");
-            if (!onHandle && !isNearFrameResizeCorner(frame, e.clientX, e.clientY)) return;
-            e.preventDefault();
-            e.stopPropagation();
-            const startX = e.clientX;
-            const startW = stage.getBoundingClientRect().width || stage.clientWidth || 200;
-            resizing = true;
-            document.body.classList.add("mda-img-resizing");
-            frame.classList.add("mda-cm-mermaid-resize-active");
-            frame.style.cursor = "nwse-resize";
-            try {
-              frame.setPointerCapture(e.pointerId);
-            } catch (_) {
-            }
-            function onMove(ev) {
-              ev.preventDefault();
-              const dx = ev.clientX - startX;
-              const maxW = typeof opts.getResizeMaxWidth === "function" ? opts.getResizeMaxWidth() : 1200;
-              const minW = 80;
-              const next = Math.max(minW, Math.min(maxW, Math.round(startW + dx)));
-              applyLiveMermaidWidth(stage, next);
-            }
-            function onUp(ev) {
-              resizing = false;
-              document.body.classList.remove("mda-img-resizing");
-              frame.classList.remove("mda-cm-mermaid-resize-active");
-              try {
-                frame.releasePointerCapture(ev.pointerId);
-              } catch (_) {
-              }
-              frame.removeEventListener("pointermove", onMove);
-              frame.removeEventListener("pointerup", onUp);
-              frame.removeEventListener("pointercancel", onUp);
-              const finalW = Math.round(stage.getBoundingClientRect().width || stage.clientWidth || 0);
-              if (typeof opts.onMermaidResize === "function" && finalW > 16) {
-                opts.onMermaidResize(stage, finalW);
-              }
-              if (typeof opts.onMermaidResizeEnd === "function") {
-                opts.onMermaidResizeEnd(stage);
-              }
-              updateCursor(ev);
-            }
-            frame.addEventListener("pointermove", onMove);
-            frame.addEventListener("pointerup", onUp);
-            frame.addEventListener("pointercancel", onUp);
-          },
-          true
-        );
-      }
-      module.exports = {
-        attachMermaidCornerResize
       };
     }
   });
@@ -60350,8 +60232,6 @@ var MDAEditorBundle = (() => {
       var { parseFencedCode } = require_parse_fence();
       var { createBlockToolbar, copyText, uiT, clearMediaSelection, clearBlockWidgetSelection } = require_widget_common();
       var { BlockReplaceWidget, syncWidgetHeightFromDom } = require_block_widget_base();
-      var { attachMermaidCornerResize } = require_mermaid_edge_resize();
-      var { isNearFrameResizeCorner } = require_image_edge_resize();
       var { attachBlockDragHandle } = require_block_drag_handle();
       var {
         setSelectedMermaidBlock,
@@ -60368,19 +60248,18 @@ var MDAEditorBundle = (() => {
         mermaidDiagramTypeLabel
       } = require_mermaid_diagram_type();
       var { Transaction } = require_dist2();
+      function stripMermaidFenceWrapper(text) {
+        const raw = String(text == null ? "" : text).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        const m = /^[ \t]*(```|~~~)[ \t]*mermaid[^\n]*\n([\s\S]*?)\n[ \t]*\1[ \t]*\s*$/i.exec(
+          raw.trim()
+        );
+        if (m) return m[2];
+        return raw;
+      }
       function applyMermaidDisplayConstraints(stage, opts) {
         if (!stage) return;
-        let saved = parseInt(stage.getAttribute("data-mda-display-width") || "", 10);
-        if (!(saved > 0) && typeof opts.getSavedMermaidDisplayWidth === "function") {
-          const key = stage.getAttribute("data-mermaid-src") || "";
-          const w = opts.getSavedMermaidDisplayWidth(key);
-          if (w > 0) saved = w;
-        }
-        if (saved > 0) {
-          const { applyLiveMermaidWidth } = require_mermaid_layout();
-          applyLiveMermaidWidth(stage, saved);
-          return;
-        }
+        stage.removeAttribute("data-mda-display-width");
+        stage.classList.remove("mda-cm-mermaid-sized");
         if (typeof opts.onScaleMermaid === "function") {
           opts.onScaleMermaid(stage);
         }
@@ -60447,13 +60326,6 @@ var MDAEditorBundle = (() => {
           attachWidgetEditablePointerIsolation(sourceEditor);
           sourcePanel.appendChild(sourceEditor);
           frame.appendChild(sourcePanel);
-          const handles = document.createElement("span");
-          handles.className = "mda-cm-mermaid-handles";
-          handles.setAttribute("aria-hidden", "true");
-          const dot = document.createElement("i");
-          dot.className = "mda-cm-mermaid-handle mda-cm-mermaid-handle-br";
-          handles.appendChild(dot);
-          frame.appendChild(handles);
           let showingSource = false;
           const sourceBtn = toolbar.querySelector('[data-action="source"]');
           function readSourceText() {
@@ -60540,10 +60412,40 @@ var MDAEditorBundle = (() => {
           sourceEditor.addEventListener("mousedown", function(e) {
             e.stopPropagation();
           });
+          sourceEditor.addEventListener("keydown", function(e) {
+            const mod = e.ctrlKey || e.metaKey;
+            if (mod && !e.altKey && !e.shiftKey) {
+              const fk = (e.key || "").toLowerCase();
+              if (fk === "f" || fk === "h") return;
+            }
+            e.stopPropagation();
+            if (mod && !e.altKey && !e.shiftKey && (e.key === "a" || e.key === "A")) {
+              e.preventDefault();
+              try {
+                const range = document.createRange();
+                range.selectNodeContents(sourceEditor);
+                const sel = window.getSelection();
+                if (sel) {
+                  sel.removeAllRanges();
+                  sel.addRange(range);
+                }
+              } catch (_) {
+              }
+              return;
+            }
+            if (mod && !e.altKey && !e.shiftKey && (e.key === "c" || e.key === "C")) {
+              const sel = window.getSelection && window.getSelection();
+              if (sel && !sel.isCollapsed && String(sel.toString() || "").length > 0) return;
+              e.preventDefault();
+              copyText(self2.source, opts.copyText);
+            }
+          });
           sourceEditor.addEventListener("paste", function(e) {
             e.preventDefault();
-            const text = e.clipboardData && e.clipboardData.getData("text/plain");
+            e.stopPropagation();
+            let text = e.clipboardData && e.clipboardData.getData("text/plain");
             if (text == null) return;
+            text = stripMermaidFenceWrapper(text);
             document.execCommand("insertText", false, text);
           });
           sourceEditor.addEventListener("focus", function() {
@@ -60560,8 +60462,6 @@ var MDAEditorBundle = (() => {
             if (e.target && e.target.closest && e.target.closest(".mda-cm-mermaid-source-input")) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-block-toolbar [data-action]")) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) return;
-            if (e.target && e.target.closest && e.target.closest(".mda-cm-mermaid-handle-br")) return;
-            if (isNearFrameResizeCorner(frame, e.clientX, e.clientY)) return;
             e.preventDefault();
             e.stopPropagation();
             selectFrame();
@@ -60570,7 +60470,6 @@ var MDAEditorBundle = (() => {
             if (showingSource) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-block-toolbar")) return;
             if (e.target && e.target.closest && e.target.closest(".mda-cm-block-drag-handle")) return;
-            if (e.target && e.target.closest && e.target.closest(".mda-cm-mermaid-handle")) return;
             e.preventDefault();
             e.stopPropagation();
             const svg = stage.querySelector("svg");
@@ -60581,7 +60480,6 @@ var MDAEditorBundle = (() => {
               });
             }
           });
-          attachMermaidCornerResize(frame, stage, opts, selectFrame);
           attachBlockDragHandle(
             frame,
             view,
@@ -62733,6 +62631,9 @@ var MDAEditorBundle = (() => {
         if (type === "task") {
           return 6;
         }
+        if (type === "mermaid") {
+          return s.endsWith("\n") ? s.length : s.length + 1;
+        }
         return s.length;
       }
       var LINE_ORIENTED_INSERT_TYPES = {
@@ -62784,10 +62685,31 @@ var MDAEditorBundle = (() => {
             return { insert, caretOffset: 0 };
           }
         }
+        if (type === "mermaid") {
+          insert = snippet.endsWith("\n") ? snippet : snippet + "\n";
+          return { insert, caretOffset: insert.length };
+        }
         return {
           insert,
           caretOffset: caretOffsetInSnippet(type, snippet)
         };
+      }
+      function planMermaidInsert(pos, insert, snippet) {
+        const lead = insert.indexOf(snippet);
+        const snippetStart = pos + (lead >= 0 ? lead : 0);
+        const fenceEnd = snippetStart + snippet.length;
+        const rel = fenceEnd - pos;
+        let next = insert;
+        if (rel < 0) {
+          return {
+            insert: next,
+            caret: snippetStart + caretOffsetInSnippet("mermaid", snippet)
+          };
+        }
+        if (rel >= next.length || next.charAt(rel) !== "\n") {
+          next = next.slice(0, rel) + "\n" + next.slice(rel);
+        }
+        return { insert: next, caret: fenceEnd + 1 };
       }
       function planHrInsertCaret(doc, pos, insert, snippet) {
         const lead = hrLeadingNewline(doc, pos);
@@ -62810,6 +62732,7 @@ var MDAEditorBundle = (() => {
         planLineOrientedInsert,
         hrLeadingNewline,
         formatBlankLineInsert,
+        planMermaidInsert,
         planHrInsertCaret
       };
     }
@@ -62825,7 +62748,7 @@ var MDAEditorBundle = (() => {
         deleteBlockRange,
         expandBlockRange
       } = require_image_block_ops();
-      var { getInsertSnippet, caretOffsetInSnippet, isLineOrientedInsertType, planLineOrientedInsert, formatBlankLineInsert, planHrInsertCaret } = require_block_insert_snippets();
+      var { getInsertSnippet, caretOffsetInSnippet, isLineOrientedInsertType, planLineOrientedInsert, formatBlankLineInsert, planHrInsertCaret, planMermaidInsert } = require_block_insert_snippets();
       var { copyText } = require_widget_common();
       function getBlockSource(view, block) {
         if (!view) return "";
@@ -62924,9 +62847,15 @@ var MDAEditorBundle = (() => {
           insert = planned.insert;
           hrCaret = planned.caret;
         }
+        let mermaidCaret = null;
+        if (type === "mermaid") {
+          const planned = planMermaidInsert(pos, insert, snippet);
+          insert = planned.insert;
+          mermaidCaret = planned.caret;
+        }
         const lead = insert.indexOf(snippet);
         const snippetStart = pos + (lead >= 0 ? lead : 0);
-        const caret = hrCaret != null ? hrCaret : snippetStart + caretOffsetInSnippet(type, snippet);
+        const caret = hrCaret != null ? hrCaret : mermaidCaret != null ? mermaidCaret : snippetStart + caretOffsetInSnippet(type, snippet);
         pinSelectionForHistory(view, pos);
         view.dispatch({
           changes: { from: pos, to: pos, insert },
@@ -63541,18 +63470,55 @@ var MDAEditorBundle = (() => {
       var { keymap, EditorView } = require_dist4();
       var { Prec } = require_dist2();
       var { getSelectedMermaidBlock } = require_mermaid_selection();
+      var { copyText } = require_widget_common();
       var globalKeysInstalled = false;
+      function focusInMermaidSource() {
+        const ae = typeof document !== "undefined" ? document.activeElement : null;
+        return !!(ae && ae.closest && ae.closest(".mda-cm-mermaid-source-input"));
+      }
+      function hasDomTextSelection() {
+        const sel = typeof window !== "undefined" && window.getSelection && window.getSelection();
+        return !!(sel && !sel.isCollapsed && String(sel.toString() || "").length > 0);
+      }
+      function copySelectedMermaidSource(block, opts) {
+        if (!block) return false;
+        const text = block.source != null ? String(block.source) : "";
+        if (!text) return false;
+        copyText(text, opts && opts.copyText);
+        return true;
+      }
       function tryDeleteSelectedMermaidBlock(event, opts) {
         if (event.key !== "Delete" && event.key !== "Backspace") return false;
         const block = getSelectedMermaidBlock();
         if (!block || typeof opts.onDeleteMermaidBlock !== "function") return false;
         const ae = document.activeElement;
         if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) return false;
-        if (ae && ae.closest && ae.closest(".mda-cm-mermaid-source-input")) return false;
+        if (focusInMermaidSource()) return false;
         if (ae && ae.closest && ae.closest("#settings-dialog, #find-replace-bar")) return false;
         event.preventDefault();
         if (typeof event.stopPropagation === "function") event.stopPropagation();
         opts.onDeleteMermaidBlock(block);
+        return true;
+      }
+      function tryCopySelectedMermaidBlock(event, opts) {
+        const key = (event.key || "").toLowerCase();
+        if (key !== "c" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) {
+          return false;
+        }
+        if (focusInMermaidSource() && hasDomTextSelection()) return false;
+        const block = getSelectedMermaidBlock();
+        if (!block) return false;
+        const ae = document.activeElement;
+        if (ae && ae.closest && ae.closest("#settings-dialog, #find-replace-bar")) return false;
+        if (typeof opts.onCopyMermaidBlock === "function") {
+          event.preventDefault();
+          if (typeof event.stopPropagation === "function") event.stopPropagation();
+          opts.onCopyMermaidBlock(block);
+          return true;
+        }
+        if (!copySelectedMermaidSource(block, opts)) return false;
+        event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
         return true;
       }
       function installMermaidGlobalKeys(opts) {
@@ -63561,7 +63527,8 @@ var MDAEditorBundle = (() => {
         window.addEventListener(
           "keydown",
           function(e) {
-            tryDeleteSelectedMermaidBlock(e, opts);
+            if (tryDeleteSelectedMermaidBlock(e, opts)) return;
+            tryCopySelectedMermaidBlock(e, opts);
           },
           true
         );
@@ -63587,6 +63554,19 @@ var MDAEditorBundle = (() => {
                 opts.onDeleteMermaidBlock(block);
                 return true;
               }
+            },
+            {
+              key: "Mod-c",
+              run: function() {
+                if (focusInMermaidSource() && hasDomTextSelection()) return false;
+                const block = getSelectedMermaidBlock();
+                if (!block) return false;
+                if (typeof opts.onCopyMermaidBlock === "function") {
+                  opts.onCopyMermaidBlock(block);
+                  return true;
+                }
+                return copySelectedMermaidSource(block, opts);
+              }
             }
           ])
         );
@@ -63594,12 +63574,15 @@ var MDAEditorBundle = (() => {
       function createMermaidKeydownHandler(opts) {
         return EditorView.domEventHandlers({
           keydown: function(event) {
-            return tryDeleteSelectedMermaidBlock(event, opts);
+            if (tryDeleteSelectedMermaidBlock(event, opts)) return true;
+            return tryCopySelectedMermaidBlock(event, opts);
           }
         });
       }
       module.exports = {
         tryDeleteSelectedMermaidBlock,
+        tryCopySelectedMermaidBlock,
+        copySelectedMermaidSource,
         createMermaidShortcutKeymap,
         createMermaidKeydownHandler
       };

@@ -514,33 +514,17 @@
           }
         },
         onScaleMermaid: function (stage) {
-          var key = stage.getAttribute('data-mermaid-src') || '';
-          if (key && Object.prototype.hasOwnProperty.call(mermaidDisplayWidths, key)) {
-            applyMermaidDisplayWidth(stage, mermaidDisplayWidths[key]);
-            return;
-          }
-          applyDefaultScaleToMermaid(stage);
+          layoutMermaidFixedColumn(stage);
         },
-        getSavedMermaidDisplayWidth: function (src) {
-          if (src && Object.prototype.hasOwnProperty.call(mermaidDisplayWidths, src)) {
-            return mermaidDisplayWidths[src];
-          }
+        getSavedMermaidDisplayWidth: function () {
           return 0;
         },
-        onMermaidResize: function (stage, widthPx) {
-          applyMermaidDisplayWidth(stage, widthPx);
+        onMermaidResize: function () {
+          /* 流程图不再支持拖拽调宽 */
         },
-        onMermaidResizeEnd: function () {
-          if (isCm6Ready() && cm6Editor && cm6Editor.view) {
-            try {
-              cm6Editor.view.requestMeasure();
-            } catch (_) {
-              /* ignore */
-            }
-          }
-        },
+        onMermaidResizeEnd: function () {},
         onMermaidResizeReset: function (stage) {
-          restoreMediaToSettingsScale(stage, 'mermaid');
+          layoutMermaidFixedColumn(stage);
           if (isCm6Ready() && cm6Editor && cm6Editor.view) {
             try {
               cm6Editor.view.requestMeasure();
@@ -550,12 +534,24 @@
           }
         },
         onCopyMermaidImage: function (stage, code) {
+          var frame = stage && stage.closest ? stage.closest('.mda-cm-mermaid-frame') : null;
+          if (frame) {
+            exportMermaidFrameToPng(frame)
+              .then(function (dataUrl) {
+                return copyPngDataUrlToClipboard(dataUrl);
+              })
+              .catch(function (e) {
+                uiAlert(uiT('alertZoomCopyFail', { error: e && e.message ? e.message : String(e) }));
+              });
+            return;
+          }
           var svg = stage && stage.querySelector('svg');
           if (!svg) {
             showToast(uiT('toastNoCopy'));
             return;
           }
-          copyZoomMermaidImage({ mermaidSrc: code || '', svgNode: svg });
+          // 经典预览无卡片边框：仅 SVG；全屏缩放层走 copyZoomMermaidImage
+          copyMermaidSvgAsImage(svg);
         },
         onCopyMathImage: function (displayEl) {
           function fail(err) {
@@ -691,6 +687,29 @@
         },
         onCopyBlockAsMarkdown: function (block, kind) {
           copyCm6BlockAsMarkdown(block, kind);
+        },
+        onCopyMermaidBlock: function (block) {
+          if (!block) {
+            showToast(uiT('toastNoCopy'));
+            return;
+          }
+          var text = block.source != null ? String(block.source) : '';
+          if (!text && isCm6Ready() && cm6Editor && cm6Editor.view && window.MDAEditor) {
+            // 回退：从文档切片
+            try {
+              if (block.from != null && block.to != null) {
+                text = cm6Editor.view.state.doc.sliceString(block.from, block.to);
+              }
+            } catch (_) {
+              /* ignore */
+            }
+          }
+          if (!text) {
+            showToast(uiT('toastNoCopy'));
+            return;
+          }
+          if (api.copyToClipboard) api.copyToClipboard(text);
+          showToast(uiT('toastCopied'));
         },
         onCopyImage: function (imgEl) {
           if (!imgEl) {
@@ -3589,7 +3608,19 @@
 
   /** 深色下默认 dark 主题会把亮黄等压成近黑，节点融进背景；显式给出中等饱和分段色。 */
   function mermaidInitOptions() {
-    var base = { startOnLoad: false, securityLevel: 'strict' };
+    var base = {
+      startOnLoad: false,
+      securityLevel: 'strict',
+      // 相对 Mermaid 默认略收紧层级/同级间距与节点内边距（不改 theme）
+      flowchart: {
+        htmlLabels: true,
+        curve: 'basis',
+        nodeSpacing: 40,
+        rankSpacing: 40,
+        diagramPadding: 8,
+        padding: 10,
+      },
+    };
     if (!isDark()) {
       base.theme = 'default';
       // 浅色保持默认；显式 gradient 以免被上次深色配置残留影响
@@ -3666,7 +3697,7 @@
         if (out.bindFunctions) out.bindFunctions(holder);
         fixMermaidSvgLayout(holder);
         tuneMermaidSvgContrast(holder);
-        ensureMermaidResizeChrome(holder);
+        layoutMermaidFixedColumn(holder);
         holder.addEventListener('click', function (e) {
           var suppressUntil = parseInt(this.dataset.suppressZoomUntil || '0', 10);
           if (suppressUntil) {
@@ -4594,9 +4625,15 @@
     return Math.min(3, Math.max(EXPORT_BITMAP_SCALE, Math.round(window.devicePixelRatio || EXPORT_BITMAP_SCALE)));
   }
 
+  /**
+   * 将 capturePage 位图对齐到「逻辑尺寸 × exportBitmapScale」。
+   * 禁止把 DPR 高分图平滑缩小到 1× 逻辑像素（边框/文字会发糊）；
+   * 已是高分则原样保留，与 exportMeasuredHtmlToPng 观感一致。
+   */
   function normalizeCapturePngForExport(dataUrl, logicalW, logicalH) {
-    var targetW = Math.max(1, Math.round(logicalW));
-    var targetH = Math.max(1, Math.round(logicalH));
+    var scale = exportBitmapScale();
+    var targetW = Math.max(1, Math.round(Number(logicalW) * scale));
+    var targetH = Math.max(1, Math.round(Number(logicalH) * scale));
     var bg = readCssVar('--bg', '#ffffff');
     return new Promise(function (resolve) {
       if (!dataUrl) {
@@ -4609,6 +4646,11 @@
           var nw = img.naturalWidth || img.width || 0;
           var nh = img.naturalHeight || img.height || 0;
           if (!nw || !nh) {
+            resolve(dataUrl);
+            return;
+          }
+          // 高分捕捉（≈ DPR）已够清晰：勿再缩小
+          if (nw >= targetW - 2 && nh >= targetH - 2) {
             resolve(dataUrl);
             return;
           }
@@ -4722,15 +4764,35 @@
 
   async function capturePageRegion(rect) {
     if (!api.capturePageRect || !rect) return null;
-    if (!isRectCapturable(rect)) return null;
+    // 向外取整，避免 floor+ceil(width) 裁掉 1px 边框抗锯齿
+    var left = Number(rect.left);
+    var top = Number(rect.top);
+    var right = rect.right != null ? Number(rect.right) : left + Number(rect.width);
+    var bottom = rect.bottom != null ? Number(rect.bottom) : top + Number(rect.height);
+    if (!(right > left) || !(bottom > top)) return null;
+    var x = Math.floor(left);
+    var y = Math.floor(top);
+    var w = Math.max(1, Math.ceil(right) - x);
+    var h = Math.max(1, Math.ceil(bottom) - y);
+    // 再外扩 1 DIP，收齐圆角/边框 AA（裁到视口内）
+    var pad = 1;
+    x = Math.max(0, x - pad);
+    y = Math.max(0, y - pad);
+    w = w + pad * 2;
+    h = h + pad * 2;
+    var snap = { left: x, top: y, width: w, height: h, right: x + w, bottom: y + h };
+    if (!isRectCapturable(snap)) return null;
     var cap = await api.capturePageRect({
-      x: Math.floor(rect.left),
-      y: Math.floor(rect.top),
-      width: Math.ceil(rect.width),
-      height: Math.ceil(rect.height),
+      x: x,
+      y: y,
+      width: w,
+      height: h,
     });
     if (cap && cap.success && isValidPngDataUrl(cap.dataUrl)) {
-      return normalizeCapturePngForExport(cap.dataUrl, rect.width, rect.height);
+      // 逻辑尺寸按未 pad 的元素框，避免 normalize 目标被 pad 放大
+      var logicalW = Math.max(1, Math.ceil(right) - Math.floor(left));
+      var logicalH = Math.max(1, Math.ceil(bottom) - Math.floor(top));
+      return normalizeCapturePngForExport(cap.dataUrl, logicalW, logicalH);
     }
     return null;
   }
@@ -5057,6 +5119,93 @@
         edgePad: 0,
         measureBuffer: 0,
       });
+    } finally {
+      if (measureHost.parentNode) measureHost.parentNode.removeChild(measureHost);
+    }
+  }
+
+  /**
+   * CM6 流程图「复制图片」：截取完整卡片边框（含顶栏），与预览一致。
+   * 全屏缩放层仍走 copyZoomMermaidImage → 仅 SVG。
+   */
+  async function exportMermaidFrameToPng(frameEl) {
+    if (!frameEl) throw new Error(uiT('unknownError'));
+    frameEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    return withEditorExportCapture(async function () {
+      var hadSelected = frameEl.classList.contains('mda-cm-media-selected');
+      var block = frameEl.closest('.mda-cm-mermaid-block');
+      var hadBlockSel = !!(block && block.classList.contains('mda-cm-block-selected'));
+      if (hadSelected) frameEl.classList.remove('mda-cm-media-selected');
+      if (hadBlockSel) block.classList.remove('mda-cm-block-selected');
+      try {
+        await awaitExportFrames();
+        var liveRect = frameEl.getBoundingClientRect();
+        if (isRectCapturable(liveRect)) {
+          // 传入 DOMRect（含 right/bottom），便于向外取整保住边框
+          var liveCaptured = await capturePageRegion(liveRect);
+          if (liveCaptured) return liveCaptured;
+        }
+        return await exportMermaidFrameCloneFallback(frameEl);
+      } finally {
+        if (hadSelected) frameEl.classList.add('mda-cm-media-selected');
+        if (hadBlockSel && block) block.classList.add('mda-cm-block-selected');
+      }
+    });
+  }
+
+  function sanitizeMermaidFrameCloneForExport(clone) {
+    if (!clone) return;
+    clone.querySelectorAll('.mda-cm-block-drag-handle, .mda-cm-mermaid-handles').forEach(function (n) {
+      if (n.parentNode) n.parentNode.removeChild(n);
+    });
+    clone.classList.remove(
+      'mda-cm-media-selected',
+      'mda-cm-block-selected',
+      'mda-cm-mermaid-source-mode',
+      'mda-cm-mermaid-resize-active'
+    );
+    var source = clone.querySelector('.mda-cm-mermaid-source');
+    if (source) source.style.display = 'none';
+    var stage = clone.querySelector('.mda-cm-mermaid-stage');
+    if (stage) {
+      stage.style.display = '';
+      stage.style.overflow = 'visible';
+    }
+    clone.style.width = '';
+    clone.style.maxWidth = '100%';
+    clone.style.boxSizing = 'border-box';
+    clone.style.overflow = 'hidden';
+  }
+
+  async function exportMermaidFrameCloneFallback(frameEl) {
+    var liveW = Math.ceil(frameEl.getBoundingClientRect().width) || 320;
+    var clone = frameEl.cloneNode(true);
+    sanitizeMermaidFrameCloneForExport(clone);
+    clone.style.width = liveW + 'px';
+    clone.style.maxWidth = liveW + 'px';
+
+    var measureHost = document.createElement('div');
+    measureHost.setAttribute('aria-hidden', 'true');
+    measureHost.style.cssText =
+      'position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;overflow:visible;z-index:-1;';
+    measureHost.appendChild(clone);
+    document.body.appendChild(measureHost);
+    try {
+      await awaitExportFrames();
+      var h = Math.max(
+        1,
+        Math.ceil(clone.scrollHeight),
+        Math.ceil(clone.getBoundingClientRect().height)
+      );
+      placeExportCaptureHost(measureHost, liveW, h);
+      await awaitExportFrames();
+      var captured = await captureExportNodePng(clone, liveW, h);
+      if (captured) return captured;
+
+      // 最后回退：仅 SVG（无边框），避免复制完全失败
+      var svg = frameEl.querySelector('svg');
+      if (!svg) throw new Error(uiT('unknownError'));
+      return await mermaidSvgToPngDataUrl(svg);
     } finally {
       if (measureHost.parentNode) measureHost.parentNode.removeChild(measureHost);
     }
@@ -5652,17 +5801,17 @@
     }
     if (kind === 'mermaid') {
       var mFrame = findCm6BlockElement(block, 'mermaid');
-      var stage = mFrame && mFrame.querySelector('.mda-cm-mermaid-stage');
-      if (!stage) {
+      if (!mFrame) {
         showToast(uiT('toastNoCopy'));
         return;
       }
-      var mSvg = stage.querySelector('svg');
-      if (!mSvg) {
-        showToast(uiT('toastNoCopy'));
-        return;
-      }
-      copyMermaidSvgAsImage(mSvg);
+      exportMermaidFrameToPng(mFrame)
+        .then(function (dataUrl) {
+          return copyPngDataUrlToClipboard(dataUrl);
+        })
+        .catch(function (e) {
+          uiAlert(uiT('alertZoomCopyFail', { error: e && e.message ? e.message : String(e) }));
+        });
       return;
     }
     if (kind === 'math') {
@@ -8035,15 +8184,19 @@
     return natural;
   }
 
-  /** 「自动」基准宽 = CM6 文字栏宽；经典预览 = min(固有像素, 可拖上限) */
+  /**
+   * Mermaid「自动」基准宽：SVG 固有像素（仅供导出等读数；显示布局不再用比例缩放流程图）。
+   */
   function getMermaidAutoWidthPx(holder) {
+    var natural = parseFloat(holder.getAttribute('data-mda-natural-width') || '0');
+    if (!(natural > 0)) natural = rememberMermaidNaturalWidth(holder);
     var inCm6 = !!(holder && holder.closest && holder.closest('.mda-cm-mermaid-frame'));
     if (inCm6) {
       var colW = getCm6TextColumnWidthPx(holder);
+      if (natural > 0 && colW > 0) return Math.min(natural, colW);
       if (colW > 0) return colW;
+      return natural || 0;
     }
-    var natural = parseFloat(holder.getAttribute('data-mda-natural-width') || '0');
-    if (!(natural > 0)) natural = rememberMermaidNaturalWidth(holder);
     var maxW = getPreviewMediaDragMaxWidthPx();
     if (natural > 0 && maxW > 0) return Math.min(natural, maxW);
     return natural || 0;
@@ -8077,16 +8230,41 @@
     return Math.max(floor, Math.min(maxW, w));
   }
 
-  function applyDefaultScaleToMermaid(holder) {
-    var scale = getMediaScaleFactor();
-    var inCm6 = !!(holder && holder.closest && holder.closest('.mda-cm-mermaid-frame'));
-    if (scale === 1 && !inCm6) {
-      resetMermaidToIntrinsic(holder);
-      return;
+  /**
+   * 流程图：边框通栏（CSS），内容固有尺寸；不支持拖拽调宽、不受「图片默认缩放」影响。
+   */
+  function layoutMermaidFixedColumn(holder) {
+    if (!holder) return;
+    var key = holder.getAttribute('data-mermaid-src') || '';
+    if (key) delete mermaidDisplayWidths[key];
+    holder.classList.remove('mda-mermaid-resizable');
+    var handle = holder.querySelector('.mda-img-resize-handle');
+    if (handle && handle.parentNode) handle.parentNode.removeChild(handle);
+    resetMermaidToIntrinsic(holder);
+    var frame = holder.closest('.mda-cm-mermaid-frame');
+    var block = holder.closest('.mda-cm-mermaid-block');
+    if (block) {
+      block.style.width = '';
+      block.style.maxWidth = '';
     }
-    var autoW = getMermaidAutoWidthPx(holder);
-    var w = scaledWidthFromAuto(autoW, scale, 24);
-    if (w > 0) applyMermaidDisplayWidth(holder, w, { skipRemember: true });
+    if (frame) {
+      frame.style.width = '';
+      frame.style.maxWidth = '';
+      frame.classList.remove('mda-cm-mermaid-sized');
+      frame.classList.remove('mda-cm-mermaid-resize-active');
+    }
+    holder.classList.remove('mda-cm-mermaid-sized');
+    var svg = holder.querySelector('svg');
+    if (svg) {
+      svg.style.display = 'block';
+      svg.style.marginLeft = 'auto';
+      svg.style.marginRight = 'auto';
+    }
+  }
+
+  /** @deprecated 改用 layoutMermaidFixedColumn */
+  function applyDefaultScaleToMermaid(holder) {
+    layoutMermaidFixedColumn(holder);
   }
 
   /** CM6 围栏代码块：默认宽与图片/流程图一致（正文栏宽 × 媒体默认比例） */
@@ -8205,50 +8383,23 @@
     }
   }
 
-  function applyMermaidDisplayWidth(holder, widthPx, opts) {
-    opts = opts || {};
-    var w = Math.round(widthPx);
-    if (!holder || !(w > 16)) return;
-    holder.style.width = w + 'px';
-    holder.style.maxWidth = '100%';
-    holder.style.marginLeft = 'auto';
-    holder.style.marginRight = 'auto';
-    holder.setAttribute('data-mda-display-width', String(w));
-    var svg = holder.querySelector('svg');
-    if (svg) {
-      svg.style.width = '100%';
-      svg.style.maxWidth = '100%';
-      svg.style.height = 'auto';
-    }
-    if (!opts.skipRemember) {
-      var key = holder.getAttribute('data-mermaid-src') || '';
-      if (key) mermaidDisplayWidths[key] = w;
-    }
-    syncCm6MermaidFrameLayout(holder);
+  /** 流程图不再调显示宽；保留函数名以免旧调用路径报错 */
+  function applyMermaidDisplayWidth(holder, _widthPx, _opts) {
+    layoutMermaidFixedColumn(holder);
   }
 
-  /** CM6 Mermaid 块：蓝框容器须与 stage 同宽 */
+  /** CM6 Mermaid 块：边框通栏，勿把 frame 缩成 SVG 固有宽 */
   function syncCm6MermaidFrameLayout(holder) {
     if (!holder) return;
     var frame = holder.closest('.mda-cm-mermaid-frame');
     if (!frame) return;
-    var w = parseInt(holder.getAttribute('data-mda-display-width') || '', 10);
-    if (!(w > 0)) {
-      w = Math.round(holder.getBoundingClientRect().width || holder.clientWidth || 0);
-    }
-    if (!(w > 0)) return;
-    frame.style.width = w + 'px';
-    if (holder.hasAttribute('data-mda-display-width')) {
-      frame.classList.add('mda-cm-mermaid-sized');
-      holder.classList.add('mda-cm-mermaid-sized');
-      frame.style.maxWidth = 'none';
-      holder.style.maxWidth = 'none';
-    } else {
-      frame.classList.remove('mda-cm-mermaid-sized');
-      holder.classList.remove('mda-cm-mermaid-sized');
-      frame.style.maxWidth = '';
-      holder.style.maxWidth = '100%';
-    }
+    frame.classList.remove('mda-cm-mermaid-sized');
+    holder.classList.remove('mda-cm-mermaid-sized');
+    frame.style.width = '';
+    frame.style.maxWidth = '';
+    holder.style.width = '';
+    holder.style.maxWidth = '100%';
+    holder.removeAttribute('data-mda-display-width');
   }
 
   function resetMermaidToIntrinsic(holder) {
@@ -8280,10 +8431,7 @@
       if (!root) return;
       var holders = root.querySelectorAll('.mda-cm-mermaid-stage.mda-mermaid, .mda-mermaid');
       for (var i = 0; i < holders.length; i++) {
-        var h = holders[i];
-        var mKey = h.getAttribute('data-mermaid-src') || '';
-        if (mKey && Object.prototype.hasOwnProperty.call(mermaidDisplayWidths, mKey)) continue;
-        applyDefaultScaleToMermaid(h);
+        layoutMermaidFixedColumn(holders[i]);
       }
     }
     function reapplyCodeBlocksInRoot(root) {
@@ -8347,10 +8495,13 @@
     var dx = e.clientX - activePreviewResize.startX;
     if (dx !== 0) activePreviewResize.moved = true;
     var maxW = getPreviewMediaDragMaxWidthPx() || window.innerWidth;
-    var minW = activePreviewResize.kind === 'mermaid' ? MEDIA_DRAG_MIN_PX : 48;
+    var minW = 48;
     var next = Math.max(minW, Math.min(maxW, activePreviewResize.startW + dx));
-    if (activePreviewResize.kind === 'mermaid') applyMermaidDisplayWidth(activePreviewResize.el, next);
-    else applyImageDisplayWidth(activePreviewResize.el, next, { allowOverflow: true });
+    if (activePreviewResize.kind === 'mermaid') {
+      /* 流程图不支持拖拽调宽 */
+      return;
+    }
+    applyImageDisplayWidth(activePreviewResize.el, next, { allowOverflow: true });
     if (isCm6Ready() && cm6Editor && cm6Editor.view) {
       try {
         cm6Editor.view.requestMeasure();
@@ -8443,13 +8594,11 @@
     }
   }
 
-  /** 清除手动拖拽覆盖，恢复为当前设置比例 */
+  /** 清除手动拖拽覆盖，恢复为当前设置比例（流程图仅通栏固有布局） */
   function restoreMediaToSettingsScale(el, kind) {
     if (!el) return;
     if (kind === 'mermaid') {
-      var mKey = el.getAttribute('data-mermaid-src') || '';
-      if (mKey) delete mermaidDisplayWidths[mKey];
-      applyDefaultScaleToMermaid(el);
+      layoutMermaidFixedColumn(el);
     } else {
       var iKey = el.getAttribute('src') || '';
       if (iKey) delete imageDisplayWidths[iKey];
@@ -8457,32 +8606,9 @@
     }
   }
 
+  /** @deprecated 流程图不再挂调宽手柄 */
   function ensureMermaidResizeChrome(holder) {
-    if (!holder || holder.dataset.resizeReady === '1') return;
-    holder.dataset.resizeReady = '1';
-    holder.classList.add('mda-mermaid-resizable');
-    rememberMermaidNaturalWidth(holder);
-    var key = holder.getAttribute('data-mermaid-src') || '';
-    if (key && Object.prototype.hasOwnProperty.call(mermaidDisplayWidths, key)) {
-      applyMermaidDisplayWidth(holder, mermaidDisplayWidths[key]);
-    } else {
-      applyDefaultScaleToMermaid(holder);
-    }
-    if (holder.querySelector('.mda-img-resize-handle')) return;
-    var handle = document.createElement('span');
-    handle.className = 'mda-img-resize-handle';
-    handle.title = uiT('mermaidResizeHandle');
-    holder.appendChild(handle);
-    handle.addEventListener('mousedown', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      startPreviewResize(holder, 'mermaid', e);
-    });
-    handle.addEventListener('dblclick', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      restoreMediaToSettingsScale(holder, 'mermaid');
-    });
+    layoutMermaidFixedColumn(holder);
   }
 
   function ensureImageResizeChrome(img) {

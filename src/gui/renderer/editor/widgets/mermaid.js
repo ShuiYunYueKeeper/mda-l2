@@ -1,10 +1,8 @@
-'use strict';
+﻿'use strict';
 
 const { parseFencedCode } = require('../model/parse-fence');
 const { createBlockToolbar, copyText, uiT, clearMediaSelection, clearBlockWidgetSelection } = require('./widget-common');
 const { BlockReplaceWidget, syncWidgetHeightFromDom } = require('./block-widget-base');
-const { attachMermaidCornerResize } = require('./mermaid-edge-resize');
-const { isNearFrameResizeCorner } = require('./image-edge-resize');
 const { attachBlockDragHandle } = require('./block-drag-handle');
 const {
   setSelectedMermaidBlock,
@@ -23,22 +21,28 @@ const {
 const { Transaction } = require('@codemirror/state');
 
 /**
+ * 若文本是完整 mermaid 围栏，返回围栏内正文；否则原样返回。
+ * @param {string} text
+ * @returns {string}
+ */
+function stripMermaidFenceWrapper(text) {
+  const raw = String(text == null ? '' : text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const m = /^[ \t]*(```|~~~)[ \t]*mermaid[^\n]*\n([\s\S]*?)\n[ \t]*\1[ \t]*\s*$/i.exec(
+    raw.trim()
+  );
+  if (m) return m[2];
+  return raw;
+}
+
+/**
+ * 边框通栏（CSS width:100%），SVG 固有尺寸；不支持拖拽调宽、不受媒体默认比例影响。
  * @param {HTMLElement} stage
- * @param {{ onScaleMermaid?: Function, getSavedMermaidDisplayWidth?: Function }} opts
+ * @param {{ onScaleMermaid?: Function }} opts
  */
 function applyMermaidDisplayConstraints(stage, opts) {
   if (!stage) return;
-  let saved = parseInt(stage.getAttribute('data-mda-display-width') || '', 10);
-  if (!(saved > 0) && typeof opts.getSavedMermaidDisplayWidth === 'function') {
-    const key = stage.getAttribute('data-mermaid-src') || '';
-    const w = opts.getSavedMermaidDisplayWidth(key);
-    if (w > 0) saved = w;
-  }
-  if (saved > 0) {
-    const { applyLiveMermaidWidth } = require('./mermaid-layout');
-    applyLiveMermaidWidth(stage, saved);
-    return;
-  }
+  stage.removeAttribute('data-mda-display-width');
+  stage.classList.remove('mda-cm-mermaid-sized');
   if (typeof opts.onScaleMermaid === 'function') {
     opts.onScaleMermaid(stage);
   }
@@ -115,14 +119,6 @@ class MermaidWidget extends BlockReplaceWidget {
     attachWidgetEditablePointerIsolation(sourceEditor);
     sourcePanel.appendChild(sourceEditor);
     frame.appendChild(sourcePanel);
-
-    const handles = document.createElement('span');
-    handles.className = 'mda-cm-mermaid-handles';
-    handles.setAttribute('aria-hidden', 'true');
-    const dot = document.createElement('i');
-    dot.className = 'mda-cm-mermaid-handle mda-cm-mermaid-handle-br';
-    handles.appendChild(dot);
-    frame.appendChild(handles);
 
     let showingSource = false;
     const sourceBtn = toolbar.querySelector('[data-action="source"]');
@@ -218,10 +214,45 @@ class MermaidWidget extends BlockReplaceWidget {
     sourceEditor.addEventListener('mousedown', function (e) {
       e.stopPropagation();
     });
+    sourceEditor.addEventListener('keydown', function (e) {
+      const mod = e.ctrlKey || e.metaKey;
+      // Ctrl/Cmd+F/H 放行查找
+      if (mod && !e.altKey && !e.shiftKey) {
+        const fk = (e.key || '').toLowerCase();
+        if (fk === 'f' || fk === 'h') return;
+      }
+      e.stopPropagation();
+      // Ctrl+A：只选中源码框，勿冒泡成整篇文档全选
+      if (mod && !e.altKey && !e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        try {
+          const range = document.createRange();
+          range.selectNodeContents(sourceEditor);
+          const sel = window.getSelection();
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        } catch (_) {
+          /* ignore */
+        }
+        return;
+      }
+      // 无拖选时 Ctrl+C：复制整块围栏源码（与块选中快捷键一致）
+      if (mod && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+        const sel = window.getSelection && window.getSelection();
+        if (sel && !sel.isCollapsed && String(sel.toString() || '').length > 0) return;
+        e.preventDefault();
+        copyText(self.source, opts.copyText);
+      }
+    });
     sourceEditor.addEventListener('paste', function (e) {
       e.preventDefault();
-      const text = e.clipboardData && e.clipboardData.getData('text/plain');
+      e.stopPropagation();
+      let text = e.clipboardData && e.clipboardData.getData('text/plain');
       if (text == null) return;
+      // 若剪贴板是完整 mermaid 围栏，只贴入正文，避免嵌套 ``` 导致渲染失败
+      text = stripMermaidFenceWrapper(text);
       document.execCommand('insertText', false, text);
     });
     sourceEditor.addEventListener('focus', function () {
@@ -241,8 +272,6 @@ class MermaidWidget extends BlockReplaceWidget {
       // 顶栏空白/标签区点击也应选中块；仅工具按钮保留原行为
       if (e.target && e.target.closest && e.target.closest('.mda-cm-block-toolbar [data-action]')) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) return;
-      if (e.target && e.target.closest && e.target.closest('.mda-cm-mermaid-handle-br')) return;
-      if (isNearFrameResizeCorner(frame, e.clientX, e.clientY)) return;
       e.preventDefault();
       e.stopPropagation();
       selectFrame();
@@ -252,7 +281,6 @@ class MermaidWidget extends BlockReplaceWidget {
       if (showingSource) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-block-toolbar')) return;
       if (e.target && e.target.closest && e.target.closest('.mda-cm-block-drag-handle')) return;
-      if (e.target && e.target.closest && e.target.closest('.mda-cm-mermaid-handle')) return;
       e.preventDefault();
       e.stopPropagation();
       const svg = stage.querySelector('svg');
@@ -263,8 +291,6 @@ class MermaidWidget extends BlockReplaceWidget {
         });
       }
     });
-
-    attachMermaidCornerResize(frame, stage, opts, selectFrame);
 
     attachBlockDragHandle(
       frame,

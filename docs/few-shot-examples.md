@@ -462,8 +462,10 @@ function refreshWorkspaceTree(opts) {
 
 **规则**：
 - 普通图片：工具栏「复制」/ `Ctrl+C` → 剪贴板**位图**。
-- 流程图：工具栏分「复制图片」「复制源码」；**Ctrl+C 默认复制图片**。
+- 流程图：工具栏分「复制图片」「复制源码」；**全屏缩放层 Ctrl+C 默认复制图片（仅 SVG）**。
+- 块工具栏「复制图片」须截取**完整卡片边框**（含顶栏），`capturePageRect` 向外取整并保留设备像素（勿把 DPR 图平滑缩到 1×）。
 - 「复制源码」须带 ` ```mermaid ` 围栏（可直接粘贴回 Markdown）。
+- **选中流程图块后编辑器 `Ctrl+C`** 须复制该块围栏源码（勿空选区沿用剪贴板旧内容）；源码框 `paste` 须 `stopPropagation`，贴入完整围栏时只取正文。
 
 ### ✅ 正确
 
@@ -471,9 +473,11 @@ function refreshWorkspaceTree(opts) {
 function fenceMermaidSource(src) {
   return '```mermaid\n' + String(src).trim() + '\n```';
 }
-// Ctrl+C / 复制图片
+// 全屏缩放层 Ctrl+C / 复制图片 → 仅 SVG
 api.copyClipboardImage({ dataUrl: await svgToPngDataUrl(opts.svgNode) });
-// 复制源码
+// 块工具栏复制图片 → 截取 .mda-cm-mermaid-frame
+exportMermaidFrameToPng(frame).then(copyPngDataUrlToClipboard);
+// 选中块 Ctrl+C / 复制源码
 copyTextWithToast(fenceMermaidSource(opts.mermaidSrc), ...);
 ```
 
@@ -482,6 +486,9 @@ copyTextWithToast(fenceMermaidSource(opts.mermaidSrc), ...);
 - ❌ 流程图 `Ctrl+C` 只复制裸源码（无围栏）→ 粘贴后不能直接当代码块用。
 - ❌ 只有源码按钮、无法复制图片 → 无法贴进公众号/文档当插图。
 - ❌ 打开缩放时未传入 `mermaidSrc` / `svgNode` → 复制空内容或失败。
+- ❌ 选中流程图后 `Ctrl+C` 无处理 → 剪贴板仍是旧文档片段，粘贴进源码框导致渲染失败。
+- ❌ 源码框 `paste` 不 `stopPropagation` → 同一段文本再写入 CM6 文档，围栏被拆坏。
+- ❌ 块「复制图片」只栅格化 SVG、或把截图 2×→1× 平滑缩小 → 缺边框/边框发糊。
 
 ---
 
@@ -573,31 +580,33 @@ await clearAllAnnotations(filePath); // 返回删除条数
 
 ---
 
-## 21. 图片/流程图默认缩放与预览调宽（GUI）
+## 21. 图片默认缩放与预览调宽（GUI）
 
 **规则**：
-- 设置键 `mda-preview-media-default-width`：`auto` / `25` / `50` / `75`（100%=自动）。
-- **显示宽 = 各图「自动」固有宽 × 系数**，不是压成预览栏同一绝对宽度（否则宽 Sequence 变化大、窄 Class 几乎不变）。
-- 用户拖拽覆盖写入会话表；拖动中仅当前图显示蓝角标；双击还原为当前设置比例。
+- 设置键 `mda-preview-media-default-width`：`auto` / `25` / `50` / `75`（100%=自动）；文案为「**图片**默认缩放」。
+- **显示宽 = 各图「自动」固有宽 × 系数**，不是压成预览栏同一绝对宽度。
+- **流程图不受此项影响**：边框通栏（正文栏宽），SVG 固有尺寸居中；不支持拖拽调宽。
+- 图片用户拖拽覆盖写入会话表；拖动中仅当前图显示蓝角标；双击还原为当前设置比例。
 - 复制预览读 `data-mda-display-width`，不写回 Markdown。
 
 ### ✅ 正确
 
 ```javascript
-var autoW = getMermaidAutoWidthPx(holder); // min(natural, previewMax)
-var w = Math.round(autoW * getMediaScaleFactor()); // 50% → ×0.5
-applyMermaidDisplayWidth(holder, w, { skipRemember: true });
-// 双击还原：
-delete mermaidDisplayWidths[key];
-applyDefaultScaleToMermaid(holder);
+// 图片
+var autoW = getImageAutoWidthPx(img);
+var w = Math.round(autoW * getMediaScaleFactor());
+applyImageDisplayWidth(img, w, { skipRemember: true });
+// 流程图：通栏边框 + 固有内容
+layoutMermaidFixedColumn(holder);
 ```
 
 ### ❌ 错误
 
 - ❌ 把 50% 当成「预览栏宽的 50%」强制套到所有图 → Class 等小图几乎不变或被撑大。
+- ❌ CM6 Mermaid「自动宽」= 正文栏宽再把 SVG `width:100%` → 小图被横向撑满，调 `rankSpacing` 也看不出效果。
 - ❌ `body.mda-img-resizing` 下给**所有** `.mda-img-resize-handle` 提亮 → 拖一张图时满屏蓝角标。
 - ❌ 设置里先 `setSettingsModal(true)` 再引用已删变量名 → 弹窗失败、菜单永久锁死（须 try/catch 解锁）。
-- ❌ 双击还原只清样式不清 `mermaidDisplayWidths` / `imageDisplayWidths` → 下次渲染又套回手动宽。
+- ❌ 双击还原只清样式不清 `imageDisplayWidths` → 下次渲染又套回手动宽。
 
 ---
 

@@ -57,7 +57,11 @@ function caretOffsetInSnippet(type, snippet) {
   if (type === 'task') {
     return 6; // "- [ ] "
   }
-  // quote / hr / mermaid / image / heading / bullet / text：snippet 末尾
+  if (type === 'mermaid') {
+    // 围栏后空白行行首；snippet 本身不含尾随 \n，由 formatBlankLineInsert / planMermaidInsert 补
+    return s.endsWith('\n') ? s.length : s.length + 1;
+  }
+  // quote / hr / image / heading / bullet / text：snippet 末尾
   return s.length;
 }
 
@@ -141,10 +145,40 @@ function formatBlankLineInsert(type, snippet, doc, line) {
       return { insert: insert, caretOffset: 0 };
     }
   }
+  if (type === 'mermaid') {
+    // 空白行替换为围栏后，再留一行空行并把光标落在行首
+    insert = snippet.endsWith('\n') ? snippet : snippet + '\n';
+    return { insert: insert, caretOffset: insert.length };
+  }
   return {
     insert: insert,
     caretOffset: caretOffsetInSnippet(type, snippet),
   };
+}
+
+/**
+ * 流程图：保证围栏后有空白行，光标落在该行行首。
+ * @param {number} pos 插入起点
+ * @param {string} insert
+ * @param {string} snippet
+ * @returns {{ insert: string, caret: number }}
+ */
+function planMermaidInsert(pos, insert, snippet) {
+  const lead = insert.indexOf(snippet);
+  const snippetStart = pos + (lead >= 0 ? lead : 0);
+  const fenceEnd = snippetStart + snippet.length;
+  const rel = fenceEnd - pos;
+  let next = insert;
+  if (rel < 0) {
+    return {
+      insert: next,
+      caret: snippetStart + caretOffsetInSnippet('mermaid', snippet),
+    };
+  }
+  if (rel >= next.length || next.charAt(rel) !== '\n') {
+    next = next.slice(0, rel) + '\n' + next.slice(rel);
+  }
+  return { insert: next, caret: fenceEnd + 1 };
 }
 
 /**
@@ -176,5 +210,6 @@ module.exports = {
   planLineOrientedInsert: planLineOrientedInsert,
   hrLeadingNewline: hrLeadingNewline,
   formatBlankLineInsert: formatBlankLineInsert,
+  planMermaidInsert: planMermaidInsert,
   planHrInsertCaret: planHrInsertCaret,
 };

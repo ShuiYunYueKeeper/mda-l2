@@ -9,7 +9,7 @@ const {
   deleteBlockRange,
   expandBlockRange,
 } = require('./image-block-ops');
-const { getInsertSnippet, caretOffsetInSnippet, isLineOrientedInsertType, planLineOrientedInsert, formatBlankLineInsert, planHrInsertCaret } = require('./block-insert-snippets');
+const { getInsertSnippet, caretOffsetInSnippet, isLineOrientedInsertType, planLineOrientedInsert, formatBlankLineInsert, planHrInsertCaret, planMermaidInsert } = require('./block-insert-snippets');
 const { copyText } = require('./widget-common');
 
 /**
@@ -148,9 +148,21 @@ function insertSnippetNearBlock(view, block, where, type) {
     hrCaret = planned.caret;
   }
 
+  let mermaidCaret = null;
+  if (type === 'mermaid') {
+    const planned = planMermaidInsert(pos, insert, snippet);
+    insert = planned.insert;
+    mermaidCaret = planned.caret;
+  }
+
   const lead = insert.indexOf(snippet);
   const snippetStart = pos + (lead >= 0 ? lead : 0);
-  const caret = hrCaret != null ? hrCaret : snippetStart + caretOffsetInSnippet(type, snippet);
+  const caret =
+    hrCaret != null
+      ? hrCaret
+      : mermaidCaret != null
+        ? mermaidCaret
+        : snippetStart + caretOffsetInSnippet(type, snippet);
 
   pinSelectionForHistory(view, pos);
   view.dispatch({

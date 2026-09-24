@@ -1,4 +1,4 @@
-﻿// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
+// 渲染进程 i18n — 所有用户可见文案集中于此；新增 UI 必须同时补 zh + en。
 (function (global) {
   var STRINGS = {
     zh: {
@@ -224,8 +224,8 @@
       settingsRememberLayoutDesc: '记住窗口大小与位置，以及批注栏、编辑栏、大纲、文件侧栏的展开/收起与分栏宽度。关闭后清除已存布局，下次启动使用默认布局。',
       settingsRememberSession: '记住上次会话',
       settingsRememberSessionDesc: '记住文件列表（工作区侧栏）与上次打开的文件。关闭后清除已存会话，下次启动进入欢迎页。',
-      settingsMermaidWidth: '图片与流程图默认缩放',
-      settingsMermaidWidthDesc: '以「自动」固有显示尺寸为基准乘以比例（如 50% = 缩小一半）。拖拽后可双击图片还原为当前设置比例。',
+      settingsMermaidWidth: '图片默认缩放',
+      settingsMermaidWidthDesc: '以「自动」固有显示尺寸为基准乘以比例（如 50% = 缩小一半）。拖拽后可双击图片还原为当前设置比例。流程图边框固定为正文栏宽，不受此项影响。',
       settingsMermaidWidthAuto: '自动（100%）',
       settingsMermaidWidthPct: '{n}%',
       toastRememberLayoutOn: '已开启：记住界面习惯',
@@ -323,7 +323,7 @@
       widgetTableResizeRow: '拖动调整行高',
       widgetMermaidLoading: '正在渲染流程图…',
       widgetMermaidPreview: '预览',
-      widgetMermaidDragHint: '单击选中；单击左上角手柄打开菜单、长按可拖动；拖右下角可调宽；双击块体全屏预览',
+      widgetMermaidDragHint: '单击选中；单击左上角手柄打开菜单、长按可拖动；双击块体全屏预览',
       widgetBlockDragHandle: '单击打开菜单，长按拖动',
       emptyLineInsertTooltip: '插入内容',
       emptyLinePlaceholder: '输入正文或 "/" 插入内容，双击 Ctrl 唤起 AI',
@@ -724,8 +724,8 @@
       settingsRememberLayoutDesc: 'Remember window size and position, plus open/closed state and widths for notes, editor, outline, and file sidebar. Turning off clears saved layout; next launch uses defaults.',
       settingsRememberSession: 'Remember last session',
       settingsRememberSessionDesc: 'Remember the file sidebar workspace and the last opened file. Turning off clears the saved session; next launch opens the welcome page.',
-      settingsMermaidWidth: 'Image & diagram default scale',
-      settingsMermaidWidthDesc: 'Multiply each image/diagram’s auto size by a factor (e.g. 50% = half). Double-click a resized image to restore the current setting.',
+      settingsMermaidWidth: 'Image default scale',
+      settingsMermaidWidthDesc: 'Multiply each image’s auto size by a factor (e.g. 50% = half). Double-click a resized image to restore the current setting. Diagram frames always span the text column and ignore this setting.',
       settingsMermaidWidthAuto: 'Auto (100%)',
       settingsMermaidWidthPct: '{n}%',
       toastRememberLayoutOn: 'Remember layout: on',
@@ -823,7 +823,7 @@
       widgetTableResizeRow: 'Drag to resize row height',
       widgetMermaidLoading: 'Rendering diagram…',
       widgetMermaidPreview: 'Preview',
-      widgetMermaidDragHint: 'Click to select; click top-left handle for menu or long-press to move; drag bottom-right corner to resize; double-click block for fullscreen',
+      widgetMermaidDragHint: 'Click to select; click top-left handle for menu or long-press to move; double-click block for fullscreen',
       widgetBlockDragHandle: 'Click for menu, long-press to drag',
       emptyLineInsertTooltip: 'Insert content',
       emptyLinePlaceholder: 'Type or press "/" to insert; double-tap Ctrl for AI',
