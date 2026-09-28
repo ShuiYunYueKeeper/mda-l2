@@ -74,6 +74,7 @@ npx playwright test tests/e2e/capture/docs-screenshots.spec.ts
 | 原生「文件 / 视图」菜单截图 | Electron 菜单栏自动化困难；能力见帮助截图 |
 | Cursor MCP 配置示意 | 属外部 IDE，README 以文字配置示例为准 |
 | 大纲收起窄栏 | 见上 `24` 采集说明 |
+| 加粗段拷贝 / 下划线+删除线叠套 | 2026-09-28 修复为交互行为，不新增独立截图场景 |
 
 ---
 
