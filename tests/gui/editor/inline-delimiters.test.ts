@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 行内成对定界符编辑：纯规划函数（融合包裹 / 拆分取消 / 空对清理 / 隐藏 run 跳过）。
  */
 import * as path from 'path';
@@ -103,6 +103,33 @@ describe('inline-delimiters 定界符规划', () => {
     const bold = region(text, 'bold', '**');
     const plan = planSplitUnwrap(text, [strike, bold], 0, text.length);
     expect(applyText(text, plan.changes)).toBe('删和粗');
+  });
+
+  test('E66b planSplitUnwrap 套叠残留先摊平可见文本再切，不留裸 **', () => {
+    const text = '是：****能打开**、**能看懂**、其余**。';
+    const outer: Region = {
+      key: 'bold',
+      open: { from: 2, to: 4 },
+      content: { from: 4, to: text.length - 3 },
+      close: { from: text.length - 3, to: text.length - 1 },
+    };
+    const innerOpen = text.indexOf('**能打开**');
+    const inner: Region = {
+      key: 'bold',
+      open: { from: innerOpen, to: innerOpen + 2 },
+      content: { from: innerOpen + 2, to: innerOpen + 5 },
+      close: { from: innerOpen + 5, to: innerOpen + 7 },
+    };
+    const look = text.indexOf('**能看懂**');
+    const lookR: Region = {
+      key: 'bold',
+      open: { from: look, to: look + 2 },
+      content: { from: look + 2, to: look + 5 },
+      close: { from: look + 5, to: look + 7 },
+    };
+    const from = text.indexOf('能打开');
+    const plan = planSplitUnwrap(text, [outer, inner, lookR], from, from + 3);
+    expect(applyText(text, plan.changes)).toBe('是：能打开、**能看懂、其余**。');
   });
 
   test('E67 planRegionCleanup 删除内容被掏空的样式段整对定界符', () => {

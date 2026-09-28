@@ -23,7 +23,9 @@ const {
   planFusedWrap,
   planSplitUnwrap,
   planRegionCleanup,
+  planCombinedTildeToggle,
   snapOutOfDelimiters,
+  snapIntoMarkContent,
   toChangeSet,
 } = require('../model/inline-delimiters');
 const { getInlineToolbarStateAt } = require('./block-format');
@@ -92,12 +94,34 @@ function toggleInlineMarkInText(text, from, to, markKey) {
   const b = Math.max(0, Math.min(Math.max(from, to), src.length));
 
   const state = textState(src);
-  const snapped = snapOutOfDelimiters(collectDelimiterRuns(state), a, b);
+  const outward = snapOutOfDelimiters(collectDelimiterRuns(state), a, b);
+  const snapped = snapIntoMarkContent(collectDelimiterRuns(state), outward.from, outward.to);
   if (snapped.to <= snapped.from) return null;
 
   const regions = collectMarkRegions(state, markKey);
   const cov = getInlineToolbarStateAt(state, snapped.from, snapped.to)[markKey];
   const fullyOn = !!(cov && cov.on && !cov.mixed);
+
+  if (markKey === 'underline' || markKey === 'strike') {
+    const combined = planCombinedTildeToggle(
+      src,
+      collectMarkRegions(state, 'underline'),
+      collectMarkRegions(state, 'strike'),
+      snapped.from,
+      snapped.to,
+      markKey,
+      fullyOn
+    );
+    if (combined) {
+      const applied = applyChanges(src, combined.changes);
+      return {
+        value: applied.value,
+        selectionStart: combined.select.from,
+        selectionEnd: combined.select.to,
+      };
+    }
+  }
+
   const plan = fullyOn
     ? planSplitUnwrap(src, regions, snapped.from, snapped.to)
     : planFusedWrap(src, regions, snapped.from, snapped.to, delim);

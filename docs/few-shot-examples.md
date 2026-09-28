@@ -1,4 +1,4 @@
-# Few-shot 正反例资产（AI 协作易错点）
+﻿# Few-shot 正反例资产（AI 协作易错点）
 
 > 本文件为「可被 AI 直接复用的 few-shot 资产」：针对 MDA 项目中反复出现、且仅靠
 > 自然语言规则不易约束的易错点，给出成对的 **✅ 正确 / ❌ 错误** 示例。
@@ -311,26 +311,34 @@ clipboard.write({ text, html });
 **规则**：
 - hide-mark + `atomicRanges` 会使点击落点落在可见内容边缘内侧；须经 `caret-syntax-adjust` 校准到定界符外侧（左缘→开标记左侧，右缘→闭标记右侧）。
 - 拖选结束后对 `anchor`/`head` 分别校准；复制/剪切经 `syntax-clipboard`：**成对**定界符（`**`、`` ` ``）均完整包含时保留 Markdown，**仅一侧**时去掉定界符字符。
+- **部分可见选区仍须保留样式**：`**能打开、能看懂**` 只选「能打开」时，校准后常含开 `**`、不含闭；挖掉 hide-mark 后须经 `wrapClipboardWithCoveringMarks`（`openPlusPartialContent` 等）补回 `**能打开**`，不得拷出裸「能打开」。
 - **标题 ATX（`##`）**：预览态不可见，复制**一律去掉** `#{1,6} `；贴入标题行时 `normalizePasteForHeading` 再去掉剪贴板各行首部 ATX，避免 `## ##` 叠字。
 - `markRanges`/`contentRange` 的 `text` 参数必须是**全文**；Lezer 节点须适配 `{ from, to, type: node.name }`。
+- **单元格粘贴**：`paste` → `pasteMarkdownIntoTableCell` 立刻重绘；不得先露 `**…**` 再等 blur。
+- **下划线+删除线**：源码 `~~~text~~~`；格式前 `snapIntoMarkContent`；CSS `underline line-through` 同写。
 
 ### ✅ 正确
 
 ```javascript
 const content = rule.contentRange(adapted, doc); // 全文 doc
 // 选区 [0,5) 仅 **MD → 剪贴板 "MD"；[0,7) 完整 **MDA** → 保留
+// **整段** 内只选可见「能打开」→ 剪贴板 "**能打开**"（covering wrap）
 // 标题行全选仍复制 "核心功能"（无 ##）；贴回标题行时再去 ATX
+// 选「能打开」点删除线 → "**~~能打开~~、能看懂…**"（先 snap 再包）
 ```
 
 ### ❌ 错误
 
 - ❌ `rule.contentRange(node, doc.slice(node.from, node.to))` → 行内 code 的 `markRanges` 返回空，剪贴板校准失效。
 - ❌ 拖选仅含开 `**` 仍粘贴 `**MDA` → 应去掉未成对的定界符。
+- ❌ 预览只选加粗可见字却拷出无定界符的裸字 → 缺 `wrapClipboardWithCoveringMarks`。
+- ❌ 选区含开 `**` 时直接包 `~~` → `~~**能打开~~…**` 拆坏整段加粗。
+- ❌ 单元格 paste 写 textContent 等失焦 → 先露源码再渲染。
 - ❌ 标题复制带 `##` 再贴回标题行 → 叠成 `## ##`；须在 copy 去 ATX + paste 二次剥离。
 
 ---
 
-## 12. 文件树拖动移动目标解析（GUI）
+## 12b. 文件树拖动移动目标解析（GUI）
 
 **规则**：
 

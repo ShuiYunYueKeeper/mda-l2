@@ -4,6 +4,7 @@
  */
 'use strict';
 
+const { EditorView } = require('@codemirror/view');
 const { createEditor, refreshDecorations, refreshWidgetI18n, notifyAnnoFilterChanged } = require('./mount');
 const annoAddContext = require('./model/anno-add-context');
 const { anchorFromSelection } = require('./model/anchor-from-sel');
@@ -22,9 +23,14 @@ const { MODE_PREVIEW, MODE_SOURCE } = require('./mode');
 const { SearchSession } = require('./state/search-session');
 const editorConfig = require('./config');
 const { isEnabledByPref, setEnabledPref } = require('./pref');
+const { sliceSelectionForClipboard } = require('./syntax-clipboard');
 
 module.exports = {
   createEditor: createEditor,
+  findEditorView: function (dom) {
+    return EditorView.findFromDOM(dom || document.querySelector('.cm-content') || document.body);
+  },
+  sliceSelectionForClipboard: sliceSelectionForClipboard,
   refreshDecorations: refreshDecorations,
   notifyAnnoFilterChanged: notifyAnnoFilterChanged,
   refreshWidgetI18n: refreshWidgetI18n,

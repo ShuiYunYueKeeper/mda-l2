@@ -7,7 +7,7 @@ const { SYNTAX_RULES } = require('./syntax-rules');
 const { findAnnotationHideRanges, findHtmlCommentHideRanges } = require('./anno-lines');
 const { detectFrontMatter } = require('./readonly-blocks');
 const { findMathRanges } = require('./parse-math');
-const { findUnderlineRanges } = require('./underline');
+const { findUnderlineRanges, findTripleTildeRanges, overlapsExclude } = require('./underline');
 
 const PRIORITY = {
   'hide-line': 100,
@@ -524,6 +524,33 @@ function collectSyntaxNodes(tree, text) {
     },
   });
   if (doc) {
+    // `~~~text~~~` 会被 Lezer 误当成单行 FencedCode；拆成下划线+删除线。
+    // 只清掉「落在叠套段内」或整段误认的围栏，外层加粗/斜体等包裹必须保留。
+    const triples = findTripleTildeRanges(doc);
+    if (triples.length) {
+      const kept = [];
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        let drop = false;
+        for (let t = 0; t < triples.length; t++) {
+          const tr = triples[t];
+          const inside = n.from >= tr.from && n.to <= tr.to;
+          const fauxFence = n.type === 'FencedCode' && n.from < tr.to && n.to > tr.from;
+          if (inside || fauxFence) {
+            drop = true;
+            break;
+          }
+        }
+        if (!drop) kept.push(n);
+      }
+      nodes.length = 0;
+      for (let k = 0; k < kept.length; k++) nodes.push(kept[k]);
+      for (let t = 0; t < triples.length; t++) {
+        const tr = triples[t];
+        nodes.push({ from: tr.from, to: tr.to, type: 'Underline' });
+        nodes.push({ from: tr.from + 1, to: tr.to - 1, type: 'Strikethrough' });
+      }
+    }
     const exclude = [];
     for (let i = 0; i < nodes.length; i++) {
       const n = nodes[i];
@@ -531,14 +558,21 @@ function collectSyntaxNodes(tree, text) {
         n.type === 'FencedCode' ||
         n.type === 'CodeBlock' ||
         n.type === 'InlineCode' ||
-        n.type === 'Strikethrough' ||
         n.type === 'HorizontalRule'
       ) {
+        exclude.push({ from: n.from, to: n.to });
+      } else if (n.type === 'Strikethrough' && !overlapsExclude(n.from, n.to, triples)) {
+        // 叠套注入的内层删除线不要进 exclude，否则 findUnderlineRanges 认不出 ~~~ 段
         exclude.push({ from: n.from, to: n.to });
       }
     }
     const unders = findUnderlineRanges(doc, exclude);
-    for (let u = 0; u < unders.length; u++) nodes.push(unders[u]);
+    for (let u = 0; u < unders.length; u++) {
+      // 叠套段已注入 Underline，跳过 findUnderlineRanges 对同一段的重复推入
+      if (!overlapsExclude(unders[u].from, unders[u].to, triples)) {
+        nodes.push(unders[u]);
+      }
+    }
   }
   return nodes;
 }

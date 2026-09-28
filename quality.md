@@ -98,7 +98,9 @@ npx playwright test tests/e2e/capture/docs-screenshots.spec.ts   # 刷新文档�
 | **最近打开 / 启动** | 改动 `recent-files` / 启动 `did-finish-load` / `refreshWorkspaceTree` | 清空最近列表不关当前文档；列表为空时重启应为起始页；恢复工作区不得自动打开首个 md |
 | **GUI i18n** | 改动 `i18n.js` 或新增用户可见文案 | 视图→界面语言切换 zh/en；弹窗/toast/菜单无硬编码；`uiT(key, vars)` 插值生效（勿原样显示 `{name}`） |
 | **CM6 块选中 / 撤销** | 改动块 widget 删除、选中态、`*-selection.js` / `block-selection.js` | 选中→Delete→Ctrl+Z：蓝框与光标回到块；单击表格单元格无整格蓝底（未拖选文字时） |
-| **CM6 hide-mark 点击/剪贴板** | 改动 `caret-syntax-adjust` / `syntax-clipboard` / `click-collapse` | 点击标题/粗体/code 左缘→开定界符左侧、右缘→闭定界符右侧；拖选单侧定界符粘贴无 `**`/`` ` ``；完整选中保留 Markdown |
+| **CM6 hide-mark 点击/剪贴板** | 改动 `caret-syntax-adjust` / `syntax-clipboard` / `click-collapse` | 点击标题/粗体/code 左缘→开定界符左侧、右缘→闭定界符右侧；拖选单侧定界符粘贴无 `**`/`` ` ``；完整选中保留 Markdown；**加粗段内只选可见字拷贝须带定界符**（`wrapClipboardWithCoveringMarks`） |
+| **CM6 行内定界符叠套** | 改动 `inline-delimiters` / `underline` / `build-specs` / 工具栏删除线·下划线 | 加粗内选「能打开」点删除线不拆外层；下划线+删除线为 `~~~` 且可见双线；取消其一不毁定界符 |
+| **CM6 单元格 Markdown 粘贴** | 改动 `table-chrome` paste / `pasteMarkdownIntoTableCell` | 贴入 `**…**` 立刻渲染加粗，不长时间露源码 |
 | **CM6 widget 内文字拖选** | 改动 `widget-editable-guard` / `tight-selection` / widget `contenteditable` | 表格格、代码块、Mermaid/公式源码内可拖选（浅蓝 `--table-text-sel`）；表格内拖选后仍可切文件/关窗；**禁止**对 widget 指针事件 `domEventHandlers` `return true` |
 | **CM6 右键菜单（widget 选区）** | 改动 `context-menu` / `context-selection` / `table-chrome` `onDocPointer` | 长文档多表：靠后代码块/表格单元格拖选→右键选区保留、复制/剪切可用；选区外右键折叠；与表格局部菜单不互抢 |
 | **CM6 代码块 Enter** | 改动 `code.js` / `parse-fence.serializeFencedCode` | 中间/末尾 Enter 光标落新行；尾部空行可见；块内 Ctrl+Z 可撤销；撤销后标脏同步；失焦写回源码；**点击块内保留 hljs**（查找 mark 仍可见）；仅右键菜单可短暂压平 |

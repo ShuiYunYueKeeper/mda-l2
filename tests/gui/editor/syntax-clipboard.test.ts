@@ -22,12 +22,12 @@ function mdState(doc: string) {
 }
 
 describe('syntax-clipboard', () => {
-  test('仅含开 ** 的选区 → 粘贴纯文本', () => {
+  test('仅含开 ** 的选区 → 盖住全文时仍补回成对定界符', () => {
     const doc = '**MDA** 是本地';
     const state = mdState(doc);
     const from = 0;
     const to = doc.indexOf('A') + 1;
-    expect(sliceDocForClipboard(state, from, to).text).toBe('MDA');
+    expect(sliceDocForClipboard(state, from, to).text).toBe('**MDA**');
   });
 
   test('仅含闭 ** 的选区 → 粘贴纯文本', () => {
@@ -44,12 +44,29 @@ describe('syntax-clipboard', () => {
     expect(sliceDocForClipboard(state, 0, doc.indexOf('**', 1) + 2).text).toBe('**MDA**');
   });
 
-  test('仅选可见正文 MDA → 无定界符', () => {
+  test('仅选可见正文 MDA → 仍保留定界符（预览拖选整段样式）', () => {
     const doc = '**MDA** 是本地';
     const state = mdState(doc);
     const from = doc.indexOf('M');
     const to = doc.indexOf('A') + 1;
-    expect(sliceDocForClipboard(state, from, to).text).toBe('MDA');
+    expect(sliceDocForClipboard(state, from, to).text).toBe('**MDA**');
+  });
+
+  test('可见选区落在多种样式内 → 按 WRAP 顺序补齐定界符', () => {
+    const doc = '前文 **~测~** 后文';
+    const state = mdState(doc);
+    const from = doc.indexOf('测');
+    const to = from + 1;
+    expect(sliceDocForClipboard(state, from, to).text).toBe('**~测~**');
+  });
+
+  test('跨出样式段的选区不整段加定界符', () => {
+    const doc = '前文 **加粗** 后文';
+    const state = mdState(doc);
+    const from = doc.indexOf('文');
+    const to = doc.indexOf('粗') + 1;
+    // 含「文 **加」一侧定界符 → 去掉未成对的 **，且不能整包加粗
+    expect(sliceDocForClipboard(state, from, to).text).toBe('文 加粗');
   });
 
   test('行内 code 定界符成对/单侧', () => {
@@ -58,8 +75,10 @@ describe('syntax-clipboard', () => {
     const open = doc.indexOf('`');
     const close = doc.indexOf('`', open + 1);
     expect(sliceDocForClipboard(state, open, close + 1).text).toBe('`mda-cli`');
-    expect(sliceDocForClipboard(state, open, close).text).toBe('mda-cli');
-    expect(sliceDocForClipboard(state, open + 1, close).text).toBe('mda-cli');
+    // 含开不含闭但已盖住全部内容 → 补回成对
+    expect(sliceDocForClipboard(state, open, close).text).toBe('`mda-cli`');
+    // 只选可见内容 → 仍补回成对定界符
+    expect(sliceDocForClipboard(state, open + 1, close).text).toBe('`mda-cli`');
   });
 
   test('标题 ATX 复制不含 ##（预览态不可见）', () => {
@@ -110,5 +129,22 @@ describe('syntax-clipboard', () => {
     const slice = sliceSelectionForClipboard(bleedState);
     expect(slice).not.toBeNull();
     expect(slice!.text).toBe('安装方式');
+  });
+
+  test('完整样式段复制保留定界符（可贴入单元格）', () => {
+    const cases: [string, string][] = [
+      ['**加粗**', '**加粗**'],
+      ['~下划线~', '~下划线~'],
+      ['~~删除线~~', '~~删除线~~'],
+      ['`代码`', '`代码`'],
+      ['*斜体*', '*斜体*'],
+    ];
+    for (const [seg, expected] of cases) {
+      const doc = '前文 ' + seg + ' 后文';
+      const state = mdState(doc);
+      const from = doc.indexOf(seg);
+      const to = from + seg.length;
+      expect(`${seg}:${sliceDocForClipboard(state, from, to).text}`).toBe(`${seg}:${expected}`);
+    }
   });
 });

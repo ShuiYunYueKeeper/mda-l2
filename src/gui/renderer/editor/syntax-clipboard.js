@@ -1,11 +1,14 @@
 ﻿/**
  * 预览模式剪贴板：定界符成对完整时保留 Markdown；仅一侧时复制/粘贴去掉定界符。
+ * 选区盖住某样式段的全部「可见内容」时（即使没选中隐藏定界符），也要带上该样式定界符，
+ * 否则预览里拖选加粗文字拷贝会丢 `**`。
  */
 'use strict';
 
 const { syntaxTree } = require('@codemirror/language');
 const { SYNTAX_RULES } = require('./model/syntax-rules');
 const { findLeadingMark, findTrailingMark, adjustSelectionForHiddenMarks } = require('./caret-syntax-adjust');
+const { collectAllMarkRegions } = require('./state/inline-mark-context');
 
 /**
  * @param {import('@lezer/common').SyntaxNode} node
@@ -113,6 +116,63 @@ function sliceDocSkippingRanges(doc, from, to, exclusions) {
   return out;
 }
 
+/** 与 pending-inline-format 一致：先包内层 */
+const CLIP_WRAP_ORDER = ['code', 'underline', 'strike', 'italic', 'bold'];
+const CLIP_DELIM = {
+  bold: '**',
+  italic: '*',
+  underline: '~',
+  strike: '~~',
+  code: '`',
+};
+
+/**
+ * 选区完全落在某样式段内容内，或（校准后）从开定界符起盖住全部内容时，补上定界符。
+ * 预览拖选整段可见字时，左缘常被校准到开定界符外侧、右缘停在闭定界符内侧；
+ * 若只按「选区 ⊆ content」判断会漏包。但选区若从样式段之前的正文开始，不得整段加壳。
+ * @param {import('@codemirror/state').EditorState} state
+ * @param {number} from
+ * @param {number} to
+ * @param {string} text
+ */
+function wrapClipboardWithCoveringMarks(state, from, to, text) {
+  if (to <= from || text == null || text === '') return text;
+  const regions = collectAllMarkRegions(state);
+  /** @type {Record<string, string>} */
+  const covering = {};
+  for (let i = 0; i < regions.length; i++) {
+    const r = regions[i];
+    if (!r || !r.content || !r.open || !r.close || !r.key || !CLIP_DELIM[r.key]) continue;
+    const c0 = r.content.from;
+    const c1 = r.content.to;
+    if (c1 <= c0) continue;
+    const selInside = from >= c0 && to <= c1;
+    // 从开定界符起盖住全部 content（校准后含开不含闭）
+    const coversAllFromMark =
+      from >= r.open.from &&
+      to <= r.close.to &&
+      Math.max(from, c0) === c0 &&
+      Math.min(to, c1) === c1;
+    // 校准后左缘在开定界符、右缘仍在内容内：部分可见选区也要保留样式
+    const openPlusPartialContent =
+      from >= r.open.from && from <= c0 && to > c0 && to <= c1;
+    if (selInside || coversAllFromMark || openPlusPartialContent) {
+      covering[r.key] = CLIP_DELIM[r.key];
+    }
+  }
+  let out = String(text);
+  for (let i = 0; i < CLIP_WRAP_ORDER.length; i++) {
+    const key = CLIP_WRAP_ORDER[i];
+    const d = covering[key];
+    if (!d) continue;
+    if (out.length >= d.length * 2 && out.slice(0, d.length) === d && out.slice(-d.length) === d) {
+      continue;
+    }
+    out = d + out + d;
+  }
+  return out;
+}
+
 /**
  * @param {import('@codemirror/state').EditorState} state
  * @param {number} from
@@ -123,10 +183,11 @@ function sliceDocForClipboard(state, from, to) {
   const t = Math.max(from, to);
   const doc = state.doc.toString();
   const exclusions = collectDelimiterExclusions(state, f, t);
+  const raw = normalizeClipboardAtx(sliceDocSkippingRanges(doc, f, t, exclusions));
   return {
     from: f,
     to: t,
-    text: normalizeClipboardAtx(sliceDocSkippingRanges(doc, f, t, exclusions)),
+    text: wrapClipboardWithCoveringMarks(state, f, t, raw),
   };
 }
 
@@ -230,6 +291,7 @@ module.exports = {
   collectDelimiterExclusions: collectDelimiterExclusions,
   sliceDocSkippingRanges: sliceDocSkippingRanges,
   sliceDocForClipboard: sliceDocForClipboard,
+  wrapClipboardWithCoveringMarks: wrapClipboardWithCoveringMarks,
   normalizeClipboardAtx: normalizeClipboardAtx,
   sliceSelectionForClipboard: sliceSelectionForClipboard,
   normalizePasteForHeading: normalizePasteForHeading,

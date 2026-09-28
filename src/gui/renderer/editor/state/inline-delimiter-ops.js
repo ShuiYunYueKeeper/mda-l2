@@ -16,7 +16,9 @@ const {
   planFusedWrap,
   planSplitUnwrap,
   planRegionCleanup,
+  planCombinedTildeToggle,
   snapOutOfDelimiters,
+  snapIntoMarkContent,
   planDeleteRangePreservingPairs,
   skipHiddenRuns,
   toChangeSet,
@@ -177,7 +179,9 @@ function applyInlineMarkToSelection(view, markKey) {
   const text = state.doc.toString();
   const win = lineWindow(state, sel.from, sel.to);
   const runs = collectDelimiterRuns(state, win);
-  const snapped = snapOutOfDelimiters(runs, sel.from, sel.to);
+  // 先外推避开定界符内部，再内收丢掉校准带进来的开/闭定界符
+  const outward = snapOutOfDelimiters(runs, sel.from, sel.to);
+  const snapped = snapIntoMarkContent(runs, outward.from, outward.to);
   if (snapped.to <= snapped.from) return false;
   const regions = collectMarkRegions(state, markKey, win);
   const cov = getInlineToolbarStateAt(state, snapped.from, snapped.to)[markKey];
@@ -192,6 +196,21 @@ function applyInlineMarkToSelection(view, markKey) {
     fullyOn: fullyOn,
     regions: regions.length,
   });
+
+  if (markKey === 'underline' || markKey === 'strike') {
+    const combined = planCombinedTildeToggle(
+      text,
+      collectMarkRegions(state, 'underline', win),
+      collectMarkRegions(state, 'strike', win),
+      snapped.from,
+      snapped.to,
+      markKey,
+      fullyOn
+    );
+    if (combined) {
+      return dispatchPlannedChange(view, combined.changes, combined.select, 'input.format');
+    }
+  }
 
   if (fullyOn) {
     const plan = planSplitUnwrap(text, regions, snapped.from, snapped.to);

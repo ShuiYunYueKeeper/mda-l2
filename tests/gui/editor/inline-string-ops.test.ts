@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 字符串层定界符规划（表格单元格复用正文规则）。
  *
  * 判据与正文一致：编辑后的 Markdown 里不得留下「渲染时会露出来」的定界符
@@ -134,5 +134,21 @@ describe('inline-string-ops 单元格定界符规则', () => {
     expect(ops.markKeyForDelims('~~', '~~')).toBe('strike');
     expect(ops.markKeyForDelims('`', '`')).toBe('code');
     expect(ops.markKeyForDelims('[', ']')).toBeNull();
+  });
+
+  test('E127 格内同一段同时下划线+删除线', () => {
+    let out = ops.toggleInlineMarkInText('测试文字', 0, 4, 'underline');
+    expect(out.value).toBe('~测试文字~');
+    const from = out.value.indexOf('测');
+    const to = out.value.indexOf('字') + 1;
+    out = ops.toggleInlineMarkInText(out.value, from, to, 'strike');
+    expect(out.value).toBe('~~~测试文字~~~');
+    out = ops.toggleInlineMarkInText(
+      out.value,
+      out.value.indexOf('测'),
+      out.value.indexOf('字') + 1,
+      'strike'
+    );
+    expect(out.value).toBe('~测试文字~');
   });
 });

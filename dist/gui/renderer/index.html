@@ -1458,8 +1458,12 @@
       text-shadow: 0.55px 0 0 currentColor, -0.25px 0 0 currentColor;
     }
     .mda-cm6-host .mda-cm-em { font-style: italic; }
-    .mda-cm6-host .mda-cm-strike { text-decoration: line-through; opacity: 0.85; }
-    .mda-cm6-host .mda-cm-underline { text-decoration: underline; }
+    .mda-cm6-host .mda-cm-strike { text-decoration-line: line-through; opacity: 0.85; }
+    .mda-cm6-host .mda-cm-underline { text-decoration-line: underline; }
+    .mda-cm6-host .mda-cm-underline.mda-cm-strike,
+    .mda-cm6-host .mda-cm-strike.mda-cm-underline {
+      text-decoration-line: underline line-through;
+    }
     /* 行内 code：灰底胶囊；预览选区层叠在上方（见 tight-selection above:true） */
     .mda-cm6-host .mda-cm-code {
       background: #eef0f3;
@@ -3220,8 +3224,12 @@
       text-shadow: none;
     }
     .mda-cm6-host .mda-cm-table .mda-cm-em { font-style: italic; }
-    .mda-cm6-host .mda-cm-table .mda-cm-strike { text-decoration: line-through; opacity: 0.85; }
-    .mda-cm6-host .mda-cm-table .mda-cm-underline { text-decoration: underline; }
+    .mda-cm6-host .mda-cm-table .mda-cm-strike { text-decoration-line: line-through; opacity: 0.85; }
+    .mda-cm6-host .mda-cm-table .mda-cm-underline { text-decoration-line: underline; }
+    .mda-cm6-host .mda-cm-table .mda-cm-underline.mda-cm-strike,
+    .mda-cm6-host .mda-cm-table .mda-cm-strike.mda-cm-underline {
+      text-decoration-line: underline line-through;
+    }
     .mda-cm6-host .mda-cm-table .mda-cm-link {
       color: var(--link);
       text-decoration: none;

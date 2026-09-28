@@ -321,6 +321,64 @@ function serializeTableCellDom(cell) {
 }
 
 /**
+ * 把单元格内当前 DOM 选区序列化为 Markdown（保留成对定界符）。
+ * 用于格内 Ctrl+C：原生 contenteditable 只会拷可见字，样式定界符会丢。
+ * @param {HTMLElement} cell
+ * @returns {string | null}
+ */
+function serializeCellSelectionMarkdown(cell) {
+  if (!cell || typeof window === 'undefined' || !window.getSelection) return null;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount < 1 || sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  if (!rangeStillInCell(range, cell)) return null;
+
+  // 选区落在单个样式 span 内且盖住其全部可见文字 → 直接用源码快照（含定界符）
+  const startNode = range.startContainer;
+  const endNode = range.endContainer;
+  const startEl =
+    startNode && startNode.nodeType === 1
+      ? /** @type {HTMLElement} */ (startNode).closest
+        ? /** @type {HTMLElement} */ (startNode).closest('.mda-cm-table-inline, .mda-cm-link')
+        : null
+      : startNode && startNode.parentElement
+        ? startNode.parentElement.closest('.mda-cm-table-inline, .mda-cm-link')
+        : null;
+  const endEl =
+    endNode && endNode.nodeType === 1
+      ? /** @type {HTMLElement} */ (endNode).closest
+        ? /** @type {HTMLElement} */ (endNode).closest('.mda-cm-table-inline, .mda-cm-link')
+        : null
+      : endNode && endNode.parentElement
+        ? endNode.parentElement.closest('.mda-cm-table-inline, .mda-cm-link')
+        : null;
+  if (startEl && startEl === endEl && cell.contains(startEl)) {
+    const source = startEl.getAttribute('data-mda-inline-source');
+    const rendered =
+      startEl.getAttribute('data-mda-inline-text') != null
+        ? startEl.getAttribute('data-mda-inline-text')
+        : startEl.textContent || '';
+    const selected = String(range.toString() || '');
+    if (source && selected === rendered) return source;
+  }
+
+  try {
+    const frag = range.cloneContents();
+    const wrap = document.createElement('div');
+    wrap.appendChild(frag);
+    // cloneContents 常只带文本节点；若整格可见文字都被选中，回退整格 Markdown
+    const cloned = serializeTableCellDom(wrap);
+    const full = serializeTableCellDom(cell);
+    const cellVis = String(cell.textContent || '').replace(/\u00a0/g, ' ');
+    const selVis = String(range.toString() || '').replace(/\u00a0/g, ' ');
+    if (selVis && selVis === cellVis && full) return full;
+    return cloned == null ? null : String(cloned);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * @param {HTMLElement | null} cell
  * @returns {string}
  */
@@ -782,6 +840,37 @@ function getCellInlineFlags(cell, visHint) {
   return { pos: vis.start, flags: flags };
 }
 
+/**
+ * 把 Markdown 贴进单元格并立刻按样式重绘，避免先露出 `**…**` 源码、失焦才渲染。
+ * @param {HTMLElement} cell
+ * @param {string} pasted
+ * @param {{ resolveImageUrl?: Function }} [opts]
+ * @returns {boolean}
+ */
+function pasteMarkdownIntoTableCell(cell, pasted, opts) {
+  if (!cell) return false;
+  const insert = String(pasted == null ? '' : pasted);
+  const md = serializeTableCellDom(cell);
+  let from = md.length;
+  let to = md.length;
+  if (typeof window !== 'undefined' && window.getSelection) {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      if (rangeStillInCell(range, cell)) {
+        const off = getRangeVisibleOffsets(cell, range);
+        from = visibleToMarkdownOffset(md, off.start);
+        to = visibleToMarkdownOffset(md, off.end);
+      }
+    }
+  }
+  const next = md.slice(0, from) + insert + md.slice(to);
+  setCellMarkdownContent(cell, next, opts || {});
+  const caretVis = markdownToVisibleOffset(next, from + insert.length);
+  setCellVisibleSelection(cell, caretVis, caretVis);
+  return true;
+}
+
 module.exports = {
   setCellMarkdownContent: setCellMarkdownContent,
   getCellMarkdownContent: getCellMarkdownContent,
@@ -790,6 +879,8 @@ module.exports = {
   getCellVisibleSelection: resolveCellVisRange,
   serializeTableCellDom: serializeTableCellDom,
   serializeInlineStyledElement: serializeInlineStyledElement,
+  serializeCellSelectionMarkdown: serializeCellSelectionMarkdown,
+  pasteMarkdownIntoTableCell: pasteMarkdownIntoTableCell,
   wrapInlineCode: wrapInlineCode,
   findSyntaxInlineRanges: findSyntaxInlineRanges,
   selectTableMathAtom: selectTableMathAtom,

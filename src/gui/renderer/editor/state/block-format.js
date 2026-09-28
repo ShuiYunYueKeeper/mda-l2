@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 当前块级格式与行内标记状态（工具栏 / 浮动条共享源）。
  */
 'use strict';
@@ -6,7 +6,7 @@
 const { syntaxTree } = require('@codemirror/language');
 const { findUnderlineRanges } = require('../model/underline');
 const { buildCodeFenceMask } = require('../model/parse-math');
-const { getInlineFlagsAtPos, posInMarkRegion } = require('./inline-mark-context');
+const { getInlineFlagsAtPos, posInMarkRegion, collectMarkRegions } = require('./inline-mark-context');
 
 /**
  * @param {string} text
@@ -258,6 +258,34 @@ function getInlineToolbarState(state) {
 }
 
 /**
+ * 用 collectMarkRegions 的 content 算覆盖（叠套 `~~~` 也正确）。
+ * @param {{ open: {from:number,to:number}, content: {from:number,to:number}, close: {from:number,to:number} }[]} regions
+ * @param {number} from
+ * @param {number} to
+ */
+function regionContentCoverage(regions, from, to) {
+  if (from === to) {
+    const pos = from;
+    for (let i = 0; i < regions.length; i++) {
+      const r = regions[i];
+      if (pos >= r.open.from && pos <= r.close.to) return { on: true, mixed: false };
+    }
+    return { on: false, mixed: false };
+  }
+  let covered = 0;
+  for (let i = 0; i < regions.length; i++) {
+    const c = regions[i].content;
+    const a = Math.max(from, c.from);
+    const b = Math.min(to, c.to);
+    if (b > a) covered += b - a;
+  }
+  const len = to - from;
+  if (covered <= 0) return { on: false, mixed: false };
+  if (covered >= len) return { on: true, mixed: false };
+  return { on: false, mixed: true };
+}
+
+/**
  * @param {import('@codemirror/state').EditorState} state
  * @param {number} from
  * @param {number} to
@@ -266,8 +294,8 @@ function getInlineToolbarStateAt(state, from, to) {
   return {
     bold: markCoverage(state, 'StrongEmphasis', from, to),
     italic: markCoverage(state, 'Emphasis', from, to),
-    underline: underlineCoverage(state, from, to),
-    strike: markCoverage(state, 'Strikethrough', from, to),
+    underline: regionContentCoverage(collectMarkRegions(state, 'underline'), from, to),
+    strike: regionContentCoverage(collectMarkRegions(state, 'strike'), from, to),
     code: markCoverage(state, 'InlineCode', from, to),
   };
 }

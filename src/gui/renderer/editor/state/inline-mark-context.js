@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 行内标记区域判定（头/中/尾）与待输入插入落点。
  * 与 caret-syntax-adjust 一致：leading.from / trailing.to 边界视为「处于该样式内」。
  */
@@ -6,7 +6,7 @@
 
 const { syntaxTree } = require('@codemirror/language');
 const { SYNTAX_RULES } = require('../model/syntax-rules');
-const { findUnderlineRanges } = require('../model/underline');
+const { findUnderlineRanges, findTripleTildeRanges, underlineSpansInTriple, strikeSpansInTriple } = require('../model/underline');
 const { buildCodeFenceMask } = require('../model/parse-math');
 
 /** @type {Record<string, string>} */
@@ -129,9 +129,29 @@ function resolveSyntaxMarkRegion(state, pos, nodeName) {
  */
 function resolveUnderlineRegion(state, pos) {
   const text = state.doc.toString();
+  const triples = findTripleTildeRanges(text);
+  for (let i = 0; i < triples.length; i++) {
+    const spans = underlineSpansInTriple(triples[i]);
+    if (pos >= spans.open.from && pos <= spans.close.to) {
+      return {
+        leading: spans.open,
+        trailing: spans.close,
+        content: spans.content,
+      };
+    }
+  }
   const ranges = findUnderlineRanges(text, underlineExcludeRanges(state));
   for (let i = 0; i < ranges.length; i++) {
     const r = ranges[i];
+    // 叠套段已按可见正文处理，跳过全宽 Underline 回退
+    let isTriple = false;
+    for (let t = 0; t < triples.length; t++) {
+      if (r.from === triples[t].from && r.to === triples[t].to) {
+        isTriple = true;
+        break;
+      }
+    }
+    if (isTriple) continue;
     if (pos >= r.from && pos <= r.to) {
       return {
         leading: { from: r.from, to: r.from + 1 },
@@ -150,6 +170,20 @@ function resolveUnderlineRegion(state, pos) {
  */
 function resolveMarkRegion(state, pos, markKey) {
   if (markKey === 'underline') return resolveUnderlineRegion(state, pos);
+  if (markKey === 'strike') {
+    const text = state.doc.toString();
+    const triples = findTripleTildeRanges(text);
+    for (let i = 0; i < triples.length; i++) {
+      const spans = strikeSpansInTriple(triples[i]);
+      if (pos >= spans.open.from && pos <= spans.close.to) {
+        return {
+          leading: spans.open,
+          trailing: spans.close,
+          content: spans.content,
+        };
+      }
+    }
+  }
   const nodeName = MARK_NODE[markKey];
   if (!nodeName) return null;
   return resolveSyntaxMarkRegion(state, pos, nodeName);
@@ -321,13 +355,27 @@ function collectMarkRegions(state, markKey, window) {
   const hi = window ? window.to : doc.length;
   /** @type {{ key: string, open: {from:number,to:number}, content: {from:number,to:number}, close: {from:number,to:number} }[]} */
   const out = [];
+  const triples = findTripleTildeRanges(doc);
 
   if (markKey === 'underline') {
+    for (let t = 0; t < triples.length; t++) {
+      const spans = underlineSpansInTriple(triples[t]);
+      if (spans.close.to <= lo || spans.open.from >= hi) continue;
+      out.push({ key: 'underline', open: spans.open, content: spans.content, close: spans.close });
+    }
     const ranges = findUnderlineRanges(doc, underlineExcludeRanges(state, window));
     for (let i = 0; i < ranges.length; i++) {
       const r = ranges[i];
       if (r.to <= lo || r.from >= hi) continue;
       if (r.to - r.from < 2) continue;
+      let isTriple = false;
+      for (let t = 0; t < triples.length; t++) {
+        if (r.from === triples[t].from && r.to === triples[t].to) {
+          isTriple = true;
+          break;
+        }
+      }
+      if (isTriple) continue;
       out.push({
         key: 'underline',
         open: { from: r.from, to: r.from + 1 },
@@ -336,6 +384,14 @@ function collectMarkRegions(state, markKey, window) {
       });
     }
     return out;
+  }
+
+  if (markKey === 'strike') {
+    for (let t = 0; t < triples.length; t++) {
+      const spans = strikeSpansInTriple(triples[t]);
+      if (spans.close.to <= lo || spans.open.from >= hi) continue;
+      out.push({ key: 'strike', open: spans.open, content: spans.content, close: spans.close });
+    }
   }
 
   const nodeName = MARK_NODE[markKey];
@@ -352,6 +408,12 @@ function collectMarkRegions(state, markKey, window) {
     to: hi,
     enter: function (node) {
       if (node.name !== nodeName) return;
+      // 叠套段已用手写区段，避开 Lezer 对 ~~~ 的误解析
+      if (markKey === 'strike') {
+        for (let t = 0; t < triples.length; t++) {
+          if (node.from < triples[t].to && node.to > triples[t].from) return;
+        }
+      }
       const adapted = { from: node.from, to: node.to, type: node.name };
       const content = rule.contentRange(adapted, doc);
       if (!content || content.from > content.to) return;

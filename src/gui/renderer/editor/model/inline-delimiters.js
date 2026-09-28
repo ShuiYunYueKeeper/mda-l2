@@ -100,6 +100,41 @@ function snapOutOfDelimiters(runs, from, to) {
 }
 
 /**
+ * 格式化用：把落在定界符上（含端点）的选区端点推进到可见内容内。
+ * 预览拖选后左缘常被校准到开定界符外侧，若直接包裹会把 `**` 吃进新样式
+ * （`~~**能打开~~…**`），整段加粗被拆坏。
+ * @param {Span[]} runs
+ * @param {number} from
+ * @param {number} to
+ * @returns {{ from: number, to: number }}
+ */
+function snapIntoMarkContent(runs, from, to) {
+  let a = Math.min(from, to);
+  let b = Math.max(from, to);
+  let moved = true;
+  let guard = 0;
+  while (moved && guard++ < 64) {
+    moved = false;
+    for (let i = 0; i < (runs || []).length; i++) {
+      const r = runs[i];
+      if (!r || r.to <= r.from) continue;
+      // 左端落在定界符上（含起点）→ 推到定界符右侧（内容侧）
+      if (a >= r.from && a < r.to) {
+        a = r.to;
+        moved = true;
+      }
+      // 右端落在定界符上（含终点）→ 推到定界符左侧
+      if (b > r.from && b <= r.to) {
+        b = r.from;
+        moved = true;
+      }
+    }
+  }
+  if (b < a) b = a;
+  return { from: a, to: b };
+}
+
+/**
  * @param {Span[]} out
  * @param {Span} span
  * @param {number} lo
@@ -188,8 +223,171 @@ function planDeleteRangePreservingPairs(regions, from, to, collapseEmptied) {
 }
 
 /**
- * 融合包裹：把 [from,to) 变成该标记的样式段。与之相交**或紧邻**的同类样式段一并吸收，
- * 只留一对定界符，杜绝 `**A****B**` 这类相邻定界符泄漏。
+ * CommonMark flanking：开定界符右邻为标点、左邻为文字时不能开启（闭定界符对称），
+ * 于是 `能打开**、能看懂**` 每对都配对却渲染出裸 `**`，`**甲、**乙**、丙**` 更会被
+ * 重新配对成外层强调。`*` / `**` / `~~` 受此约束；自定义 `~` 下划线与行内代码不受。
+ * 标点判定与 @lezer/markdown 保持一致（`\p{S}` / `\p{P}`）。
+ */
+const PUNCT_RE = /[\p{S}\p{P}]/u;
+const SPACE_RE = /\s/;
+/** Markdown 语法字符挪动后会改变其它结构的解析，不参与让位 */
+const SYNTAX_CHARS = '*_~`[]()<>!\\|&#';
+
+/** @param {string} delim */
+function needsFlanking(delim) {
+  return delim === '*' || delim === '**' || delim === '~~';
+}
+
+/** @param {string} ch */
+function charKind(ch) {
+  if (!ch || SPACE_RE.test(ch)) return 'space';
+  return PUNCT_RE.test(ch) ? 'punct' : 'word';
+}
+
+/** @param {string} before @param {string} after */
+function canOpenBetween(before, after) {
+  const a = charKind(after);
+  return a !== 'space' && (a !== 'punct' || charKind(before) !== 'word');
+}
+
+/** @param {string} before @param {string} after */
+function canCloseBetween(before, after) {
+  const b = charKind(before);
+  return b !== 'space' && (b !== 'punct' || charKind(after) !== 'word');
+}
+
+/** 定界符可以让到其外侧的字符：空白与非语法标点 */
+function isYieldable(ch) {
+  return !!ch && charKind(ch) !== 'word' && SYNTAX_CHARS.indexOf(ch) < 0;
+}
+
+/** @param {string} text @param {number} pos */
+function charBefore(text, pos) {
+  if (pos <= 0) return '';
+  const lo = text.charCodeAt(pos - 1);
+  if (pos >= 2 && lo >= 0xdc00 && lo <= 0xdfff) {
+    const hi = text.charCodeAt(pos - 2);
+    if (hi >= 0xd800 && hi <= 0xdbff) return text.slice(pos - 2, pos);
+  }
+  return text.charAt(pos - 1);
+}
+
+/** @param {string} text @param {number} pos */
+function charAfter(text, pos) {
+  if (pos >= text.length) return '';
+  const cp = text.codePointAt(pos);
+  return cp == null ? '' : String.fromCodePoint(cp);
+}
+
+/**
+ * 在 pos 插入闭定界符、样式段内容起于 floor 时，把 pos 向左让过内容尾部的标点/空白直到闭定界符成立。
+ * 返回 floor 表示残段只剩标点，整对应删除。
+ * @param {string} text @param {number} pos @param {number} floor
+ */
+function yieldCloseLeft(text, pos, floor) {
+  let p = pos;
+  let after = charAfter(text, pos);
+  while (p > floor) {
+    const before = charBefore(text, p);
+    if (canCloseBetween(before, after) || !isYieldable(before)) break;
+    p -= before.length;
+    after = before;
+  }
+  return p;
+}
+
+/**
+ * 在 pos 插入开定界符、样式段内容止于 ceil 时，把 pos 向右让过内容头部的标点/空白直到开定界符成立。
+ * @param {string} text @param {number} pos @param {number} ceil
+ */
+function yieldOpenRight(text, pos, ceil) {
+  let p = pos;
+  let before = charBefore(text, pos);
+  while (p < ceil) {
+    const after = charAfter(text, p);
+    if (canOpenBetween(before, after) || !isYieldable(after)) break;
+    p += after.length;
+    before = after;
+  }
+  return p;
+}
+
+/**
+ * [a,b) 之间只剩可让位的标点/空白（含空区间）。用于隔着顿号融合，避免
+ * `**能打开**、**能看懂**` 这种「取消再加粗」拆成两段。
+ * @param {string} text
+ * @param {number} a
+ * @param {number} b
+ */
+function isYieldableGap(text, a, b) {
+  if (b < a) return false;
+  if (a === b) return true;
+  let p = a;
+  while (p < b) {
+    const ch = charAfter(text, p);
+    if (!ch || !isYieldable(ch)) return false;
+    p += ch.length;
+  }
+  return true;
+}
+
+/**
+ * @param {MarkRegion} r
+ * @param {number} lo
+ * @param {number} hi
+ * @param {string} text
+ */
+function regionTouchesWrap(r, lo, hi, text) {
+  if (r.close.to >= lo && r.open.from <= hi) return true;
+  if (r.close.to < lo && isYieldableGap(text, r.close.to, lo)) return true;
+  if (r.open.from > hi && isYieldableGap(text, hi, r.open.from)) return true;
+  return false;
+}
+
+/**
+ * [lo,hi) 去掉定界符后，原文 pos 对应的可见偏移。
+ * @param {string} text
+ * @param {number} lo
+ * @param {number} hi
+ * @param {Span[]} drops
+ * @param {number} pos
+ */
+function visibleOffsetInRange(text, lo, hi, drops, pos) {
+  const p = pos < lo ? lo : pos > hi ? hi : pos;
+  let vis = 0;
+  let cur = lo;
+  for (let i = 0; i < drops.length; i++) {
+    const d = drops[i];
+    if (d.to <= lo || d.from >= hi) continue;
+    const a = Math.max(cur, d.from);
+    const b = Math.min(hi, d.to);
+    if (b <= a) continue;
+    if (p <= a) return vis + (p - cur);
+    if (a > cur) vis += a - cur;
+    cur = Math.max(cur, b);
+  }
+  return vis + Math.max(0, p - cur);
+}
+
+/**
+ * 可见偏移映到 `lead + delim + inner + delim + trail` 替换后的原文坐标。
+ * @param {number} vis
+ * @param {number} lo
+ * @param {number} leadLen
+ * @param {number} innerLen
+ * @param {number} delimLen
+ */
+function mapVisibleIntoWrap(vis, lo, leadLen, innerLen, delimLen) {
+  if (vis < leadLen) return lo + vis;
+  const inInner = vis - leadLen;
+  if (inInner <= innerLen) return lo + leadLen + delimLen + inInner;
+  return lo + leadLen + delimLen + innerLen + delimLen + (inInner - innerLen);
+}
+
+/**
+ * 融合包裹：把 [from,to) 变成该标记的样式段。与之相交、紧邻、或只隔可让位标点
+ * 的同类样式段一并吸收，只留一对定界符，杜绝 `**A****B**` / `**A**、**B**`。
+ * 选区钉在调用方传入的 [from,to)，不随融合范围撑开。
  *
  * @param {string} text 全文
  * @param {MarkRegion[]} regions 同一标记的全部样式段
@@ -211,8 +409,7 @@ function planFusedWrap(text, regions, from, to, delim) {
     for (let i = 0; i < regions.length; i++) {
       if (taken[i]) continue;
       const r = regions[i];
-      // 紧邻也算相交：close.to === lo 或 open.from === hi 时必须融合
-      if (r.close.to < lo || r.open.from > hi) continue;
+      if (!regionTouchesWrap(r, lo, hi, text)) continue;
       taken[i] = true;
       absorbed.push(r);
       if (r.open.from < lo) lo = r.open.from;
@@ -241,54 +438,240 @@ function planFusedWrap(text, regions, from, to, delim) {
   }
   if (cur < hi) inner += text.slice(cur, hi);
 
+  // 选区首尾的标点/空白会让定界符无法成立，让到定界符外侧（`、**能看懂**`）
+  let lead = '';
+  let trail = '';
+  if (needsFlanking(delim) && inner) {
+    const beforeCh = charBefore(text, lo);
+    const s =
+      yieldOpenRight(beforeCh + inner, beforeCh.length, beforeCh.length + inner.length) -
+      beforeCh.length;
+    lead = inner.slice(0, s);
+    inner = inner.slice(s);
+    const e = yieldCloseLeft(inner + charAfter(text, hi), inner.length, 0);
+    trail = inner.slice(e);
+    inner = inner.slice(0, e);
+  }
+
   // 空内容不产生定界符对（否则渲染出裸 `****`）
   if (!inner) return null;
-  const insert = delim + inner + delim;
+  const insert = lead + delim + inner + delim + trail;
   if (insert === text.slice(lo, hi)) return null;
+  const userA = visibleOffsetInRange(text, lo, hi, drops, from);
+  const userB = visibleOffsetInRange(text, lo, hi, drops, to);
   return {
     changes: [{ from: lo, to: hi, insert: insert }],
-    select: { from: lo + delim.length, to: lo + delim.length + inner.length },
+    select: {
+      from: mapVisibleIntoWrap(userA, lo, lead.length, inner.length, delim.length),
+      to: mapVisibleIntoWrap(userB, lo, lead.length, inner.length, delim.length),
+    },
   };
+}
+
+/**
+ * 相交或套叠的同类样式段并成一组（紧邻但不重叠的 `**A****B**` 仍各自独立）。
+ * @param {MarkRegion[]} regions
+ * @returns {MarkRegion[][]}
+ */
+function overlappingRegionGroups(regions) {
+  /** @type {MarkRegion[]} */
+  const items = [];
+  for (let i = 0; i < (regions || []).length; i++) {
+    const r = regions[i];
+    if (r && r.open && r.close) items.push(r);
+  }
+  const used = [];
+  /** @type {MarkRegion[][]} */
+  const groups = [];
+  for (let i = 0; i < items.length; i++) {
+    if (used[i]) continue;
+    const group = [items[i]];
+    used[i] = true;
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (let j = 0; j < items.length; j++) {
+        if (used[j]) continue;
+        const r = items[j];
+        let hit = false;
+        for (let k = 0; k < group.length; k++) {
+          const g = group[k];
+          if (g.open.from < r.close.to && r.open.from < g.close.to) {
+            hit = true;
+            break;
+          }
+        }
+        if (!hit) continue;
+        used[j] = true;
+        group.push(r);
+        grew = true;
+      }
+    }
+    groups.push(group);
+  }
+  return groups;
+}
+
+/**
+ * 把 [lo,hi) 里挖掉定界符后的可见文本，以及原文坐标 → 可见坐标。
+ * @param {string} text
+ * @param {number} lo
+ * @param {number} hi
+ * @param {Span[]} delimSpans
+ */
+function visibleSlice(text, lo, hi, delimSpans) {
+  /** @type {Span[]} */
+  const cuts = [];
+  for (let i = 0; i < delimSpans.length; i++) {
+    const a = Math.max(lo, delimSpans[i].from);
+    const b = Math.min(hi, delimSpans[i].to);
+    if (b > a) cuts.push({ from: a, to: b });
+  }
+  cuts.sort(function (a, b) {
+    return a.from - b.from;
+  });
+  /** @type {Span[]} */
+  const merged = [];
+  for (let i = 0; i < cuts.length; i++) {
+    const c = cuts[i];
+    const last = merged.length ? merged[merged.length - 1] : null;
+    if (last && c.from <= last.to) {
+      if (c.to > last.to) last.to = c.to;
+    } else {
+      merged.push({ from: c.from, to: c.to });
+    }
+  }
+  /** @type {{ origFrom: number, origTo: number, visFrom: number }[]} */
+  const segs = [];
+  let visible = '';
+  let cur = lo;
+  for (let i = 0; i < merged.length; i++) {
+    const c = merged[i];
+    if (c.from > cur) {
+      segs.push({ origFrom: cur, origTo: c.from, visFrom: visible.length });
+      visible += text.slice(cur, c.from);
+    }
+    cur = Math.max(cur, c.to);
+  }
+  if (cur < hi) {
+    segs.push({ origFrom: cur, origTo: hi, visFrom: visible.length });
+    visible += text.slice(cur, hi);
+  }
+  /**
+   * @param {number} pos
+   */
+  function origToVis(pos) {
+    if (pos <= lo) return 0;
+    if (pos >= hi) return visible.length;
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i];
+      if (pos < s.origFrom) return s.visFrom;
+      if (pos <= s.origTo) return s.visFrom + (pos - s.origFrom);
+    }
+    return visible.length;
+  }
+  return { visible: visible, origToVis: origToVis };
 }
 
 /**
  * 拆分取消：把 [from,to) 从所属样式段中摘出来，两侧剩余部分保持样式。
  * 剩余部分为空则整对定界符删除，绝不留下空定界符对。
  *
+ * 套叠/残留的同类定界符（`****能打开**、**能看懂**、……**`）先按**可见文本**摊平再切：
+ * 切口落在内层 `**` 上时，若仍按原文坐标让位，会把内层定界符留在可见区。
+ *
  * @param {string} text
- * @param {MarkRegion[]} regions 同一标记的全部样式段
+ * @param {MarkRegion[]} regions 同一标记或多种标记（清除格式）的样式段
  * @param {number} from
  * @param {number} to
  * @returns {{ changes: Change[], select: { from: number, to: number } } | null}
  */
 function planSplitUnwrap(text, regions, from, to) {
   if (to <= from) return null;
-  /** @type {Change[]} */
-  const changes = [];
-  for (let i = 0; i < regions.length; i++) {
+  /** @type {Record<string, MarkRegion[]>} */
+  const byKey = {};
+  for (let i = 0; i < (regions || []).length; i++) {
     const r = regions[i];
-    const wholeInside = r.open.from >= from && r.close.to <= to;
-    const contentHit = r.content.from < to && r.content.to > from;
-    if (!wholeInside && !contentHit) continue;
-
-    const a = Math.max(from, r.content.from);
-    const b = Math.min(to, r.content.to);
-    if (b <= a) continue;
-    const delim = text.slice(r.open.from, r.open.to);
-    const leftKeep = a > r.content.from;
-    const rightKeep = b < r.content.to;
-
-    if (leftKeep) changes.push({ from: a, to: a, insert: delim });
-    else changes.push({ from: r.open.from, to: r.open.to, insert: '' });
-    if (rightKeep) changes.push({ from: b, to: b, insert: delim });
-    else changes.push({ from: r.close.from, to: r.close.to, insert: '' });
+    if (!r || !r.open || !r.close) continue;
+    const key = r.key || '';
+    if (!byKey[key]) byKey[key] = [];
+    byKey[key].push(r);
+  }
+  /** @type {(Change & { leftWrapLen?: number, selOffset?: number, selLen?: number })[]} */
+  const changes = [];
+  const keys = Object.keys(byKey);
+  for (let k = 0; k < keys.length; k++) {
+    const groups = overlappingRegionGroups(byKey[keys[k]]);
+    for (let g = 0; g < groups.length; g++) {
+      const group = groups[g];
+      let lo = group[0].open.from;
+      let hi = group[0].close.to;
+      /** @type {Span[]} */
+      const delims = [];
+      for (let i = 0; i < group.length; i++) {
+        const r = group[i];
+        if (r.open.from < lo) lo = r.open.from;
+        if (r.close.to > hi) hi = r.close.to;
+        delims.push(r.open, r.close);
+      }
+      const hits = from < hi && to > lo;
+      if (!hits) continue;
+      const delim = text.slice(group[0].open.from, group[0].open.to);
+      if (!delim) continue;
+      const slice = visibleSlice(text, lo, hi, delims);
+      if (!slice.visible) continue;
+      let va = slice.origToVis(Math.max(from, lo));
+      let vb = slice.origToVis(Math.min(to, hi));
+      if (vb <= va) continue;
+      // 让位只改文档切口，选区仍钉在用户点的可见文字上，否则「能打开」会扩成「能打开、」
+      // 再点一次加粗就会和后面的样式段贴上融成整句。
+      const userVa = va;
+      const userVb = vb;
+      if (needsFlanking(delim)) {
+        if (va > 0) va = yieldCloseLeft(slice.visible, va, 0);
+        if (vb < slice.visible.length) vb = yieldOpenRight(slice.visible, vb, slice.visible.length);
+      }
+      const left = slice.visible.slice(0, va);
+      const mid = slice.visible.slice(va, vb);
+      const right = slice.visible.slice(vb);
+      const leftWrap = left ? delim + left + delim : '';
+      const rightWrap = right ? delim + right + delim : '';
+      const insert = leftWrap + mid + rightWrap;
+      if (insert === text.slice(lo, hi)) continue;
+      const selOffset = Math.max(0, userVa - va);
+      const selEnd = Math.min(mid.length, Math.max(selOffset, userVb - va));
+      changes.push({
+        from: lo,
+        to: hi,
+        insert: insert,
+        leftWrapLen: leftWrap.length,
+        selOffset: selOffset,
+        selLen: selEnd - selOffset,
+      });
+    }
   }
   if (!changes.length) return null;
-  const set = toChangeSet(changes, text.length);
+  changes.sort(function (a, b) {
+    return a.from - b.from;
+  });
+  let selFrom = null;
+  let selTo = null;
+  let shift = 0;
+  for (let i = 0; i < changes.length; i++) {
+    const ch = changes[i];
+    const midFrom = ch.from + shift + (ch.leftWrapLen || 0);
+    const a = midFrom + (ch.selOffset || 0);
+    const b = a + (ch.selLen || 0);
+    if (selFrom == null) selFrom = a;
+    selTo = b;
+    shift += ch.insert.length - (ch.to - ch.from);
+    delete ch.leftWrapLen;
+    delete ch.selOffset;
+    delete ch.selLen;
+  }
   return {
     changes: changes,
-    // 左侧闭合定界符插在 from 处 → 选区起点落到它之后；右侧开定界符插在 to 处 → 终点落到它之前
-    select: { from: set.mapPos(from, 1), to: set.mapPos(to, -1) },
+    select: { from: selFrom, to: selTo },
   };
 }
 
@@ -389,15 +772,127 @@ function skipHiddenRuns(runs, pos, forward) {
   return p;
 }
 
+/**
+ * 下划线 `~` 与删除线 `~~` 叠套必须走专用路径：朴素再包一层会得到 `~~~text~~~`，
+ * 但拆分取消若按「可见切片」处理会把内层 `~~` 当成正文拆坏。
+ * 约定形态：`~~~text~~~` = 外层下划线 + 内层删除线。
+ *
+ * @param {string} text
+ * @param {MarkRegion[]} underlineRegions
+ * @param {MarkRegion[]} strikeRegions
+ * @param {number} from
+ * @param {number} to
+ * @param {'underline'|'strike'} markKey
+ * @param {boolean} fullyOn
+ * @returns {{ changes: Change[], select: Span } | null}
+ */
+function planCombinedTildeToggle(text, underlineRegions, strikeRegions, from, to, markKey, fullyOn) {
+  if (markKey !== 'underline' && markKey !== 'strike') return null;
+  const src = String(text || '');
+  const a = Math.min(from, to);
+  const b = Math.max(from, to);
+  if (b <= a) return null;
+
+  const { findTripleTildeRanges, underlineSpansInTriple, strikeSpansInTriple } = require('./underline');
+  const triples = findTripleTildeRanges(src);
+
+  // 取消：在叠套段上摘掉外层或内层
+  for (let i = 0; i < triples.length; i++) {
+    const tr = triples[i];
+    const u = underlineSpansInTriple(tr);
+    const s = strikeSpansInTriple(tr);
+    if (b <= u.open.from || a >= u.close.to) continue;
+    if (!fullyOn) continue;
+    if (markKey === 'underline') {
+      return {
+        changes: [
+          { from: u.close.from, to: u.close.to, insert: '' },
+          { from: u.open.from, to: u.open.to, insert: '' },
+        ],
+        select: { from: s.content.from - 1, to: s.content.to - 1 },
+      };
+    }
+    // 去掉内层 ~~，留下 ~text~
+    return {
+      changes: [
+        { from: s.close.from, to: s.close.to, insert: '' },
+        { from: s.open.from, to: s.open.to, insert: '' },
+      ],
+      select: { from: s.content.from - 2, to: s.content.to - 2 },
+    };
+  }
+
+  if (fullyOn) return null;
+
+  // 给已有删除线加上外层下划线
+  if (markKey === 'underline') {
+    for (let i = 0; i < (strikeRegions || []).length; i++) {
+      const r = strikeRegions[i];
+      if (!r || !r.open || !r.close || !r.content) continue;
+      if (a >= r.content.from && b <= r.content.to) {
+        // 选区在删除线正文内 → 包整段删除线
+        return {
+          changes: [
+            { from: r.close.to, to: r.close.to, insert: '~' },
+            { from: r.open.from, to: r.open.from, insert: '~' },
+          ],
+          select: { from: a + 1, to: b + 1 },
+        };
+      }
+      if (a <= r.open.from && b >= r.close.to) {
+        return {
+          changes: [
+            { from: r.close.to, to: r.close.to, insert: '~' },
+            { from: r.open.from, to: r.open.from, insert: '~' },
+          ],
+          select: { from: a + 1, to: b + 1 },
+        };
+      }
+    }
+  }
+
+  // 给已有下划线加上内层删除线
+  if (markKey === 'strike') {
+    for (let i = 0; i < (underlineRegions || []).length; i++) {
+      const r = underlineRegions[i];
+      if (!r || !r.open || !r.close || !r.content) continue;
+      // 跳过已是叠套的（content 与 open 不紧邻）
+      if (r.open.to !== r.content.from) continue;
+      if (a >= r.content.from && b <= r.content.to) {
+        return {
+          changes: [
+            { from: r.close.from, to: r.close.from, insert: '~~' },
+            { from: r.open.to, to: r.open.to, insert: '~~' },
+          ],
+          select: { from: a + 2, to: b + 2 },
+        };
+      }
+      if (a <= r.open.from && b >= r.close.to) {
+        return {
+          changes: [
+            { from: r.close.from, to: r.close.from, insert: '~~' },
+            { from: r.open.to, to: r.open.to, insert: '~~' },
+          ],
+          select: { from: a + 2, to: b + 2 },
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 module.exports = {
   sortChanges: sortChanges,
   pruneNoopChanges: pruneNoopChanges,
   toChangeSet: toChangeSet,
   snapOutOfDelimiters: snapOutOfDelimiters,
+  snapIntoMarkContent: snapIntoMarkContent,
   planDeleteRangePreservingPairs: planDeleteRangePreservingPairs,
   planFusedWrap: planFusedWrap,
   planSplitUnwrap: planSplitUnwrap,
   planRegionCleanup: planRegionCleanup,
+  planCombinedTildeToggle: planCombinedTildeToggle,
   skipHiddenRuns: skipHiddenRuns,
   spanCoveredBy: spanCoveredBy,
 };

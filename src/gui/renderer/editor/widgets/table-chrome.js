@@ -45,6 +45,8 @@ const {
   tableCellImageMarkdownAbs,
   applyInlineFormatToTableCell,
   getCellInlineFlags,
+  serializeCellSelectionMarkdown,
+  pasteMarkdownIntoTableCell,
 } = require('./table-cell-content');
 const { undo, redo } = require('@codemirror/commands');
 const { attachBlockDragHandle } = require('./block-drag-handle');
@@ -1134,6 +1136,40 @@ function mountTableChrome(ctx) {
           node: img.cloneNode(true),
           opts: { kind: 'image', imageSrc: img.getAttribute('src') || '' },
         });
+      });
+      // 格内有文字选区时拷 Markdown（含定界符），避免 contenteditable 只拷可见字
+      cell.addEventListener('copy', function (e) {
+        if (!e.clipboardData) return;
+        const md = serializeCellSelectionMarkdown(cell);
+        if (md == null || md === '') return;
+        e.clipboardData.setData('text/plain', md);
+        e.preventDefault();
+        e.stopPropagation();
+      });
+      cell.addEventListener('cut', function (e) {
+        if (!e.clipboardData) return;
+        const md = serializeCellSelectionMarkdown(cell);
+        if (md == null || md === '') return;
+        e.clipboardData.setData('text/plain', md);
+        e.preventDefault();
+        e.stopPropagation();
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          sel.getRangeAt(0).deleteContents();
+          cellContentDirty = true;
+        }
+      });
+      // 贴入 Markdown 立刻重绘样式，避免先露 `**…**` 再等失焦
+      cell.addEventListener('paste', function (e) {
+        if (!e.clipboardData) return;
+        const plain = e.clipboardData.getData('text/plain');
+        if (plain == null || plain === '') return;
+        e.preventDefault();
+        e.stopPropagation();
+        pasteMarkdownIntoTableCell(cell, plain, {
+          resolveImageUrl: ctx.resolveImageUrl,
+        });
+        cellContentDirty = true;
       });
       cell.addEventListener('focus', function (e) {
         e.stopPropagation();

@@ -30998,12 +30998,58 @@ var MDAEditorBundle = (() => {
         }
         return false;
       }
-      function findUnderlineRanges(text, excludeRanges) {
+      function findTripleTildeRanges(text, excludeRanges) {
         const src = text == null ? "" : String(text);
         const n = src.length;
         const ranges = [];
         let i = 0;
         while (i < n) {
+          if (src.charAt(i) === "~" && src.charAt(i + 1) === "~" && src.charAt(i + 2) === "~" && src.charAt(i + 3) !== "~") {
+            let j = i + 3;
+            let close = -1;
+            while (j < n) {
+              const c = src.charAt(j);
+              if (c === "\n" || c === "\r") break;
+              if (c === "~" && src.charAt(j + 1) === "~" && src.charAt(j + 2) === "~" && src.charAt(j + 3) !== "~") {
+                close = j;
+                break;
+              }
+              j += 1;
+            }
+            if (close > i + 3) {
+              const from = i;
+              const to = close + 3;
+              if (!overlapsExclude(from, to, excludeRanges || [])) {
+                ranges.push({ from, to, type: "UnderlineStrike" });
+              }
+              i = to;
+              continue;
+            }
+          }
+          i += 1;
+        }
+        return ranges;
+      }
+      function findUnderlineRanges(text, excludeRanges) {
+        const src = text == null ? "" : String(text);
+        const n = src.length;
+        const triples = findTripleTildeRanges(src, excludeRanges);
+        const ranges = [];
+        for (let t = 0; t < triples.length; t++) {
+          const tr = triples[t];
+          ranges.push({ from: tr.from, to: tr.to, type: "Underline" });
+        }
+        let i = 0;
+        while (i < n) {
+          let inTriple = false;
+          for (let t = 0; t < triples.length; t++) {
+            if (i >= triples[t].from && i < triples[t].to) {
+              i = triples[t].to;
+              inTriple = true;
+              break;
+            }
+          }
+          if (inTriple) continue;
           const ch = src.charAt(i);
           if (ch === "~" && src.charAt(i + 1) === "~") {
             i += 2;
@@ -31015,6 +31061,15 @@ var MDAEditorBundle = (() => {
             while (j < n) {
               const c = src.charAt(j);
               if (c === "\n" || c === "\r") break;
+              let skipTriple = false;
+              for (let t = 0; t < triples.length; t++) {
+                if (j >= triples[t].from && j < triples[t].to) {
+                  j = triples[t].to;
+                  skipTriple = true;
+                  break;
+                }
+              }
+              if (skipTriple) continue;
               if (c === "~" && src.charAt(j + 1) === "~") {
                 j += 2;
                 continue;
@@ -31039,6 +31094,20 @@ var MDAEditorBundle = (() => {
         }
         return ranges;
       }
+      function strikeSpansInTriple(triple) {
+        return {
+          open: { from: triple.from + 1, to: triple.from + 3 },
+          content: { from: triple.from + 3, to: triple.to - 3 },
+          close: { from: triple.to - 3, to: triple.to - 1 }
+        };
+      }
+      function underlineSpansInTriple(triple) {
+        return {
+          open: { from: triple.from, to: triple.from + 1 },
+          content: { from: triple.from + 3, to: triple.to - 3 },
+          close: { from: triple.to - 1, to: triple.to }
+        };
+      }
       function isSingleTildeWrapped(selected) {
         const s = String(selected || "");
         if (s.length < 2) return false;
@@ -31055,6 +31124,9 @@ var MDAEditorBundle = (() => {
       }
       module.exports = {
         findUnderlineRanges,
+        findTripleTildeRanges,
+        strikeSpansInTriple,
+        underlineSpansInTriple,
         isSingleTildeWrapped,
         isSingleTildeAt,
         overlapsExclude
@@ -31070,7 +31142,7 @@ var MDAEditorBundle = (() => {
       var { findAnnotationHideRanges, findHtmlCommentHideRanges } = require_anno_lines();
       var { detectFrontMatter } = require_readonly_blocks();
       var { findMathRanges } = require_parse_math();
-      var { findUnderlineRanges } = require_underline();
+      var { findUnderlineRanges, findTripleTildeRanges, overlapsExclude } = require_underline();
       var PRIORITY = {
         "hide-line": 100,
         "readonly-block": 80,
@@ -31457,15 +31529,46 @@ var MDAEditorBundle = (() => {
           }
         });
         if (doc) {
+          const triples = findTripleTildeRanges(doc);
+          if (triples.length) {
+            const kept = [];
+            for (let i = 0; i < nodes.length; i++) {
+              const n = nodes[i];
+              let drop = false;
+              for (let t = 0; t < triples.length; t++) {
+                const tr = triples[t];
+                const inside = n.from >= tr.from && n.to <= tr.to;
+                const fauxFence = n.type === "FencedCode" && n.from < tr.to && n.to > tr.from;
+                if (inside || fauxFence) {
+                  drop = true;
+                  break;
+                }
+              }
+              if (!drop) kept.push(n);
+            }
+            nodes.length = 0;
+            for (let k = 0; k < kept.length; k++) nodes.push(kept[k]);
+            for (let t = 0; t < triples.length; t++) {
+              const tr = triples[t];
+              nodes.push({ from: tr.from, to: tr.to, type: "Underline" });
+              nodes.push({ from: tr.from + 1, to: tr.to - 1, type: "Strikethrough" });
+            }
+          }
           const exclude = [];
           for (let i = 0; i < nodes.length; i++) {
             const n = nodes[i];
-            if (n.type === "FencedCode" || n.type === "CodeBlock" || n.type === "InlineCode" || n.type === "Strikethrough" || n.type === "HorizontalRule") {
+            if (n.type === "FencedCode" || n.type === "CodeBlock" || n.type === "InlineCode" || n.type === "HorizontalRule") {
+              exclude.push({ from: n.from, to: n.to });
+            } else if (n.type === "Strikethrough" && !overlapsExclude(n.from, n.to, triples)) {
               exclude.push({ from: n.from, to: n.to });
             }
           }
           const unders = findUnderlineRanges(doc, exclude);
-          for (let u = 0; u < unders.length; u++) nodes.push(unders[u]);
+          for (let u = 0; u < unders.length; u++) {
+            if (!overlapsExclude(unders[u].from, unders[u].to, triples)) {
+              nodes.push(unders[u]);
+            }
+          }
         }
         return nodes;
       }
@@ -50682,7 +50785,7 @@ var MDAEditorBundle = (() => {
       "use strict";
       var { syntaxTree } = require_dist7();
       var { SYNTAX_RULES } = require_syntax_rules();
-      var { findUnderlineRanges } = require_underline();
+      var { findUnderlineRanges, findTripleTildeRanges, underlineSpansInTriple, strikeSpansInTriple } = require_underline();
       var { buildCodeFenceMask } = require_parse_math();
       var MARK_NODE = {
         bold: "StrongEmphasis",
@@ -50766,9 +50869,28 @@ var MDAEditorBundle = (() => {
       }
       function resolveUnderlineRegion(state, pos) {
         const text = state.doc.toString();
+        const triples = findTripleTildeRanges(text);
+        for (let i = 0; i < triples.length; i++) {
+          const spans = underlineSpansInTriple(triples[i]);
+          if (pos >= spans.open.from && pos <= spans.close.to) {
+            return {
+              leading: spans.open,
+              trailing: spans.close,
+              content: spans.content
+            };
+          }
+        }
         const ranges = findUnderlineRanges(text, underlineExcludeRanges(state));
         for (let i = 0; i < ranges.length; i++) {
           const r = ranges[i];
+          let isTriple = false;
+          for (let t = 0; t < triples.length; t++) {
+            if (r.from === triples[t].from && r.to === triples[t].to) {
+              isTriple = true;
+              break;
+            }
+          }
+          if (isTriple) continue;
           if (pos >= r.from && pos <= r.to) {
             return {
               leading: { from: r.from, to: r.from + 1 },
@@ -50781,6 +50903,20 @@ var MDAEditorBundle = (() => {
       }
       function resolveMarkRegion(state, pos, markKey) {
         if (markKey === "underline") return resolveUnderlineRegion(state, pos);
+        if (markKey === "strike") {
+          const text = state.doc.toString();
+          const triples = findTripleTildeRanges(text);
+          for (let i = 0; i < triples.length; i++) {
+            const spans = strikeSpansInTriple(triples[i]);
+            if (pos >= spans.open.from && pos <= spans.close.to) {
+              return {
+                leading: spans.open,
+                trailing: spans.close,
+                content: spans.content
+              };
+            }
+          }
+        }
         const nodeName = MARK_NODE[markKey];
         if (!nodeName) return null;
         return resolveSyntaxMarkRegion(state, pos, nodeName);
@@ -50912,12 +51048,26 @@ var MDAEditorBundle = (() => {
         const lo = window2 ? window2.from : 0;
         const hi = window2 ? window2.to : doc.length;
         const out = [];
+        const triples = findTripleTildeRanges(doc);
         if (markKey === "underline") {
+          for (let t = 0; t < triples.length; t++) {
+            const spans = underlineSpansInTriple(triples[t]);
+            if (spans.close.to <= lo || spans.open.from >= hi) continue;
+            out.push({ key: "underline", open: spans.open, content: spans.content, close: spans.close });
+          }
           const ranges = findUnderlineRanges(doc, underlineExcludeRanges(state, window2));
           for (let i = 0; i < ranges.length; i++) {
             const r = ranges[i];
             if (r.to <= lo || r.from >= hi) continue;
             if (r.to - r.from < 2) continue;
+            let isTriple = false;
+            for (let t = 0; t < triples.length; t++) {
+              if (r.from === triples[t].from && r.to === triples[t].to) {
+                isTriple = true;
+                break;
+              }
+            }
+            if (isTriple) continue;
             out.push({
               key: "underline",
               open: { from: r.from, to: r.from + 1 },
@@ -50926,6 +51076,13 @@ var MDAEditorBundle = (() => {
             });
           }
           return out;
+        }
+        if (markKey === "strike") {
+          for (let t = 0; t < triples.length; t++) {
+            const spans = strikeSpansInTriple(triples[t]);
+            if (spans.close.to <= lo || spans.open.from >= hi) continue;
+            out.push({ key: "strike", open: spans.open, content: spans.content, close: spans.close });
+          }
         }
         const nodeName = MARK_NODE[markKey];
         const rule = nodeName ? SYNTAX_RULES[nodeName] : null;
@@ -50941,6 +51098,11 @@ var MDAEditorBundle = (() => {
           to: hi,
           enter: function(node) {
             if (node.name !== nodeName) return;
+            if (markKey === "strike") {
+              for (let t = 0; t < triples.length; t++) {
+                if (node.from < triples[t].to && node.to > triples[t].from) return;
+              }
+            }
             const adapted = { from: node.from, to: node.to, type: node.name };
             const content = rule.contentRange(adapted, doc);
             if (!content || content.from > content.to) return;
@@ -51202,6 +51364,29 @@ var MDAEditorBundle = (() => {
         }
         return { from: a, to: b };
       }
+      function snapIntoMarkContent(runs, from, to) {
+        let a = Math.min(from, to);
+        let b = Math.max(from, to);
+        let moved = true;
+        let guard = 0;
+        while (moved && guard++ < 64) {
+          moved = false;
+          for (let i = 0; i < (runs || []).length; i++) {
+            const r = runs[i];
+            if (!r || r.to <= r.from) continue;
+            if (a >= r.from && a < r.to) {
+              a = r.to;
+              moved = true;
+            }
+            if (b > r.from && b <= r.to) {
+              b = r.from;
+              moved = true;
+            }
+          }
+        }
+        if (b < a) b = a;
+        return { from: a, to: b };
+      }
       function pushClipped(out, span, lo, hi) {
         if (!span) return;
         const a = Math.max(lo, span.from);
@@ -51256,6 +51441,102 @@ var MDAEditorBundle = (() => {
         if (cur < hi) out.push({ from: cur, to: hi });
         return out;
       }
+      var PUNCT_RE = /[\p{S}\p{P}]/u;
+      var SPACE_RE = /\s/;
+      var SYNTAX_CHARS = "*_~`[]()<>!\\|&#";
+      function needsFlanking(delim) {
+        return delim === "*" || delim === "**" || delim === "~~";
+      }
+      function charKind(ch) {
+        if (!ch || SPACE_RE.test(ch)) return "space";
+        return PUNCT_RE.test(ch) ? "punct" : "word";
+      }
+      function canOpenBetween(before, after) {
+        const a = charKind(after);
+        return a !== "space" && (a !== "punct" || charKind(before) !== "word");
+      }
+      function canCloseBetween(before, after) {
+        const b = charKind(before);
+        return b !== "space" && (b !== "punct" || charKind(after) !== "word");
+      }
+      function isYieldable(ch) {
+        return !!ch && charKind(ch) !== "word" && SYNTAX_CHARS.indexOf(ch) < 0;
+      }
+      function charBefore(text, pos) {
+        if (pos <= 0) return "";
+        const lo = text.charCodeAt(pos - 1);
+        if (pos >= 2 && lo >= 56320 && lo <= 57343) {
+          const hi = text.charCodeAt(pos - 2);
+          if (hi >= 55296 && hi <= 56319) return text.slice(pos - 2, pos);
+        }
+        return text.charAt(pos - 1);
+      }
+      function charAfter(text, pos) {
+        if (pos >= text.length) return "";
+        const cp = text.codePointAt(pos);
+        return cp == null ? "" : String.fromCodePoint(cp);
+      }
+      function yieldCloseLeft(text, pos, floor) {
+        let p = pos;
+        let after = charAfter(text, pos);
+        while (p > floor) {
+          const before = charBefore(text, p);
+          if (canCloseBetween(before, after) || !isYieldable(before)) break;
+          p -= before.length;
+          after = before;
+        }
+        return p;
+      }
+      function yieldOpenRight(text, pos, ceil) {
+        let p = pos;
+        let before = charBefore(text, pos);
+        while (p < ceil) {
+          const after = charAfter(text, p);
+          if (canOpenBetween(before, after) || !isYieldable(after)) break;
+          p += after.length;
+          before = after;
+        }
+        return p;
+      }
+      function isYieldableGap(text, a, b) {
+        if (b < a) return false;
+        if (a === b) return true;
+        let p = a;
+        while (p < b) {
+          const ch = charAfter(text, p);
+          if (!ch || !isYieldable(ch)) return false;
+          p += ch.length;
+        }
+        return true;
+      }
+      function regionTouchesWrap(r, lo, hi, text) {
+        if (r.close.to >= lo && r.open.from <= hi) return true;
+        if (r.close.to < lo && isYieldableGap(text, r.close.to, lo)) return true;
+        if (r.open.from > hi && isYieldableGap(text, hi, r.open.from)) return true;
+        return false;
+      }
+      function visibleOffsetInRange(text, lo, hi, drops, pos) {
+        const p = pos < lo ? lo : pos > hi ? hi : pos;
+        let vis = 0;
+        let cur = lo;
+        for (let i = 0; i < drops.length; i++) {
+          const d = drops[i];
+          if (d.to <= lo || d.from >= hi) continue;
+          const a = Math.max(cur, d.from);
+          const b = Math.min(hi, d.to);
+          if (b <= a) continue;
+          if (p <= a) return vis + (p - cur);
+          if (a > cur) vis += a - cur;
+          cur = Math.max(cur, b);
+        }
+        return vis + Math.max(0, p - cur);
+      }
+      function mapVisibleIntoWrap(vis, lo, leadLen, innerLen, delimLen) {
+        if (vis < leadLen) return lo + vis;
+        const inInner = vis - leadLen;
+        if (inInner <= innerLen) return lo + leadLen + delimLen + inInner;
+        return lo + leadLen + delimLen + innerLen + delimLen + (inInner - innerLen);
+      }
       function planFusedWrap(text, regions, from, to, delim) {
         if (to <= from || !delim) return null;
         let lo = from;
@@ -51268,7 +51549,7 @@ var MDAEditorBundle = (() => {
           for (let i = 0; i < regions.length; i++) {
             if (taken[i]) continue;
             const r = regions[i];
-            if (r.close.to < lo || r.open.from > hi) continue;
+            if (!regionTouchesWrap(r, lo, hi, text)) continue;
             taken[i] = true;
             absorbed.push(r);
             if (r.open.from < lo) lo = r.open.from;
@@ -51293,39 +51574,194 @@ var MDAEditorBundle = (() => {
           cur = d.to;
         }
         if (cur < hi) inner += text.slice(cur, hi);
+        let lead = "";
+        let trail = "";
+        if (needsFlanking(delim) && inner) {
+          const beforeCh = charBefore(text, lo);
+          const s = yieldOpenRight(beforeCh + inner, beforeCh.length, beforeCh.length + inner.length) - beforeCh.length;
+          lead = inner.slice(0, s);
+          inner = inner.slice(s);
+          const e = yieldCloseLeft(inner + charAfter(text, hi), inner.length, 0);
+          trail = inner.slice(e);
+          inner = inner.slice(0, e);
+        }
         if (!inner) return null;
-        const insert = delim + inner + delim;
+        const insert = lead + delim + inner + delim + trail;
         if (insert === text.slice(lo, hi)) return null;
+        const userA = visibleOffsetInRange(text, lo, hi, drops, from);
+        const userB = visibleOffsetInRange(text, lo, hi, drops, to);
         return {
           changes: [{ from: lo, to: hi, insert }],
-          select: { from: lo + delim.length, to: lo + delim.length + inner.length }
+          select: {
+            from: mapVisibleIntoWrap(userA, lo, lead.length, inner.length, delim.length),
+            to: mapVisibleIntoWrap(userB, lo, lead.length, inner.length, delim.length)
+          }
         };
+      }
+      function overlappingRegionGroups(regions) {
+        const items = [];
+        for (let i = 0; i < (regions || []).length; i++) {
+          const r = regions[i];
+          if (r && r.open && r.close) items.push(r);
+        }
+        const used = [];
+        const groups = [];
+        for (let i = 0; i < items.length; i++) {
+          if (used[i]) continue;
+          const group = [items[i]];
+          used[i] = true;
+          let grew = true;
+          while (grew) {
+            grew = false;
+            for (let j = 0; j < items.length; j++) {
+              if (used[j]) continue;
+              const r = items[j];
+              let hit = false;
+              for (let k = 0; k < group.length; k++) {
+                const g = group[k];
+                if (g.open.from < r.close.to && r.open.from < g.close.to) {
+                  hit = true;
+                  break;
+                }
+              }
+              if (!hit) continue;
+              used[j] = true;
+              group.push(r);
+              grew = true;
+            }
+          }
+          groups.push(group);
+        }
+        return groups;
+      }
+      function visibleSlice(text, lo, hi, delimSpans) {
+        const cuts = [];
+        for (let i = 0; i < delimSpans.length; i++) {
+          const a = Math.max(lo, delimSpans[i].from);
+          const b = Math.min(hi, delimSpans[i].to);
+          if (b > a) cuts.push({ from: a, to: b });
+        }
+        cuts.sort(function(a, b) {
+          return a.from - b.from;
+        });
+        const merged = [];
+        for (let i = 0; i < cuts.length; i++) {
+          const c = cuts[i];
+          const last = merged.length ? merged[merged.length - 1] : null;
+          if (last && c.from <= last.to) {
+            if (c.to > last.to) last.to = c.to;
+          } else {
+            merged.push({ from: c.from, to: c.to });
+          }
+        }
+        const segs = [];
+        let visible = "";
+        let cur = lo;
+        for (let i = 0; i < merged.length; i++) {
+          const c = merged[i];
+          if (c.from > cur) {
+            segs.push({ origFrom: cur, origTo: c.from, visFrom: visible.length });
+            visible += text.slice(cur, c.from);
+          }
+          cur = Math.max(cur, c.to);
+        }
+        if (cur < hi) {
+          segs.push({ origFrom: cur, origTo: hi, visFrom: visible.length });
+          visible += text.slice(cur, hi);
+        }
+        function origToVis(pos) {
+          if (pos <= lo) return 0;
+          if (pos >= hi) return visible.length;
+          for (let i = 0; i < segs.length; i++) {
+            const s = segs[i];
+            if (pos < s.origFrom) return s.visFrom;
+            if (pos <= s.origTo) return s.visFrom + (pos - s.origFrom);
+          }
+          return visible.length;
+        }
+        return { visible, origToVis };
       }
       function planSplitUnwrap(text, regions, from, to) {
         if (to <= from) return null;
-        const changes = [];
-        for (let i = 0; i < regions.length; i++) {
+        const byKey = {};
+        for (let i = 0; i < (regions || []).length; i++) {
           const r = regions[i];
-          const wholeInside = r.open.from >= from && r.close.to <= to;
-          const contentHit = r.content.from < to && r.content.to > from;
-          if (!wholeInside && !contentHit) continue;
-          const a = Math.max(from, r.content.from);
-          const b = Math.min(to, r.content.to);
-          if (b <= a) continue;
-          const delim = text.slice(r.open.from, r.open.to);
-          const leftKeep = a > r.content.from;
-          const rightKeep = b < r.content.to;
-          if (leftKeep) changes.push({ from: a, to: a, insert: delim });
-          else changes.push({ from: r.open.from, to: r.open.to, insert: "" });
-          if (rightKeep) changes.push({ from: b, to: b, insert: delim });
-          else changes.push({ from: r.close.from, to: r.close.to, insert: "" });
+          if (!r || !r.open || !r.close) continue;
+          const key = r.key || "";
+          if (!byKey[key]) byKey[key] = [];
+          byKey[key].push(r);
+        }
+        const changes = [];
+        const keys = Object.keys(byKey);
+        for (let k = 0; k < keys.length; k++) {
+          const groups = overlappingRegionGroups(byKey[keys[k]]);
+          for (let g = 0; g < groups.length; g++) {
+            const group = groups[g];
+            let lo = group[0].open.from;
+            let hi = group[0].close.to;
+            const delims = [];
+            for (let i = 0; i < group.length; i++) {
+              const r = group[i];
+              if (r.open.from < lo) lo = r.open.from;
+              if (r.close.to > hi) hi = r.close.to;
+              delims.push(r.open, r.close);
+            }
+            const hits = from < hi && to > lo;
+            if (!hits) continue;
+            const delim = text.slice(group[0].open.from, group[0].open.to);
+            if (!delim) continue;
+            const slice = visibleSlice(text, lo, hi, delims);
+            if (!slice.visible) continue;
+            let va = slice.origToVis(Math.max(from, lo));
+            let vb = slice.origToVis(Math.min(to, hi));
+            if (vb <= va) continue;
+            const userVa = va;
+            const userVb = vb;
+            if (needsFlanking(delim)) {
+              if (va > 0) va = yieldCloseLeft(slice.visible, va, 0);
+              if (vb < slice.visible.length) vb = yieldOpenRight(slice.visible, vb, slice.visible.length);
+            }
+            const left = slice.visible.slice(0, va);
+            const mid = slice.visible.slice(va, vb);
+            const right = slice.visible.slice(vb);
+            const leftWrap = left ? delim + left + delim : "";
+            const rightWrap = right ? delim + right + delim : "";
+            const insert = leftWrap + mid + rightWrap;
+            if (insert === text.slice(lo, hi)) continue;
+            const selOffset = Math.max(0, userVa - va);
+            const selEnd = Math.min(mid.length, Math.max(selOffset, userVb - va));
+            changes.push({
+              from: lo,
+              to: hi,
+              insert,
+              leftWrapLen: leftWrap.length,
+              selOffset,
+              selLen: selEnd - selOffset
+            });
+          }
         }
         if (!changes.length) return null;
-        const set = toChangeSet(changes, text.length);
+        changes.sort(function(a, b) {
+          return a.from - b.from;
+        });
+        let selFrom = null;
+        let selTo = null;
+        let shift = 0;
+        for (let i = 0; i < changes.length; i++) {
+          const ch = changes[i];
+          const midFrom = ch.from + shift + (ch.leftWrapLen || 0);
+          const a = midFrom + (ch.selOffset || 0);
+          const b = a + (ch.selLen || 0);
+          if (selFrom == null) selFrom = a;
+          selTo = b;
+          shift += ch.insert.length - (ch.to - ch.from);
+          delete ch.leftWrapLen;
+          delete ch.selOffset;
+          delete ch.selLen;
+        }
         return {
           changes,
-          // 左侧闭合定界符插在 from 处 → 选区起点落到它之后；右侧开定界符插在 to 处 → 终点落到它之前
-          select: { from: set.mapPos(from, 1), to: set.mapPos(to, -1) }
+          select: { from: selFrom, to: selTo }
         };
       }
       function planRegionCleanup(regions) {
@@ -51401,15 +51837,100 @@ var MDAEditorBundle = (() => {
         }
         return p;
       }
+      function planCombinedTildeToggle(text, underlineRegions, strikeRegions, from, to, markKey, fullyOn) {
+        if (markKey !== "underline" && markKey !== "strike") return null;
+        const src = String(text || "");
+        const a = Math.min(from, to);
+        const b = Math.max(from, to);
+        if (b <= a) return null;
+        const { findTripleTildeRanges, underlineSpansInTriple, strikeSpansInTriple } = require_underline();
+        const triples = findTripleTildeRanges(src);
+        for (let i = 0; i < triples.length; i++) {
+          const tr = triples[i];
+          const u = underlineSpansInTriple(tr);
+          const s = strikeSpansInTriple(tr);
+          if (b <= u.open.from || a >= u.close.to) continue;
+          if (!fullyOn) continue;
+          if (markKey === "underline") {
+            return {
+              changes: [
+                { from: u.close.from, to: u.close.to, insert: "" },
+                { from: u.open.from, to: u.open.to, insert: "" }
+              ],
+              select: { from: s.content.from - 1, to: s.content.to - 1 }
+            };
+          }
+          return {
+            changes: [
+              { from: s.close.from, to: s.close.to, insert: "" },
+              { from: s.open.from, to: s.open.to, insert: "" }
+            ],
+            select: { from: s.content.from - 2, to: s.content.to - 2 }
+          };
+        }
+        if (fullyOn) return null;
+        if (markKey === "underline") {
+          for (let i = 0; i < (strikeRegions || []).length; i++) {
+            const r = strikeRegions[i];
+            if (!r || !r.open || !r.close || !r.content) continue;
+            if (a >= r.content.from && b <= r.content.to) {
+              return {
+                changes: [
+                  { from: r.close.to, to: r.close.to, insert: "~" },
+                  { from: r.open.from, to: r.open.from, insert: "~" }
+                ],
+                select: { from: a + 1, to: b + 1 }
+              };
+            }
+            if (a <= r.open.from && b >= r.close.to) {
+              return {
+                changes: [
+                  { from: r.close.to, to: r.close.to, insert: "~" },
+                  { from: r.open.from, to: r.open.from, insert: "~" }
+                ],
+                select: { from: a + 1, to: b + 1 }
+              };
+            }
+          }
+        }
+        if (markKey === "strike") {
+          for (let i = 0; i < (underlineRegions || []).length; i++) {
+            const r = underlineRegions[i];
+            if (!r || !r.open || !r.close || !r.content) continue;
+            if (r.open.to !== r.content.from) continue;
+            if (a >= r.content.from && b <= r.content.to) {
+              return {
+                changes: [
+                  { from: r.close.from, to: r.close.from, insert: "~~" },
+                  { from: r.open.to, to: r.open.to, insert: "~~" }
+                ],
+                select: { from: a + 2, to: b + 2 }
+              };
+            }
+            if (a <= r.open.from && b >= r.close.to) {
+              return {
+                changes: [
+                  { from: r.close.from, to: r.close.from, insert: "~~" },
+                  { from: r.open.to, to: r.open.to, insert: "~~" }
+                ],
+                select: { from: a + 2, to: b + 2 }
+              };
+            }
+          }
+        }
+        return null;
+      }
       module.exports = {
         sortChanges,
         pruneNoopChanges,
         toChangeSet,
         snapOutOfDelimiters,
+        snapIntoMarkContent,
         planDeleteRangePreservingPairs,
         planFusedWrap,
         planSplitUnwrap,
         planRegionCleanup,
+        planCombinedTildeToggle,
         skipHiddenRuns,
         spanCoveredBy
       };
@@ -51423,7 +51944,7 @@ var MDAEditorBundle = (() => {
       var { syntaxTree } = require_dist7();
       var { findUnderlineRanges } = require_underline();
       var { buildCodeFenceMask } = require_parse_math();
-      var { getInlineFlagsAtPos, posInMarkRegion } = require_inline_mark_context();
+      var { getInlineFlagsAtPos, posInMarkRegion, collectMarkRegions } = require_inline_mark_context();
       function blockFormatOfLine(text) {
         const atx = String(text || "").match(/^( {0,3})(#{1,6})(\s+)(.*)$/);
         if (atx) return (
@@ -51558,46 +52079,24 @@ var MDAEditorBundle = (() => {
         if (covered >= len) return { on: true, mixed: false };
         return { on: false, mixed: true };
       }
-      function underlineCoverage(state, from, to) {
-        const text = state.doc.toString();
-        const lines = [];
-        for (let n = 1; n <= state.doc.lines; n++) lines.push(state.doc.line(n).text);
-        const fence = buildCodeFenceMask(lines);
-        const exclude = [];
-        for (let n = 1; n <= state.doc.lines; n++) {
-          if (!fence[n - 1]) continue;
-          const line = state.doc.line(n);
-          exclude.push({ from: line.from, to: line.to });
-        }
-        try {
-          const tree = syntaxTree(state);
-          tree.iterate({
-            enter: function(node) {
-              if (node.name === "InlineCode" || node.name === "Strikethrough" || node.name === "FencedCode" || node.name === "CodeBlock") {
-                exclude.push({ from: node.from, to: node.to });
-              }
-            }
-          });
-        } catch (_) {
-        }
-        const ranges = findUnderlineRanges(text, exclude);
+      function getInlineToolbarState(state) {
         const sel = state.selection.main;
-        if (from == null || to == null) {
-          from = sel.from;
-          to = sel.to;
-        }
+        return getInlineToolbarStateAt(state, sel.from, sel.to);
+      }
+      function regionContentCoverage(regions, from, to) {
         if (from === to) {
           const pos = from;
-          if (posInMarkRegion(state, pos, "underline")) return { on: true, mixed: false };
-          for (let i = 0; i < ranges.length; i++) {
-            if (pos > ranges[i].from && pos < ranges[i].to) return { on: true, mixed: false };
+          for (let i = 0; i < regions.length; i++) {
+            const r = regions[i];
+            if (pos >= r.open.from && pos <= r.close.to) return { on: true, mixed: false };
           }
           return { on: false, mixed: false };
         }
         let covered = 0;
-        for (let i = 0; i < ranges.length; i++) {
-          const a = Math.max(from, ranges[i].from);
-          const b = Math.min(to, ranges[i].to);
+        for (let i = 0; i < regions.length; i++) {
+          const c = regions[i].content;
+          const a = Math.max(from, c.from);
+          const b = Math.min(to, c.to);
           if (b > a) covered += b - a;
         }
         const len = to - from;
@@ -51605,16 +52104,12 @@ var MDAEditorBundle = (() => {
         if (covered >= len) return { on: true, mixed: false };
         return { on: false, mixed: true };
       }
-      function getInlineToolbarState(state) {
-        const sel = state.selection.main;
-        return getInlineToolbarStateAt(state, sel.from, sel.to);
-      }
       function getInlineToolbarStateAt(state, from, to) {
         return {
           bold: markCoverage(state, "StrongEmphasis", from, to),
           italic: markCoverage(state, "Emphasis", from, to),
-          underline: underlineCoverage(state, from, to),
-          strike: markCoverage(state, "Strikethrough", from, to),
+          underline: regionContentCoverage(collectMarkRegions(state, "underline"), from, to),
+          strike: regionContentCoverage(collectMarkRegions(state, "strike"), from, to),
           code: markCoverage(state, "InlineCode", from, to)
         };
       }
@@ -52034,7 +52529,9 @@ var MDAEditorBundle = (() => {
         planFusedWrap,
         planSplitUnwrap,
         planRegionCleanup,
+        planCombinedTildeToggle,
         snapOutOfDelimiters,
+        snapIntoMarkContent,
         planDeleteRangePreservingPairs,
         skipHiddenRuns,
         toChangeSet
@@ -52147,7 +52644,8 @@ var MDAEditorBundle = (() => {
         const text = state.doc.toString();
         const win = lineWindow(state, sel.from, sel.to);
         const runs = collectDelimiterRuns(state, win);
-        const snapped = snapOutOfDelimiters(runs, sel.from, sel.to);
+        const outward = snapOutOfDelimiters(runs, sel.from, sel.to);
+        const snapped = snapIntoMarkContent(runs, outward.from, outward.to);
         if (snapped.to <= snapped.from) return false;
         const regions = collectMarkRegions(state, markKey, win);
         const cov = getInlineToolbarStateAt(state, snapped.from, snapped.to)[markKey];
@@ -52161,6 +52659,20 @@ var MDAEditorBundle = (() => {
           fullyOn,
           regions: regions.length
         });
+        if (markKey === "underline" || markKey === "strike") {
+          const combined = planCombinedTildeToggle(
+            text,
+            collectMarkRegions(state, "underline", win),
+            collectMarkRegions(state, "strike", win),
+            snapped.from,
+            snapped.to,
+            markKey,
+            fullyOn
+          );
+          if (combined) {
+            return dispatchPlannedChange(view, combined.changes, combined.select, "input.format");
+          }
+        }
         if (fullyOn) {
           const plan = planSplitUnwrap(text, regions, snapped.from, snapped.to);
           if (!plan) return false;
@@ -53221,7 +53733,9 @@ var MDAEditorBundle = (() => {
         planFusedWrap,
         planSplitUnwrap,
         planRegionCleanup,
+        planCombinedTildeToggle,
         snapOutOfDelimiters,
+        snapIntoMarkContent,
         toChangeSet
       } = require_inline_delimiters();
       var { getInlineToolbarStateAt } = require_block_format();
@@ -53261,11 +53775,31 @@ var MDAEditorBundle = (() => {
         const a = Math.max(0, Math.min(Math.min(from, to), src.length));
         const b = Math.max(0, Math.min(Math.max(from, to), src.length));
         const state = textState(src);
-        const snapped = snapOutOfDelimiters(collectDelimiterRuns(state), a, b);
+        const outward = snapOutOfDelimiters(collectDelimiterRuns(state), a, b);
+        const snapped = snapIntoMarkContent(collectDelimiterRuns(state), outward.from, outward.to);
         if (snapped.to <= snapped.from) return null;
         const regions = collectMarkRegions(state, markKey);
         const cov = getInlineToolbarStateAt(state, snapped.from, snapped.to)[markKey];
         const fullyOn = !!(cov && cov.on && !cov.mixed);
+        if (markKey === "underline" || markKey === "strike") {
+          const combined = planCombinedTildeToggle(
+            src,
+            collectMarkRegions(state, "underline"),
+            collectMarkRegions(state, "strike"),
+            snapped.from,
+            snapped.to,
+            markKey,
+            fullyOn
+          );
+          if (combined) {
+            const applied2 = applyChanges(src, combined.changes);
+            return {
+              value: applied2.value,
+              selectionStart: combined.select.from,
+              selectionEnd: combined.select.to
+            };
+          }
+        }
         const plan = fullyOn ? planSplitUnwrap(src, regions, snapped.from, snapped.to) : planFusedWrap(src, regions, snapped.from, snapped.to, delim);
         if (!plan) return null;
         const applied = applyChanges(src, plan.changes);
@@ -53551,6 +54085,48 @@ var MDAEditorBundle = (() => {
           out += chunk;
         });
         return String(out).replace(/\u00a0/g, " ").replace(/\r\n/g, "\n");
+      }
+      function serializeCellSelectionMarkdown(cell) {
+        if (!cell || typeof window === "undefined" || !window.getSelection) return null;
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount < 1 || sel.isCollapsed) return null;
+        const range = sel.getRangeAt(0);
+        if (!rangeStillInCell(range, cell)) return null;
+        const startNode = range.startContainer;
+        const endNode = range.endContainer;
+        const startEl = startNode && startNode.nodeType === 1 ? (
+          /** @type {HTMLElement} */
+          startNode.closest ? (
+            /** @type {HTMLElement} */
+            startNode.closest(".mda-cm-table-inline, .mda-cm-link")
+          ) : null
+        ) : startNode && startNode.parentElement ? startNode.parentElement.closest(".mda-cm-table-inline, .mda-cm-link") : null;
+        const endEl = endNode && endNode.nodeType === 1 ? (
+          /** @type {HTMLElement} */
+          endNode.closest ? (
+            /** @type {HTMLElement} */
+            endNode.closest(".mda-cm-table-inline, .mda-cm-link")
+          ) : null
+        ) : endNode && endNode.parentElement ? endNode.parentElement.closest(".mda-cm-table-inline, .mda-cm-link") : null;
+        if (startEl && startEl === endEl && cell.contains(startEl)) {
+          const source = startEl.getAttribute("data-mda-inline-source");
+          const rendered = startEl.getAttribute("data-mda-inline-text") != null ? startEl.getAttribute("data-mda-inline-text") : startEl.textContent || "";
+          const selected = String(range.toString() || "");
+          if (source && selected === rendered) return source;
+        }
+        try {
+          const frag = range.cloneContents();
+          const wrap = document.createElement("div");
+          wrap.appendChild(frag);
+          const cloned = serializeTableCellDom(wrap);
+          const full = serializeTableCellDom(cell);
+          const cellVis = String(cell.textContent || "").replace(/\u00a0/g, " ");
+          const selVis = String(range.toString() || "").replace(/\u00a0/g, " ");
+          if (selVis && selVis === cellVis && full) return full;
+          return cloned == null ? null : String(cloned);
+        } catch (_) {
+          return null;
+        }
       }
       function getCellMarkdownContent(cell) {
         return serializeTableCellDom(cell);
@@ -53882,6 +54458,29 @@ var MDAEditorBundle = (() => {
         }
         return { pos: vis.start, flags };
       }
+      function pasteMarkdownIntoTableCell(cell, pasted, opts) {
+        if (!cell) return false;
+        const insert = String(pasted == null ? "" : pasted);
+        const md = serializeTableCellDom(cell);
+        let from = md.length;
+        let to = md.length;
+        if (typeof window !== "undefined" && window.getSelection) {
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            if (rangeStillInCell(range, cell)) {
+              const off = getRangeVisibleOffsets(cell, range);
+              from = visibleToMarkdownOffset(md, off.start);
+              to = visibleToMarkdownOffset(md, off.end);
+            }
+          }
+        }
+        const next = md.slice(0, from) + insert + md.slice(to);
+        setCellMarkdownContent(cell, next, opts || {});
+        const caretVis = markdownToVisibleOffset(next, from + insert.length);
+        setCellVisibleSelection(cell, caretVis, caretVis);
+        return true;
+      }
       module.exports = {
         setCellMarkdownContent,
         getCellMarkdownContent,
@@ -53890,6 +54489,8 @@ var MDAEditorBundle = (() => {
         getCellVisibleSelection: resolveCellVisRange,
         serializeTableCellDom,
         serializeInlineStyledElement,
+        serializeCellSelectionMarkdown,
+        pasteMarkdownIntoTableCell,
         wrapInlineCode,
         findSyntaxInlineRanges,
         selectTableMathAtom,
@@ -56131,7 +56732,9 @@ var MDAEditorBundle = (() => {
         handleTableMathDeleteKey,
         tableCellImageMarkdownAbs,
         applyInlineFormatToTableCell,
-        getCellInlineFlags
+        getCellInlineFlags,
+        serializeCellSelectionMarkdown,
+        pasteMarkdownIntoTableCell
       } = require_table_cell_content();
       var { undo, redo } = require_dist8();
       var { attachBlockDragHandle } = require_block_drag_handle();
@@ -57023,6 +57626,38 @@ var MDAEditorBundle = (() => {
                 node: img.cloneNode(true),
                 opts: { kind: "image", imageSrc: img.getAttribute("src") || "" }
               });
+            });
+            cell.addEventListener("copy", function(e) {
+              if (!e.clipboardData) return;
+              const md = serializeCellSelectionMarkdown(cell);
+              if (md == null || md === "") return;
+              e.clipboardData.setData("text/plain", md);
+              e.preventDefault();
+              e.stopPropagation();
+            });
+            cell.addEventListener("cut", function(e) {
+              if (!e.clipboardData) return;
+              const md = serializeCellSelectionMarkdown(cell);
+              if (md == null || md === "") return;
+              e.clipboardData.setData("text/plain", md);
+              e.preventDefault();
+              e.stopPropagation();
+              const sel = window.getSelection();
+              if (sel && sel.rangeCount > 0) {
+                sel.getRangeAt(0).deleteContents();
+                cellContentDirty = true;
+              }
+            });
+            cell.addEventListener("paste", function(e) {
+              if (!e.clipboardData) return;
+              const plain = e.clipboardData.getData("text/plain");
+              if (plain == null || plain === "") return;
+              e.preventDefault();
+              e.stopPropagation();
+              pasteMarkdownIntoTableCell(cell, plain, {
+                resolveImageUrl: ctx.resolveImageUrl
+              });
+              cellContentDirty = true;
             });
             cell.addEventListener("focus", function(e) {
               e.stopPropagation();
@@ -61111,6 +61746,7 @@ var MDAEditorBundle = (() => {
       var { syntaxTree } = require_dist7();
       var { SYNTAX_RULES } = require_syntax_rules();
       var { findLeadingMark, findTrailingMark, adjustSelectionForHiddenMarks } = require_caret_syntax_adjust();
+      var { collectAllMarkRegions } = require_inline_mark_context();
       function adaptSyntaxNode(node) {
         return { from: node.from, to: node.to, type: node.name };
       }
@@ -61185,15 +61821,53 @@ var MDAEditorBundle = (() => {
         if (pos < to) out += doc.slice(pos, to);
         return out;
       }
+      var CLIP_WRAP_ORDER = ["code", "underline", "strike", "italic", "bold"];
+      var CLIP_DELIM = {
+        bold: "**",
+        italic: "*",
+        underline: "~",
+        strike: "~~",
+        code: "`"
+      };
+      function wrapClipboardWithCoveringMarks(state, from, to, text) {
+        if (to <= from || text == null || text === "") return text;
+        const regions = collectAllMarkRegions(state);
+        const covering = {};
+        for (let i = 0; i < regions.length; i++) {
+          const r = regions[i];
+          if (!r || !r.content || !r.open || !r.close || !r.key || !CLIP_DELIM[r.key]) continue;
+          const c0 = r.content.from;
+          const c1 = r.content.to;
+          if (c1 <= c0) continue;
+          const selInside = from >= c0 && to <= c1;
+          const coversAllFromMark = from >= r.open.from && to <= r.close.to && Math.max(from, c0) === c0 && Math.min(to, c1) === c1;
+          const openPlusPartialContent = from >= r.open.from && from <= c0 && to > c0 && to <= c1;
+          if (selInside || coversAllFromMark || openPlusPartialContent) {
+            covering[r.key] = CLIP_DELIM[r.key];
+          }
+        }
+        let out = String(text);
+        for (let i = 0; i < CLIP_WRAP_ORDER.length; i++) {
+          const key = CLIP_WRAP_ORDER[i];
+          const d = covering[key];
+          if (!d) continue;
+          if (out.length >= d.length * 2 && out.slice(0, d.length) === d && out.slice(-d.length) === d) {
+            continue;
+          }
+          out = d + out + d;
+        }
+        return out;
+      }
       function sliceDocForClipboard(state, from, to) {
         const f = Math.min(from, to);
         const t = Math.max(from, to);
         const doc = state.doc.toString();
         const exclusions = collectDelimiterExclusions(state, f, t);
+        const raw = normalizeClipboardAtx(sliceDocSkippingRanges(doc, f, t, exclusions));
         return {
           from: f,
           to: t,
-          text: normalizeClipboardAtx(sliceDocSkippingRanges(doc, f, t, exclusions))
+          text: wrapClipboardWithCoveringMarks(state, f, t, raw)
         };
       }
       function normalizeClipboardAtx(text) {
@@ -61261,6 +61935,7 @@ var MDAEditorBundle = (() => {
         collectDelimiterExclusions,
         sliceDocSkippingRanges,
         sliceDocForClipboard,
+        wrapClipboardWithCoveringMarks,
         normalizeClipboardAtx,
         sliceSelectionForClipboard,
         normalizePasteForHeading,
@@ -69189,6 +69864,7 @@ var MDAEditorBundle = (() => {
   // src/gui/renderer/editor/index.js
   var require_index = __commonJS({
     "src/gui/renderer/editor/index.js"(exports, module) {
+      var { EditorView } = require_dist4();
       var { createEditor, refreshDecorations, refreshWidgetI18n, notifyAnnoFilterChanged } = require_mount();
       var annoAddContext = require_anno_add_context();
       var { anchorFromSelection } = require_anchor_from_sel();
@@ -69207,8 +69883,13 @@ var MDAEditorBundle = (() => {
       var { SearchSession } = require_search_session();
       var editorConfig = require_config();
       var { isEnabledByPref, setEnabledPref } = require_pref();
+      var { sliceSelectionForClipboard } = require_syntax_clipboard();
       module.exports = {
         createEditor,
+        findEditorView: function(dom) {
+          return EditorView.findFromDOM(dom || document.querySelector(".cm-content") || document.body);
+        },
+        sliceSelectionForClipboard,
         refreshDecorations,
         notifyAnnoFilterChanged,
         refreshWidgetI18n,

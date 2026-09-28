@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 单元格 DOM → Markdown 序列化（无 jsdom：手写最小节点树）。
  *
  * 样式段渲染时会把源码快照写进 data-mda-inline-source。用户在段内改字之后若仍原样吐回
@@ -111,5 +111,19 @@ describe('table cell serialize', () => {
       ]
     );
     expect(serializeTableCellMarkdown(cell)).toBe('**加粗**');
+  });
+
+  test('E119 单元格序列化保留完整定界符（正文↔格拷贝用）', () => {
+    const cases: [string, string, string][] = [
+      ['mda-cm-strong', '**加粗**', '加粗'],
+      ['mda-cm-em', '*斜体*', '斜体'],
+      ['mda-cm-underline', '~下划线~', '下划线'],
+      ['mda-cm-strike', '~~删除线~~', '删除线'],
+      ['mda-cm-code', '`代码`', '代码'],
+    ];
+    for (const [cls, source, visible] of cases) {
+      const cell = elementNode({}, [styled(cls, source, visible, visible)]);
+      expect(`${cls}:${serializeTableCellMarkdown(cell)}`).toBe(`${cls}:${source}`);
+    }
   });
 });
