@@ -69,7 +69,7 @@ function pickNonOverlapping(ranges) {
  * @param {string} raw
  * @returns {{ kind: 'syntax', type: string, from: number, to: number }[]}
  */
-function findSyntaxInlineRanges(raw) {
+function listAllCellSyntaxNodes(raw) {
   const text = String(raw || '');
   if (!text) return [];
   const tree = cellMdParser.parse(text);
@@ -80,7 +80,85 @@ function findSyntaxInlineRanges(raw) {
     if (!CELL_SYNTAX_TYPES[n.type]) continue;
     syntax.push({ kind: 'syntax', type: n.type, from: n.from, to: n.to });
   }
-  return pickNonOverlapping(syntax);
+  return syntax;
+}
+
+/**
+ * 顶层互不重叠的语法区间（对外兼容：并列样式段）。
+ * 嵌套叠套须走递归渲染，不能只用这一层。
+ * @param {string} raw
+ * @returns {{ kind: 'syntax', type: string, from: number, to: number }[]}
+ */
+function findSyntaxInlineRanges(raw) {
+  return pickNonOverlapping(listAllCellSyntaxNodes(raw));
+}
+
+/**
+ * 窗口 [winFrom, winTo) 内的顶层语法节点（不被同窗口内另一节点包含）。
+ * @param {{ kind: string, type: string, from: number, to: number }[]} nodes
+ * @param {number} winFrom
+ * @param {number} winTo
+ */
+function topLevelSyntaxInWindow(nodes, winFrom, winTo) {
+  const inside = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (n.from >= winFrom && n.to <= winTo && n.to > n.from) inside.push(n);
+  }
+  const top = [];
+  for (let i = 0; i < inside.length; i++) {
+    const n = inside[i];
+    let nested = false;
+    for (let j = 0; j < inside.length; j++) {
+      if (i === j) continue;
+      const o = inside[j];
+      if (o.from <= n.from && o.to >= n.to && (o.from < n.from || o.to > n.to)) {
+        nested = true;
+        break;
+      }
+    }
+    if (!nested) top.push(n);
+  }
+  return top.sort(function (a, b) {
+    return a.from - b.from;
+  });
+}
+
+/**
+ * 所有定界符区间（含嵌套层），用于可见偏移映射。
+ * @param {string} raw
+ * @returns {{ from: number, to: number }[]}
+ */
+function collectCellDelimiterExclusions(raw) {
+  const text = String(raw || '');
+  const nodes = listAllCellSyntaxNodes(text);
+  /** @type {{ from: number, to: number }[]} */
+  const excl = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    const rule = SYNTAX_RULES[n.type];
+    if (!rule || typeof rule.markRanges !== 'function') continue;
+    const marks = rule.markRanges({ from: n.from, to: n.to, type: n.type }, text) || [];
+    for (let j = 0; j < marks.length; j++) {
+      const m = marks[j];
+      if (m && m.to > m.from) excl.push({ from: m.from, to: m.to });
+    }
+  }
+  excl.sort(function (a, b) {
+    return a.from - b.from || a.to - b.to;
+  });
+  // 合并重叠/相接，便于线性扫描
+  const merged = [];
+  for (let i = 0; i < excl.length; i++) {
+    const cur = excl[i];
+    const last = merged[merged.length - 1];
+    if (last && cur.from <= last.to) {
+      if (cur.to > last.to) last.to = cur.to;
+    } else {
+      merged.push({ from: cur.from, to: cur.to });
+    }
+  }
+  return merged;
 }
 
 /**
@@ -125,6 +203,27 @@ function wrapInlineCode(text) {
 
 /**
  * @param {HTMLElement} el
+ * @returns {string}
+ */
+function serializeInlineChildMarkdown(el) {
+  let out = '';
+  const children = el.childNodes;
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
+    if (child.nodeType === 3) {
+      out += child.nodeValue || '';
+      continue;
+    }
+    if (child.nodeType !== 1) continue;
+    const nested = serializeInlineStyledElement(/** @type {HTMLElement} */ (child));
+    if (nested != null) out += nested;
+    else out += /** @type {HTMLElement} */ (child).textContent || '';
+  }
+  return out;
+}
+
+/**
+ * @param {HTMLElement} el
  * @returns {string | null}
  */
 function serializeInlineStyledElement(el) {
@@ -133,13 +232,13 @@ function serializeInlineStyledElement(el) {
   const source = el.getAttribute('data-mda-inline-source');
   if (source) {
     // source 是渲染那一刻的源码快照。用户在样式段内改过字之后再原样吐回去，等于把这次
-    // 编辑整个吞掉（`加粗` 改成 `加粗改了` 仍写回 `**加粗**`，删空则文字复活）。
+    // 编辑整个吞掉（改可见字仍写回旧快照，删空则文字复活）。
     // 因此只有当可见文字与渲染时一致，才认这份快照。
     const rendered = el.getAttribute('data-mda-inline-text');
     if (rendered == null || rendered === text) return source;
   }
   if (!el.classList) return null;
-  // 内容被删光时整对定界符一并丢弃，否则序列化出裸 `****`
+  // 内容被删光时整对定界符一并丢弃，否则序列化出裸定界符
   if (!text) {
     return el.classList.contains('mda-cm-strong') ||
       el.classList.contains('mda-cm-em') ||
@@ -150,10 +249,24 @@ function serializeInlineStyledElement(el) {
       ? ''
       : null;
   }
-  if (el.classList.contains('mda-cm-strong')) return '**' + text + '**';
-  if (el.classList.contains('mda-cm-em')) return '*' + text + '*';
-  if (el.classList.contains('mda-cm-underline')) return '~' + text + '~';
-  if (el.classList.contains('mda-cm-strike')) return '~~' + text + '~~';
+  // 叠套样式：子节点已是行内 span 时须先序列化子树再包本层定界符
+  let inner = text;
+  let hasElementChild = false;
+  const kids = el.childNodes;
+  if (kids && kids.length) {
+    for (let i = 0; i < kids.length; i++) {
+      if (kids[i].nodeType === 1) {
+        hasElementChild = true;
+        break;
+      }
+    }
+  }
+  if (hasElementChild) inner = serializeInlineChildMarkdown(el);
+
+  if (el.classList.contains('mda-cm-strong')) return '**' + inner + '**';
+  if (el.classList.contains('mda-cm-em')) return '*' + inner + '*';
+  if (el.classList.contains('mda-cm-underline')) return '~' + inner + '~';
+  if (el.classList.contains('mda-cm-strike')) return '~~' + inner + '~~';
   if (el.classList.contains('mda-cm-code')) return wrapInlineCode(text);
   if (el.classList.contains('mda-cm-link')) {
     const href = el.getAttribute('href') || '';
@@ -162,12 +275,54 @@ function serializeInlineStyledElement(el) {
   return null;
 }
 
+/** 叶子样式：不递归解析内容（定界符内是字面文本） */
+const LEAF_SYNTAX_TYPES = {
+  InlineCode: 1,
+  Link: 1,
+  Autolink: 1,
+  URL: 1,
+};
+
 /**
- * @param {HTMLElement} cell
- * @param {{ type: string, from: number, to: number }} r
+ * @param {HTMLElement} parent
+ * @param {{ kind: string, type?: string, from: number, to: number, [key: string]: any }} r
  * @param {string} raw
+ * @param {{ kind: string, type?: string, from: number, to: number, [key: string]: any }[]} allSyntax
+ * @param {{ resolveImageUrl?: Function }} opts
  */
-function appendSyntaxInline(cell, r, raw) {
+function appendCellInlineRange(parent, r, raw, allSyntax, opts) {
+  if (r.kind === 'math-inline') {
+    const span = document.createElement('span');
+    span.className = 'mda-cm-table-math mda-cm-math-inline';
+    span.setAttribute('contenteditable', 'false');
+    span.setAttribute('data-mda-math-tex', r.tex);
+    span.setAttribute('data-mda-math-source', raw.slice(r.from, r.to));
+    span.setAttribute('title', raw.slice(r.from, r.to));
+    span.innerHTML = renderKatexHtml(r.tex, false);
+    parent.appendChild(span);
+    return;
+  }
+  if (r.kind === 'image') {
+    const wrap = document.createElement('span');
+    wrap.className = 'mda-cm-table-img';
+    wrap.setAttribute('contenteditable', 'false');
+    const source =
+      r.source ||
+      serializeImageMarkdown({ alt: r.alt, src: r.src, title: r.title });
+    wrap.setAttribute('data-mda-image-source', source);
+    wrap.setAttribute('data-mda-image-src', r.src || '');
+    wrap.setAttribute('data-mda-image-alt', r.alt || '');
+    if (r.title) wrap.setAttribute('data-mda-image-title', r.title);
+    wrap.setAttribute('title', source);
+    const img = document.createElement('img');
+    img.setAttribute('alt', r.alt || '');
+    img.setAttribute('src', r.src || '');
+    if (r.title) img.setAttribute('title', r.title);
+    wrap.appendChild(img);
+    parent.appendChild(wrap);
+    return;
+  }
+  if (r.kind !== 'syntax' || !r.type) return;
   const rule = SYNTAX_RULES[r.type];
   if (!rule) return;
   const node = { from: r.from, to: r.to, type: r.type };
@@ -182,20 +337,76 @@ function appendSyntaxInline(cell, r, raw) {
     a.className = cls;
     a.setAttribute('href', typeof rule.hrefOf === 'function' ? rule.hrefOf(node, raw) : visible);
     a.setAttribute('data-mda-inline-source', source);
-    // 与 source 配套：序列化时用它判断用户是否改过可见文字（改过则快照作废）
     a.setAttribute('data-mda-inline-text', visible);
     a.setAttribute('draggable', 'false');
     a.textContent = visible;
-    cell.appendChild(a);
+    parent.appendChild(a);
     return;
   }
 
   const span = document.createElement('span');
   span.className = 'mda-cm-table-inline ' + cls;
   span.setAttribute('data-mda-inline-source', source);
-  span.setAttribute('data-mda-inline-text', visible);
-  span.textContent = visible;
-  cell.appendChild(span);
+  if (LEAF_SYNTAX_TYPES[r.type] || !contentRange) {
+    span.setAttribute('data-mda-inline-text', visible);
+    span.textContent = visible;
+  } else {
+    // 递归填内容区：内层删除线/下划线/斜体等不再被最外层吞掉
+    fillCellInlineWindow(span, raw, contentRange.from, contentRange.to, allSyntax, opts);
+    span.setAttribute('data-mda-inline-text', span.textContent || '');
+  }
+  parent.appendChild(span);
+}
+
+/**
+ * 在 [from, to) 窗口内渲染顶层行内节点（可嵌套）。
+ * @param {HTMLElement} parent
+ * @param {string} raw
+ * @param {number} from
+ * @param {number} to
+ * @param {{ kind: string, type?: string, from: number, to: number, [key: string]: any }[]} allSyntax
+ * @param {{ resolveImageUrl?: Function }} opts
+ */
+function fillCellInlineWindow(parent, raw, from, to, allSyntax, opts) {
+  if (to <= from) return;
+  const math = findMathRanges(raw).filter(function (r) {
+    return r.kind === 'math-inline' && r.from >= from && r.to <= to;
+  });
+  const images = findImageRanges(raw).filter(function (img) {
+    if (img.from < from || img.to > to) return false;
+    for (let i = 0; i < math.length; i++) {
+      if (rangesOverlap(img, math[i])) return false;
+    }
+    return true;
+  });
+  const syntaxTop = topLevelSyntaxInWindow(allSyntax, from, to).filter(function (s) {
+    for (let i = 0; i < math.length; i++) {
+      if (rangesOverlap(s, math[i])) return false;
+    }
+    for (let j = 0; j < images.length; j++) {
+      if (rangesOverlap(s, images[j])) return false;
+    }
+    return true;
+  });
+  const ranges = math
+    .concat(images)
+    .concat(syntaxTop)
+    .sort(function (a, b) {
+      return a.from - b.from;
+    });
+
+  let pos = from;
+  for (let i = 0; i < ranges.length; i++) {
+    const r = ranges[i];
+    if (r.from > pos) {
+      parent.appendChild(document.createTextNode(raw.slice(pos, r.from)));
+    }
+    appendCellInlineRange(parent, r, raw, allSyntax, opts);
+    pos = r.to;
+  }
+  if (pos < to) {
+    parent.appendChild(document.createTextNode(raw.slice(pos, to)));
+  }
 }
 
 /**
@@ -208,52 +419,9 @@ function setCellMarkdownContent(cell, text, opts) {
   opts = opts || {};
   cell.textContent = '';
   const raw = String(text == null ? '' : text);
-  const ranges = findCellInlineRanges(raw);
-  if (!ranges.length) {
-    cell.textContent = raw;
-    return;
-  }
-  let pos = 0;
-  for (let i = 0; i < ranges.length; i++) {
-    const r = ranges[i];
-    if (r.from > pos) {
-      cell.appendChild(document.createTextNode(raw.slice(pos, r.from)));
-    }
-    if (r.kind === 'math-inline') {
-      const span = document.createElement('span');
-      span.className = 'mda-cm-table-math mda-cm-math-inline';
-      span.setAttribute('contenteditable', 'false');
-      span.setAttribute('data-mda-math-tex', r.tex);
-      span.setAttribute('data-mda-math-source', raw.slice(r.from, r.to));
-      span.setAttribute('title', raw.slice(r.from, r.to));
-      span.innerHTML = renderKatexHtml(r.tex, false);
-      cell.appendChild(span);
-    } else if (r.kind === 'image') {
-      const wrap = document.createElement('span');
-      wrap.className = 'mda-cm-table-img';
-      wrap.setAttribute('contenteditable', 'false');
-      const source =
-        r.source ||
-        serializeImageMarkdown({ alt: r.alt, src: r.src, title: r.title });
-      wrap.setAttribute('data-mda-image-source', source);
-      wrap.setAttribute('data-mda-image-src', r.src || '');
-      wrap.setAttribute('data-mda-image-alt', r.alt || '');
-      if (r.title) wrap.setAttribute('data-mda-image-title', r.title);
-      wrap.setAttribute('title', source);
-      const img = document.createElement('img');
-      img.setAttribute('alt', r.alt || '');
-      img.setAttribute('src', r.src || '');
-      if (r.title) img.setAttribute('title', r.title);
-      wrap.appendChild(img);
-      cell.appendChild(wrap);
-    } else if (r.kind === 'syntax') {
-      appendSyntaxInline(cell, r, raw);
-    }
-    pos = r.to;
-  }
-  if (pos < raw.length) {
-    cell.appendChild(document.createTextNode(raw.slice(pos)));
-  }
+  if (!raw) return;
+  const allSyntax = listAllCellSyntaxNodes(raw);
+  fillCellInlineWindow(cell, raw, 0, raw.length, allSyntax, opts);
   resolveImagesIn(cell, opts.resolveImageUrl);
 }
 
@@ -555,32 +723,23 @@ function syntaxVisibleRange(r, raw) {
 function visibleToMarkdownOffset(raw, visPos) {
   raw = String(raw || '');
   visPos = Math.max(0, visPos | 0);
-  const ranges = findCellInlineRanges(raw);
+  const excl = collectCellDelimiterExclusions(raw);
   let v = 0;
   let m = 0;
-  let ri = 0;
+  let ei = 0;
   while (true) {
-    const r = ranges[ri];
-    if (r && m === r.from) {
-      const cr = syntaxVisibleRange(r, raw);
-      if (cr) {
-        const visLen = cr.to - cr.from;
-        if (visPos <= v + visLen) return cr.from + (visPos - v);
-        v += visLen;
-      } else {
-        if (visPos <= v + 1) return visPos === v ? r.from : r.to;
-        v += 1;
-      }
-      m = r.to;
-      ri += 1;
+    const e = excl[ei];
+    if (e && m === e.from) {
+      m = e.to;
+      ei += 1;
       continue;
     }
-    const next = r ? r.from : raw.length;
+    const next = e ? e.from : raw.length;
     const plain = next - m;
     if (visPos <= v + plain) return m + (visPos - v);
     v += plain;
     m = next;
-    if (!r) return raw.length;
+    if (!e) return raw.length;
   }
 }
 
@@ -592,33 +751,24 @@ function visibleToMarkdownOffset(raw, visPos) {
 function markdownToVisibleOffset(raw, mdPos) {
   raw = String(raw || '');
   mdPos = Math.max(0, Math.min(mdPos | 0, raw.length));
-  const ranges = findCellInlineRanges(raw);
+  const excl = collectCellDelimiterExclusions(raw);
   let v = 0;
   let m = 0;
-  let ri = 0;
+  let ei = 0;
   while (true) {
-    const r = ranges[ri];
-    if (r && m === r.from) {
-      const cr = syntaxVisibleRange(r, raw);
-      if (cr) {
-        if (mdPos <= cr.from) return v;
-        if (mdPos <= cr.to) return v + (mdPos - cr.from);
-        v += cr.to - cr.from;
-        if (mdPos < r.to) return v;
-      } else {
-        if (mdPos <= r.from) return v;
-        if (mdPos < r.to) return v;
-        v += 1;
-      }
-      m = r.to;
-      ri += 1;
+    const e = excl[ei];
+    if (e && m === e.from) {
+      if (mdPos <= e.from) return v;
+      if (mdPos < e.to) return v;
+      m = e.to;
+      ei += 1;
       continue;
     }
-    const next = r ? r.from : raw.length;
+    const next = e ? e.from : raw.length;
     if (mdPos <= next) return v + (mdPos - m);
     v += next - m;
     m = next;
-    if (!r) return v;
+    if (!e) return v;
   }
 }
 

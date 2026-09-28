@@ -306,6 +306,7 @@ npm test               # jest（含覆盖率）
  - **格内快捷键不走 `runFormatCommand`**：`table-chrome.js` 的 cell `keydown` 自己拦了 Ctrl+B/I/U/`/Shift+X 并 `stopPropagation`，**根本到不了** `tryWidgetFormatCommand`。所以「无选区只改后续输入格式」的判断必须在**这里**再做一遍（`isCellSelectionCollapsed` → `toggleWidgetPendingMark`）；直接 `applyInlineFormatToTableCell` 会走 `assist.toggleWrap` 的空选区分支，往格里写入 `**<零宽空格>**`。
  - **改这条链路时先确认命令实际入口**：格内同一个快捷键存在 chrome keydown 与 CM6 keymap 两条路径，光看 `format-commands.js` 会得出错误结论。
  - **贴入 Markdown 须立刻重绘**：`table-chrome` 的 cell `paste` 调 `pasteMarkdownIntoTableCell` → `setCellMarkdownContent`，禁止把 `**…**` 当纯文本塞进 contenteditable 再等失焦才渲染（用户会先看到源码）。
+ - **叠套样式须递归渲染**：`pickNonOverlapping` 只适并列顶层；`**~~x~~**` / `***x***` / `**~~~x~~~**` 须在外层 span 的 content 窗口内再跑 `fillCellInlineWindow`，否则内层定界符会当可见字露出。可见偏移用 `collectCellDelimiterExclusions` 跳过**全部**定界符层（含嵌套）。
 4m2d. **【GUI 表格单元格工具栏状态】格内选区不在 CM6 文档里，工具栏须换个数据源、还得自己找刷新时机**：
  - **数据源**：`getInlineToolbarState(view.state)` 读的是 CM6 文档选区，而格内光标活在 contenteditable 里、文档选区停在表首 —— 点进格内加粗文字按钮**一律不亮**。`toolbar.js` 在 `kind === 'table-cell'` 时改问 `getCellInlineState(cell, widgetTarget)`（`table-cell-content.js` → `inline-string-ops.inlineStateInText`），即把单元格自己的 Markdown + 可见偏移换算成标记覆盖态。
  - **刷新时机**：格内移光标不产生 CM6 事务，`mount.js` 的 `update` 钩子收不到，工具栏会停在进格那一刻。故 `toolbar.js` 另听 document `selectionchange`（rAF 合并，仅当 `focusInWidgetInlineEditable()`）；按键武装待输入格式不改选区，连 `selectionchange` 都没有，由 `setWidgetPendingListener` 回调补刷新。

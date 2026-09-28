@@ -48,4 +48,20 @@ describe('table cell inline format mapping', () => {
     expect(visibleToMarkdownOffset(raw, 0)).toBe(2);
     expect(markdownToVisibleOffset(raw, 4)).toBe(2);
   });
+
+  test('加粗内嵌删除线/下划线/斜体：可见偏移跳过全部定界符层', () => {
+    expect(visibleToMarkdownOffset('**~~xy~~**', 0)).toBe(4);
+    expect(visibleToMarkdownOffset('**~~xy~~**', 2)).toBe(6);
+    expect(markdownToVisibleOffset('**~~xy~~**', 4)).toBe(0);
+
+    expect(visibleToMarkdownOffset('**~x~**', 0)).toBe(3);
+    expect(markdownToVisibleOffset('**~x~**', 3)).toBe(0);
+
+    expect(visibleToMarkdownOffset('**~~~ab~~~**', 0)).toBe(5);
+    expect(visibleToMarkdownOffset('**~~~ab~~~**', 2)).toBe(7);
+
+    expect(visibleToMarkdownOffset('***xy***', 0)).toBe(3);
+    expect(visibleToMarkdownOffset('***xy***', 2)).toBe(5);
+    expect(markdownToVisibleOffset('***xy***', 3)).toBe(0);
+  });
 });

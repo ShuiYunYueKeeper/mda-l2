@@ -53895,7 +53895,7 @@ var MDAEditorBundle = (() => {
           return a.from - b.from;
         });
       }
-      function findSyntaxInlineRanges(raw) {
+      function listAllCellSyntaxNodes(raw) {
         const text = String(raw || "");
         if (!text) return [];
         const tree = cellMdParser.parse(text);
@@ -53906,7 +53906,63 @@ var MDAEditorBundle = (() => {
           if (!CELL_SYNTAX_TYPES[n.type]) continue;
           syntax.push({ kind: "syntax", type: n.type, from: n.from, to: n.to });
         }
-        return pickNonOverlapping(syntax);
+        return syntax;
+      }
+      function findSyntaxInlineRanges(raw) {
+        return pickNonOverlapping(listAllCellSyntaxNodes(raw));
+      }
+      function topLevelSyntaxInWindow(nodes, winFrom, winTo) {
+        const inside = [];
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i];
+          if (n.from >= winFrom && n.to <= winTo && n.to > n.from) inside.push(n);
+        }
+        const top = [];
+        for (let i = 0; i < inside.length; i++) {
+          const n = inside[i];
+          let nested = false;
+          for (let j = 0; j < inside.length; j++) {
+            if (i === j) continue;
+            const o = inside[j];
+            if (o.from <= n.from && o.to >= n.to && (o.from < n.from || o.to > n.to)) {
+              nested = true;
+              break;
+            }
+          }
+          if (!nested) top.push(n);
+        }
+        return top.sort(function(a, b) {
+          return a.from - b.from;
+        });
+      }
+      function collectCellDelimiterExclusions(raw) {
+        const text = String(raw || "");
+        const nodes = listAllCellSyntaxNodes(text);
+        const excl = [];
+        for (let i = 0; i < nodes.length; i++) {
+          const n = nodes[i];
+          const rule = SYNTAX_RULES[n.type];
+          if (!rule || typeof rule.markRanges !== "function") continue;
+          const marks = rule.markRanges({ from: n.from, to: n.to, type: n.type }, text) || [];
+          for (let j = 0; j < marks.length; j++) {
+            const m = marks[j];
+            if (m && m.to > m.from) excl.push({ from: m.from, to: m.to });
+          }
+        }
+        excl.sort(function(a, b) {
+          return a.from - b.from || a.to - b.to;
+        });
+        const merged = [];
+        for (let i = 0; i < excl.length; i++) {
+          const cur = excl[i];
+          const last = merged[merged.length - 1];
+          if (last && cur.from <= last.to) {
+            if (cur.to > last.to) last.to = cur.to;
+          } else {
+            merged.push({ from: cur.from, to: cur.to });
+          }
+        }
+        return merged;
       }
       function findCellInlineRanges(raw) {
         const text = String(raw || "");
@@ -53937,6 +53993,26 @@ var MDAEditorBundle = (() => {
         while (String(text).indexOf(fence) >= 0) fence += "`";
         return fence + text + fence;
       }
+      function serializeInlineChildMarkdown(el) {
+        let out = "";
+        const children = el.childNodes;
+        for (let i = 0; i < children.length; i++) {
+          const child = children[i];
+          if (child.nodeType === 3) {
+            out += child.nodeValue || "";
+            continue;
+          }
+          if (child.nodeType !== 1) continue;
+          const nested = serializeInlineStyledElement(
+            /** @type {HTMLElement} */
+            child
+          );
+          if (nested != null) out += nested;
+          else out += /** @type {HTMLElement} */
+          child.textContent || "";
+        }
+        return out;
+      }
       function serializeInlineStyledElement(el) {
         if (!el || !el.getAttribute) return null;
         const text = el.textContent || "";
@@ -53949,10 +54025,22 @@ var MDAEditorBundle = (() => {
         if (!text) {
           return el.classList.contains("mda-cm-strong") || el.classList.contains("mda-cm-em") || el.classList.contains("mda-cm-underline") || el.classList.contains("mda-cm-strike") || el.classList.contains("mda-cm-code") || el.classList.contains("mda-cm-link") ? "" : null;
         }
-        if (el.classList.contains("mda-cm-strong")) return "**" + text + "**";
-        if (el.classList.contains("mda-cm-em")) return "*" + text + "*";
-        if (el.classList.contains("mda-cm-underline")) return "~" + text + "~";
-        if (el.classList.contains("mda-cm-strike")) return "~~" + text + "~~";
+        let inner = text;
+        let hasElementChild = false;
+        const kids = el.childNodes;
+        if (kids && kids.length) {
+          for (let i = 0; i < kids.length; i++) {
+            if (kids[i].nodeType === 1) {
+              hasElementChild = true;
+              break;
+            }
+          }
+        }
+        if (hasElementChild) inner = serializeInlineChildMarkdown(el);
+        if (el.classList.contains("mda-cm-strong")) return "**" + inner + "**";
+        if (el.classList.contains("mda-cm-em")) return "*" + inner + "*";
+        if (el.classList.contains("mda-cm-underline")) return "~" + inner + "~";
+        if (el.classList.contains("mda-cm-strike")) return "~~" + inner + "~~";
         if (el.classList.contains("mda-cm-code")) return wrapInlineCode(text);
         if (el.classList.contains("mda-cm-link")) {
           const href = el.getAttribute("href") || "";
@@ -53960,7 +54048,43 @@ var MDAEditorBundle = (() => {
         }
         return null;
       }
-      function appendSyntaxInline(cell, r, raw) {
+      var LEAF_SYNTAX_TYPES = {
+        InlineCode: 1,
+        Link: 1,
+        Autolink: 1,
+        URL: 1
+      };
+      function appendCellInlineRange(parent, r, raw, allSyntax, opts) {
+        if (r.kind === "math-inline") {
+          const span2 = document.createElement("span");
+          span2.className = "mda-cm-table-math mda-cm-math-inline";
+          span2.setAttribute("contenteditable", "false");
+          span2.setAttribute("data-mda-math-tex", r.tex);
+          span2.setAttribute("data-mda-math-source", raw.slice(r.from, r.to));
+          span2.setAttribute("title", raw.slice(r.from, r.to));
+          span2.innerHTML = renderKatexHtml(r.tex, false);
+          parent.appendChild(span2);
+          return;
+        }
+        if (r.kind === "image") {
+          const wrap = document.createElement("span");
+          wrap.className = "mda-cm-table-img";
+          wrap.setAttribute("contenteditable", "false");
+          const source2 = r.source || serializeImageMarkdown({ alt: r.alt, src: r.src, title: r.title });
+          wrap.setAttribute("data-mda-image-source", source2);
+          wrap.setAttribute("data-mda-image-src", r.src || "");
+          wrap.setAttribute("data-mda-image-alt", r.alt || "");
+          if (r.title) wrap.setAttribute("data-mda-image-title", r.title);
+          wrap.setAttribute("title", source2);
+          const img = document.createElement("img");
+          img.setAttribute("alt", r.alt || "");
+          img.setAttribute("src", r.src || "");
+          if (r.title) img.setAttribute("title", r.title);
+          wrap.appendChild(img);
+          parent.appendChild(wrap);
+          return;
+        }
+        if (r.kind !== "syntax" || !r.type) return;
         const rule = SYNTAX_RULES[r.type];
         if (!rule) return;
         const node = { from: r.from, to: r.to, type: r.type };
@@ -53976,65 +54100,66 @@ var MDAEditorBundle = (() => {
           a.setAttribute("data-mda-inline-text", visible);
           a.setAttribute("draggable", "false");
           a.textContent = visible;
-          cell.appendChild(a);
+          parent.appendChild(a);
           return;
         }
         const span = document.createElement("span");
         span.className = "mda-cm-table-inline " + cls;
         span.setAttribute("data-mda-inline-source", source);
-        span.setAttribute("data-mda-inline-text", visible);
-        span.textContent = visible;
-        cell.appendChild(span);
+        if (LEAF_SYNTAX_TYPES[r.type] || !contentRange) {
+          span.setAttribute("data-mda-inline-text", visible);
+          span.textContent = visible;
+        } else {
+          fillCellInlineWindow(span, raw, contentRange.from, contentRange.to, allSyntax, opts);
+          span.setAttribute("data-mda-inline-text", span.textContent || "");
+        }
+        parent.appendChild(span);
+      }
+      function fillCellInlineWindow(parent, raw, from, to, allSyntax, opts) {
+        if (to <= from) return;
+        const math = findMathRanges(raw).filter(function(r) {
+          return r.kind === "math-inline" && r.from >= from && r.to <= to;
+        });
+        const images = findImageRanges(raw).filter(function(img) {
+          if (img.from < from || img.to > to) return false;
+          for (let i = 0; i < math.length; i++) {
+            if (rangesOverlap(img, math[i])) return false;
+          }
+          return true;
+        });
+        const syntaxTop = topLevelSyntaxInWindow(allSyntax, from, to).filter(function(s) {
+          for (let i = 0; i < math.length; i++) {
+            if (rangesOverlap(s, math[i])) return false;
+          }
+          for (let j = 0; j < images.length; j++) {
+            if (rangesOverlap(s, images[j])) return false;
+          }
+          return true;
+        });
+        const ranges = math.concat(images).concat(syntaxTop).sort(function(a, b) {
+          return a.from - b.from;
+        });
+        let pos = from;
+        for (let i = 0; i < ranges.length; i++) {
+          const r = ranges[i];
+          if (r.from > pos) {
+            parent.appendChild(document.createTextNode(raw.slice(pos, r.from)));
+          }
+          appendCellInlineRange(parent, r, raw, allSyntax, opts);
+          pos = r.to;
+        }
+        if (pos < to) {
+          parent.appendChild(document.createTextNode(raw.slice(pos, to)));
+        }
       }
       function setCellMarkdownContent(cell, text, opts) {
         if (!cell) return;
         opts = opts || {};
         cell.textContent = "";
         const raw = String(text == null ? "" : text);
-        const ranges = findCellInlineRanges(raw);
-        if (!ranges.length) {
-          cell.textContent = raw;
-          return;
-        }
-        let pos = 0;
-        for (let i = 0; i < ranges.length; i++) {
-          const r = ranges[i];
-          if (r.from > pos) {
-            cell.appendChild(document.createTextNode(raw.slice(pos, r.from)));
-          }
-          if (r.kind === "math-inline") {
-            const span = document.createElement("span");
-            span.className = "mda-cm-table-math mda-cm-math-inline";
-            span.setAttribute("contenteditable", "false");
-            span.setAttribute("data-mda-math-tex", r.tex);
-            span.setAttribute("data-mda-math-source", raw.slice(r.from, r.to));
-            span.setAttribute("title", raw.slice(r.from, r.to));
-            span.innerHTML = renderKatexHtml(r.tex, false);
-            cell.appendChild(span);
-          } else if (r.kind === "image") {
-            const wrap = document.createElement("span");
-            wrap.className = "mda-cm-table-img";
-            wrap.setAttribute("contenteditable", "false");
-            const source = r.source || serializeImageMarkdown({ alt: r.alt, src: r.src, title: r.title });
-            wrap.setAttribute("data-mda-image-source", source);
-            wrap.setAttribute("data-mda-image-src", r.src || "");
-            wrap.setAttribute("data-mda-image-alt", r.alt || "");
-            if (r.title) wrap.setAttribute("data-mda-image-title", r.title);
-            wrap.setAttribute("title", source);
-            const img = document.createElement("img");
-            img.setAttribute("alt", r.alt || "");
-            img.setAttribute("src", r.src || "");
-            if (r.title) img.setAttribute("title", r.title);
-            wrap.appendChild(img);
-            cell.appendChild(wrap);
-          } else if (r.kind === "syntax") {
-            appendSyntaxInline(cell, r, raw);
-          }
-          pos = r.to;
-        }
-        if (pos < raw.length) {
-          cell.appendChild(document.createTextNode(raw.slice(pos)));
-        }
+        if (!raw) return;
+        const allSyntax = listAllCellSyntaxNodes(raw);
+        fillCellInlineWindow(cell, raw, 0, raw.length, allSyntax, opts);
         resolveImagesIn(cell, opts.resolveImageUrl);
       }
       function walkCellMarkdownNode(node, emit) {
@@ -54241,75 +54366,49 @@ var MDAEditorBundle = (() => {
         abs = String(abs).replace(/\\/g, "/");
         return serializeImageMarkdown({ alt, src: abs, title });
       }
-      function syntaxVisibleRange(r, raw) {
-        if (r.kind !== "syntax") return null;
-        const rule = SYNTAX_RULES[r.type];
-        const node = { from: r.from, to: r.to, type: r.type };
-        const cr = rule && typeof rule.contentRange === "function" ? rule.contentRange(node, raw) : null;
-        if (cr && cr.to >= cr.from) return cr;
-        return { from: r.from, to: r.to };
-      }
       function visibleToMarkdownOffset(raw, visPos) {
         raw = String(raw || "");
         visPos = Math.max(0, visPos | 0);
-        const ranges = findCellInlineRanges(raw);
+        const excl = collectCellDelimiterExclusions(raw);
         let v = 0;
         let m = 0;
-        let ri = 0;
+        let ei = 0;
         while (true) {
-          const r = ranges[ri];
-          if (r && m === r.from) {
-            const cr = syntaxVisibleRange(r, raw);
-            if (cr) {
-              const visLen = cr.to - cr.from;
-              if (visPos <= v + visLen) return cr.from + (visPos - v);
-              v += visLen;
-            } else {
-              if (visPos <= v + 1) return visPos === v ? r.from : r.to;
-              v += 1;
-            }
-            m = r.to;
-            ri += 1;
+          const e = excl[ei];
+          if (e && m === e.from) {
+            m = e.to;
+            ei += 1;
             continue;
           }
-          const next = r ? r.from : raw.length;
+          const next = e ? e.from : raw.length;
           const plain = next - m;
           if (visPos <= v + plain) return m + (visPos - v);
           v += plain;
           m = next;
-          if (!r) return raw.length;
+          if (!e) return raw.length;
         }
       }
       function markdownToVisibleOffset(raw, mdPos) {
         raw = String(raw || "");
         mdPos = Math.max(0, Math.min(mdPos | 0, raw.length));
-        const ranges = findCellInlineRanges(raw);
+        const excl = collectCellDelimiterExclusions(raw);
         let v = 0;
         let m = 0;
-        let ri = 0;
+        let ei = 0;
         while (true) {
-          const r = ranges[ri];
-          if (r && m === r.from) {
-            const cr = syntaxVisibleRange(r, raw);
-            if (cr) {
-              if (mdPos <= cr.from) return v;
-              if (mdPos <= cr.to) return v + (mdPos - cr.from);
-              v += cr.to - cr.from;
-              if (mdPos < r.to) return v;
-            } else {
-              if (mdPos <= r.from) return v;
-              if (mdPos < r.to) return v;
-              v += 1;
-            }
-            m = r.to;
-            ri += 1;
+          const e = excl[ei];
+          if (e && m === e.from) {
+            if (mdPos <= e.from) return v;
+            if (mdPos < e.to) return v;
+            m = e.to;
+            ei += 1;
             continue;
           }
-          const next = r ? r.from : raw.length;
+          const next = e ? e.from : raw.length;
           if (mdPos <= next) return v + (mdPos - m);
           v += next - m;
           m = next;
-          if (!r) return v;
+          if (!e) return v;
         }
       }
       function rangeStillInCell(range, cell) {

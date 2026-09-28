@@ -316,6 +316,7 @@ clipboard.write({ text, html });
 - `markRanges`/`contentRange` 的 `text` 参数必须是**全文**；Lezer 节点须适配 `{ from, to, type: node.name }`。
 - **单元格粘贴**：`paste` → `pasteMarkdownIntoTableCell` 立刻重绘；不得先露 `**…**` 再等 blur。
 - **下划线+删除线**：源码 `~~~text~~~`；格式前 `snapIntoMarkContent`；CSS `underline line-through` 同写。
+- **格内叠套须递归渲染**：`**~~x~~**` / `***x***` / `**~~~x~~~**` 不能只画最外层，否则内层 `~~`/`~`/`*` 当可见字泄漏；`fillCellInlineWindow` 在 content 窗口内再解析。
 
 ### ✅ 正确
 
@@ -325,6 +326,7 @@ const content = rule.contentRange(adapted, doc); // 全文 doc
 // **整段** 内只选可见「能打开」→ 剪贴板 "**能打开**"（covering wrap）
 // 标题行全选仍复制 "核心功能"（无 ##）；贴回标题行时再去 ATX
 // 选「能打开」点删除线 → "**~~能打开~~、能看懂…**"（先 snap 再包）
+// 格内 "**~~能打开~~**" → 可见「能打开」，DOM 同时有 .mda-cm-strong 与 .mda-cm-strike
 ```
 
 ### ❌ 错误
@@ -334,6 +336,7 @@ const content = rule.contentRange(adapted, doc); // 全文 doc
 - ❌ 预览只选加粗可见字却拷出无定界符的裸字 → 缺 `wrapClipboardWithCoveringMarks`。
 - ❌ 选区含开 `**` 时直接包 `~~` → `~~**能打开~~…**` 拆坏整段加粗。
 - ❌ 单元格 paste 写 textContent 等失焦 → 先露源码再渲染。
+- ❌ 格内 `pickNonOverlapping` 只留 StrongEmphasis → 可见「~~能打开~~」泄漏定界符。
 - ❌ 标题复制带 `##` 再贴回标题行 → 叠成 `## ##`；须在 copy 去 ATX + paste 二次剥离。
 
 ---
