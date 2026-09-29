@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "saved_at": "2026-09-29T17:10:06+08:00",
+  "session_id": "bugfix-260924-toolbar-scroll",
+  "conductor": "bugfix",
+  "conductor_file": "",
+  "task_dir": "workspace/tasks/bugfix-260924-toolbar-scroll",
+  "interrupted_phase": 7,
+  "interrupted_phase_name": "",
+  "workflow_status": "verified",
+  "completed_phases": [],
+  "pending_phases": [],
+  "existing_outputs": [
+    "execution-checkpoint.json",
+    "execution/P5-changelog.md",
+    "execution/P6-verification-checklist.md",
+    "thinking/P1-bug-info.md",
+    "thinking/P2-analysis.md",
+    "thinking/P4-fix-plan.md"
+  ],
+  "state_snapshot": {
+    "session_id": "bugfix-260924-toolbar-scroll",
+    "conductor": "bugfix",
+    "task_dir": "workspace/tasks/bugfix-260924-toolbar-scroll",
+    "current_phase": 7,
+    "status": "verified",
+    "verified_at": "2026-09-24T10:48:00+08:00",
+    "workflow": "iteration-6step T1"
+  }
+}

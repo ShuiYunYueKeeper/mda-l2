@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Pro 离线 License（HMAC-SHA256）。
  * 格式：MDA1.<base64url(payloadJSON)>.<base64url(hmac)>
  * payload: { v:1, tier:'pro', iat:number, exp:number|null, lid:string }

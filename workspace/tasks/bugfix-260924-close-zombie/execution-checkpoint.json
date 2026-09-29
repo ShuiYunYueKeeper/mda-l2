@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "saved_at": "2026-09-24T10:46:37+08:00",
+  "session_id": "bugfix-260924-close-zombie",
+  "conductor": "bugfix",
+  "conductor_file": "",
+  "task_dir": "workspace/tasks/bugfix-260924-close-zombie",
+  "interrupted_phase": 7,
+  "interrupted_phase_name": "",
+  "workflow_status": "verified",
+  "completed_phases": [],
+  "pending_phases": [],
+  "existing_outputs": [
+    "execution-checkpoint.json",
+    "execution/P5-changelog.md",
+    "execution/P6-verification-checklist.md",
+    "thinking/P1-bug-info.md",
+    "thinking/P2-analysis.md",
+    "thinking/P4-fix-plan.md"
+  ],
+  "state_snapshot": {
+    "session_id": "bugfix-260924-close-zombie",
+    "conductor": "bugfix",
+    "task_dir": "workspace/tasks/bugfix-260924-close-zombie",
+    "current_phase": 7,
+    "status": "verified",
+    "started_at": "2026-09-24T09:00:00+08:00",
+    "verified_at": "2026-09-24T10:04:00+08:00",
+    "workflow": "iteration-6step T1",
+    "also_archived": [
+      "bugfix-260922-table-resize-sticky",
+      "bugfix-260923-tight-sel-spill",
+      "bugfix-260924-widget-find"
+    ]
+  }
+}

@@ -600,7 +600,7 @@ aiCancel() → 中止进行中的 fetch
 | 2 | sync-scroll 长文漂移明显，AC-1 不通过 | 中 | 块级 map 校准 + 点击 preview 块强制 reconcile |
 | 3 | textarea find 或 assist 大文件卡顿 | 中 | 搜索防抖；assist 仅操作选区/当前行；>500KB 提示 |
 | 4 | 三核心工期挤占 MCP，2.0 承诺落空 | 中 | MCP 独立 milestone；官网写清发布波次 |
-| 5 | ToC 无人付费 | 高 | 2.0 聚焦体验 GIF 传播；Pro ¥199 买断 |
+| 5 | ToC 无人付费 | 高 | 2.0 聚焦体验 GIF 传播；Pro ¥99 买断 |
 | 6 | 打开大仓库扫描卡顿 | 中 | 跳过 `.git`/`node_modules`；去抖 refresh |
 | 7 | API Key 泄露或 AI 输出破坏文档 | 中 | safeStorage + main 代理；美化必过 diff 确认 |
 | 8 | textarea ghost 补全实现困难 | 中 | 2.0  fallback：`Ctrl+Space` 弹层预览，非 inline ghost |
@@ -641,7 +641,7 @@ aiCancel() → 中止进行中的 fetch
 | 编辑器选型 | **方案 A：增强 textarea** |
 | Pro 分界 | **仅 AI 为 Pro**；其余全部 Free（2026-07-13 确认） |
 | anchor 方案 | **全文件 UTF-16 + 可选 quote** |
-| 定价倾向 | **¥199 买断**；Pro **仅卖 AI** |
+| 定价倾向 | **¥99 买断**；Pro **仅卖 AI** |
 | AI Provider | OpenAI 兼容 + DeepSeek + 自定义 Base URL |
 | AI 补全 | **Ctrl+Space 弹层** |
 | 交付门禁 | **Free 可交付 → 再 Pro AI** |

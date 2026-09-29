@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 主进程轻量 i18n：中 / 英。
  * 优先级：用户偏好（settings）> 环境变量 MDA_LANG > 系统语言。
  * 偏好：system | zh | en，存于 userData/mda-settings.json。
@@ -57,7 +57,7 @@ const STRINGS = {
     menuHelp: '帮助',
     menuHelpShortcuts: '功能与快捷键',
     menuProActivation: 'Pro 购买与激活…',
-    proActivationOffline: '本地未找到购买说明。请向发行方索取激活码，在「设置 → Pro」粘贴。',
+    proActivationOffline: 'Pro 买断价 29 元。发邮件到 mda.markdown@gmail.com 购买，收到激活码后在「设置 → Pro」粘贴并点「激活」。',
     menuCheckUpdate: '检查更新',
     openMdTitle: '打开 Markdown 文件',
     openFolderTitle: '打开文件夹',
@@ -131,7 +131,7 @@ const STRINGS = {
     menuHelp: 'Help',
     menuHelpShortcuts: 'Features & Shortcuts',
     menuProActivation: 'Pro Purchase & Activation…',
-    proActivationOffline: 'Purchase notes were not found locally. Ask the publisher for an activation key and paste it under Settings → Pro.',
+    proActivationOffline: 'Pro is a one-time purchase of CNY 29. Email mda.markdown@gmail.com to buy, then paste the key under Settings → Pro and click Activate.',
     menuCheckUpdate: 'Check for Updates',
     openMdTitle: 'Open Markdown File',
     openFolderTitle: 'Open Folder',

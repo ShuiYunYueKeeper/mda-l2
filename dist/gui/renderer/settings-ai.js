@@ -58,6 +58,8 @@
             '<div class="mda-settings-row-text">' +
               '<div class="mda-settings-row-title">' + esc(t('proLicenseTitle')) + '</div>' +
               '<div class="mda-settings-row-desc">' + esc(t('proLicenseDesc')) + '</div>' +
+              '<div class="mda-settings-row-desc">' + esc(t('proPayHow')) + '</div>' +
+              '<div class="mda-settings-row-desc">' + esc(t('proPayPaste')) + '</div>' +
               '<div class="mda-settings-row-desc" id="settings-pro-status" style="margin-top:6px;font-weight:600;">' +
                 esc(statusText) +
               '</div>' +
