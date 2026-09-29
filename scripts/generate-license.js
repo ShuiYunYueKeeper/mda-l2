@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
  * 签发 MDA Pro 离线激活码（开发 / 运营侧）。
  * 用法：
@@ -41,5 +41,11 @@ if (args.days != null && Number.isFinite(args.days)) {
   exp = args.exp;
 }
 
-const key = mintLicense({ exp });
+let key;
+try {
+  key = mintLicense({ exp });
+} catch (err) {
+  process.stderr.write((err && err.message ? err.message : '签发失败') + '\n');
+  process.exit(1);
+}
 process.stdout.write(key + '\n');

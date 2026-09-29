@@ -1,10 +1,18 @@
-/**
+﻿/**
  * License / feature-gate 单元测试（纯 Node，不依赖 Electron）。
  */
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 
+const secretFile = path.join(__dirname, '../../src/pro/license-secret.js');
+if (!fs.existsSync(secretFile)) {
+  const secret = require('crypto').randomBytes(32).toString('base64');
+  fs.writeFileSync(
+    secretFile,
+    'module.exports = { secret: ' + JSON.stringify(secret) + ' };\n',
+  );
+}
 const license = require('../../src/pro/license');
 const gate = require('../../src/pro/feature-gate');
 

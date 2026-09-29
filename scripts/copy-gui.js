@@ -1,4 +1,4 @@
-// Copy non-TS assets to dist/（GUI 资源 + 外置配置 JSON）。
+﻿// Copy non-TS assets to dist/（GUI 资源 + 外置配置 JSON）。
 // tsc 不会把被 import 的 .json 输出到 outDir，故需在此显式复制配置文件，
 // 否则 dist/core/*.js 运行时 require('../config/annotation-schema.json') 会找不到。
 const fs = require('fs');
@@ -56,6 +56,13 @@ for (const [src, dst] of files) {
   const dstPath = path.join(__dirname, '..', dst);
   fs.copyFileSync(srcPath, dstPath);
   console.log('  copied: ' + dst);
+}
+
+const licenseSecretSrc = path.join(__dirname, '..', 'src', 'pro', 'license-secret.js');
+const licenseSecretDst = path.join(__dirname, '..', 'dist', 'pro', 'license-secret.js');
+if (fs.existsSync(licenseSecretSrc)) {
+  fs.copyFileSync(licenseSecretSrc, licenseSecretDst);
+  console.log('  copied: dist/pro/license-secret.js (local only)');
 }
 
 // mermaid 离线单文件 UMD（自包含，供 index.html 本地引入渲染流程图）。

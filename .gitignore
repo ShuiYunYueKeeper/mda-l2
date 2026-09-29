@@ -1,4 +1,7 @@
 ﻿node_modules/
+# 本机 Pro 签发密钥，禁止入库（含构建拷贝）
+src/pro/license-secret.js
+dist/pro/license-secret.js
 .tmp/
 *.tmp
 coverage/

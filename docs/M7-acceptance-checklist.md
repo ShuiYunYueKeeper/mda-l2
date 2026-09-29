@@ -24,7 +24,7 @@
 ```bash
 npm test                 # 含 tests/pro/license.test.ts
 npm run build
-# 签发测试激活码：
+# 本机有 src/pro/license-secret.js 时签发激活码，再在「设置 → Pro」粘贴：
 node scripts/generate-license.js
 ```
 

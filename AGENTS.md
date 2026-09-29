@@ -356,6 +356,7 @@ npm test               # jest（含覆盖率）
  - **采纳 = 一次 dispatch**，`userEvent: 'ai.apply'` + `aiApplyAnnotation`：**不得**用 `input.*` 事件名（`auto-link.js` 把所有 `input` 当键入，会对 AI 输出结尾的 URL 自动包链接）。改写类会话 `guard` 开启：范围被其他编辑触及即判过期，禁止再原位替换。
  - **单会话**：命令条 / 生成 / 卡片共用一个浮层，新入口先取消旧请求；main 侧按 `requestId` 路由，同 id 被顶替后旧请求事件一律丢弃（`pro/ai/session.js`）。
  - **入口**：顶层菜单「AI」（`Ctrl+J` 命令条、`Ctrl+Shift+Enter` 续写、`Ctrl+Shift+M` 润色）经 `menu-ai-action` → `cm6Editor.aiCommand`；工具栏 AI 钮、右键「AI 帮我改 / 问问 AI / AI 帮我写」、块手柄 AI 子菜单经 `mount.js` 注入的 `opts.onAiEntry` / `opts.onBlockMenuAi`。快捷键**只**靠菜单 accelerator，别在 CM6 keymap 再绑一遍（会双触发）。表格/代码等块内容只允许「解释」，其余置灰。2.0 源码模式不支持 AI（toast 提示）。
+ - e2e：`tests/e2e/gui/ai-command.spec.ts` 用本地假 OpenAI SSE 服务，向临时 userData 写入本机密钥签发的激活码，并预置 `ai-settings.json` 跑全链路。没有跳过激活的开关。
 5. **【GUI·Electron】data-line 映射**：preload 仅对 `level===0` 的块级 token 注入 `data-line = map[0]+1`，其值等于段落 `startLine`，GUI 据此做「段落↔批注」双向定位与色条。
 6. **【GUI·Electron】运行前提**：preload `require('../core')` 需 `sandbox:false`；GUI 运行前必须 `npm run build`（否则 `dist/core` 不存在）。CM6 编辑器是**打包产物** `dist/gui/renderer/editor.bundle.js`，改 `src/gui/renderer/editor/**` 后只 `copy-gui` 无效，必须走 `npm run build`（含 `build:editor` → `scripts/bundle-editor.js`）。
 6b. **【GUI·Electron】单实例锁会让「重启」变成假重启**：`main.js` 有 `requestSingleInstanceLock()`，已开着 MDA 时再 `npm run gui` 会让**新进程直接退出**，仅把旧窗口（旧代码）激活并打开文件——改了代码却「问题依旧」多半是这个。验证改动生效须**先关掉所有 MDA 窗口**再启动，或 `Ctrl+R` 重载渲染进程。Playwright e2e 同理：`electron.launch` 必须带独立 `--user-data-dir=<临时目录>`，否则本机开着的 MDA 会让被测实例秒退（报 `Target page, context or browser has been closed`）。

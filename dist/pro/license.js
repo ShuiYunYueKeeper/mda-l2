@@ -3,6 +3,8 @@
  * 格式：MDA1.<base64url(payloadJSON)>.<base64url(hmac)>
  * payload: { v:1, tier:'pro', iat:number, exp:number|null, lid:string }
  *
+ * 签名密钥只从同目录 license-secret.js 读取，该文件不入库。
+ * 没有密钥时校验失败，保持未激活。
  */
 'use strict';
 
@@ -13,7 +15,6 @@ const path = require('path');
 const LICENSE_FILENAME = 'mda-license.json';
 const PREFIX = 'MDA1';
 
-/** @type {Buffer} 签发与校验共用；发正式版前务必轮换 */
 function readHmacSecret() {
   try {
     const mod = require('./license-secret');
@@ -46,7 +47,7 @@ function licenseFilePath(userDataPath) {
 function signPayloadSegment(segment) {
   const secret = readHmacSecret();
   if (!secret) {
-    const err = new Error('missing local license secret');
+    const err = new Error('缺少本机签发密钥（src/pro/license-secret.js）');
     err.code = 'E_NO_LICENSE_SECRET';
     throw err;
   }
@@ -135,7 +136,7 @@ function readStoredKey(userDataPath) {
 
 /**
  * @param {string} userDataPath
- * @param {{ now?: number, env?: NodeJS.ProcessEnv }} [opts]
+ * @param {{ now?: number }} [opts]
  */
 function getLicenseStatus(userDataPath, opts) {
   const key = readStoredKey(userDataPath);

@@ -1,4 +1,5 @@
-/**
+﻿/**
+ * AI 全链路（M9）：本地假 OpenAI 兼容服务 + 临时用户目录里的激活码。
  * - 请求里不得出现批注（@anno）
  * - 润色 → 审阅 → 采纳：只替换正文，批注行逐字节保留；一次撤销完整回退
  * - Esc 放弃：文档不变
@@ -25,6 +26,19 @@ let server: http.Server;
 const requests: any[] = [];
 
 test.describe.configure({ mode: 'serial' });
+
+function ensureLicenseSecret() {
+  const src = path.join(ROOT, 'src/pro/license-secret.js');
+  const dist = path.join(ROOT, 'dist/pro/license-secret.js');
+  if (!fs.existsSync(src)) {
+    const secret = require('crypto').randomBytes(32).toString('base64');
+    fs.mkdirSync(path.dirname(src), { recursive: true });
+    fs.writeFileSync(src, 'module.exports = { secret: ' + JSON.stringify(secret) + ' };\n');
+  }
+  fs.mkdirSync(path.dirname(dist), { recursive: true });
+  fs.copyFileSync(src, dist);
+  delete require.cache[dist];
+}
 
 function startFakeAi(): Promise<number> {
   server = http.createServer((req, res) => {
@@ -78,6 +92,12 @@ test.beforeAll(async () => {
   }), 'utf8');
   file = path.join(dir, 'ai.md');
   fs.writeFileSync(file, DOC, 'utf8');
+  ensureLicenseSecret();
+  const { mintLicense } = require(path.join(ROOT, 'dist/pro/license.js'));
+  fs.writeFileSync(path.join(userData, 'mda-license.json'), JSON.stringify({
+    key: mintLicense({ exp: null }),
+    activatedAt: new Date().toISOString(),
+  }), 'utf8');
   app = await electron.launch({
     args: [ELECTRON_MAIN, `--user-data-dir=${userData}`, file],
     env: { ...process.env, MDA_LANG: 'zh', MDA_CM6: '1' },

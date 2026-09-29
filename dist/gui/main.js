@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
+﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -60,7 +60,6 @@ function resolveAppIconPath() {
   }
   return fs.existsSync(APP_ICON_PATH) ? APP_ICON_PATH : undefined;
 }
-
 
 function isMarkdownPath(filePath) {
   const ext = path.extname(filePath).slice(1).toLowerCase();
