@@ -54667,7 +54667,23 @@ var MDAEditorBundle = (() => {
         return cells;
       }
       function escapeCell(text) {
-        return String(text || "").replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, " ");
+        const s = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, " ");
+        let out = "";
+        for (let i = 0; i < s.length; i++) {
+          const ch = s.charAt(i);
+          if (ch === "|") {
+            out += "\\|";
+            continue;
+          }
+          if (ch === "\\") {
+            const next = i + 1 < s.length ? s.charAt(i + 1) : "";
+            if (next === "\\" || next === "|") out += "\\\\";
+            else out += "\\";
+            continue;
+          }
+          out += ch;
+        }
+        return out;
       }
       function isSepRow(line) {
         const cells = splitRow(line);
@@ -54713,11 +54729,28 @@ var MDAEditorBundle = (() => {
       function formatSepRow(aligns) {
         return "| " + aligns.map(alignSep).join(" | ") + " |";
       }
-      function serializeGfmTable(parsed) {
+      function originalSeparatorLine(originalText, aligns) {
+        if (!originalText) return null;
+        const lines = String(originalText).replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n$/, "").split("\n").filter(function(l) {
+          return l.trim().length > 0;
+        });
+        let i = 0;
+        if (lines.length && parseTableMetaLine(lines[0])) i = 1;
+        const sep = lines[i + 1];
+        if (!sep || !isSepRow(sep)) return null;
+        const got = splitRow(sep).map(alignOf);
+        if (got.length < aligns.length) return null;
+        for (let c = 0; c < aligns.length; c++) {
+          if ((got[c] || "left") !== (aligns[c] || "left")) return null;
+        }
+        return sep;
+      }
+      function serializeGfmTable(parsed, originalText) {
         const headers = parsed.headers || [];
         const aligns = parsed.aligns || [];
         const rows = parsed.rows || [];
-        const lines = [formatRow(headers), formatSepRow(aligns)];
+        const sep = originalSeparatorLine(originalText, aligns) || formatSepRow(aligns);
+        const lines = [formatRow(headers), sep];
         for (let i = 0; i < rows.length; i++) {
           const row = rows[i].slice(0, headers.length);
           while (row.length < headers.length) row.push("");
@@ -58356,7 +58389,7 @@ var MDAEditorBundle = (() => {
         deleteBlockRange(view, br.from, br.to);
       }
       function serializeTableBlockForDoc(blockText, parsed) {
-        const body = serializeGfmTable(parsed);
+        const body = serializeGfmTable(parsed, blockText);
         const lines = String(blockText || "").replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n");
         if (lines.length > 0 && parseTableMetaLine(lines[0])) {
           return lines[0] + "\n" + body;
@@ -58371,13 +58404,13 @@ var MDAEditorBundle = (() => {
         if (from < 0 || to < from || to > view.state.doc.length) return;
         const blockText = view.state.doc.sliceString(from, to);
         const docParsed = parseGfmTableBlock(blockText);
-        const newSource = serializeTableBlockForDoc(blockText, parsed);
-        if (docParsed && tablesEqual(docParsed, parsed) && blockText.trimEnd() === newSource.trimEnd()) {
-          widget.source = newSource;
+        if (docParsed && tablesEqual(docParsed, parsed)) {
+          widget.source = blockText.replace(/\n$/, "");
           widget.from = from;
-          widget.to = from + blockText.length;
+          widget.to = to;
           return;
         }
+        const newSource = serializeTableBlockForDoc(blockText, parsed);
         if (!parseGfmTable(newSource)) return;
         const trailing = blockText.endsWith("\n") ? "\n" : "";
         const insert = newSource + trailing;

@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const {
   parseGfmTable,
@@ -92,7 +92,7 @@ function deleteTableBlock(view, widget) {
  * @param {{ headers: string[], aligns: string[], rows: string[][] }} parsed
  */
 function serializeTableBlockForDoc(blockText, parsed) {
-  const body = serializeGfmTable(parsed);
+  const body = serializeGfmTable(parsed, blockText);
   const lines = String(blockText || '')
     .replace(/\r\n/g, '\n')
     .replace(/\n$/, '')
@@ -116,13 +116,14 @@ function syncParsedToDoc(view, widget, parsed) {
   if (from < 0 || to < from || to > view.state.doc.length) return;
   const blockText = view.state.doc.sliceString(from, to);
   const docParsed = parseGfmTableBlock(blockText);
-  const newSource = serializeTableBlockForDoc(blockText, parsed);
-  if (docParsed && tablesEqual(docParsed, parsed) && blockText.trimEnd() === newSource.trimEnd()) {
-    widget.source = newSource;
+  // 单元格没改过就不要写回。否则打开文件时 flush 会把分隔行和 LaTeX 反斜杠规范化掉。
+  if (docParsed && tablesEqual(docParsed, parsed)) {
+    widget.source = blockText.replace(/\n$/, '');
     widget.from = from;
-    widget.to = from + blockText.length;
+    widget.to = to;
     return;
   }
+  const newSource = serializeTableBlockForDoc(blockText, parsed);
   if (!parseGfmTable(newSource)) return;
   const trailing = blockText.endsWith('\n') ? '\n' : '';
   const insert = newSource + trailing;

@@ -276,6 +276,8 @@ stage.addEventListener('dblclick', function (e) { e.stopPropagation(); reset(); 
 ### ❌ 错误
 
 - ❌ `.mda-zoom-stage { will-change: transform; }` → 流程图/图片放大后**全糊**。
+- ❌ 长图仍用 `max-height: 50vh` + `transform: scale` → 715×15594 被压成约 15px 宽，全屏发花。应按设备像素 1:1 排版；高度超过 4096 切 canvas 分片，平移要能走到首尾。
+- ❌ 打开表格后按 `escapeCell` 把每个 `\` 加倍、并把 `|---|` 收成 `| --- |` 写回文档 → `$\alpha$` 变成 `$\\alpha$`。单元格语义没变就不要写回；`\` 只在后面是 `\` 或 `|` 时才转义。
 - ❌ 深色主题下缩放层强制白底 → 浅色字发灰，看起来像糊。
 - ❌ 舞台 `transform: scale(...)` 放大 SVG → 文字栅格化发糊。
 - ❌ 遮罩层 `dblclick` 监听在任意子元素上复位 → 连点 `−` 两次触发复位。

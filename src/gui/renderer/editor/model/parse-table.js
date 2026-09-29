@@ -68,12 +68,28 @@ function splitRow(line) {
 }
 
 function escapeCell(text) {
-  return String(text || '')
-    .replace(/\\/g, '\\\\')
-    .replace(/\|/g, '\\|')
+  // splitRow 只把 \\ 和 \| 当成转义。LaTeX 的 \alpha 不是转义，写回时再把每个 \ 加倍，
+  // 打开文件就会把 $\alpha$ 改成 $\\alpha$。只转义会把下一字符吃掉的那一类。
+  const s = String(text || '')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .replace(/\n/g, ' ');
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const ch = s.charAt(i);
+    if (ch === '|') {
+      out += '\\|';
+      continue;
+    }
+    if (ch === '\\') {
+      const next = i + 1 < s.length ? s.charAt(i + 1) : '';
+      if (next === '\\' || next === '|') out += '\\\\';
+      else out += '\\';
+      continue;
+    }
+    out += ch;
+  }
+  return out;
 }
 
 function isSepRow(line) {
@@ -137,14 +153,44 @@ function formatSepRow(aligns) {
 }
 
 /**
+ * 对齐没变时沿用原文分隔行，避免 |------|----------| 被收成 | --- | --- |。
+ * @param {string} originalText
+ * @param {string[]} aligns
+ * @returns {string | null}
+ */
+function originalSeparatorLine(originalText, aligns) {
+  if (!originalText) return null;
+  const lines = String(originalText)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\n$/, '')
+    .split('\n')
+    .filter(function (l) {
+      return l.trim().length > 0;
+    });
+  let i = 0;
+  if (lines.length && parseTableMetaLine(lines[0])) i = 1;
+  const sep = lines[i + 1];
+  if (!sep || !isSepRow(sep)) return null;
+  const got = splitRow(sep).map(alignOf);
+  if (got.length < aligns.length) return null;
+  for (let c = 0; c < aligns.length; c++) {
+    if ((got[c] || 'left') !== (aligns[c] || 'left')) return null;
+  }
+  return sep;
+}
+
+/**
  * @param {{ headers: string[], aligns: string[], rows: string[][] }} parsed
+ * @param {string} [originalText] 有原文时尽量保住分隔行写法
  * @returns {string}
  */
-function serializeGfmTable(parsed) {
+function serializeGfmTable(parsed, originalText) {
   const headers = parsed.headers || [];
   const aligns = parsed.aligns || [];
   const rows = parsed.rows || [];
-  const lines = [formatRow(headers), formatSepRow(aligns)];
+  const sep = originalSeparatorLine(originalText, aligns) || formatSepRow(aligns);
+  const lines = [formatRow(headers), sep];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i].slice(0, headers.length);
     while (row.length < headers.length) row.push('');

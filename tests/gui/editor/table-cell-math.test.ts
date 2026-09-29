@@ -75,10 +75,30 @@ describe('table cell math serialize', () => {
     expect(parsed).not.toBeNull();
     expect(parsed.rows[0][1]).toContain('\\sqrt{2}');
     expect(parsed.rows[0][1]).toContain('\\dfrac');
-    // escapeCell 往返：单反斜杠写出为双反斜杠，再 parse 还原
+    // LaTeX 的单个反斜杠不是表格转义，写回不得再加倍
     const escaped = escapeCell('$\\sqrt{2}$');
-    expect(escaped).toBe('$\\\\sqrt{2}$');
+    expect(escaped).toBe('$\\sqrt{2}$');
     expect(splitRow('| ' + escaped + ' |')[0]).toBe('$\\sqrt{2}$');
+  });
+
+  test('katex 表格原文往返：分隔行和单个反斜杠都不改', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { parseGfmTable, serializeGfmTable } = require(path.join(
+      __dirname,
+      '../../../src/gui/renderer/editor/model/parse-table.js'
+    ));
+    const src = [
+      '| 类别 | 行内示例 |',
+      '|------|----------|',
+      '| 希腊字母 | $\\alpha,\\beta,\\gamma,\\Delta,\\Omega$ |',
+      '| 上下标 | $x_i^{(n)}$、$e^{-i\\omega t}$ |',
+      '| 分数根号 | $\\sqrt{2}$、$\\dfrac{1}{1+x}$ |',
+      '| 集合 | $A \\cup B$、$\\mathbb{R}^{n}$、$\\emptyset$ |',
+      '| 关系 | $x \\approx y$、$\\forall x\\,\\exists y$ |',
+    ].join('\n');
+    const parsed = parseGfmTable(src);
+    expect(parsed).not.toBeNull();
+    expect(serializeGfmTable(parsed, src)).toBe(src);
   });
 });
 
