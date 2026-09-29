@@ -1,4 +1,4 @@
-// MDA Renderer — Markdown 工作台 GUI
+﻿// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -5932,6 +5932,13 @@
     var scale = 1, tx = 0, ty = 0;
     // SVG：用改 width/height 缩放（矢量重排），避免 transform:scale 在部分 GPU 路径上栅格化发糊
     var isSvgZoom = !!(node && node.tagName && String(node.tagName).toLowerCase() === 'svg');
+    var isImgZoom = !!(node && node.tagName && String(node.tagName).toLowerCase() === 'img');
+    // 尺寸未定时先藏起来，避免长图先按 50vh 画出一帧发花的缩略图
+    if (isImgZoom) node.style.visibility = 'hidden';
+    // 长图第一次布局顶对齐；之后缩放保持视口中心对着同一位置
+    var longSnap = true;
+    var lastLongW = 0;
+    var lastLongH = 0;
     var baseW = 0, baseH = 0;
     if (isSvgZoom) {
       node.classList.add('mda-zoom-svg-fit');
@@ -5975,14 +5982,83 @@
       baseH = rect.height || node.clientHeight || 0;
     }
 
-    // 平移边界：保证内容中心始终留在视口内，避免被拖到不可见区域
+    // 平移边界：普通图保证内容中心留在视口内；长图另按内容尺寸放宽，见 planLongImageLayout
     function clampPan() {
       var maxX = window.innerWidth / 2;
       var maxY = window.innerHeight / 2;
       tx = Math.max(-maxX, Math.min(maxX, tx));
       ty = Math.max(-maxY, Math.min(maxY, ty));
     }
+    function clampAxis(v, max) {
+      return Math.max(-max, Math.min(max, v));
+    }
+    function longPlan() {
+      if (!isImgZoom || !window.MDAZoomImage || !node.naturalWidth) return null;
+      return window.MDAZoomImage.planLongImageLayout({
+        nw: node.naturalWidth,
+        nh: node.naturalHeight,
+        viewportW: window.innerWidth,
+        viewportH: window.innerHeight,
+        dpr: window.devicePixelRatio || 1,
+        scale: scale,
+      });
+    }
+    function paintLongImage(plan) {
+      node.classList.add('mda-zoom-img-fit');
+      node.style.maxWidth = 'none';
+      node.style.maxHeight = 'none';
+      if (plan.useTiles) {
+        var wrap = stage.querySelector('.mda-zoom-tiles');
+        if (!wrap) {
+          wrap = document.createElement('div');
+          wrap.className = 'mda-zoom-tiles';
+          for (var i = 0; i < plan.tiles.length; i++) {
+            var t = plan.tiles[i];
+            var canvas = document.createElement('canvas');
+            canvas.width = t.sw;
+            canvas.height = t.sh;
+            var ctx = canvas.getContext('2d');
+            if (ctx) ctx.drawImage(node, 0, t.sy, t.sw, t.sh, 0, 0, t.sw, t.sh);
+            wrap.appendChild(canvas);
+          }
+          stage.appendChild(wrap);
+          node.style.display = 'none';
+        }
+        var canvases = wrap.querySelectorAll('canvas');
+        for (var j = 0; j < canvases.length; j++) {
+          canvases[j].style.width = plan.cssW + 'px';
+          canvases[j].style.height = (plan.cssHeights[j] || 0) + 'px';
+        }
+      } else {
+        node.style.display = '';
+        node.style.visibility = '';
+        node.style.width = plan.cssW + 'px';
+        node.style.height = (plan.cssHeights[0] || plan.contentH) + 'px';
+      }
+      stage.style.width = plan.contentW + 'px';
+      stage.style.height = plan.contentH + 'px';
+      stage.style.transform = 'none';
+      stage.style.left = tx + 'px';
+      stage.style.top = ty + 'px';
+    }
     function apply() {
+      var plan = longPlan();
+      if (plan) {
+        if (longSnap) {
+          tx = plan.initialTx;
+          ty = plan.initialTy;
+          longSnap = false;
+        } else if (lastLongW > 0 && lastLongH > 0 && window.MDAZoomImage) {
+          tx = window.MDAZoomImage.remapCenteredOffset(tx, lastLongW, plan.contentW);
+          ty = window.MDAZoomImage.remapCenteredOffset(ty, lastLongH, plan.contentH);
+        }
+        tx = clampAxis(tx, plan.maxX);
+        ty = clampAxis(ty, plan.maxY);
+        lastLongW = plan.contentW;
+        lastLongH = plan.contentH;
+        paintLongImage(plan);
+        return;
+      }
       clampPan();
       measureSvgBase();
       if (isSvgZoom && baseW > 0 && baseH > 0) {
@@ -5993,13 +6069,33 @@
         stage.style.left = tx + 'px';
         stage.style.top = ty + 'px';
       } else {
+        if (isImgZoom) node.style.visibility = '';
         stage.style.left = '';
         stage.style.top = '';
         stage.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
       }
     }
     function zoom(factor) { scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale * factor)); apply(); }
-    function reset() { scale = 1; tx = 0; ty = 0; apply(); }
+    function reset() {
+      scale = 1;
+      tx = 0;
+      ty = 0;
+      longSnap = true;
+      lastLongW = 0;
+      lastLongH = 0;
+      apply();
+    }
+
+    if (isImgZoom && !(node.complete && node.naturalWidth)) {
+      node.style.visibility = 'hidden';
+      node.addEventListener('load', function () {
+        longSnap = true;
+        lastLongW = 0;
+        lastLongH = 0;
+        node.style.visibility = '';
+        apply();
+      }, { once: true });
+    }
 
     // 首帧测尺寸后再 apply，保证 1× 已按视口适配
     requestAnimationFrame(function () {

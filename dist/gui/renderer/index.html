@@ -460,6 +460,20 @@
       max-width: none;
       max-height: none;
     }
+    /* 长图按原像素排版，不能再被 50vh 压成一条 */
+    .mda-zoom-stage img.mda-zoom-img-fit {
+      max-width: none;
+      max-height: none;
+    }
+    .mda-zoom-tiles {
+      display: flex;
+      flex-direction: column;
+      line-height: 0;
+      background: #fff;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .mda-zoom-tiles canvas { display: block; flex: 0 0 auto; }
     /* 深色：流程图按 dark 主题渲出（浅色字），缩放层须深色底，否则白底+浅字发灰发糊 */
     [data-theme="dark"] .mda-zoom-stage svg {
       background: #1e1e1e;
@@ -3668,6 +3682,7 @@
   <script src="./editor-assist.js"></script>
   <script src="./outline-panel.js"></script>
   <script src="./doc-coords.js"></script>
+  <script src="./zoom-image.js"></script>
   <script src="./selection-anchor.js"></script>
   <script src="./anchor-highlights.js"></script>
   <script src="./katex-export.js"></script>
