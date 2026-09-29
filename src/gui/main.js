@@ -1,16 +1,13 @@
-﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 const { getLicenseStatus, activateLicense, clearLicense } = require('../pro/license');
-const { checkAiAccess } = require('../pro/feature-gate');
-const { createAiSettingsStore } = require('../pro/ai/settings');
-const { streamChat, completeChat, sanitizeAiError } = require('../pro/ai/provider');
-const {
-  buildContinueMessages,
-  buildCompleteMessages,
-  buildBeautifyMessages,
-} = require('../pro/ai/prompts');
+const { checkAiAccess, isProActive } = require('../pro/feature-gate');
+const { createAiSettingsStore, normalizeProvider } = require('../pro/ai/settings');
+const { AiError, streamChat, listModels, testChat } = require('../pro/ai/provider');
+const { buildActionRequest } = require('../pro/ai/actions');
+const { createAiSessionManager } = require('../pro/ai/session');
 
 const { getRecents, addRecent, clearRecents } = require('./main/recent-files');
 const {
@@ -70,6 +67,29 @@ function isMarkdownPath(filePath) {
   return MD_EXTENSIONS.includes(ext);
 }
 
+/** 购买说明在仓库 docs/ 下，尚未推到 GitHub 时远程链接会 404；优先打开本地文件。 */
+function proActivationDocPath() {
+  const candidates = [
+    path.join(__dirname, '..', '..', 'docs', 'pro-activation.md'),
+    path.join(process.cwd(), 'docs', 'pro-activation.md'),
+  ];
+  return candidates.find((p) => fs.existsSync(p)) || '';
+}
+
+function openProActivationDoc() {
+  const local = proActivationDocPath();
+  if (local) {
+    shell.openPath(local);
+    return;
+  }
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  dialog.showMessageBox(win, {
+    type: 'info',
+    title: t('menuProActivation'),
+    message: t('proActivationOffline'),
+  });
+}
+
 let mainWindow = null;
 let rendererDirty = false;
 /** @type {'off'|'blur'|'interval:30'|'interval:60'} */
@@ -97,8 +117,13 @@ let closeWatchdogTimer = null;
 const CLOSE_WATCHDOG_MS = 8000;
 /** @type {ReturnType<typeof createAiSettingsStore>|null} */
 let aiSettingsStore = null;
-/** @type {AbortController|null} */
-let aiAbortController = null;
+const aiSessions = createAiSessionManager({
+  emit: (sender, event) => {
+    if (sender && !sender.isDestroyed()) sender.send('ai-event', event);
+  },
+});
+/** 获取模型列表 / 检测互斥（NF-22） */
+let aiProbeBusy = false;
 
 function getAiStore() {
   if (!aiSettingsStore) {
@@ -114,11 +139,15 @@ function userData() {
   return app.getPath('userData');
 }
 
-function cancelAiRequest() {
-  if (aiAbortController) {
-    try { aiAbortController.abort(); } catch (_) { /* ignore */ }
-    aiAbortController = null;
-  }
+/** @returns {{ allowed: boolean, reason: string }} */
+function currentAiAccess() {
+  return checkAiAccess(getLicenseStatus(userData()), getAiStore().getPublicSettings());
+}
+
+/** @param {unknown} err */
+function aiErrorResult(err) {
+  const e = err instanceof AiError ? err : new AiError('E_UNKNOWN', '');
+  return { success: false, code: e.code, detail: e.detail || '' };
 }
 
 function sendToRenderer(channel, ...args) {
@@ -305,22 +334,6 @@ function buildMenuTemplate(recents) {
           accelerator: 'CmdOrCtrl+,',
           click: () => sendToRenderer('menu-settings'),
         },
-        { type: 'separator' },
-        {
-          label: t('menuAiContinue'),
-          accelerator: 'CmdOrCtrl+Shift+Enter',
-          click: () => sendToRenderer('menu-ai-continue'),
-        },
-        {
-          label: t('menuAiComplete'),
-          accelerator: 'CmdOrCtrl+Space',
-          click: () => sendToRenderer('menu-ai-complete'),
-        },
-        {
-          label: t('menuAiBeautify'),
-          accelerator: 'CmdOrCtrl+Shift+M',
-          click: () => sendToRenderer('menu-ai-beautify'),
-        },
         {
           label: t('menuLanguage'),
           submenu: [
@@ -355,6 +368,40 @@ function buildMenuTemplate(recents) {
       ],
     },
     {
+      label: t('menuAi'),
+      submenu: [
+        {
+          label: t('menuAiCommandBar'),
+          accelerator: 'CmdOrCtrl+J',
+          click: () => sendToRenderer('menu-ai-action', 'command-bar'),
+        },
+        { type: 'separator' },
+        {
+          label: t('menuAiContinue'),
+          accelerator: 'CmdOrCtrl+Shift+Enter',
+          click: () => sendToRenderer('menu-ai-action', 'continue'),
+        },
+        {
+          label: t('menuAiPolish'),
+          accelerator: 'CmdOrCtrl+Shift+M',
+          click: () => sendToRenderer('menu-ai-action', 'polish'),
+        },
+        {
+          label: t('menuAiExplain'),
+          click: () => sendToRenderer('menu-ai-action', 'explain'),
+        },
+        {
+          label: t('menuAiSummarize'),
+          click: () => sendToRenderer('menu-ai-action', 'summarize'),
+        },
+        { type: 'separator' },
+        {
+          label: t('menuAiSettings'),
+          click: () => sendToRenderer('menu-ai-action', 'settings'),
+        },
+      ],
+    },
+    {
       label: t('menuHelp'),
       submenu: [
         {
@@ -364,11 +411,7 @@ function buildMenuTemplate(recents) {
         },
         {
           label: t('menuProActivation'),
-          click: () => {
-            shell.openExternal(
-              'https://github.com/ShuiYunYueKeeper/mda-l2/blob/main/docs/pro-activation.md',
-            );
-          },
+          click: () => { openProActivationDoc(); },
         },
         {
           label: t('menuCheckUpdate'),
@@ -409,6 +452,11 @@ function registerIpcHandlers() {
     } catch (err) {
       return { success: false, error: err.message };
     }
+  });
+
+  ipcMain.handle('open-pro-activation', async () => {
+    openProActivationDoc();
+    return { success: true };
   });
 
   ipcMain.handle('open-external', async (_event, url) => {
@@ -766,121 +814,88 @@ function registerIpcHandlers() {
 
   ipcMain.handle('check-ai-access', async () => {
     try {
-      const status = getLicenseStatus(userData());
-      const pub = getAiStore().getPublicSettings();
-      return { success: true, value: checkAiAccess(status, pub) };
+      return { success: true, value: currentAiAccess() };
     } catch (err) {
-      return { success: false, error: err.message };
+      return aiErrorResult(err);
     }
   });
 
-  ipcMain.handle('ai-cancel', async () => {
-    cancelAiRequest();
+  // 门禁不通过时直接返回 gate 原因，不发任何网络请求（AC-30）
+  ipcMain.handle('ai-run', async (event, req) => {
+    try {
+      const r = req && typeof req === 'object' ? req : {};
+      const access = currentAiAccess();
+      if (!access.allowed) return { success: false, gate: access.reason };
+      const cfg = getAiStore().resolveRequestConfig({ modelId: r.modelId });
+      if (!cfg.apiKey) return { success: false, gate: 'need_key' };
+      if (!cfg.modelAllowed) return { success: false, code: 'E_MODEL', detail: '' };
+      const prefs = getAiStore().getPublicSettings().prefs;
+      const built = buildActionRequest(r.action, r.payload, prefs);
+      aiSessions.start(event.sender, r.requestId, (signal, onChunk) => streamChat({
+        baseUrl: cfg.baseUrl,
+        apiKey: cfg.apiKey,
+        model: cfg.model,
+        messages: built.messages,
+        temperature: built.temperature,
+        signal,
+        onChunk,
+      }));
+      return { success: true, value: { requestId: r.requestId, kind: built.kind, model: cfg.model } };
+    } catch (err) {
+      return aiErrorResult(err);
+    }
+  });
+
+  ipcMain.handle('ai-cancel', async (_event, requestId) => {
+    if (typeof requestId === 'string' && requestId) aiSessions.cancel(requestId);
     return { success: true };
   });
 
-  ipcMain.handle('ai-continue', async (event, payload) => {
+  /**
+   * 设置页探测：允许用未保存的表单值（provider / baseUrl / apiKey）覆盖已存配置。
+   * @param {any} o
+   */
+  function resolveProbeConfig(o) {
+    const opts = o && typeof o === 'object' ? o : {};
+    const store = getAiStore();
+    const pub = store.getPublicSettings();
+    const providerId = opts.provider ? normalizeProvider(opts.provider) : pub.provider;
+    const bucket = pub.buckets[providerId];
+    const typedKey = typeof opts.apiKey === 'string' ? opts.apiKey.trim() : '';
+    return {
+      baseUrl: typeof opts.baseUrl === 'string' && opts.baseUrl.trim() ? opts.baseUrl.trim() : bucket.baseUrl,
+      apiKey: typedKey || store.getApiKeyPlain(providerId),
+      model: typeof opts.modelId === 'string' && opts.modelId.trim() ? opts.modelId.trim() : bucket.defaultModelId,
+      providerEnabled: opts.providerEnabled != null ? !!opts.providerEnabled : pub.providerEnabled,
+    };
+  }
+
+  /** @param {(cfg: ReturnType<typeof resolveProbeConfig>) => Promise<any>} fn */
+  async function runProbe(o, fn) {
+    if (!isProActive(getLicenseStatus(userData()))) return { success: false, gate: 'upgrade' };
+    const cfg = resolveProbeConfig(o);
+    if (!cfg.providerEnabled) return { success: false, gate: 'provider_off' };
+    if (!cfg.apiKey) return { success: false, gate: 'need_key' };
+    if (aiProbeBusy) return { success: false, code: 'E_BUSY', detail: '' };
+    aiProbeBusy = true;
     try {
-      const status = getLicenseStatus(userData());
-      const store = getAiStore();
-      const pub = store.getPublicSettings();
-      const access = checkAiAccess(status, pub);
-      if (!access.allowed) {
-        return { success: false, error: access.reason === 'upgrade' ? '需要 Pro 激活' : '请先配置 API Key' };
-      }
-      const apiKey = store.getApiKeyPlain();
-      if (!apiKey) return { success: false, error: '请先配置 API Key' };
-
-      cancelAiRequest();
-      aiAbortController = new AbortController();
-      const messages = buildContinueMessages(payload || {});
-      const wc = event.sender;
-      // 异步流式；先返回已启动，chunk 经事件回传
-      streamChat({
-        baseUrl: pub.baseUrl,
-        apiKey,
-        model: pub.model,
-        messages,
-        signal: aiAbortController.signal,
-        onChunk: (text) => {
-          if (!wc.isDestroyed()) wc.send('ai-chunk', text);
-        },
-        onDone: (full) => {
-          aiAbortController = null;
-          if (!wc.isDestroyed()) wc.send('ai-done', full || '');
-        },
-        onError: (message) => {
-          aiAbortController = null;
-          if (!wc.isDestroyed()) wc.send('ai-error', sanitizeAiError({ message }));
-        },
-      }).catch(() => { /* onError 已处理 */ });
-      return { success: true, started: true };
+      return { success: true, value: await fn(cfg) };
     } catch (err) {
-      return { success: false, error: sanitizeAiError(err) };
+      return aiErrorResult(err);
+    } finally {
+      aiProbeBusy = false;
     }
-  });
+  }
 
-  ipcMain.handle('ai-complete', async (_event, payload) => {
-    try {
-      const status = getLicenseStatus(userData());
-      const store = getAiStore();
-      const pub = store.getPublicSettings();
-      const access = checkAiAccess(status, pub);
-      if (!access.allowed) {
-        return { success: false, error: access.reason === 'upgrade' ? '需要 Pro 激活' : '请先配置 API Key' };
-      }
-      const apiKey = store.getApiKeyPlain();
-      if (!apiKey) return { success: false, error: '请先配置 API Key' };
+  ipcMain.handle('fetch-ai-models', async (_event, o) => runProbe(o, async (cfg) => ({
+    models: await listModels({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey }),
+  })));
 
-      cancelAiRequest();
-      aiAbortController = new AbortController();
-      const text = await completeChat({
-        baseUrl: pub.baseUrl,
-        apiKey,
-        model: pub.model,
-        messages: buildCompleteMessages(payload || {}),
-        signal: aiAbortController.signal,
-        temperature: 0.2,
-      });
-      aiAbortController = null;
-      return { success: true, value: { text: String(text || '').trim() } };
-    } catch (err) {
-      aiAbortController = null;
-      if (err && err.canceled) return { success: false, error: '已取消' };
-      return { success: false, error: sanitizeAiError(err) };
-    }
-  });
-
-  ipcMain.handle('ai-beautify', async (_event, payload) => {
-    try {
-      const status = getLicenseStatus(userData());
-      const store = getAiStore();
-      const pub = store.getPublicSettings();
-      const access = checkAiAccess(status, pub);
-      if (!access.allowed) {
-        return { success: false, error: access.reason === 'upgrade' ? '需要 Pro 激活' : '请先配置 API Key' };
-      }
-      const apiKey = store.getApiKeyPlain();
-      if (!apiKey) return { success: false, error: '请先配置 API Key' };
-
-      cancelAiRequest();
-      aiAbortController = new AbortController();
-      const text = await completeChat({
-        baseUrl: pub.baseUrl,
-        apiKey,
-        model: pub.model,
-        messages: buildBeautifyMessages(payload || {}),
-        signal: aiAbortController.signal,
-        temperature: 0.3,
-      });
-      aiAbortController = null;
-      return { success: true, value: { text: String(text || '').trim() } };
-    } catch (err) {
-      aiAbortController = null;
-      if (err && err.canceled) return { success: false, error: '已取消' };
-      return { success: false, error: sanitizeAiError(err) };
-    }
-  });
+  ipcMain.handle('test-ai-model', async (_event, o) => runProbe(o, async (cfg) => {
+    if (!cfg.model) throw new AiError('E_MODEL', '');
+    const r = await testChat({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model });
+    return { model: cfg.model, latencyMs: r.latencyMs };
+  }));
 
   ipcMain.handle('show-open-folder-dialog', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -1203,6 +1218,7 @@ function createWindow(initialFile) {
     sendToRenderer('app-close-request');
   });
   mainWindow.on('closed', () => {
+    aiSessions.cancelAll();
     clearCloseWatchdog();
     mainWindow = null;
     allowClose = false;

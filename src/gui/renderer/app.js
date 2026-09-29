@@ -1,4 +1,4 @@
-﻿// MDA Renderer — Markdown 工作台 GUI
+// MDA Renderer — Markdown 工作台 GUI
 // 复用 @mda/core（经 preload 暴露）完成解析/渲染/写入；本层负责交互与视图。
 
 (function () {
@@ -46,7 +46,6 @@
   var outlineJumpLock = false;
   var outlineScrollRaf = null;
   var assist = null;
-  var aiPanel = null;
   var settingsOpenPane = 'general';
   var selAnchor = null;
   var anchorHl = null;
@@ -462,6 +461,16 @@
           updateToolbar();
         },
         t: uiT,
+        ai: api.aiRun ? {
+          api: api,
+          toast: showToast,
+          confirm: uiConfirm,
+          openSettings: function () { showSettingsDialog('ai'); },
+          getFileName: aiFileName,
+          renderMarkdown: function (text) { return api.renderMarkdown(text); },
+          canAnnotate: function () { return !!currentFilePath; },
+          onAiToAnnotation: onAiToAnnotation,
+        } : null,
         copyText: function (text) {
           if (api.copyToClipboard) api.copyToClipboard(text);
         },
@@ -1169,16 +1178,9 @@
     if (api.onMenuSettings) {
       api.onMenuSettings(function () { showSettingsDialog('general'); });
     }
-    if (api.onMenuAiContinue) {
-      api.onMenuAiContinue(function () { if (aiPanel) aiPanel.runContinue(); });
+    if (api.onMenuAiAction) {
+      api.onMenuAiAction(function (action) { runAiMenuAction(action); });
     }
-    if (api.onMenuAiComplete) {
-      api.onMenuAiComplete(function () { if (aiPanel) aiPanel.runComplete(); });
-    }
-    if (api.onMenuAiBeautify) {
-      api.onMenuAiBeautify(function () { if (aiPanel) aiPanel.runBeautify(); });
-    }
-    setupAiPanel();
     api.onAppCloseRequest(function () {
       if (document.getElementById('settings-dialog')) {
         if (api.abortClose) api.abortClose();
@@ -1466,91 +1468,30 @@
       );
     }
     setupEditorAssistKeys();
-    setupAiEditorKeys();
   }
 
-  function setupAiPanel() {
-    if (!window.MDAAiPanel || !api.checkAiAccess) return;
-    aiPanel = window.MDAAiPanel.create({
-      api: api,
-      getEditor: function () { return editorEl; },
-      getFileName: function () {
-        if (!currentFilePath) return uiT('untitled');
-        var parts = String(currentFilePath).split(/[/\\]/);
-        return parts[parts.length - 1] || currentFilePath;
-      },
-      toast: showToast,
-      alert: uiAlert,
-      openSettings: function (pane) { showSettingsDialog(pane || 'pro'); },
-      applyInsert: applyAiInsert,
-    });
+  /** 菜单「AI」各项：设置直开面板；其余交 CM6 编辑器里的 AI 控制器（2.0 源码模式不支持）。 */
+  function runAiMenuAction(action) {
+    if (action === 'settings') { showSettingsDialog('ai'); return; }
+    if (document.querySelector('.modal-overlay')) return;
+    if (!isCm6Ready() || !cm6Editor || typeof cm6Editor.aiCommand !== 'function') {
+      showToast(uiT('aiNeedCm6'));
+      return;
+    }
+    cm6Editor.aiCommand(action);
   }
 
-  function setupAiEditorKeys() {
-    if (!editorEl) return;
-    editorEl.addEventListener('keydown', function (e) {
-      if (document.querySelector('.modal-overlay') || (aiPanel && aiPanel.isOpen())) return;
-      var mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
-      // Ctrl+Space 补全（不与 editor-assist 冲突）
-      if (!e.shiftKey && (e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar')) {
-        e.preventDefault();
-        if (aiPanel) aiPanel.runComplete();
-        return;
-      }
-      if (e.shiftKey && e.key === 'Enter') {
-        e.preventDefault();
-        if (aiPanel) aiPanel.runContinue();
-        return;
-      }
-      if (e.shiftKey && (e.key === 'm' || e.key === 'M')) {
-        e.preventDefault();
-        if (aiPanel) aiPanel.runBeautify();
-      }
-    });
+  function aiFileName() {
+    if (!currentFilePath) return uiT('untitled');
+    var parts = String(currentFilePath).split(/[/\\]/);
+    return parts[parts.length - 1] || currentFilePath;
   }
 
-  function applyAiInsert(text, mode, range) {
-    if (!editorEl || text == null) return;
-    var insert = String(text);
-    var start = editorEl.selectionStart;
-    var end = editorEl.selectionEnd;
-    var val = editorEl.value;
-    var result;
-    if (mode === 'replaceDocument') {
-      result = { value: insert, selectionStart: insert.length, selectionEnd: insert.length };
-    } else if (mode === 'replaceRange' && range) {
-      result = {
-        value: val.slice(0, range.start) + insert + val.slice(range.end),
-        selectionStart: range.start,
-        selectionEnd: range.start + insert.length,
-      };
-    } else if (mode === 'replaceSelection') {
-      result = {
-        value: val.slice(0, start) + insert + val.slice(end),
-        selectionStart: start,
-        selectionEnd: start + insert.length,
-      };
-    } else {
-      // insert at cursor / after selection
-      result = {
-        value: val.slice(0, end) + insert + val.slice(end),
-        selectionStart: end + insert.length,
-        selectionEnd: end + insert.length,
-      };
-    }
-    if (assist && assist.applyEdit) {
-      assist.applyEdit(editorEl, result);
-    } else {
-      editorEl.value = result.value;
-      editorEl.selectionStart = result.selectionStart;
-      editorEl.selectionEnd = result.selectionEnd;
-      editorEl.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-    if (!editorVisible) {
-      // 展开编辑栏以便用户看到插入结果（toggleEditor 无参数，勿在已展开时调用）
-      toggleEditor();
-    }
+  /** 解释卡「转为批注」：预填新增批注对话框，由用户确认后才走 core writer。 */
+  function onAiToAnnotation(req) {
+    if (!req || !req.content) return;
+    var line = req.line || 1;
+    showEditDialog('add', { content: req.content, tags: ['ai'], level: 'info' }, line, req.anchor ? anchorToDisk(req.anchor) : null);
   }
 
   /**
@@ -9187,7 +9128,7 @@
       if (initialPane) switchSettingsPane(existing, initialPane);
       return;
     }
-    settingsOpenPane = initialPane === 'pro' ? 'pro' : 'general';
+    settingsOpenPane = normalizeSettingsPane(initialPane);
     // 锁定菜单动作 / 窗口关闭（不卸载菜单栏）；构建失败必须解锁，否则菜单永久无响应
     if (api.setSettingsModal) api.setSettingsModal(true);
     var overlay = null;
@@ -9252,7 +9193,10 @@
       var pasteTargetHint = formatPasteAssetsTargetHint(pasteMode, pasteCustom);
 
       var proHtml = (window.MDASettingsAi && window.MDASettingsAi.buildProPaneHtml)
-        ? window.MDASettingsAi.buildProPaneHtml({ license: lic, ai: ai })
+        ? window.MDASettingsAi.buildProPaneHtml({ license: lic })
+        : '';
+      var aiHtml = (window.MDASettingsAi && window.MDASettingsAi.buildAiPaneHtml)
+        ? window.MDASettingsAi.buildAiPaneHtml({ license: lic, ai: ai })
         : '';
 
       overlay = document.createElement('div');
@@ -9269,6 +9213,11 @@
             '<button type="button" class="mda-settings-nav-item" data-pane="general">' +
               escHtml(uiT('settingsNavGeneral')) +
             '</button>' +
+            (aiHtml
+              ? '<button type="button" class="mda-settings-nav-item" data-pane="ai">' +
+                  escHtml(uiT('settingsNavAi')) +
+                '</button>'
+              : '') +
             '<button type="button" class="mda-settings-nav-item" data-pane="pro">' +
               escHtml(uiT('settingsNavPro')) +
             '</button>' +
@@ -9349,6 +9298,7 @@
                 '</div>' +
               '</div>' +
             '</div>' +
+            aiHtml +
             proHtml +
             '<div class="mda-settings-footer">' +
               '<button type="button" id="settings-cancel" class="mda-settings-btn">' + escHtml(uiT('settingsCancel')) + '</button>' +
@@ -9375,9 +9325,11 @@
       if (window.MDASettingsAi && window.MDASettingsAi.wireProPane) {
         window.MDASettingsAi.wireProPane(overlay, {
           api: api,
+          ai: ai,
           toast: showToast,
           alert: uiAlert,
           confirm: uiConfirm,
+          switchPane: function (id) { switchSettingsPane(overlay, id); },
         });
       }
       switchSettingsPane(overlay, settingsOpenPane);
@@ -9451,6 +9403,9 @@
             if (aiPatch && api.saveAiSettings) {
               return api.saveAiSettings(aiPatch).then(function (r) {
                 if (!r || !r.success) throw new Error('ai');
+                if (window.MDASettingsAi.applySavedAiSettings) {
+                  window.MDASettingsAi.applySavedAiSettings(overlay, r.value);
+                }
               });
             }
           })
@@ -9466,6 +9421,9 @@
         if (settingsOpenPane === 'pro') {
           var keyInput = overlay.querySelector('#settings-license-key');
           if (keyInput) keyInput.focus();
+        } else if (settingsOpenPane === 'ai') {
+          var provSel = overlay.querySelector('#settings-ai-provider');
+          if (provSel) provSel.focus();
         } else if (sel) {
           sel.focus();
         }
@@ -9480,8 +9438,13 @@
     }
   }
 
+  function normalizeSettingsPane(pane) {
+    return pane === 'pro' || pane === 'ai' ? pane : 'general';
+  }
+
   function switchSettingsPane(overlay, pane) {
-    var id = pane === 'pro' ? 'pro' : 'general';
+    var id = normalizeSettingsPane(pane);
+    if (!overlay.querySelector('[data-pane-panel="' + id + '"]')) id = 'general';
     settingsOpenPane = id;
     overlay.querySelectorAll('.mda-settings-nav-item').forEach(function (btn) {
       btn.classList.toggle('active', btn.getAttribute('data-pane') === id);

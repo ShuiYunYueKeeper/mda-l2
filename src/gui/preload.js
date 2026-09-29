@@ -97,6 +97,7 @@ function findMalformedAnnotations(text) {
 contextBridge.exposeInMainWorld('mdaAPI', {
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  openProActivation: () => ipcRenderer.invoke('open-pro-activation'),
   showItemInFolder: (filePath) => ipcRenderer.invoke('show-item-in-folder', filePath),
   renameFile: (oldPath, newPath, opts) =>
     ipcRenderer.invoke('rename-file', {
@@ -206,14 +207,8 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   onMenuSettings: (callback) => {
     ipcRenderer.on('menu-settings', () => callback());
   },
-  onMenuAiContinue: (callback) => {
-    ipcRenderer.on('menu-ai-continue', () => callback());
-  },
-  onMenuAiComplete: (callback) => {
-    ipcRenderer.on('menu-ai-complete', () => callback());
-  },
-  onMenuAiBeautify: (callback) => {
-    ipcRenderer.on('menu-ai-beautify', () => callback());
+  onMenuAiAction: (callback) => {
+    ipcRenderer.on('menu-ai-action', (_e, action) => callback(action));
   },
   getLicenseStatus: () => ipcRenderer.invoke('get-license-status'),
   activateLicense: (key) => ipcRenderer.invoke('activate-license', key),
@@ -221,24 +216,14 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   getAiSettings: () => ipcRenderer.invoke('get-ai-settings'),
   saveAiSettings: (patch) => ipcRenderer.invoke('save-ai-settings', patch || {}),
   checkAiAccess: () => ipcRenderer.invoke('check-ai-access'),
-  aiContinue: (payload) => ipcRenderer.invoke('ai-continue', payload || {}),
-  aiComplete: (payload) => ipcRenderer.invoke('ai-complete', payload || {}),
-  aiBeautify: (payload) => ipcRenderer.invoke('ai-beautify', payload || {}),
-  aiCancel: () => ipcRenderer.invoke('ai-cancel'),
-  onAiChunk: (callback) => {
-    const handler = (_e, text) => callback(text);
-    ipcRenderer.on('ai-chunk', handler);
-    return () => ipcRenderer.removeListener('ai-chunk', handler);
-  },
-  onAiDone: (callback) => {
-    const handler = (_e, text) => callback(text);
-    ipcRenderer.on('ai-done', handler);
-    return () => ipcRenderer.removeListener('ai-done', handler);
-  },
-  onAiError: (callback) => {
-    const handler = (_e, message) => callback(message);
-    ipcRenderer.on('ai-error', handler);
-    return () => ipcRenderer.removeListener('ai-error', handler);
+  fetchAiModels: (opts) => ipcRenderer.invoke('fetch-ai-models', opts || {}),
+  testAiModel: (opts) => ipcRenderer.invoke('test-ai-model', opts || {}),
+  aiRun: (req) => ipcRenderer.invoke('ai-run', req || {}),
+  aiCancel: (requestId) => ipcRenderer.invoke('ai-cancel', requestId),
+  onAiEvent: (callback) => {
+    const handler = (_e, event) => callback(event);
+    ipcRenderer.on('ai-event', handler);
+    return () => ipcRenderer.removeListener('ai-event', handler);
   },
   getAutosavePref: () => ipcRenderer.invoke('get-autosave-pref'),
   setAutosavePref: (mode) => ipcRenderer.invoke('set-autosave-pref', mode),

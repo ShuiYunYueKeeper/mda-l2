@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -1079,65 +1079,107 @@
       background: var(--accent); color: #fff; filter: brightness(1.08);
     }
 
-    /* Pro AI 面板 */
-    .mda-ai-overlay {
-      position: fixed; inset: 0; z-index: 12000;
-      background: rgba(0,0,0,0.35);
-      display: flex; align-items: center; justify-content: center;
-      padding: 24px;
-    }
-    .mda-ai-overlay-popup { background: rgba(0,0,0,0.25); }
+    /* AI 浮层（editor/ai/panel.js）：挂 body，不进 CM6 contentDOM */
+    .mda-ai-scope { background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 2px; }
     .mda-ai-panel {
-      width: min(640px, 100%);
-      max-height: min(80vh, 720px);
+      position: fixed; z-index: 11000; left: 0; top: 0; width: 560px;
+      max-height: min(60vh, 560px);
       background: var(--bg); color: var(--text);
       border: 1px solid var(--border); border-radius: 10px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+      box-shadow: 0 10px 32px rgba(0,0,0,0.18);
       display: flex; flex-direction: column; overflow: hidden;
+      font-size: 13px;
     }
-    .mda-ai-panel-wide { width: min(920px, 100%); }
-    .mda-ai-popup {
-      width: min(480px, 100%);
-      background: var(--bg); color: var(--text);
-      border: 1px solid var(--border); border-radius: 10px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
-      padding: 12px 14px;
-    }
-    .mda-ai-popup-label { font-weight: 650; margin-bottom: 8px; }
-    .mda-ai-panel-head, .mda-ai-panel-foot {
+    .mda-ai-panel[hidden] { display: none; }
+    .mda-ai-head {
       display: flex; align-items: center; gap: 8px;
-      padding: 10px 14px; border-bottom: 1px solid var(--border);
+      padding: 8px 10px 6px 12px;
     }
-    .mda-ai-panel-foot {
-      border-bottom: 0; border-top: 1px solid var(--border); justify-content: flex-end;
+    .mda-ai-badge {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+      color: #fff; background: var(--accent); border-radius: 4px; padding: 1px 6px;
     }
-    .mda-ai-panel-head strong { flex: 1; }
-    .mda-ai-stream {
-      margin: 0; padding: 12px 14px; overflow: auto; flex: 1;
-      white-space: pre-wrap; word-break: break-word;
-      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-      font-size: 13px; line-height: 1.5; max-height: 48vh;
-      background: var(--bg-secondary, var(--border-light));
+    .mda-ai-title { font-weight: 600; }
+    .mda-ai-scope-label { color: var(--text-muted); font-size: 12px; }
+    .mda-ai-spacer { flex: 1; }
+    .mda-ai-model { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: 12px; }
+    .mda-ai-model select, .mda-ai-select {
+      font-size: 12px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 5px;
+      background: var(--bg); color: var(--text);
     }
-    textarea.mda-ai-edit {
-      width: 100%; min-height: 220px; border: 1px solid var(--border);
-      border-radius: 6px; resize: vertical; color: inherit; background: var(--bg);
+    .mda-ai-close, .mda-ai-icon-btn {
+      border: 0; background: transparent; color: var(--text-muted); cursor: pointer;
+      font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 4px;
     }
-    .mda-ai-diff {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-      padding: 12px 14px; overflow: auto;
+    .mda-ai-close:hover, .mda-ai-icon-btn:hover:not(:disabled) { background: var(--border-light); color: var(--text); }
+    .mda-ai-icon-btn:disabled { opacity: 0.35; cursor: default; }
+    .mda-ai-input-row { padding: 2px 12px 8px; }
+    .mda-ai-input {
+      width: 100%; box-sizing: border-box; padding: 7px 10px;
+      border: 1px solid var(--border); border-radius: 6px;
+      background: var(--bg); color: var(--text); font-size: 13px; outline: none;
     }
-    .mda-ai-diff-label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+    .mda-ai-input:focus { border-color: var(--accent); }
+    .mda-ai-input:disabled { opacity: 0.55; }
+    .mda-ai-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 0 12px 10px; }
+    .mda-ai-sep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
     .mda-ai-btn {
       border: 1px solid var(--border); background: var(--bg);
-      color: var(--text); border-radius: 6px; padding: 6px 12px; cursor: pointer;
+      color: var(--text); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px;
     }
     .mda-ai-btn:hover:not(:disabled) { background: var(--border-light); }
-    .mda-ai-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .mda-ai-btn-primary {
-      background: var(--accent); border-color: var(--accent); color: #fff;
+    .mda-ai-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .mda-ai-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .mda-ai-btn-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+    .mda-ai-status { display: flex; align-items: center; gap: 8px; padding: 0 12px 6px; color: var(--text-muted); }
+    .mda-ai-spinner {
+      width: 12px; height: 12px; border-radius: 50%;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      animation: mda-ai-spin 0.8s linear infinite;
     }
-    .mda-ai-hint { flex: 1; font-size: 12px; color: var(--text-muted); }
+    @keyframes mda-ai-spin { to { transform: rotate(360deg); } }
+    .mda-ai-stream, .mda-ai-result {
+      margin: 0 12px 8px; padding: 8px 10px; overflow: auto; min-height: 2em; max-height: 36vh;
+      white-space: pre-wrap; word-break: break-word; line-height: 1.6;
+      background: var(--bg-secondary, var(--border-light)); border-radius: 6px;
+      font-family: inherit; font-size: 13px;
+    }
+    .mda-ai-read { white-space: normal; }
+    .mda-ai-read > :first-child { margin-top: 0; }
+    .mda-ai-read > :last-child { margin-bottom: 0; }
+    .mda-ai-del { color: var(--danger, #c0392b); text-decoration: line-through; background: color-mix(in srgb, var(--danger, #c0392b) 10%, transparent); }
+    .mda-ai-ins { color: var(--success, #1e8e3e); background: color-mix(in srgb, var(--success, #1e8e3e) 12%, transparent); }
+    .mda-ai-note { margin: 0 12px 8px; font-size: 12px; color: var(--text-muted); }
+    .mda-ai-note.is-warn { color: var(--warning, #b7791f); }
+    .mda-ai-note.is-error { color: var(--danger, #c0392b); font-size: 13px; }
+    .mda-ai-foot {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      padding: 8px 12px; border-top: 1px solid var(--border-light);
+    }
+    .mda-ai-versions { display: inline-flex; align-items: center; gap: 2px; color: var(--text-muted); font-size: 12px; }
+    .mda-ai-hint { font-size: 12px; color: var(--text-muted); }
+    .mda-context-menu .mda-menu-item.mda-menu-item-disabled { opacity: 0.45; cursor: default; }
+    .mda-context-menu .mda-menu-item.mda-menu-item-disabled:hover { background: transparent; color: inherit; }
+    /* 设置 → AI */
+    .mda-ai-settings-notice {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+      padding: 8px 12px; border-radius: 6px; font-size: 13px;
+      background: color-mix(in srgb, var(--accent) 10%, transparent);
+    }
+    .mda-ai-settings-notice[hidden] { display: none; }
+    .mda-ai-settings-notice span { flex: 1; }
+    .mda-ai-model-list {
+      border: 1px solid var(--border-light); border-radius: 6px; max-height: 220px; overflow: auto;
+    }
+    .mda-ai-model-list > .mda-settings-row-desc { padding: 10px 12px; }
+    .mda-ai-model-row { display: flex; align-items: center; gap: 8px; padding: 5px 10px; }
+    .mda-ai-model-row + .mda-ai-model-row { border-top: 1px solid var(--border-light); }
+    .mda-ai-model-name { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+    .mda-ai-model-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mda-ai-model-src { font-size: 11px; color: var(--text-muted); }
+    .mda-ai-model-del { min-width: 0; padding: 3px 8px; font-size: 12px; }
+    #settings-ai-probe-msg.is-error { color: var(--danger, #c0392b); }
+    #settings-ai-probe-msg.is-ok { color: var(--success, #1e8e3e); }
 
     .filter-box b { color: var(--text); }
     .filter-box label { color: var(--text); }
@@ -1460,6 +1502,7 @@
     .mda-cm6-host .mda-cm-em { font-style: italic; }
     .mda-cm6-host .mda-cm-strike { text-decoration-line: line-through; opacity: 0.85; }
     .mda-cm6-host .mda-cm-underline { text-decoration-line: underline; }
+    /* 两样式同段时不能互相覆盖 text-decoration */
     .mda-cm6-host .mda-cm-underline.mda-cm-strike,
     .mda-cm6-host .mda-cm-strike.mda-cm-underline {
       text-decoration-line: underline line-through;
@@ -3629,7 +3672,6 @@
   <script src="./anchor-highlights.js"></script>
   <script src="./katex-export.js"></script>
   <script src="./settings-ai.js"></script>
-  <script src="./ai-panel.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

@@ -888,32 +888,46 @@ function pasteCmSelection(view) {
   view.focus();
 }
 
-function aiSoon(liveOpts) {
-  if (typeof liveOpts.onBlockMenuSoon === 'function') {
-    liveOpts.onBlockMenuSoon();
-    return;
-  }
-  if (typeof liveOpts.toast === 'function' && typeof liveOpts.t === 'function') {
-    liveOpts.toast(liveOpts.t('blockMenuSoon'));
-  }
+/**
+ * @param {*} liveOpts
+ * @param {'edit'|'ask'|'write'} entry
+ * @param {{ from: number, to: number }} [range]
+ */
+function aiEntry(liveOpts, entry, range) {
+  if (typeof liveOpts.onAiEntry === 'function') liveOpts.onAiEntry(entry, range);
 }
 
 /**
  * @param {string} label
  * @param {string} icon
  * @param {() => void} onClick
+ * @param {{ disabled?: boolean, title?: string }} [o]
  */
-function addActionRow(menu, label, icon, onClick) {
+function addActionRow(menu, label, icon, onClick, o) {
   const row = document.createElement('div');
-  row.className = 'mda-menu-item mda-menu-item-soon';
+  const disabled = !!(o && o.disabled);
+  row.className = 'mda-menu-item' + (disabled ? ' mda-menu-item-disabled' : '');
   row.setAttribute('role', 'menuitem');
+  if (disabled) row.setAttribute('aria-disabled', 'true');
+  if (o && o.title) row.title = o.title;
   row.innerHTML = menuItemInner(label, icon);
   row.addEventListener('click', function (ev) {
     ev.stopPropagation();
+    if (disabled) return;
     onClick();
     closeContextMenu();
   });
   menu.appendChild(row);
+}
+
+/** widget（表格格 / 代码块）内的选区不在 CM6 文档里：以 widget 所在块为范围，仅支持解释 */
+function widgetRangeOf(view, root) {
+  try {
+    const pos = view.posAtDOM(root, 0);
+    return { from: pos, to: pos };
+  } catch (_) {
+    return undefined;
+  }
 }
 
 /**
@@ -1053,12 +1067,15 @@ function openContextMenu(view, x, y, ctx, liveOpts) {
         }
       }
     );
-    addActionRow(menu, t('blockMenuAiEdit'), 'ai', function () {
-      aiSoon(liveOpts);
-    });
-    addActionRow(menu, t('contextMenuAskAi'), 'askAi', function () {
-      aiSoon(liveOpts);
-    });
+    if (typeof liveOpts.onAiEntry === 'function') {
+      addActionRow(menu, t('blockMenuAiEdit'), 'ai', function () {}, {
+        disabled: true,
+        title: t('aiScopeWidget'),
+      });
+      addActionRow(menu, t('contextMenuAskAi'), 'askAi', function () {
+        aiEntry(liveOpts, 'ask', widgetRangeOf(view, root));
+      });
+    }
   } else if (ctx.type === 'dom-collapsed') {
     const root = ctx.root;
     addClipboardRows(
@@ -1092,12 +1109,14 @@ function openContextMenu(view, x, y, ctx, liveOpts) {
       }
     );
     addSelectionAnnoRow(menu, t, view, liveOpts);
-    addActionRow(menu, t('blockMenuAiEdit'), 'ai', function () {
-      aiSoon(liveOpts);
-    });
-    addActionRow(menu, t('contextMenuAskAi'), 'askAi', function () {
-      aiSoon(liveOpts);
-    });
+    if (typeof liveOpts.onAiEntry === 'function') {
+      addActionRow(menu, t('blockMenuAiEdit'), 'ai', function () {
+        aiEntry(liveOpts, 'edit');
+      });
+      addActionRow(menu, t('contextMenuAskAi'), 'askAi', function () {
+        aiEntry(liveOpts, 'ask');
+      });
+    }
   } else if (ctx.type === 'blank') {
     addClipboardRows(
       menu,
@@ -1109,9 +1128,11 @@ function openContextMenu(view, x, y, ctx, liveOpts) {
         pasteCmSelection(view);
       }
     );
-    addActionRow(menu, t('contextMenuAiWrite'), 'ai', function () {
-      aiSoon(liveOpts);
-    });
+    if (typeof liveOpts.onAiEntry === 'function') {
+      addActionRow(menu, t('contextMenuAiWrite'), 'ai', function () {
+        aiEntry(liveOpts, 'write');
+      });
+    }
   } else {
     addClipboardRows(
       menu,

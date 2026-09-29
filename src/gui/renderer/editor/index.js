@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MDA 3.0 编辑面入口（M8）。
  * 默认启用预览编辑；`localStorage mda-cm6=0` 后重启 GUI 可回退 2.0 源码编辑面。
  */
@@ -23,6 +23,7 @@ const { MODE_PREVIEW, MODE_SOURCE } = require('./mode');
 const { SearchSession } = require('./state/search-session');
 const editorConfig = require('./config');
 const { isEnabledByPref, setEnabledPref } = require('./pref');
+const { describeAiFailure } = require('./ai/errors');
 const { sliceSelectionForClipboard } = require('./syntax-clipboard');
 
 module.exports = {
@@ -61,6 +62,7 @@ module.exports = {
   setEnabledPref: setEnabledPref,
   resolveAnnoPanelContext: annoAddContext.resolveCm6AnnoPanelContext,
   canUseSelectionAnnoForRange: annoAddContext.canUseSelectionAnnoForRange,
+  describeAiFailure: describeAiFailure,
   blockKindAtPos: annoAddContext.blockKindAtPos,
   isBlockOnlyKind: annoAddContext.isBlockOnlyKind,
   blockAnnotationLine: annoAddContext.blockAnnotationLine,

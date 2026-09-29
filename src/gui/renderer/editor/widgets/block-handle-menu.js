@@ -1,6 +1,6 @@
 /**
  * 块左上角手柄菜单（AI / 插入 / 复制 / 剪切 / 删除）。
- * 部分 AI 与插入项为占位入口，后续补齐能力。
+ * 部分插入项为占位入口，后续补齐能力。
  */
 'use strict';
 
@@ -49,17 +49,24 @@ const COPY_AS_ITEMS = [
 ];
 
 const AI_ITEMS = [
-  { id: 'continue', key: 'blockMenuAiContinue', icon: 'continue', soon: true },
-  { id: 'companion', key: 'blockMenuAiCompanion', icon: 'companion', soon: true },
-  { id: 'polish', key: 'blockMenuAiPolish', icon: 'polish', soon: true },
-  { id: 'expand', key: 'blockMenuAiExpand', icon: 'expand', soon: true },
-  { id: 'shorten', key: 'blockMenuAiShorten', icon: 'shorten', soon: true },
-  { id: 'grammar', key: 'blockMenuAiGrammar', icon: 'grammar', soon: true },
-  { id: 'explain', key: 'blockMenuAiExplain', icon: 'explain', soon: true },
-  { id: 'translate', key: 'blockMenuAiTranslate', icon: 'translate', soon: true },
-  { id: 'summarize', key: 'blockMenuAiSummarize', icon: 'summarize', soon: true },
-  { id: 'more', key: 'blockMenuAiMore', icon: 'more', soon: true },
+  { id: 'continue', key: 'blockMenuAiContinue', icon: 'continue' },
+  { id: 'polish', key: 'blockMenuAiPolish', icon: 'polish' },
+  { id: 'expand', key: 'blockMenuAiExpand', icon: 'expand' },
+  { id: 'shorten', key: 'blockMenuAiShorten', icon: 'shorten' },
+  { id: 'grammar', key: 'blockMenuAiGrammar', icon: 'grammar' },
+  { id: 'explain', key: 'blockMenuAiExplain', icon: 'explain' },
+  { id: 'translate', key: 'blockMenuAiTranslate', icon: 'translate' },
+  { id: 'summarize', key: 'blockMenuAiSummarize', icon: 'summarize' },
+  { id: 'more', key: 'blockMenuAiMore', icon: 'more' },
 ];
+
+/** 表格 / 代码 / 流程图 / 图片等块内容只允许解释（改写结果无法安全写回块语法） */
+function aiItemsForBlock(blockKind) {
+  if (!isBlockOnlyKind(blockKind)) return AI_ITEMS;
+  return AI_ITEMS.map(function (it) {
+    return it.id === 'explain' ? it : Object.assign({}, it, { disabled: true });
+  });
+}
 
 function clearSubTimers() {
   window.clearTimeout(subOpenTimer);
@@ -230,7 +237,7 @@ function buildInsertSubmenu(t, onPick) {
 
 /**
  * @param {(key: string) => string} t
- * @param {{ id: string, key: string, icon?: string, soon?: boolean }[]} items
+ * @param {{ id: string, key: string, icon?: string, soon?: boolean, disabled?: boolean }[]} items
  * @param {(id: string, soon: boolean) => void} onPick
  */
 function buildSubmenu(t, items, onPick) {
@@ -240,10 +247,15 @@ function buildSubmenu(t, items, onPick) {
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
     const row = document.createElement('div');
-    row.className = 'mda-menu-item' + (it.soon ? ' mda-menu-item-soon' : '');
+    row.className = 'mda-menu-item' + (it.soon ? ' mda-menu-item-soon' : '') +
+      (it.disabled ? ' mda-menu-item-disabled' : '');
     row.setAttribute('role', 'menuitem');
     row.dataset.act = it.id;
     row.dataset.soon = it.soon ? '1' : '0';
+    if (it.disabled) {
+      row.setAttribute('aria-disabled', 'true');
+      row.title = uiT('aiScopeWidget', t);
+    }
     row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
     sub.appendChild(row);
   }
@@ -251,6 +263,7 @@ function buildSubmenu(t, items, onPick) {
     const item = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
     if (!item) return;
     e.stopPropagation();
+    if (item.getAttribute('aria-disabled') === 'true') return;
     onPick(item.dataset.act || '', item.dataset.soon === '1');
     closeBlockHandleMenu();
   });
@@ -359,7 +372,7 @@ function showBlockHandleMenu(ctx) {
   }
 
   addSubRow(menu, t, 'blockMenuAiEdit', 'ai', function () {
-    return buildSubmenu(t, AI_ITEMS, function (id, soon) {
+    return buildSubmenu(t, aiItemsForBlock(ctx.blockKind), function (id, soon) {
       if (soon) {
         if (typeof handlers.onSoon === 'function') handlers.onSoon('ai', id);
         return;

@@ -196,6 +196,15 @@ deleteFile(filePath) -> {success} | {success:false,error}
 copyFileToDir(src, destDir, workspaceRoot, {conflict}) -> {success, filePath} | {success:false,error,conflict,...}
 moveFileToDir(src, destDir, workspaceRoot, {conflict}) -> {success, filePath} | {success:false,error,conflict,noop}
 fileExists(filePath, workspaceRoot) -> boolean
+// AI（M9，Pro）：Key 只在 main，渲染层永远只见 hasKey；失败统一 {success:false, gate?|code, detail}
+getLicenseStatus() / activateLicense(key) / clearLicense()
+getAiSettings() -> {success, value:{provider, providerEnabled, baseUrl, hasKey, models, defaultModelId, buckets, prefs, providerList}}
+saveAiSettings({provider?, providerEnabled?, prefs?, buckets?:{id:{baseUrl?, models?, defaultModelId?, apiKey?, clearKey?}}})
+checkAiAccess() -> {success, value:{allowed, reason: ok|upgrade|provider_off|need_key|no_model|default_disabled}}
+fetchAiModels({provider?, baseUrl?, apiKey?, providerEnabled?}) / testAiModel({..., modelId?}) // 设置页探测，可用未保存表单值
+aiRun({requestId, action, payload, modelId?}) -> {success, value:{requestId, kind, model}} | {success:false, gate|code}
+aiCancel(requestId) / onAiEvent(cb({type:chunk|done|canceled|error, requestId, text, code?, detail?})) -> unsubscribe
+onMenuAiAction(cb(action)) // command-bar | continue | polish | explain | summarize | settings
 ```
 渲染层只能通过该桥与外界交互；新增能力一律在 preload 暴露，禁止把 `fs`/`require` 直接交给渲染层。
 
@@ -340,7 +349,13 @@ npm test               # jest（含覆盖率）
 
 4o. **【GUI CM6 右键菜单 / widget 选区】**：`context-menu.js` 在 **document 捕获** `mousedown`（button 2）快照 DOM/CM6 选区；`context-selection.js` 负责命中/保留/恢复；菜单打开期 `widget-context-menu-guard.js` 暂缓代码块 blur 提交。表格 `table-chrome.js` 的 `onDocPointer`：**右键（button 2）直接 return**；`clearTableInteraction` **仅**清除落在**本表** `tableWrap` 内的 DOM 选区，**禁止**全局 `removeAllRanges`（多表文档靠后的代码块/单元格右键易被误清）。代码块 hljs→plain 压平仅在 `contextmenu` 阶段用逻辑偏移恢复，**禁止**在 mousedown 快照前压平。
 4p. **【GUI 粘贴图片落盘】**：`main/clipboard-image.js` + `main/paste-assets.js` + `main/paste-prefs.js`；粘贴写入 `paste-{sha256前16位}{ext}`，**同字节内容去重复用**。**不**自动删除未引用的 `paste-*`（撤销/保存不联动删盘）；需手动清理。保存目录可在「视图 → 设置」配置：`doc`（文档同目录 `./assets`）、`workspace`（工作区根 `assets/`，默认）、`custom`（自定义文件夹）；偏好存 `userData/mda-settings.json`。选图对话框插入只写相对路径、不落盘 paste 文件。
-
+4q. **【GUI AI（M9）】批注隔离 + 浮层不进 contentDOM + 采纳单事务**：设计见 `docs/AI交互设计.md`。
+ - **批注永不外发**：渲染层 `editor/ai/model/ai-context.js` 发送前剔除围栏外 `@anno` 行，main `pro/ai/actions.js` 用宽松 ANNO_ISH 再兜底一次（IPC 入参不可信）；回来的输出 `ai-output.cleanAiOutput` 同样剔除。改写范围内含批注时 `ai-apply.planReplace` **按段落把结果分回各正文片段、批注行原位不动**，段数对不上直接拒绝（提示「插入到下方」），**禁止**把批注行交给模型再写回。
+ - **改写范围 > 8000 字直接拒绝**（`E_CONTEXT`）：发送会被截断，采纳时就会用截断结果覆盖整段原文。只读动作（解释/总结）截断无害。
+ - **面板是 `document.body` 上的 fixed 浮层**（`editor/ai/panel.js`），定位用 `lineBlockAt`（高度图，大块 widget 下方仍可靠），**勿**改成 CM6 块 widget / tooltip 塞进 contentDOM——会改变正文几何、触碰 §8.13 / §4l3 的点击落点链路。范围底色只是 `Decoration.mark`（纯背景，不改排版）。
+ - **采纳 = 一次 dispatch**，`userEvent: 'ai.apply'` + `aiApplyAnnotation`：**不得**用 `input.*` 事件名（`auto-link.js` 把所有 `input` 当键入，会对 AI 输出结尾的 URL 自动包链接）。改写类会话 `guard` 开启：范围被其他编辑触及即判过期，禁止再原位替换。
+ - **单会话**：命令条 / 生成 / 卡片共用一个浮层，新入口先取消旧请求；main 侧按 `requestId` 路由，同 id 被顶替后旧请求事件一律丢弃（`pro/ai/session.js`）。
+ - **入口**：顶层菜单「AI」（`Ctrl+J` 命令条、`Ctrl+Shift+Enter` 续写、`Ctrl+Shift+M` 润色）经 `menu-ai-action` → `cm6Editor.aiCommand`；工具栏 AI 钮、右键「AI 帮我改 / 问问 AI / AI 帮我写」、块手柄 AI 子菜单经 `mount.js` 注入的 `opts.onAiEntry` / `opts.onBlockMenuAi`。快捷键**只**靠菜单 accelerator，别在 CM6 keymap 再绑一遍（会双触发）。表格/代码等块内容只允许「解释」，其余置灰。2.0 源码模式不支持 AI（toast 提示）。
 5. **【GUI·Electron】data-line 映射**：preload 仅对 `level===0` 的块级 token 注入 `data-line = map[0]+1`，其值等于段落 `startLine`，GUI 据此做「段落↔批注」双向定位与色条。
 6. **【GUI·Electron】运行前提**：preload `require('../core')` 需 `sandbox:false`；GUI 运行前必须 `npm run build`（否则 `dist/core` 不存在）。CM6 编辑器是**打包产物** `dist/gui/renderer/editor.bundle.js`，改 `src/gui/renderer/editor/**` 后只 `copy-gui` 无效，必须走 `npm run build`（含 `build:editor` → `scripts/bundle-editor.js`）。
 6b. **【GUI·Electron】单实例锁会让「重启」变成假重启**：`main.js` 有 `requestSingleInstanceLock()`，已开着 MDA 时再 `npm run gui` 会让**新进程直接退出**，仅把旧窗口（旧代码）激活并打开文件——改了代码却「问题依旧」多半是这个。验证改动生效须**先关掉所有 MDA 窗口**再启动，或 `Ctrl+R` 重载渲染进程。Playwright e2e 同理：`electron.launch` 必须带独立 `--user-data-dir=<临时目录>`，否则本机开着的 MDA 会让被测实例秒退（报 `Target page, context or browser has been closed`）。
@@ -394,6 +409,9 @@ npm test               # jest（含覆盖率）
 | GUI CM6 预览紧致选区 / widget 内拖选 | `renderer/editor/view/tight-selection.js`、`widget-editable-guard.js` |
 | GUI CM6 右键菜单 / 选区快照 | `renderer/editor/context-menu.js`、`context-selection.js`、`widget-context-menu-guard.js`、`link-edit-popover.js` |
 | GUI 文件/欢迎/大纲 | `renderer/welcome.js`、`file-sidebar.js`、`outline-panel.js` |
+| AI main 侧（Provider / 会话 / 动作 / 设置 / 门禁） | `src/pro/ai/provider.js`、`session.js`、`actions.js`、`prompts.js`、`settings.js`、`src/pro/feature-gate.js` |
+| AI 渲染侧（CM6 控制器 / 浮层 / 纯函数） | `renderer/editor/ai/controller.js`、`panel.js`、`state.js`、`errors.js`、`ai/model/ai-context.js`、`ai-output.js`、`ai-diff.js`、`ai-apply.js` |
+| AI 设置面板 | `renderer/settings-ai.js`（Pro=License；AI=Provider/Key/模型/偏好） |
 | 设计文档 | `docs/P0..P3-*.md`、`docs/README.md` |
 | 里程碑验收 | `docs/M2–M4-acceptance-checklist.md` |
 | AI 协作记录 | `docs/prompts/*.md` |

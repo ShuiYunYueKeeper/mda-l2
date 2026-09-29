@@ -1021,6 +1021,10 @@ function createEditorToolbar(host, view, opts) {
       skipNextToolbarClick = false;
       return;
     }
+    if (cmd === 'ai' && typeof opts.onAi === 'function') {
+      opts.onAi();
+      return;
+    }
     if (target.getAttribute('data-soon') === '1') {
       handleSoon(cmd);
       return;

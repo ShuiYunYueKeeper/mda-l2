@@ -43,6 +43,8 @@ const { adjustCaretForKeyboardNav } = require('./caret-syntax-adjust');
 const { createEditorToolbar } = require('./toolbar');
 const { createFormatKeymap } = require('./format-commands');
 const { createPendingInlineFormatExtension } = require('./state/pending-inline-format');
+const { createAiExtension } = require('./ai/state');
+const { createAiController } = require('./ai/controller');
 
 function stripBom(text) {
   if (typeof text !== 'string') return { text: '', bom: '' };
@@ -90,6 +92,22 @@ function createEditor(opts) {
   let pendingWidgetFind = null;
   /** @type {number} */
   let tableFindRaf = 0;
+  /** setState 重建扩展时沿用同一个 holder，controller 只建一次 */
+  const aiHolder = { ctrl: /** @type {any} */ (null) };
+  const aiEnabled = !!(opts.ai && opts.ai.api);
+  if (aiEnabled) {
+    // live-preview / 右键菜单 / 工具栏都从 opts 取回调；须在首次 buildExtensions 之前挂上
+    opts.onAiEntry = function (entry, range) {
+      const c = aiHolder.ctrl;
+      if (!c) return;
+      if (entry === 'write') c.openCommandBar({ generate: true });
+      else if (entry === 'ask') c.runDirect('explain', null, range);
+      else c.openCommandBar();
+    };
+    opts.onBlockMenuAi = function (id, block) {
+      if (aiHolder.ctrl) aiHolder.ctrl.runBlockAction(id, block);
+    };
+  }
 
   const updateListener = EditorView.updateListener.of((update) => {
     if (update.docChanged && typeof opts.onChange === 'function') {
@@ -147,7 +165,8 @@ function createEditor(opts) {
         outlineFlashExtension(),
         findHighlightExtension(),
       ])
-      .concat(extensionsForMode(currentMode, comps, opts));
+      .concat(extensionsForMode(currentMode, comps, opts))
+      .concat(aiEnabled ? createAiExtension(aiHolder) : []);
     if (opts.placeholder && currentMode === MODE_SOURCE) {
       list.push(placeholder(opts.placeholder));
     }
@@ -161,6 +180,13 @@ function createEditor(opts) {
     }),
     parent: editorParent,
   });
+
+  if (aiEnabled) {
+    aiHolder.ctrl = createAiController(view, Object.assign({}, opts.ai, {
+      t: opts.t,
+      copyText: opts.ai.copyText || opts.copyText,
+    }));
+  }
 
   if (opts.toolbar !== false) {
     toolbarApi = createEditorToolbar(toolbarMount, view, {
@@ -176,6 +202,7 @@ function createEditor(opts) {
       getPanelVisible: opts.getPanelVisible,
       onPickImageInsert: opts.onPickImageInsert,
       onSoon: opts.onBlockMenuSoon,
+      onAi: aiEnabled ? function () { opts.onAiEntry('edit'); } : null,
       onCopy: opts.onCopy,
       onCut: opts.onCut,
       onPaste: opts.onPaste,
@@ -492,7 +519,13 @@ function createEditor(opts) {
       }
       if (toolbarApi && typeof toolbarApi.destroy === 'function') toolbarApi.destroy();
       toolbarApi = null;
+      if (aiHolder.ctrl) aiHolder.ctrl.destroy();
+      aiHolder.ctrl = null;
       view.destroy();
+    },
+    /** 菜单「AI」：command-bar / continue / polish / explain / summarize */
+    aiCommand: function (action) {
+      if (aiHolder.ctrl) aiHolder.ctrl.command(action);
     },
     refreshToolbar: function () {
       if (toolbarApi) {

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * License / feature-gate 单元测试（纯 Node，不依赖 Electron）。
  */
 import * as path from 'path';
@@ -89,12 +89,36 @@ describe('pro/feature-gate', () => {
     expect(r).toEqual({ allowed: false, reason: 'need_key' });
   });
 
-  test('Pro with key → ok', () => {
-    const r = gate.checkAiAccess(
-      { isPro: true, valid: true, reason: 'ok' },
-      { hasKey: true },
-    );
+  const pro = { isPro: true, valid: true, reason: 'ok' };
+  const model = (id: string, enabled = true) => ({ id, enabled });
+
+  test('Pro with key + enabled default model → ok', () => {
+    const r = gate.checkAiAccess(pro, { hasKey: true, models: [model('m1')], defaultModelId: 'm1' });
     expect(r).toEqual({ allowed: true, reason: 'ok' });
+  });
+
+  test('provider disabled → provider_off (checked before key)', () => {
+    const r = gate.checkAiAccess(pro, { providerEnabled: false, hasKey: false });
+    expect(r.reason).toBe('provider_off');
+  });
+
+  test('no enabled model → no_model', () => {
+    const r = gate.checkAiAccess(pro, { hasKey: true, models: [model('m1', false)], defaultModelId: '' });
+    expect(r.reason).toBe('no_model');
+  });
+
+  test('default model disabled → default_disabled', () => {
+    const r = gate.checkAiAccess(pro, {
+      hasKey: true,
+      models: [model('m1', false), model('m2')],
+      defaultModelId: 'm1',
+    });
+    expect(r.reason).toBe('default_disabled');
+  });
+
+  test('Free wins over every other reason', () => {
+    const r = gate.checkAiAccess({ isPro: false, valid: false }, { providerEnabled: false });
+    expect(r.reason).toBe('upgrade');
   });
 });
 

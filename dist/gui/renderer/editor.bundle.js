@@ -48799,17 +48799,22 @@ var MDAEditorBundle = (() => {
         { id: "image", key: "blockMenuCopyAsImage", icon: "copyAsImage" }
       ];
       var AI_ITEMS = [
-        { id: "continue", key: "blockMenuAiContinue", icon: "continue", soon: true },
-        { id: "companion", key: "blockMenuAiCompanion", icon: "companion", soon: true },
-        { id: "polish", key: "blockMenuAiPolish", icon: "polish", soon: true },
-        { id: "expand", key: "blockMenuAiExpand", icon: "expand", soon: true },
-        { id: "shorten", key: "blockMenuAiShorten", icon: "shorten", soon: true },
-        { id: "grammar", key: "blockMenuAiGrammar", icon: "grammar", soon: true },
-        { id: "explain", key: "blockMenuAiExplain", icon: "explain", soon: true },
-        { id: "translate", key: "blockMenuAiTranslate", icon: "translate", soon: true },
-        { id: "summarize", key: "blockMenuAiSummarize", icon: "summarize", soon: true },
-        { id: "more", key: "blockMenuAiMore", icon: "more", soon: true }
+        { id: "continue", key: "blockMenuAiContinue", icon: "continue" },
+        { id: "polish", key: "blockMenuAiPolish", icon: "polish" },
+        { id: "expand", key: "blockMenuAiExpand", icon: "expand" },
+        { id: "shorten", key: "blockMenuAiShorten", icon: "shorten" },
+        { id: "grammar", key: "blockMenuAiGrammar", icon: "grammar" },
+        { id: "explain", key: "blockMenuAiExplain", icon: "explain" },
+        { id: "translate", key: "blockMenuAiTranslate", icon: "translate" },
+        { id: "summarize", key: "blockMenuAiSummarize", icon: "summarize" },
+        { id: "more", key: "blockMenuAiMore", icon: "more" }
       ];
+      function aiItemsForBlock(blockKind) {
+        if (!isBlockOnlyKind(blockKind)) return AI_ITEMS;
+        return AI_ITEMS.map(function(it) {
+          return it.id === "explain" ? it : Object.assign({}, it, { disabled: true });
+        });
+      }
       function clearSubTimers() {
         window.clearTimeout(subOpenTimer);
         window.clearTimeout(subCloseTimer);
@@ -48943,10 +48948,14 @@ var MDAEditorBundle = (() => {
         for (let i = 0; i < items.length; i++) {
           const it = items[i];
           const row = document.createElement("div");
-          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "");
+          row.className = "mda-menu-item" + (it.soon ? " mda-menu-item-soon" : "") + (it.disabled ? " mda-menu-item-disabled" : "");
           row.setAttribute("role", "menuitem");
           row.dataset.act = it.id;
           row.dataset.soon = it.soon ? "1" : "0";
+          if (it.disabled) {
+            row.setAttribute("aria-disabled", "true");
+            row.title = uiT("aiScopeWidget", t);
+          }
           row.innerHTML = menuItemInner(uiT(it.key, t), it.icon);
           sub.appendChild(row);
         }
@@ -48954,6 +48963,7 @@ var MDAEditorBundle = (() => {
           const item = e.target && e.target.closest ? e.target.closest("[data-act]") : null;
           if (!item) return;
           e.stopPropagation();
+          if (item.getAttribute("aria-disabled") === "true") return;
           onPick(item.dataset.act || "", item.dataset.soon === "1");
           closeBlockHandleMenu();
         });
@@ -49029,7 +49039,7 @@ var MDAEditorBundle = (() => {
           menu.appendChild(row);
         }
         addSubRow(menu, t, "blockMenuAiEdit", "ai", function() {
-          return buildSubmenu(t, AI_ITEMS, function(id, soon) {
+          return buildSubmenu(t, aiItemsForBlock(ctx.blockKind), function(id, soon) {
             if (soon) {
               if (typeof handlers.onSoon === "function") handlers.onSoon("ai", id);
               return;
@@ -63557,26 +63567,32 @@ var MDAEditorBundle = (() => {
         }
         view.focus();
       }
-      function aiSoon(liveOpts) {
-        if (typeof liveOpts.onBlockMenuSoon === "function") {
-          liveOpts.onBlockMenuSoon();
-          return;
-        }
-        if (typeof liveOpts.toast === "function" && typeof liveOpts.t === "function") {
-          liveOpts.toast(liveOpts.t("blockMenuSoon"));
-        }
+      function aiEntry(liveOpts, entry, range) {
+        if (typeof liveOpts.onAiEntry === "function") liveOpts.onAiEntry(entry, range);
       }
-      function addActionRow(menu, label, icon, onClick) {
+      function addActionRow(menu, label, icon, onClick, o) {
         const row = document.createElement("div");
-        row.className = "mda-menu-item mda-menu-item-soon";
+        const disabled = !!(o && o.disabled);
+        row.className = "mda-menu-item" + (disabled ? " mda-menu-item-disabled" : "");
         row.setAttribute("role", "menuitem");
+        if (disabled) row.setAttribute("aria-disabled", "true");
+        if (o && o.title) row.title = o.title;
         row.innerHTML = menuItemInner(label, icon);
         row.addEventListener("click", function(ev) {
           ev.stopPropagation();
+          if (disabled) return;
           onClick();
           closeContextMenu();
         });
         menu.appendChild(row);
+      }
+      function widgetRangeOf(view, root) {
+        try {
+          const pos = view.posAtDOM(root, 0);
+          return { from: pos, to: pos };
+        } catch (_) {
+          return void 0;
+        }
       }
       function openContextMenu(view, x, y, ctx, liveOpts) {
         const pending = pendingMenuSelection;
@@ -63701,12 +63717,16 @@ var MDAEditorBundle = (() => {
               }
             }
           );
-          addActionRow(menu, t("blockMenuAiEdit"), "ai", function() {
-            aiSoon(liveOpts);
-          });
-          addActionRow(menu, t("contextMenuAskAi"), "askAi", function() {
-            aiSoon(liveOpts);
-          });
+          if (typeof liveOpts.onAiEntry === "function") {
+            addActionRow(menu, t("blockMenuAiEdit"), "ai", function() {
+            }, {
+              disabled: true,
+              title: t("aiScopeWidget")
+            });
+            addActionRow(menu, t("contextMenuAskAi"), "askAi", function() {
+              aiEntry(liveOpts, "ask", widgetRangeOf(view, root));
+            });
+          }
         } else if (ctx.type === "dom-collapsed") {
           const root = ctx.root;
           addClipboardRows(
@@ -63743,12 +63763,14 @@ var MDAEditorBundle = (() => {
             }
           );
           addSelectionAnnoRow(menu, t, view, liveOpts);
-          addActionRow(menu, t("blockMenuAiEdit"), "ai", function() {
-            aiSoon(liveOpts);
-          });
-          addActionRow(menu, t("contextMenuAskAi"), "askAi", function() {
-            aiSoon(liveOpts);
-          });
+          if (typeof liveOpts.onAiEntry === "function") {
+            addActionRow(menu, t("blockMenuAiEdit"), "ai", function() {
+              aiEntry(liveOpts, "edit");
+            });
+            addActionRow(menu, t("contextMenuAskAi"), "askAi", function() {
+              aiEntry(liveOpts, "ask");
+            });
+          }
         } else if (ctx.type === "blank") {
           addClipboardRows(
             menu,
@@ -63762,9 +63784,11 @@ var MDAEditorBundle = (() => {
               pasteCmSelection(view);
             }
           );
-          addActionRow(menu, t("contextMenuAiWrite"), "ai", function() {
-            aiSoon(liveOpts);
-          });
+          if (typeof liveOpts.onAiEntry === "function") {
+            addActionRow(menu, t("contextMenuAiWrite"), "ai", function() {
+              aiEntry(liveOpts, "write");
+            });
+          }
         } else {
           addClipboardRows(
             menu,
@@ -69271,6 +69295,10 @@ var MDAEditorBundle = (() => {
             skipNextToolbarClick = false;
             return;
           }
+          if (cmd === "ai" && typeof opts.onAi === "function") {
+            opts.onAi();
+            return;
+          }
           if (target.getAttribute("data-soon") === "1") {
             handleSoon(cmd);
             return;
@@ -69375,6 +69403,1497 @@ var MDAEditorBundle = (() => {
     }
   });
 
+  // src/gui/renderer/editor/ai/state.js
+  var require_state = __commonJS({
+    "src/gui/renderer/editor/ai/state.js"(exports, module) {
+      "use strict";
+      var { StateField, StateEffect, Annotation, Prec } = require_dist2();
+      var { EditorView, Decoration, keymap } = require_dist4();
+      var aiApplyAnnotation = Annotation.define();
+      var setAiSession = StateEffect.define();
+      var clearAiSession = StateEffect.define();
+      var setAiHighlight = StateEffect.define();
+      var scopeMark = Decoration.mark({ class: "mda-ai-scope" });
+      var aiSessionField = StateField.define({
+        create() {
+          return (
+            /** @type {AiSessionRange|null} */
+            null
+          );
+        },
+        update(value, tr) {
+          let v = value;
+          if (v && tr.docChanged) {
+            const touched = v.guard && !tr.annotation(aiApplyAnnotation) && tr.changes.touchesRange(v.from, v.to);
+            const from = tr.changes.mapPos(v.from, -1);
+            const to = Math.max(from, tr.changes.mapPos(v.to, 1));
+            v = Object.assign({}, v, { from, to, stale: v.stale || !!touched });
+          }
+          for (const e of tr.effects) {
+            if (e.is(setAiSession)) v = Object.assign({ stale: false }, e.value);
+            else if (e.is(clearAiSession)) {
+              if (v && (e.value == null || e.value === v.id)) v = null;
+            } else if (e.is(setAiHighlight) && v) {
+              v = Object.assign({}, v, { highlight: !!e.value });
+            }
+          }
+          return v;
+        },
+        provide(field) {
+          return EditorView.decorations.from(field, function(v) {
+            if (!v || !v.highlight || v.from >= v.to) return Decoration.none;
+            return Decoration.set([scopeMark.range(v.from, v.to)]);
+          });
+        }
+      });
+      function createAiExtension(holder) {
+        return [
+          aiSessionField,
+          Prec.highest(keymap.of([
+            {
+              key: "Escape",
+              run: function() {
+                return !!(holder.ctrl && holder.ctrl.onEscape());
+              }
+            },
+            {
+              key: "Alt-Enter",
+              run: function() {
+                return !!(holder.ctrl && holder.ctrl.onAccept());
+              }
+            }
+          ])),
+          EditorView.updateListener.of(function(update) {
+            if (holder.ctrl) holder.ctrl.onViewUpdate(update);
+          })
+        ];
+      }
+      module.exports = {
+        aiApplyAnnotation,
+        setAiSession,
+        clearAiSession,
+        setAiHighlight,
+        aiSessionField,
+        createAiExtension
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/ai/model/ai-context.js
+  var require_ai_context = __commonJS({
+    "src/gui/renderer/editor/ai/model/ai-context.js"(exports, module) {
+      "use strict";
+      var { findAnnotationHideRanges } = require_anno_lines();
+      var { buildCodeFenceMask } = require_parse_math();
+      var { blockKindAtPos, isBlockOnlyKind, canUseSelectionAnnoForRange } = require_anno_add_context();
+      var LIMITS = { before: 6e3, after: 1500, scope: 8e3 };
+      function splitLines(text) {
+        const rows = [];
+        let start = 0;
+        for (let i = 0; i <= text.length; i++) {
+          if (i === text.length || text.charCodeAt(i) === 10) {
+            rows.push({ from: start, to: i, text: text.slice(start, i) });
+            start = i + 1;
+          }
+        }
+        return rows;
+      }
+      function lineIndexAt(rows, pos) {
+        let lo = 0;
+        let hi = rows.length - 1;
+        while (lo < hi) {
+          const mid = lo + hi + 1 >> 1;
+          if (rows[mid].from <= pos) lo = mid;
+          else hi = mid - 1;
+        }
+        return lo;
+      }
+      function isBlank(s) {
+        return !String(s || "").trim();
+      }
+      function annoRanges(text) {
+        return findAnnotationHideRanges(text).map((r) => ({ from: r.from, to: r.to }));
+      }
+      function stripAnnoInRange(text, from, to, ranges) {
+        const list = ranges || annoRanges(text);
+        let out = "";
+        let p = from;
+        for (const r of list) {
+          if (r.to <= from || r.from >= to) continue;
+          const a = Math.max(from, r.from);
+          if (a > p) out += text.slice(p, a);
+          p = Math.max(p, Math.min(to, r.to));
+        }
+        if (p < to) out += text.slice(p, to);
+        return out;
+      }
+      function fenceBlocks(rows) {
+        const blocks = [];
+        let open = null;
+        for (let i = 0; i < rows.length; i++) {
+          if (!open) {
+            const m = rows[i].text.match(/^ {0,3}(`{3,}|~{3,})/);
+            if (m) open = { start: i, ch: m[1][0], len: m[1].length };
+          } else {
+            const c = rows[i].text.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+            if (c && c[1][0] === open.ch && c[1].length >= open.len) {
+              blocks.push({ start: open.start, end: i });
+              open = null;
+            }
+          }
+        }
+        if (open) blocks.push({ start: open.start, end: rows.length - 1 });
+        return blocks;
+      }
+      function blockAround(text, pos) {
+        const rows = splitLines(text);
+        const idx = lineIndexAt(rows, pos);
+        const fence = buildCodeFenceMask(rows.map((r) => r.text));
+        if (fence[idx]) {
+          const blk = fenceBlocks(rows).find((b3) => idx >= b3.start && idx <= b3.end);
+          const a2 = blk ? blk.start : idx;
+          const b2 = blk ? blk.end : idx;
+          return { from: rows[a2].from, to: rows[b2].to, kind: blockKindAtPos(text, pos) };
+        }
+        if (/^\s*#{1,6}(?:\s|$)/.test(rows[idx].text)) {
+          return { from: rows[idx].from, to: rows[idx].to, kind: "heading" };
+        }
+        if (isBlank(rows[idx].text)) {
+          return { from: rows[idx].from, to: rows[idx].to, kind: "blank" };
+        }
+        let a = idx;
+        let b = idx;
+        while (a > 0 && !isBlank(rows[a - 1].text) && !fence[a - 1] && !/^\s*#{1,6}(?:\s|$)/.test(rows[a - 1].text)) a--;
+        while (b < rows.length - 1 && !isBlank(rows[b + 1].text) && !fence[b + 1] && !/^\s*#{1,6}(?:\s|$)/.test(rows[b + 1].text)) b++;
+        return { from: rows[a].from, to: rows[b].to, kind: blockKindAtPos(text, pos) };
+      }
+      function resolveAiScope(text, sel, kind) {
+        const len = text.length;
+        const from0 = Math.max(0, Math.min(sel.from, len));
+        const to0 = Math.max(from0, Math.min(sel.to, len));
+        if (kind === "generate") {
+          const pos = to0;
+          return { ok: true, from: pos, to: pos, inline: false, source: "cursor", scopeText: "", hasAnno: false };
+        }
+        let from;
+        let to;
+        let inline = false;
+        let source;
+        if (from0 < to0) {
+          source = "selection";
+          if (kind === "rewrite" && !canUseSelectionAnnoForRange(text, from0, to0)) {
+            return { ok: false, reason: "widget" };
+          }
+          const rows = splitLines(text);
+          const a = lineIndexAt(rows, from0);
+          const b = lineIndexAt(rows, Math.max(from0, to0 - 1));
+          if (a === b) {
+            const row = rows[a];
+            const lead = row.text.length - row.text.replace(/^\s+/, "").length;
+            const trail = row.text.replace(/\s+$/, "").length;
+            const coversLine = from0 <= row.from + lead && to0 >= row.from + trail;
+            if (coversLine) {
+              from = row.from;
+              to = row.to;
+            } else {
+              from = from0;
+              to = to0;
+              inline = true;
+            }
+          } else {
+            from = rows[a].from;
+            to = rows[b].to;
+          }
+        } else {
+          source = "block";
+          const blk = blockAround(text, from0);
+          if (blk.kind === "blank") return { ok: false, reason: "empty" };
+          if (isBlockOnlyKind(blk.kind)) {
+            if (kind === "rewrite") return { ok: false, reason: "widget" };
+            if (blk.kind !== "code" && blk.kind !== "table" && blk.kind !== "math" && blk.kind !== "mermaid") {
+              return { ok: false, reason: "widget" };
+            }
+          }
+          from = blk.from;
+          to = blk.to;
+        }
+        const ranges = annoRanges(text);
+        const hasAnno = ranges.some((r) => r.from < to && r.to > from);
+        const scopeText = stripAnnoInRange(text, from, to, ranges);
+        if (isBlank(text.slice(from, to))) return { ok: false, reason: "empty" };
+        if (isBlank(scopeText)) return { ok: false, reason: "anno-only" };
+        return { ok: true, from, to, inline, source, scopeText, hasAnno };
+      }
+      function headingPathAt(text, pos) {
+        const rows = splitLines(text.slice(0, pos));
+        const fence = buildCodeFenceMask(rows.map((r) => r.text));
+        const stack = [];
+        for (let i = 0; i < rows.length; i++) {
+          if (fence[i]) continue;
+          const m = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(rows[i].text);
+          if (!m) continue;
+          const level = m[1].length;
+          while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
+          stack.push({ level, title: m[2].replace(/[*_`~]/g, "").slice(0, 80) });
+        }
+        return stack.map((s) => s.title);
+      }
+      function buildAiPayload(text, scope, kind, meta) {
+        const payload = {
+          fileName: meta && meta.fileName || "",
+          headingPath: headingPathAt(text, scope.from)
+        };
+        if (kind === "generate") {
+          const ranges = annoRanges(text);
+          const before = stripAnnoInRange(text, 0, scope.from, ranges);
+          const after = stripAnnoInRange(text, scope.to, text.length, ranges);
+          payload.before = before.length > LIMITS.before ? before.slice(before.length - LIMITS.before) : before;
+          payload.after = after.slice(0, LIMITS.after);
+          return payload;
+        }
+        payload.scope = scope.scopeText.slice(0, LIMITS.scope);
+        payload.inline = !!scope.inline;
+        return payload;
+      }
+      module.exports = {
+        LIMITS,
+        splitLines,
+        annoRanges,
+        stripAnnoInRange,
+        blockAround,
+        resolveAiScope,
+        headingPathAt,
+        buildAiPayload
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/ai/model/ai-output.js
+  var require_ai_output = __commonJS({
+    "src/gui/renderer/editor/ai/model/ai-output.js"(exports, module) {
+      "use strict";
+      var { findAnnotationHideRanges } = require_anno_lines();
+      var WRAP_FENCE_RE = /^\s*(`{3,}|~{3,})[ \t]*(?:markdown|md)?[ \t]*\n([\s\S]*?)\n[ \t]*\1[ \t]*\s*$/i;
+      var PREAMBLE_RE = /^(?:以下是|下面是|这是|好的[，,]|当然[，,]|here is|here's|sure[,!]|certainly[,!])[^\n]{0,60}[:：]\s*$/i;
+      var CJK_RE = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/;
+      function stripAnnoLines(text) {
+        const ranges = findAnnotationHideRanges(text);
+        if (!ranges.length) return text;
+        let out = "";
+        let p = 0;
+        for (const r of ranges) {
+          out += text.slice(p, r.from);
+          p = r.to;
+        }
+        return out + text.slice(p);
+      }
+      function joinLines(s) {
+        return s.replace(/[ \t]*\n+[ \t]*/g, (m, offset, whole) => {
+          const prev = whole.charAt(offset - 1);
+          const next = whole.charAt(offset + m.length);
+          return CJK_RE.test(prev) && CJK_RE.test(next) ? "" : " ";
+        });
+      }
+      function cleanAiOutput(raw, opts) {
+        const o = opts || {};
+        let text = String(raw == null ? "" : raw).replace(/\r\n?/g, "\n");
+        const originalIsFence = o.original != null && /^\s*(`{3,}|~{3,})/.test(o.original);
+        if (!originalIsFence) {
+          const m = WRAP_FENCE_RE.exec(text);
+          if (m) text = m[2];
+        }
+        const lines = text.split("\n");
+        while (lines.length && !lines[0].trim()) lines.shift();
+        if (lines.length > 1 && PREAMBLE_RE.test(lines[0].trim())) {
+          lines.shift();
+          while (lines.length && !lines[0].trim()) lines.shift();
+        }
+        text = lines.join("\n");
+        const before = text;
+        text = stripAnnoLines(text);
+        const strippedAnno = text !== before;
+        text = text.replace(/\s+$/, "");
+        let joinedLines = false;
+        if (o.inline && text.indexOf("\n") >= 0) {
+          text = joinLines(text).trim();
+          joinedLines = true;
+        }
+        return { text, joinedLines, strippedAnno };
+      }
+      module.exports = {
+        cleanAiOutput,
+        stripAnnoLines,
+        joinLines
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/ai/model/ai-diff.js
+  var require_ai_diff = __commonJS({
+    "src/gui/renderer/editor/ai/model/ai-diff.js"(exports, module) {
+      "use strict";
+      var MAX_CELLS = 2e6;
+      var TOKEN_RE = /[A-Za-z0-9_]+|\s+|[\s\S]/g;
+      function tokenize(s) {
+        return String(s || "").match(TOKEN_RE) || [];
+      }
+      function pushOp(out, op, text) {
+        if (!text) return;
+        const last = out[out.length - 1];
+        if (last && last.op === op) last.text += text;
+        else out.push({ op, text });
+      }
+      function absorbTinyEquals(ops) {
+        const out = [];
+        for (let i = 0; i < ops.length; i++) {
+          const cur = ops[i];
+          const prev = ops[i - 1];
+          const next = ops[i + 1];
+          const tiny = cur.op === "eq" && prev && next && prev.op !== "eq" && next.op !== "eq" && tokenize(cur.text).length === 1 && cur.text.trim();
+          if (tiny) {
+            pushOp(out, "del", cur.text);
+            pushOp(out, "ins", cur.text);
+          } else {
+            pushOp(out, cur.op, cur.text);
+          }
+        }
+        const merged = [];
+        let del = "";
+        let ins = "";
+        const flush = () => {
+          pushOp(merged, "del", del);
+          pushOp(merged, "ins", ins);
+          del = "";
+          ins = "";
+        };
+        for (const op of out) {
+          if (op.op === "del") del += op.text;
+          else if (op.op === "ins") ins += op.text;
+          else {
+            flush();
+            pushOp(merged, "eq", op.text);
+          }
+        }
+        flush();
+        return merged;
+      }
+      function diffText(a, b) {
+        if (a === b) return a ? [{ op: "eq", text: a }] : [];
+        const x = tokenize(a);
+        const y = tokenize(b);
+        let start = 0;
+        while (start < x.length && start < y.length && x[start] === y[start]) start++;
+        let endX = x.length;
+        let endY = y.length;
+        while (endX > start && endY > start && x[endX - 1] === y[endY - 1]) {
+          endX--;
+          endY--;
+        }
+        const out = [];
+        pushOp(out, "eq", x.slice(0, start).join(""));
+        const n = endX - start;
+        const m = endY - start;
+        if (n * m > MAX_CELLS) {
+          pushOp(out, "del", x.slice(start, endX).join(""));
+          pushOp(out, "ins", y.slice(start, endY).join(""));
+        } else if (n === 0 || m === 0) {
+          pushOp(out, "del", x.slice(start, endX).join(""));
+          pushOp(out, "ins", y.slice(start, endY).join(""));
+        } else {
+          const w = m + 1;
+          const dp = new Uint32Array((n + 1) * w);
+          for (let i2 = n - 1; i2 >= 0; i2--) {
+            for (let j2 = m - 1; j2 >= 0; j2--) {
+              dp[i2 * w + j2] = x[start + i2] === y[start + j2] ? dp[(i2 + 1) * w + j2 + 1] + 1 : Math.max(dp[(i2 + 1) * w + j2], dp[i2 * w + j2 + 1]);
+            }
+          }
+          let i = 0;
+          let j = 0;
+          while (i < n && j < m) {
+            if (x[start + i] === y[start + j]) {
+              pushOp(out, "eq", x[start + i]);
+              i++;
+              j++;
+            } else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) {
+              pushOp(out, "del", x[start + i]);
+              i++;
+            } else {
+              pushOp(out, "ins", y[start + j]);
+              j++;
+            }
+          }
+          while (i < n) pushOp(out, "del", x[start + i++]);
+          while (j < m) pushOp(out, "ins", y[start + j++]);
+        }
+        pushOp(out, "eq", x.slice(endX).join(""));
+        return absorbTinyEquals(out);
+      }
+      function diffStats(ops) {
+        let eq = 0;
+        let changed = 0;
+        for (const op of ops) {
+          if (op.op === "eq") eq += op.text.length;
+          else changed += op.text.length;
+        }
+        return { eq, changed };
+      }
+      module.exports = {
+        tokenize,
+        diffText,
+        diffStats
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/ai/model/ai-apply.js
+  var require_ai_apply = __commonJS({
+    "src/gui/renderer/editor/ai/model/ai-apply.js"(exports, module) {
+      "use strict";
+      var { annoRanges, splitLines } = require_ai_context();
+      var BLOCK_START_RE = /^\s*(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|~~~|\$\$)/;
+      function paragraphs(s) {
+        return String(s || "").split(/\n[ \t]*\n+/).map((p) => p.replace(/^\n+|\n+$/g, "")).filter((p) => p.trim());
+      }
+      function proseSegments(text, from, to, ranges) {
+        const cuts = ranges.filter((r) => r.from < to && r.to > from);
+        const raw = [];
+        let p = from;
+        for (const r of cuts) {
+          if (r.from > p) raw.push({ from: p, to: r.from });
+          p = Math.max(p, r.to);
+        }
+        if (p < to) raw.push({ from: p, to });
+        const out = [];
+        for (const seg of raw) {
+          let a = seg.from;
+          let b = seg.to;
+          while (a < b && /\s/.test(text.charAt(a))) a++;
+          while (b > a && /\s/.test(text.charAt(b - 1))) b--;
+          if (a < b) out.push({ from: a, to: b });
+        }
+        return out;
+      }
+      function planReplace(text, scope, result) {
+        const ranges = annoRanges(text);
+        const inside = ranges.some((r) => r.from < scope.to && r.to > scope.from);
+        if (!inside) {
+          return {
+            ok: true,
+            changes: [{ from: scope.from, to: scope.to, insert: result }],
+            cursor: scope.from + result.length
+          };
+        }
+        const segs = proseSegments(text, scope.from, scope.to, ranges);
+        const counts = segs.map((s) => paragraphs(text.slice(s.from, s.to)).length);
+        const parts = paragraphs(result);
+        const total = counts.reduce((a, b) => a + b, 0);
+        if (!segs.length || total !== parts.length) return { ok: false, reason: "anno-split" };
+        const changes = [];
+        let k = 0;
+        for (let i = 0; i < segs.length; i++) {
+          const insert = parts.slice(k, k + counts[i]).join("\n\n");
+          k += counts[i];
+          changes.push({ from: segs[i].from, to: segs[i].to, insert });
+        }
+        let cursor = scope.from;
+        let delta = 0;
+        for (const c of changes) {
+          delta += c.insert.length - (c.to - c.from);
+          cursor = c.to + delta;
+        }
+        return { ok: true, changes, cursor };
+      }
+      function avoidStealingAnnotation(text, pos) {
+        const rows = splitLines(text);
+        const ranges = annoRanges(text);
+        const isAnnoRow = (row) => ranges.some((r) => r.from === row.from);
+        let idx = rows.findIndex((r) => pos >= r.from && pos <= r.to);
+        if (idx < 0) return pos;
+        if (rows[idx].text.trim() && !isAnnoRow(rows[idx])) return pos;
+        let i = idx - 1;
+        while (i >= 0 && !rows[i].text.trim()) i--;
+        if (i < 0 || !isAnnoRow(rows[i])) return pos;
+        while (i > 0 && isAnnoRow(rows[i - 1])) i--;
+        return rows[i].from;
+      }
+      function planInsertBlock(text, pos, block) {
+        const at = avoidStealingAnnotation(text, pos);
+        const before = text.slice(0, at);
+        const after = text.slice(at);
+        let lead = "";
+        if (before && !/\n\n$/.test(before) && before.trim()) lead = /\n$/.test(before) ? "\n" : "\n\n";
+        let trail = "";
+        if (after.trim()) {
+          const m = /^\n*/.exec(after);
+          const nl = m ? m[0].length : 0;
+          trail = nl >= 2 ? "" : nl === 1 ? "\n" : "\n\n";
+        }
+        const insert = lead + block + trail;
+        return {
+          ok: true,
+          changes: [{ from: at, to: at, insert }],
+          cursor: at + lead.length + block.length
+        };
+      }
+      function planInsertAfter(text, scope, block) {
+        const nl = text.indexOf("\n", Math.max(scope.from, scope.to - 1));
+        const lineEnd = nl < 0 ? text.length : nl;
+        return planInsertBlock(text, lineEnd, block);
+      }
+      function planInsertAtCursor(text, pos, result) {
+        const lineStart = text.lastIndexOf("\n", pos - 1) + 1;
+        const nl = text.indexOf("\n", pos);
+        const lineEnd = nl < 0 ? text.length : nl;
+        const lineText = text.slice(lineStart, lineEnd);
+        const atEnd = !text.slice(pos, lineEnd).trim();
+        if (!lineText.trim()) return planInsertBlock(text, lineStart, result);
+        const blocky = /\n\s*\n/.test(result) || BLOCK_START_RE.test(result);
+        if (atEnd && blocky) return planInsertBlock(text, lineEnd, result.replace(/^\n+/, ""));
+        return {
+          ok: true,
+          changes: [{ from: pos, to: pos, insert: result }],
+          cursor: pos + result.length
+        };
+      }
+      module.exports = {
+        paragraphs,
+        proseSegments,
+        planReplace,
+        planInsertBlock,
+        planInsertAfter,
+        planInsertAtCursor,
+        avoidStealingAnnotation
+      };
+    }
+  });
+
+  // src/gui/renderer/editor/ai/errors.js
+  var require_errors = __commonJS({
+    "src/gui/renderer/editor/ai/errors.js"(exports, module) {
+      "use strict";
+      var AI_ERROR_CODES = [
+        "E_AUTH",
+        "E_MODEL",
+        "E_RATE",
+        "E_CONTEXT",
+        "E_TIMEOUT",
+        "E_NETWORK",
+        "E_EMPTY",
+        "E_FORMAT",
+        "E_CANCELED",
+        "E_UNKNOWN",
+        "E_BUSY"
+      ];
+      var AI_GATES = ["upgrade", "provider_off", "need_key", "no_model", "default_disabled"];
+      function describeAiFailure(r, t) {
+        if (r && r.gate && AI_GATES.indexOf(r.gate) >= 0) return t("aiGate_" + r.gate);
+        const code = r && AI_ERROR_CODES.indexOf(r.code) >= 0 ? r.code : "E_UNKNOWN";
+        const detail = r && r.detail ? String(r.detail).replace(/\s+/g, " ").trim().slice(0, 160) : "";
+        if (/token limit error/i.test(detail) && !/maximum context length|\d+\s*tokens/i.test(detail)) {
+          return t("aiErrTokenQuota");
+        }
+        const msg = t("aiErr_" + code);
+        if (!detail || code === "E_CANCELED") return msg;
+        return t("aiErrWithDetail", { msg, detail });
+      }
+      function failureNeedsSettings(r) {
+        if (!r) return false;
+        if (r.gate) return true;
+        return r.code === "E_AUTH" || r.code === "E_MODEL";
+      }
+      module.exports = { AI_ERROR_CODES, AI_GATES, describeAiFailure, failureNeedsSettings };
+    }
+  });
+
+  // src/gui/renderer/editor/ai/panel.js
+  var require_panel = __commonJS({
+    "src/gui/renderer/editor/ai/panel.js"(exports, module) {
+      "use strict";
+      var REWRITE_ACTS = ["polish", "expand", "shorten", "grammar"];
+      var READ_ACTS = ["explain", "summarize"];
+      var STYLES = ["quick", "formal", "casual", "literary", "concise"];
+      var LANGS = ["zh", "en", "ja", "ko", "fr", "de", "es", "ru"];
+      function esc(s) {
+        return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+      function createAiPanel(opts) {
+        const t = opts.t;
+        const h = opts.handlers;
+        const el = document.createElement("div");
+        el.className = "mda-ai-panel";
+        el.setAttribute("role", "dialog");
+        el.setAttribute("aria-label", "AI");
+        el.hidden = true;
+        document.body.appendChild(el);
+        let last = null;
+        let streamNode = (
+          /** @type {HTMLElement|null} */
+          null
+        );
+        function btn(act, label, extra) {
+          const e = extra || {};
+          return '<button type="button" class="mda-ai-btn' + (e.primary ? " mda-ai-btn-primary" : "") + '" data-act="' + act + '"' + (e.disabled ? " disabled" : "") + (e.title ? ' title="' + esc(e.title) + '"' : "") + ">" + esc(label) + "</button>";
+        }
+        function modelSelect(s) {
+          const list = s.models || [];
+          if (list.length < 2) return "";
+          return '<label class="mda-ai-model"><span>' + esc(t("aiModelLabel")) + '</span><select data-role="model">' + list.map(function(m) {
+            return '<option value="' + esc(m.id) + '"' + (m.id === s.modelId ? " selected" : "") + ">" + esc(m.label || m.id) + "</option>";
+          }).join("") + "</select></label>";
+        }
+        function headHtml(s, title) {
+          return '<div class="mda-ai-head"><span class="mda-ai-badge">AI</span><span class="mda-ai-title">' + esc(title) + "</span>" + (s.scopeLabel ? '<span class="mda-ai-scope-label">' + esc(s.scopeLabel) + "</span>" : "") + '<span class="mda-ai-spacer"></span>' + modelSelect(s) + '<button type="button" class="mda-ai-close" data-act="close" aria-label="' + esc(t("aiClose")) + '" title="' + esc(t("aiClose")) + '">\xD7</button></div>';
+        }
+        function inputHtml(s) {
+          const gen = s.mode === "generate";
+          const widget = s.mode === "widget";
+          const chips = [];
+          if (gen) {
+            chips.push(btn("continue", t("aiAct_continue")));
+          } else {
+            REWRITE_ACTS.forEach(function(id) {
+              chips.push(btn(id, t("aiAct_" + id), { disabled: widget, title: widget ? t("aiScopeWidget") : "" }));
+              if (id === "polish") {
+                chips.push('<select data-role="style" class="mda-ai-select"' + (widget ? " disabled" : "") + ">" + STYLES.map(function(st) {
+                  return '<option value="' + st + '"' + (st === s.style ? " selected" : "") + ">" + esc(t("aiStyle_" + st)) + "</option>";
+                }).join("") + "</select>");
+              }
+            });
+            chips.push(btn("translate", t("aiAct_translate"), { disabled: widget, title: widget ? t("aiScopeWidget") : "" }));
+            chips.push('<select data-role="lang" class="mda-ai-select"' + (widget ? " disabled" : "") + ">" + LANGS.map(function(l) {
+              return '<option value="' + l + '"' + (l === s.targetLang ? " selected" : "") + ">" + esc(t("aiLang_" + l)) + "</option>";
+            }).join("") + "</select>");
+            chips.push('<span class="mda-ai-sep"></span>');
+            READ_ACTS.forEach(function(id) {
+              chips.push(btn(id, t("aiAct_" + id)));
+            });
+          }
+          return headHtml(s, gen ? t("aiAct_write") : widget ? t("aiAct_explain") : "AI") + '<div class="mda-ai-input-row"><input type="text" class="mda-ai-input" data-role="instruction" spellcheck="false" autocomplete="off"' + (widget ? " disabled" : "") + ' placeholder="' + esc(gen ? t("aiCmdPlaceholderGen") : t("aiCmdPlaceholder")) + '" /></div><div class="mda-ai-chips">' + chips.join("") + "</div>";
+        }
+        function runningHtml(s) {
+          return headHtml(s, s.actionLabel) + '<div class="mda-ai-status"><span class="mda-ai-spinner" aria-hidden="true"></span>' + esc(t("aiWorking")) + '</div><pre class="mda-ai-stream" data-role="stream"></pre><div class="mda-ai-foot">' + btn("stop", t("aiStop"), { primary: true }) + "</div>";
+        }
+        function versionsHtml(s) {
+          if (!s.versions || s.versions.n < 2) return "";
+          return '<span class="mda-ai-versions"><button type="button" class="mda-ai-icon-btn" data-act="prev"' + (s.versions.i <= 1 ? " disabled" : "") + ">\u2039</button><span>" + s.versions.i + "/" + s.versions.n + '</span><button type="button" class="mda-ai-icon-btn" data-act="next"' + (s.versions.i >= s.versions.n ? " disabled" : "") + ">\u203A</button></span>";
+        }
+        function bodyForResult(s) {
+          if (s.diffOps) {
+            return '<div class="mda-ai-result mda-ai-diff">' + s.diffOps.map(function(op) {
+              if (op.op === "eq") return esc(op.text);
+              return '<span class="mda-ai-' + op.op + '">' + esc(op.text) + "</span>";
+            }).join("") + "</div>";
+          }
+          return '<div class="mda-ai-result">' + esc(s.resultText || "") + "</div>";
+        }
+        function reviewHtml(s) {
+          const notes = [];
+          if (s.stale) notes.push('<div class="mda-ai-note is-warn">' + esc(t("aiStale")) + "</div>");
+          if (s.note) notes.push('<div class="mda-ai-note">' + esc(s.note) + "</div>");
+          return headHtml(s, s.actionLabel) + bodyForResult(s) + notes.join("") + '<div class="mda-ai-input-row"><input type="text" class="mda-ai-input" data-role="refine" spellcheck="false" autocomplete="off" placeholder="' + esc(t("aiRefinePlaceholder")) + '" /></div><div class="mda-ai-foot">' + btn("accept", t("aiAccept"), { primary: true, disabled: !s.canAccept, title: t("aiResultHint") }) + (s.canInsertBelow ? btn("insert-below", t("aiInsertBelow")) : "") + btn("retry", t("aiRetry")) + btn("discard", t("aiDiscard")) + versionsHtml(s) + '<span class="mda-ai-spacer"></span><span class="mda-ai-hint">' + esc(t("aiResultHint")) + "</span></div>";
+        }
+        function readHtml(s) {
+          return headHtml(s, s.actionLabel) + '<div class="mda-ai-result mda-ai-read markdown-body">' + (s.readHtml || esc(s.resultText || "")) + "</div>" + (s.note ? '<div class="mda-ai-note">' + esc(s.note) + "</div>" : "") + '<div class="mda-ai-foot">' + btn("copy", t("aiCopy"), { primary: true }) + btn("insert-below", t("aiInsertBelow")) + (s.canAnnotate ? btn("to-anno", t("aiToAnno")) : "") + btn("retry", t("aiRetry")) + versionsHtml(s) + '<span class="mda-ai-spacer"></span>' + btn("close", t("aiClose")) + "</div>";
+        }
+        function errorHtml(s) {
+          return headHtml(s, s.actionLabel || "AI") + '<div class="mda-ai-note is-error">' + esc(s.errorText) + '</div><div class="mda-ai-foot">' + (s.needsSettings ? btn("settings", t("aiGateOpenSettings"), { primary: true }) : "") + (s.canRetry ? btn("retry", t("aiRetry"), { primary: !s.needsSettings }) : "") + '<span class="mda-ai-spacer"></span>' + btn("close", t("aiClose")) + "</div>";
+        }
+        function render(s) {
+          last = s;
+          streamNode = null;
+          if (!s) {
+            el.hidden = true;
+            el.innerHTML = "";
+            return;
+          }
+          el.hidden = false;
+          el.setAttribute("data-status", s.status);
+          let html = "";
+          if (s.status === "input") html = inputHtml(s);
+          else if (s.status === "running") html = runningHtml(s);
+          else if (s.status === "review") html = reviewHtml(s);
+          else if (s.status === "read") html = readHtml(s);
+          else html = errorHtml(s);
+          el.innerHTML = html;
+          if (s.status === "running") {
+            streamNode = el.querySelector('[data-role="stream"]');
+            if (streamNode && s.streamText) streamNode.textContent = s.streamText;
+          }
+        }
+        function appendStream(text) {
+          if (!streamNode || !text) return;
+          streamNode.textContent += text;
+          streamNode.scrollTop = streamNode.scrollHeight;
+        }
+        function focusInput() {
+          const inp = (
+            /** @type {HTMLInputElement|null} */
+            el.querySelector('[data-role="instruction"]:not([disabled]), [data-role="refine"]')
+          );
+          if (inp) {
+            inp.focus();
+            return true;
+          }
+          const first = (
+            /** @type {HTMLElement|null} */
+            el.querySelector(".mda-ai-btn-primary:not([disabled]), .mda-ai-btn:not([disabled])")
+          );
+          if (first) first.focus();
+          return !!first;
+        }
+        function readParams() {
+          const style = (
+            /** @type {HTMLSelectElement|null} */
+            el.querySelector('[data-role="style"]')
+          );
+          const lang = (
+            /** @type {HTMLSelectElement|null} */
+            el.querySelector('[data-role="lang"]')
+          );
+          return {
+            style: style ? style.value : "quick",
+            targetLang: lang ? lang.value : "en"
+          };
+        }
+        el.addEventListener("mousedown", function(e) {
+          e.stopPropagation();
+        });
+        el.addEventListener("click", function(e) {
+          const target = (
+            /** @type {HTMLElement} */
+            e.target
+          );
+          const b = target && target.closest ? (
+            /** @type {HTMLButtonElement|null} */
+            target.closest("[data-act]")
+          ) : null;
+          if (!b || b.disabled) return;
+          const act = b.getAttribute("data-act");
+          if (!act) return;
+          e.preventDefault();
+          const params = readParams();
+          if (act === "close") h.onClose();
+          else if (act === "stop") h.onStop();
+          else if (act === "accept") h.onAccept();
+          else if (act === "insert-below") h.onInsertBelow();
+          else if (act === "retry") h.onRetry();
+          else if (act === "discard") h.onClose();
+          else if (act === "prev") h.onVersion(-1);
+          else if (act === "next") h.onVersion(1);
+          else if (act === "copy") h.onCopy();
+          else if (act === "to-anno") h.onToAnno();
+          else if (act === "settings") h.onOpenSettings();
+          else h.onAction(act, params);
+        });
+        el.addEventListener("change", function(e) {
+          const target = (
+            /** @type {HTMLSelectElement} */
+            e.target
+          );
+          if (target && target.getAttribute("data-role") === "model") h.onModelChange(target.value);
+        });
+        el.addEventListener("keydown", function(e) {
+          const target = (
+            /** @type {HTMLElement} */
+            e.target
+          );
+          const role = target && target.getAttribute ? target.getAttribute("data-role") : "";
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            if (last && last.status === "running") h.onStop();
+            else h.onClose();
+            return;
+          }
+          if (e.key === "Enter" && e.altKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            h.onAccept();
+            return;
+          }
+          if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (role === "instruction" || role === "refine")) {
+            e.preventDefault();
+            e.stopPropagation();
+            const value = String(
+              /** @type {HTMLInputElement} */
+              target.value || ""
+            ).trim();
+            if (role === "instruction") h.onSubmit(value, readParams());
+            else if (value) h.onRefine(value);
+          }
+        });
+        return {
+          el,
+          render,
+          appendStream,
+          focusInput,
+          isOpen: function() {
+            return !el.hidden;
+          },
+          contains: function(node) {
+            return !!node && el.contains(node);
+          },
+          destroy: function() {
+            if (el.parentNode) el.parentNode.removeChild(el);
+          }
+        };
+      }
+      module.exports = { createAiPanel, REWRITE_ACTS, READ_ACTS, STYLES, LANGS };
+    }
+  });
+
+  // src/gui/renderer/editor/ai/controller.js
+  var require_controller = __commonJS({
+    "src/gui/renderer/editor/ai/controller.js"(exports, module) {
+      "use strict";
+      var { resolveAiScope, buildAiPayload, stripAnnoInRange, annoRanges, LIMITS } = require_ai_context();
+      var { cleanAiOutput } = require_ai_output();
+      var { diffText } = require_ai_diff();
+      var { planReplace, planInsertAfter, planInsertAtCursor } = require_ai_apply();
+      var { describeAiFailure, failureNeedsSettings } = require_errors();
+      var {
+        aiApplyAnnotation,
+        setAiSession,
+        clearAiSession,
+        aiSessionField
+      } = require_state();
+      var { createAiPanel } = require_panel();
+      var ACTION_KIND = {
+        continue: "generate",
+        write: "generate",
+        polish: "rewrite",
+        expand: "rewrite",
+        shorten: "rewrite",
+        grammar: "rewrite",
+        translate: "rewrite",
+        custom: "rewrite",
+        explain: "read",
+        summarize: "read"
+      };
+      var DIFF_MAX_CHARS = 4e3;
+      var PANEL_GAP = 6;
+      var PANEL_MARGIN = 8;
+      var PANEL_MAX_WIDTH = 760;
+      var requestSeq = 0;
+      function newRequestId() {
+        requestSeq += 1;
+        return "r" + Date.now().toString(36) + requestSeq.toString(36) + Math.random().toString(36).slice(2, 6);
+      }
+      function lineEndAt(text, pos) {
+        const nl = text.indexOf("\n", pos);
+        return nl < 0 ? text.length : nl;
+      }
+      function createAiController(view, opts) {
+        const api = opts.api;
+        const t = opts.t;
+        const toast = opts.toast || function() {
+        };
+        let s = null;
+        let posRaf = 0;
+        let settings = null;
+        const panel = createAiPanel({
+          t,
+          handlers: {
+            onClose: function() {
+              close();
+            },
+            onStop: function() {
+              stop();
+            },
+            onAccept: function() {
+              accept();
+            },
+            onInsertBelow: function() {
+              insertBelow();
+            },
+            onRetry: function() {
+              retry();
+            },
+            onVersion: function(d) {
+              switchVersion(d);
+            },
+            onCopy: function() {
+              copyResult();
+            },
+            onToAnno: function() {
+              toAnnotation();
+            },
+            onOpenSettings: function() {
+              close();
+              if (typeof opts.openSettings === "function") opts.openSettings();
+            },
+            onModelChange: function(id) {
+              if (s) s.modelId = id;
+            },
+            onAction: function(id, params) {
+              runFromBar(id, params, "");
+            },
+            onSubmit: function(instruction, params) {
+              submitBar(instruction, params);
+            },
+            onRefine: function(instruction) {
+              refine(instruction);
+            }
+          }
+        });
+        const unsubscribe = typeof api.onAiEvent === "function" ? api.onAiEvent(onEvent) : null;
+        const onWinChange = function() {
+          schedulePosition();
+        };
+        window.addEventListener("scroll", onWinChange, true);
+        window.addEventListener("resize", onWinChange);
+        function field() {
+          return view.state.field(aiSessionField, false) || null;
+        }
+        function checkGate() {
+          if (typeof api.checkAiAccess !== "function") return Promise.resolve({ allowed: false, reason: "upgrade" });
+          return Promise.resolve(api.checkAiAccess()).then(function(r) {
+            if (r && r.success && r.value) return r.value;
+            return { allowed: false, reason: "upgrade" };
+          }).catch(function() {
+            return { allowed: false, reason: "upgrade" };
+          });
+        }
+        function loadSettings() {
+          if (typeof api.getAiSettings !== "function") return Promise.resolve();
+          return Promise.resolve(api.getAiSettings()).then(function(r) {
+            const v = r && r.success && r.value ? r.value : {};
+            settings = {
+              models: (v.models || []).filter(function(m) {
+                return m && m.enabled;
+              }),
+              defaultModelId: v.defaultModelId || "",
+              prefs: v.prefs || {}
+            };
+          }).catch(function() {
+            settings = null;
+          });
+        }
+        function openSession(scope, uiMode) {
+          close();
+          s = {
+            id: newRequestId(),
+            scope,
+            uiMode,
+            status: "input",
+            action: "",
+            kind: "",
+            params: { style: "quick", targetLang: "en", instruction: "" },
+            modelId: settings && settings.defaultModelId ? settings.defaultModelId : "",
+            versions: [],
+            vi: -1,
+            streamText: "",
+            requestId: "",
+            original: "",
+            note: "",
+            failure: null,
+            stale: false
+          };
+          view.dispatch({
+            effects: setAiSession.of({
+              id: s.id,
+              from: scope.from,
+              to: scope.to,
+              guard: false,
+              highlight: uiMode !== "generate" && uiMode !== "doc" && scope.from < scope.to
+            })
+          });
+        }
+        function close() {
+          if (!s) return;
+          const old = s;
+          s = null;
+          if (old.status === "running" && old.requestId && typeof api.aiCancel === "function") api.aiCancel(old.requestId);
+          panel.render(null);
+          if (!view.destroyed && field()) view.dispatch({ effects: clearAiSession.of(old.id) });
+        }
+        function stop() {
+          if (!s || s.status !== "running") return;
+          if (typeof api.aiCancel === "function") api.aiCancel(s.requestId);
+        }
+        function scopeFailureText(reason) {
+          if (reason === "widget") return t("aiScopeWidget");
+          if (reason === "anno-only") return t("aiScopeAnnoOnly");
+          return t("aiScopeEmpty");
+        }
+        function currentSel(range) {
+          if (range) return { from: range.from, to: range.to };
+          const m = view.state.selection.main;
+          return { from: m.from, to: m.to };
+        }
+        function generateScope(text, pos) {
+          return resolveAiScope(text, { from: pos, to: pos }, "generate");
+        }
+        function openCommandBar(o) {
+          const opt = o || {};
+          if (s && s.status === "input") {
+            panel.focusInput();
+            return;
+          }
+          const text = view.state.doc.toString();
+          const sel = currentSel(opt.range);
+          let scope;
+          let mode;
+          if (opt.generate) {
+            scope = generateScope(text, sel.to);
+            mode = "generate";
+          } else {
+            const r = resolveAiScope(text, sel, "rewrite");
+            if (r.ok) {
+              scope = r;
+              mode = "rewrite";
+            } else if (r.reason === "widget") {
+              const rr = resolveAiScope(text, sel, "read");
+              if (!rr.ok) {
+                toast(scopeFailureText(rr.reason));
+                return;
+              }
+              scope = rr;
+              mode = "widget";
+            } else if (r.reason === "empty") {
+              scope = generateScope(text, sel.to);
+              mode = "generate";
+            } else {
+              toast(scopeFailureText(r.reason));
+              return;
+            }
+          }
+          withGate(scope, mode, function() {
+            render();
+            panel.focusInput();
+          });
+        }
+        function withGate(scope, mode, next) {
+          checkGate().then(function(g) {
+            return loadSettings().then(function() {
+              return g;
+            });
+          }).then(function(g) {
+            if (view.destroyed) return;
+            openSession(scope, mode);
+            if (!g.allowed) {
+              showFailure({ gate: g.reason });
+              return;
+            }
+            next();
+          });
+        }
+        function runDirect(action, params, range) {
+          const kind = ACTION_KIND[action];
+          if (!kind) return;
+          const text = view.state.doc.toString();
+          const sel = currentSel(range);
+          let scope;
+          let mode = kind === "generate" ? "generate" : "rewrite";
+          if (kind === "generate") {
+            const pos = range ? lineEndAt(text, Math.max(range.from, range.to - 1)) : sel.to;
+            scope = generateScope(text, pos);
+          } else if (action === "summarize" && sel.from === sel.to && !range) {
+            const scopeText = stripAnnoInRange(text, 0, text.length, annoRanges(text));
+            if (!scopeText.trim()) {
+              toast(t("aiScopeEmpty"));
+              return;
+            }
+            scope = { ok: true, from: 0, to: text.length, inline: false, source: "doc", scopeText, hasAnno: false };
+            mode = "doc";
+          } else {
+            const r = resolveAiScope(text, sel, kind);
+            if (!r.ok) {
+              toast(scopeFailureText(r.reason));
+              return;
+            }
+            scope = r;
+            if (kind === "read" && !resolveAiScope(text, sel, "rewrite").ok) mode = "widget";
+          }
+          withGate(scope, mode, function() {
+            start(action, Object.assign({}, s.params, params || {}), []);
+          });
+        }
+        function runFromBar(action, params, instruction) {
+          if (!s || s.status !== "input") return;
+          if (s.uiMode === "widget" && ACTION_KIND[action] !== "read") return;
+          start(action, Object.assign({}, s.params, params || {}, { instruction }), []);
+        }
+        function submitBar(instruction, params) {
+          if (!s || s.status !== "input") return;
+          if (s.uiMode === "generate") {
+            if (instruction) runFromBar("write", params, instruction);
+            else runFromBar("continue", params, "");
+            return;
+          }
+          if (s.uiMode === "widget") {
+            runFromBar("explain", params, "");
+            return;
+          }
+          if (!instruction) return;
+          runFromBar("custom", params, instruction);
+        }
+        function start(action, params, history) {
+          if (!s) return;
+          const kind = ACTION_KIND[action];
+          const range = field();
+          if (!range || range.id !== s.id) {
+            close();
+            return;
+          }
+          const text = view.state.doc.toString();
+          const scope = Object.assign({}, s.scope, { from: range.from, to: range.to });
+          if (kind !== "generate") {
+            scope.scopeText = stripAnnoInRange(text, scope.from, scope.to, annoRanges(text));
+            if (kind === "rewrite" && scope.scopeText.length > LIMITS.scope) {
+              s.action = action;
+              showFailure({ code: "E_CONTEXT" }, { noRetry: true });
+              return;
+            }
+          }
+          s.scope = scope;
+          s.action = action;
+          s.kind = kind;
+          s.params = params;
+          s.original = kind === "rewrite" ? scope.scopeText : "";
+          const payload = Object.assign(
+            buildAiPayload(text, scope, kind, { fileName: typeof opts.getFileName === "function" ? opts.getFileName() : "" }),
+            {
+              style: params.style,
+              targetLang: params.targetLang,
+              instruction: params.instruction || "",
+              history: history || []
+            }
+          );
+          const sendChars = kind === "generate" ? (payload.before || "").length + (payload.after || "").length : (payload.scope || "").length;
+          const limit = settings && settings.prefs && settings.prefs.longTextConfirmChars;
+          const confirmP = limit && sendChars > limit && typeof opts.confirm === "function" ? Promise.resolve(opts.confirm(t("aiLongConfirm", { n: sendChars }))) : Promise.resolve(true);
+          const sid = s.id;
+          confirmP.then(function(ok) {
+            if (!s || s.id !== sid) return;
+            if (!ok) {
+              if (s.versions.length) render();
+              else close();
+              return;
+            }
+            send(action, payload);
+          });
+        }
+        function send(action, payload) {
+          const requestId = newRequestId();
+          const range = field();
+          s.requestId = requestId;
+          s.status = "running";
+          s.streamText = "";
+          s.failure = null;
+          s.note = "";
+          if (range) {
+            view.dispatch({
+              effects: setAiSession.of({
+                id: s.id,
+                from: range.from,
+                to: range.to,
+                guard: s.kind === "rewrite",
+                highlight: s.kind !== "generate" && s.uiMode !== "doc" && range.from < range.to
+              })
+            });
+          }
+          s.stale = false;
+          render();
+          Promise.resolve(api.aiRun({
+            requestId,
+            action,
+            payload,
+            modelId: s.modelId || void 0
+          })).then(function(r) {
+            if (!s || s.requestId !== requestId) {
+              if (typeof api.aiCancel === "function") api.aiCancel(requestId);
+              return;
+            }
+            if (!r || !r.success) showFailure(r || null);
+          }).catch(function() {
+            if (s && s.requestId === requestId) showFailure(null);
+          });
+        }
+        function onEvent(ev) {
+          if (!s || !ev || ev.requestId !== s.requestId || s.status !== "running") return;
+          if (ev.type === "chunk") {
+            s.streamText += ev.text || "";
+            panel.appendStream(ev.text || "");
+            schedulePosition();
+          } else if (ev.type === "done") {
+            finish(ev.text || s.streamText, "");
+          } else if (ev.type === "canceled") {
+            const partial = ev.text || s.streamText;
+            if (partial && partial.trim()) finish(partial, t("aiCanceledPartial"));
+            else if (s.versions.length) {
+              s.status = s.kind === "read" ? "read" : "review";
+              render();
+            } else close();
+          } else if (ev.type === "error") {
+            showFailure({ code: ev.code, detail: ev.detail });
+          }
+        }
+        function finish(raw, note) {
+          const c = cleanAiOutput(raw, {
+            inline: s.kind === "rewrite" && !!s.scope.inline,
+            original: s.original
+          });
+          if (!c.text.trim()) {
+            showFailure({ code: "E_EMPTY" });
+            return;
+          }
+          s.versions.push({ text: c.text, action: s.action, params: s.params, original: s.original, kind: s.kind });
+          s.vi = s.versions.length - 1;
+          s.note = note || (c.strippedAnno ? t("aiStrippedAnno") : "");
+          s.status = s.kind === "read" ? "read" : "review";
+          const focusWasInPanel = panel.contains(document.activeElement) || document.activeElement === document.body;
+          render();
+          if (focusWasInPanel) panel.focusInput();
+        }
+        function showFailure(r, o) {
+          if (!s) return;
+          s.status = "error";
+          s.failure = r;
+          s.failureOpts = o || {};
+          render();
+        }
+        function retry() {
+          if (!s) return;
+          if (!s.action) {
+            const scope = s.scope;
+            const mode = s.uiMode;
+            withGate(scope, mode, function() {
+              render();
+              panel.focusInput();
+            });
+            return;
+          }
+          start(s.action, s.params, []);
+        }
+        function refine(instruction) {
+          if (!s || s.status !== "review" && s.status !== "read") return;
+          const cur = s.versions[s.vi];
+          if (!cur) return;
+          start(s.action, s.params, [{ output: cur.text, instruction }]);
+        }
+        function switchVersion(d) {
+          if (!s || !s.versions.length) return;
+          s.vi = Math.max(0, Math.min(s.versions.length - 1, s.vi + d));
+          render();
+        }
+        function currentText() {
+          const v = s && s.versions[s.vi];
+          return v ? v.text : "";
+        }
+        function applyPlan(plan) {
+          view.dispatch({
+            changes: plan.changes,
+            selection: { anchor: plan.cursor },
+            userEvent: "ai.apply",
+            annotations: aiApplyAnnotation.of(true),
+            scrollIntoView: true
+          });
+          close();
+          toast(t("aiAccepted"));
+          view.focus();
+        }
+        function accept() {
+          if (!s || s.status !== "review") return false;
+          const range = field();
+          if (!range) {
+            close();
+            return true;
+          }
+          const text = currentText();
+          const doc = view.state.doc.toString();
+          if (s.kind === "generate") {
+            applyPlan(planInsertAtCursor(doc, range.from, text));
+            return true;
+          }
+          if (s.stale) {
+            toast(t("aiStale"));
+            return true;
+          }
+          const plan = planReplace(doc, { from: range.from, to: range.to }, text);
+          if (!plan.ok) {
+            s.note = t("aiAnnoSplit");
+            render();
+            return true;
+          }
+          applyPlan(plan);
+          return true;
+        }
+        function insertBelow() {
+          if (!s || s.status !== "review" && s.status !== "read") return;
+          const range = field();
+          if (!range) {
+            close();
+            return;
+          }
+          const doc = view.state.doc.toString();
+          applyPlan(planInsertAfter(doc, { from: range.from, to: range.to }, currentText()));
+        }
+        function copyResult() {
+          const text = currentText();
+          if (!text) return;
+          if (typeof opts.copyText === "function") opts.copyText(text);
+          toast(t("aiCopied"));
+        }
+        function toAnnotation() {
+          if (!s || s.status !== "read" || typeof opts.onAiToAnnotation !== "function") return;
+          if (typeof opts.canAnnotate === "function" && !opts.canAnnotate()) {
+            toast(t("aiToAnnoNeedFile"));
+            return;
+          }
+          const range = field();
+          if (!range) return;
+          const doc = view.state.doc.toString();
+          const line = view.state.doc.lineAt(range.from).number;
+          const anchor = s.scope.inline && range.from < range.to ? { start: range.from, end: range.to, quote: doc.slice(range.from, range.to) } : null;
+          const content = currentText();
+          close();
+          opts.onAiToAnnotation({ content, line, anchor });
+        }
+        function onEscape() {
+          if (!s) return false;
+          if (s.status === "running") stop();
+          else close();
+          return true;
+        }
+        function onAccept() {
+          return accept();
+        }
+        function onViewUpdate(update) {
+          if (!s) return;
+          const f = update.state.field(aiSessionField, false);
+          if (!f || f.id !== s.id) {
+            const old = s;
+            s = null;
+            if (old.status === "running" && typeof api.aiCancel === "function") api.aiCancel(old.requestId);
+            panel.render(null);
+            return;
+          }
+          if (f.stale && !s.stale) {
+            s.stale = true;
+            if (s.status === "review") render();
+          }
+          if (update.docChanged || update.geometryChanged || update.viewportChanged) schedulePosition();
+        }
+        function schedulePosition() {
+          if (!s || posRaf) return;
+          posRaf = requestAnimationFrame(function() {
+            posRaf = 0;
+            position();
+          });
+        }
+        function position() {
+          if (!s || !panel.isOpen() || view.destroyed) return;
+          const f = field();
+          if (!f) return;
+          const content = view.contentDOM.getBoundingClientRect();
+          const anchorPos = Math.min(f.to, view.state.doc.length);
+          const blk = view.lineBlockAt(anchorPos);
+          const bottom = view.documentTop + blk.bottom;
+          const width = Math.min(PANEL_MAX_WIDTH, Math.max(320, content.width));
+          const left = Math.max(PANEL_MARGIN, Math.min(content.left, window.innerWidth - width - PANEL_MARGIN));
+          const h = panel.el.offsetHeight || 0;
+          const top = Math.max(PANEL_MARGIN, Math.min(bottom + PANEL_GAP, window.innerHeight - h - PANEL_MARGIN));
+          panel.el.style.left = Math.round(left) + "px";
+          panel.el.style.top = Math.round(top) + "px";
+          panel.el.style.width = Math.round(width) + "px";
+        }
+        function scopeLabel() {
+          if (!s) return "";
+          const sc = s.scope;
+          if (s.uiMode === "generate") return t("aiCmdScopeCursor");
+          if (s.uiMode === "doc") return "";
+          const n = (sc.scopeText || "").length;
+          return sc.source === "selection" ? t("aiCmdScopeSel", { n }) : t("aiCmdScopeBlock", { n });
+        }
+        function viewModel() {
+          const vm = {
+            status: s.status,
+            mode: s.uiMode,
+            scopeLabel: scopeLabel(),
+            models: settings ? settings.models : [],
+            modelId: s.modelId,
+            style: s.params.style,
+            targetLang: s.params.targetLang,
+            actionLabel: s.action ? t("aiAct_" + s.action) : "AI",
+            streamText: s.streamText,
+            note: s.note,
+            stale: false,
+            versions: { i: s.vi + 1, n: s.versions.length }
+          };
+          const ver = s.versions[s.vi];
+          if (s.status === "review" && ver) {
+            if (ver.kind === "rewrite") {
+              if (ver.original.length + ver.text.length <= DIFF_MAX_CHARS) vm.diffOps = diffText(ver.original, ver.text);
+              else vm.resultText = ver.text;
+              vm.stale = s.stale;
+              vm.canAccept = !s.stale;
+              vm.canInsertBelow = true;
+            } else {
+              vm.resultText = ver.text;
+              vm.canAccept = true;
+              vm.canInsertBelow = false;
+            }
+          } else if (s.status === "read" && ver) {
+            vm.resultText = ver.text;
+            if (typeof opts.renderMarkdown === "function") {
+              try {
+                const r = opts.renderMarkdown(ver.text);
+                if (r && r.success && r.html) vm.readHtml = r.html;
+              } catch (_) {
+              }
+            }
+            vm.canAnnotate = typeof opts.onAiToAnnotation === "function";
+          } else if (s.status === "error") {
+            vm.errorText = describeAiFailure(s.failure, t);
+            vm.needsSettings = failureNeedsSettings(s.failure);
+            vm.canRetry = !(s.failureOpts && s.failureOpts.noRetry) && !(s.failure && s.failure.gate);
+          }
+          return vm;
+        }
+        function render() {
+          if (!s) {
+            panel.render(null);
+            return;
+          }
+          panel.render(viewModel());
+          position();
+          schedulePosition();
+        }
+        return {
+          command: function(action) {
+            if (action === "command-bar") openCommandBar();
+            else runDirect(action, action === "polish" ? { style: "quick" } : null);
+          },
+          openCommandBar,
+          runDirect,
+          /** 块手柄：以整块为范围；「更多」打开命令条 */
+          runBlockAction: function(id, block) {
+            const range = block && typeof block.from === "number" ? { from: block.from, to: block.to } : null;
+            if (id === "more") openCommandBar({ range: range || void 0 });
+            else runDirect(id, id === "polish" ? { style: "quick" } : null, range || void 0);
+          },
+          isOpen: function() {
+            return !!s;
+          },
+          onEscape,
+          onAccept,
+          onViewUpdate,
+          close,
+          destroy: function() {
+            close();
+            if (posRaf) cancelAnimationFrame(posRaf);
+            window.removeEventListener("scroll", onWinChange, true);
+            window.removeEventListener("resize", onWinChange);
+            if (typeof unsubscribe === "function") unsubscribe();
+            panel.destroy();
+          }
+        };
+      }
+      module.exports = { createAiController, ACTION_KIND };
+    }
+  });
+
   // src/gui/renderer/editor/mount.js
   var require_mount = __commonJS({
     "src/gui/renderer/editor/mount.js"(exports, module) {
@@ -69419,6 +70938,8 @@ var MDAEditorBundle = (() => {
       var { createEditorToolbar } = require_toolbar();
       var { createFormatKeymap } = require_format_commands();
       var { createPendingInlineFormatExtension } = require_pending_inline_format();
+      var { createAiExtension } = require_state();
+      var { createAiController } = require_controller();
       function stripBom(text) {
         if (typeof text !== "string") return { text: "", bom: "" };
         if (text.charCodeAt(0) === 65279) {
@@ -69447,6 +70968,23 @@ var MDAEditorBundle = (() => {
         let toolbarApi = null;
         let pendingWidgetFind = null;
         let tableFindRaf = 0;
+        const aiHolder = { ctrl: (
+          /** @type {any} */
+          null
+        ) };
+        const aiEnabled = !!(opts.ai && opts.ai.api);
+        if (aiEnabled) {
+          opts.onAiEntry = function(entry, range) {
+            const c = aiHolder.ctrl;
+            if (!c) return;
+            if (entry === "write") c.openCommandBar({ generate: true });
+            else if (entry === "ask") c.runDirect("explain", null, range);
+            else c.openCommandBar();
+          };
+          opts.onBlockMenuAi = function(id, block) {
+            if (aiHolder.ctrl) aiHolder.ctrl.runBlockAction(id, block);
+          };
+        }
         const updateListener = EditorView.updateListener.of((update) => {
           if (update.docChanged && typeof opts.onChange === "function") {
             opts.onChange({
@@ -69490,7 +71028,7 @@ var MDAEditorBundle = (() => {
             createClickDebugExtension(),
             outlineFlashExtension(),
             findHighlightExtension()
-          ]).concat(extensionsForMode(currentMode, comps, opts));
+          ]).concat(extensionsForMode(currentMode, comps, opts)).concat(aiEnabled ? createAiExtension(aiHolder) : []);
           if (opts.placeholder && currentMode === MODE_SOURCE) {
             list.push(placeholder(opts.placeholder));
           }
@@ -69503,6 +71041,12 @@ var MDAEditorBundle = (() => {
           }),
           parent: editorParent
         });
+        if (aiEnabled) {
+          aiHolder.ctrl = createAiController(view, Object.assign({}, opts.ai, {
+            t: opts.t,
+            copyText: opts.ai.copyText || opts.copyText
+          }));
+        }
         if (opts.toolbar !== false) {
           toolbarApi = createEditorToolbar(toolbarMount, view, {
             t: opts.t,
@@ -69517,6 +71061,9 @@ var MDAEditorBundle = (() => {
             getPanelVisible: opts.getPanelVisible,
             onPickImageInsert: opts.onPickImageInsert,
             onSoon: opts.onBlockMenuSoon,
+            onAi: aiEnabled ? function() {
+              opts.onAiEntry("edit");
+            } : null,
             onCopy: opts.onCopy,
             onCut: opts.onCut,
             onPaste: opts.onPaste,
@@ -69828,7 +71375,13 @@ var MDAEditorBundle = (() => {
             }
             if (toolbarApi && typeof toolbarApi.destroy === "function") toolbarApi.destroy();
             toolbarApi = null;
+            if (aiHolder.ctrl) aiHolder.ctrl.destroy();
+            aiHolder.ctrl = null;
             view.destroy();
+          },
+          /** 菜单「AI」：command-bar / continue / polish / explain / summarize */
+          aiCommand: function(action) {
+            if (aiHolder.ctrl) aiHolder.ctrl.command(action);
           },
           refreshToolbar: function() {
             if (toolbarApi) {
@@ -69982,6 +71535,7 @@ var MDAEditorBundle = (() => {
       var { SearchSession } = require_search_session();
       var editorConfig = require_config();
       var { isEnabledByPref, setEnabledPref } = require_pref();
+      var { describeAiFailure } = require_errors();
       var { sliceSelectionForClipboard } = require_syntax_clipboard();
       module.exports = {
         createEditor,
@@ -70019,6 +71573,7 @@ var MDAEditorBundle = (() => {
         setEnabledPref,
         resolveAnnoPanelContext: annoAddContext.resolveCm6AnnoPanelContext,
         canUseSelectionAnnoForRange: annoAddContext.canUseSelectionAnnoForRange,
+        describeAiFailure,
         blockKindAtPos: annoAddContext.blockKindAtPos,
         isBlockOnlyKind: annoAddContext.isBlockOnlyKind,
         blockAnnotationLine: annoAddContext.blockAnnotationLine,

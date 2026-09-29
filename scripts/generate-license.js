@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * 签发 MDA Pro 离线激活码（开发 / 运营侧）。
  * 用法：

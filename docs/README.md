@@ -18,6 +18,7 @@
 | [`P1-architecture-v3-wysiwyg.md`](P1-architecture-v3-wysiwyg.md) | **3.0 架构：源码即真源 + CodeMirror 6 装饰式实时预览**（已确认 2026-07-28） |
 | [`P2-detailed-design-v3-wysiwyg.md`](P2-detailed-design-v3-wysiwyg.md) | **3.0 详细设计：装饰规则表 / 双模式状态机 / 批注共存算法 / E49–E86**（已确认 2026-07-28） |
 | [`P3-implementation-plan-v3-wysiwyg.md`](P3-implementation-plan-v3-wysiwyg.md) | **3.0 实现步骤：M8 共 10 阶段任务 DAG**（已确认 2026-07-28） |
+| [`AI交互设计.md`](AI交互设计.md) | **AI 功能完整交互设计**（指令条 / 原位 diff / 待确认区 / 只读卡片 / 要点 / 评审线；取代 P2 §5.6，**已确认 2026-09-24**） |
 | [`M8-acceptance-checklist.md`](M8-acceptance-checklist.md) | Phase 预览直接编辑 | 实现中；**SEL-1 正文选区着色 ✅**（2026-08-07 复验） |
 
 ## CM6 行内定界符与编辑栏（M8）

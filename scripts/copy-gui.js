@@ -39,12 +39,13 @@ const files = [
   ['src/gui/renderer/anchor-highlights.js', 'dist/gui/renderer/anchor-highlights.js'],
   ['src/gui/renderer/katex-export.js', 'dist/gui/renderer/katex-export.js'],
   ['src/gui/renderer/settings-ai.js', 'dist/gui/renderer/settings-ai.js'],
-  ['src/gui/renderer/ai-panel.js', 'dist/gui/renderer/ai-panel.js'],
   ['src/pro/license.js', 'dist/pro/license.js'],
   ['src/pro/feature-gate.js', 'dist/pro/feature-gate.js'],
   ['src/pro/ai/settings.js', 'dist/pro/ai/settings.js'],
   ['src/pro/ai/provider.js', 'dist/pro/ai/provider.js'],
   ['src/pro/ai/prompts.js', 'dist/pro/ai/prompts.js'],
+  ['src/pro/ai/actions.js', 'dist/pro/ai/actions.js'],
+  ['src/pro/ai/session.js', 'dist/pro/ai/session.js'],
   ['src/config/annotation-schema.json', 'dist/config/annotation-schema.json'],
 ];
 
