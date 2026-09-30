@@ -1288,5 +1288,10 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow(null);
+  // macOS 冷启动时 activate 可能早于 ready；此时建窗口会抛 Cannot create BrowserWindow before app is ready
+  if (BrowserWindow.getAllWindows().length === 0) {
+    app.whenReady().then(() => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow(null);
+    });
+  }
 });
