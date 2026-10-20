@@ -39,6 +39,7 @@ const files = [
   ['src/gui/renderer/selection-anchor.js', 'dist/gui/renderer/selection-anchor.js'],
   ['src/gui/renderer/anchor-highlights.js', 'dist/gui/renderer/anchor-highlights.js'],
   ['src/gui/renderer/katex-export.js', 'dist/gui/renderer/katex-export.js'],
+  ['src/gui/renderer/wechat-article.js', 'dist/gui/renderer/wechat-article.js'],
   ['src/gui/renderer/settings-ai.js', 'dist/gui/renderer/settings-ai.js'],
   ['src/pro/license.js', 'dist/pro/license.js'],
   ['src/pro/feature-gate.js', 'dist/pro/feature-gate.js'],

@@ -7132,11 +7132,12 @@
     var svg = liveHolder.querySelector('svg');
     if (svg) {
       try {
-        var fromSvg = await mermaidSvgToPngDataUrl(svg);
+        var fromSvg = await mermaidSvgToPngDataUrl(svg, exportBitmapScale());
         var dw = parseInt(liveHolder.getAttribute('data-mda-display-width') || '', 10);
         if (!(dw > 0)) dw = renderedWidthPx(liveHolder);
+        // 只补足到「显示宽 × 导出倍率」，禁止缩回 1× CSS 像素（公众号会按位图上传，缩过的图再放大就糊）。
         if (dw > 0 && isValidPngDataUrl(fromSvg)) {
-          fromSvg = await scalePngDataUrlToWidth(fromSvg, dw);
+          fromSvg = await ensurePngMinWidth(fromSvg, Math.round(dw * exportBitmapScale()));
         }
         if (isValidPngDataUrl(fromSvg)) return fromSvg;
       } catch (e) { /* fallback */ }
@@ -7167,6 +7168,22 @@
           c.getContext('2d').drawImage(img, 0, 0, tw, th);
           resolve(c.toDataURL('image/png'));
         } catch (e) { resolve(dataUrl); }
+      };
+      img.onerror = function () { resolve(dataUrl); };
+      img.src = dataUrl;
+    });
+  }
+
+  /** 位图已不小于 targetW 时原样返回，避免把高分图平滑缩到 CSS 宽度。 */
+  function ensurePngMinWidth(dataUrl, targetW) {
+    var tw = Math.round(targetW);
+    if (!(tw > 0) || !dataUrl) return Promise.resolve(dataUrl);
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = function () {
+        var nw = img.naturalWidth || img.width || 0;
+        if (nw >= tw) resolve(dataUrl);
+        else scalePngDataUrlToWidth(dataUrl, tw).then(resolve);
       };
       img.onerror = function () { resolve(dataUrl); };
       img.src = dataUrl;
@@ -7411,12 +7428,13 @@
     return clone;
   }
 
-  function mermaidSvgToPngDataUrl(svg) {
+  function mermaidSvgToPngDataUrl(svg, scale) {
     return new Promise(function (resolve, reject) {
       if (!svg) {
         reject(new Error('SVG to PNG failed'));
         return;
       }
+      var bitmapScale = Math.max(1, Number(scale) || 1);
       var clone = prepareMermaidSvgForExport(svg);
       var dim = svgDimensions(clone);
       var w = dim.w;
@@ -7430,12 +7448,15 @@
       img.onload = function () {
         try {
           var canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
+          canvas.width = Math.max(1, Math.round(w * bitmapScale));
+          canvas.height = Math.max(1, Math.round(h * bitmapScale));
           var ctx = canvas.getContext('2d');
           if (!ctx) throw new Error('SVG to PNG failed');
           ctx.fillStyle = isDark() ? '#1e1e1e' : '#ffffff';
-          ctx.fillRect(0, 0, w, h);
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.setTransform(bitmapScale, 0, 0, bitmapScale, 0, 0);
           ctx.drawImage(img, 0, 0, w, h);
           resolve(canvas.toDataURL('image/png'));
         } catch (err) {
@@ -7581,7 +7602,8 @@
       + innerHtml + '</section>';
   }
 
-  function ensureImgDimensions(img) {
+  function ensureImgDimensions(img, opts) {
+    if (opts && opts.forWechat) return stampWechatImagePixels(img);
     var dw = parseInt(img.getAttribute('data-mda-display-width') || '', 10);
     if (dw > 0) {
       img.setAttribute('width', String(dw));
@@ -7610,9 +7632,105 @@
     });
   }
 
+  function paintWechatPng(img, source, width, height) {
+    var canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    var ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, width, height);
+    var pixel = ctx.getImageData(0, 0, 1, 1);
+    pixel.data[3] = pixel.data[3] > 0 ? pixel.data[3] - 1 : 1;
+    ctx.putImageData(pixel, 0, 0);
+    img.setAttribute('src', canvas.toDataURL('image/png'));
+  }
+
+  /**
+   * SVG 的 width/height 常是 100%。直接 drawImage 会按很小的固有尺寸出图再放大，文字发糊。
+   * 先把根节点改成导出像素，让浏览器按该尺寸做矢量栅格化。
+   */
+  function rasterizeSvgForWechat(img, src) {
+    var helper = window.MDAWechatArticle;
+    if (!helper || !helper.decodeSvgDataUrl || !helper.svgIntrinsicSize || !helper.prepareSvgMarkupForRaster || !helper.planWechatBitmapSize) {
+      return Promise.resolve();
+    }
+    var text = helper.decodeSvgDataUrl(src);
+    var intrinsic = helper.svgIntrinsicSize(text);
+    var plan = intrinsic ? helper.planWechatBitmapSize(intrinsic.width, intrinsic.height) : null;
+    if (!text || !plan) return Promise.resolve();
+    var markup = helper.prepareSvgMarkupForRaster(text, plan.width, plan.height);
+    var url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(markup);
+    return new Promise(function (resolve) {
+      var im = new Image();
+      im.onload = function () {
+        try { paintWechatPng(img, im, plan.width, plan.height); } catch (e) { /* 保持原图 */ }
+        resolve();
+      };
+      im.onerror = function () { resolve(); };
+      im.src = url;
+    });
+  }
+
+  /**
+   * 内容图统一画成 1080 宽的 PNG。
+   * 更宽的原图会被微信再压一遍，文字发糊；更窄的原图铺满正文后也会虚。
+   * 角落留 1px 半透明，避免微信把不透明图转成 JPEG。
+   */
+  function ensureWechatContentBitmap(img) {
+    if (!img || (img.classList && (img.classList.contains('mda-formula-img') || img.classList.contains('mda-formula-table-img')))) {
+      return Promise.resolve();
+    }
+    var src = img.getAttribute('src') || '';
+    if (/^data:image\/svg\+xml/i.test(src)) return rasterizeSvgForWechat(img, src);
+    if (!/^data:/i.test(src)) return Promise.resolve();
+    return new Promise(function (resolve) {
+      var im = new Image();
+      im.onload = function () {
+        var nw = im.naturalWidth || im.width || 0;
+        var nh = im.naturalHeight || im.height || 0;
+        var plan = window.MDAWechatArticle && window.MDAWechatArticle.planWechatBitmapSize
+          ? window.MDAWechatArticle.planWechatBitmapSize(nw, nh)
+          : null;
+        if (!plan) { resolve(); return; }
+        try { paintWechatPng(img, im, plan.width, plan.height); } catch (e) { /* 保持原图 */ }
+        resolve();
+      };
+      im.onerror = function () { resolve(); };
+      im.src = src;
+    });
+  }
+
+  /** 公众号路径：记下位图像素。width/height 属性由后处理按这个像素写回。 */
+  function stampWechatImagePixels(img) {
+    function apply(nw, nh) {
+      img.removeAttribute('width');
+      img.removeAttribute('height');
+      if (nw > 0) img.setAttribute('data-mda-pixel-width', String(Math.round(nw)));
+      if (nh > 0) img.setAttribute('data-mda-pixel-height', String(Math.round(nh)));
+    }
+    var nw = img.naturalWidth || 0;
+    var nh = img.naturalHeight || 0;
+    if (nw > 0 && nh > 0) {
+      apply(nw, nh);
+      return Promise.resolve();
+    }
+    var src = img.getAttribute('src') || '';
+    if (!src) return Promise.resolve();
+    return new Promise(function (resolve) {
+      var im = new Image();
+      im.onload = function () {
+        apply(im.naturalWidth || im.width || 0, im.naturalHeight || im.height || 0);
+        resolve();
+      };
+      im.onerror = function () { resolve(); };
+      im.src = src;
+    });
+  }
+
   function normalizeImgToPng(img) {
     var src = img.getAttribute('src') || '';
-    if (!/^data:/i.test(src) || /^data:image\/png/i.test(src)) return Promise.resolve();
+    if (!/^data:/i.test(src) || /^data:image\/png/i.test(src) || /^data:image\/svg\+xml/i.test(src)) return Promise.resolve();
     return new Promise(function (resolve) {
       var im = new Image();
       im.onload = function () {
@@ -7672,7 +7790,7 @@
           var mmdImg = document.createElement('img');
           mmdImg.src = liveHolder
             ? await mermaidHolderToPngDataUrl(liveHolder)
-            : await mermaidSvgToPngDataUrl(svg);
+            : await mermaidSvgToPngDataUrl(svg, exportBitmapScale());
           mmdImg.setAttribute('alt', uiT('diagram'));
           var mmdW = liveHolder
             ? parseInt(liveHolder.getAttribute('data-mda-display-width') || '', 10)
@@ -7777,11 +7895,15 @@
     for (var ii = 0; ii < imgs.length; ii++) {
       await inlineImageSrc(imgs[ii]);
       await normalizeImgToPng(imgs[ii]);
-      await ensureImgDimensions(imgs[ii]);
+      await ensureWechatContentBitmap(imgs[ii]);
+      await ensureImgDimensions(imgs[ii], { forWechat: true });
     }
 
     root.querySelectorAll('.mda-cursor-block').forEach(function (el) { el.classList.remove('mda-cursor-block'); });
     applyArticleInlineStyles(root);
+    if (window.MDAWechatArticle && window.MDAWechatArticle.adaptWechatArticleHtml) {
+      root.innerHTML = window.MDAWechatArticle.adaptWechatArticleHtml(root.innerHTML);
+    }
 
     return {
       html: wrapArticleSection(root.innerHTML),
