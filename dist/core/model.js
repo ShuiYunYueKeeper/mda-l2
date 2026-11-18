@@ -3,10 +3,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MARKDOWN_FILE_EXTENSIONS = exports.ANNOTATION_STATUSES = exports.ANNOTATION_LEVELS = void 0;
+exports.HTML_FILE_EXTENSIONS = exports.MARKDOWN_FILE_EXTENSIONS = exports.ANNOTATION_STATUSES = exports.ANNOTATION_LEVELS = void 0;
 exports.isAnnotationLevel = isAnnotationLevel;
 exports.isAnnotationStatus = isAnnotationStatus;
 exports.isMarkdownPath = isMarkdownPath;
+exports.isHtmlPath = isHtmlPath;
+exports.isOpenablePath = isOpenablePath;
 const annotation_schema_json_1 = __importDefault(require("../config/annotation-schema.json"));
 // 运行时枚举值来源于外置配置（src/config/annotation-schema.json），
 // TS 字面联合类型仍保留以获得静态检查；二者通过下方断言保持一致。
@@ -25,5 +27,17 @@ function isMarkdownPath(filePath) {
     if (!m)
         return false;
     return exports.MARKDOWN_FILE_EXTENSIONS.includes(m[1].toLowerCase());
+}
+/** GUI 可只读打开的 HTML 扩展名（不含点，来源于 annotation-schema.json） */
+exports.HTML_FILE_EXTENSIONS = annotation_schema_json_1.default.htmlExtensions;
+function isHtmlPath(filePath) {
+    const m = filePath.match(/\.([^.\\/]+)$/i);
+    if (!m)
+        return false;
+    return exports.HTML_FILE_EXTENSIONS.includes(m[1].toLowerCase());
+}
+/** GUI 支持打开的文档：Markdown（可编辑/批注）+ HTML（只读预览） */
+function isOpenablePath(filePath) {
+    return isMarkdownPath(filePath) || isHtmlPath(filePath);
 }
 //# sourceMappingURL=model.js.map

@@ -25,6 +25,20 @@ export function isMarkdownPath(filePath: string): boolean {
   return MARKDOWN_FILE_EXTENSIONS.includes(m[1].toLowerCase());
 }
 
+/** GUI 可只读打开的 HTML 扩展名（不含点，来源于 annotation-schema.json） */
+export const HTML_FILE_EXTENSIONS: readonly string[] = schema.htmlExtensions;
+
+export function isHtmlPath(filePath: string): boolean {
+  const m = filePath.match(/\.([^.\\/]+)$/i);
+  if (!m) return false;
+  return HTML_FILE_EXTENSIONS.includes(m[1].toLowerCase());
+}
+
+/** GUI 支持打开的文档：Markdown（可编辑/批注）+ HTML（只读预览） */
+export function isOpenablePath(filePath: string): boolean {
+  return isMarkdownPath(filePath) || isHtmlPath(filePath);
+}
+
 export interface AnnotationAnchor {
   start: number;
   end: number;

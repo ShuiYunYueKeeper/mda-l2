@@ -15,5 +15,6 @@
     "info": 0
   },
   "annotationPattern": "^\\[comment\\]:\\s*<>\\s*\\(@anno\\s+(\\{.+?\\})\\)\\s*$",
-  "fileExtensions": ["md", "markdown", "txt", "mdc"]
+  "fileExtensions": ["md", "markdown", "txt", "mdc"],
+  "htmlExtensions": ["html", "htm"]
 }

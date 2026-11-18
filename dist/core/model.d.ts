@@ -7,6 +7,11 @@ export declare function isAnnotationStatus(v: unknown): v is AnnotationStatus;
 /** GUI/CLI 可打开的 Markdown 类文件扩展名（不含点，来源于 annotation-schema.json） */
 export declare const MARKDOWN_FILE_EXTENSIONS: readonly string[];
 export declare function isMarkdownPath(filePath: string): boolean;
+/** GUI 可只读打开的 HTML 扩展名（不含点，来源于 annotation-schema.json） */
+export declare const HTML_FILE_EXTENSIONS: readonly string[];
+export declare function isHtmlPath(filePath: string): boolean;
+/** GUI 支持打开的文档：Markdown（可编辑/批注）+ HTML（只读预览） */
+export declare function isOpenablePath(filePath: string): boolean;
 export interface AnnotationAnchor {
     start: number;
     end: number;

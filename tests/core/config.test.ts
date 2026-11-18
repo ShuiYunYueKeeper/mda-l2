@@ -2,9 +2,12 @@ import schema from '../../src/config/annotation-schema.json';
 import {
   ANNOTATION_LEVELS,
   ANNOTATION_STATUSES,
+  HTML_FILE_EXTENSIONS,
   isAnnotationLevel,
   isAnnotationStatus,
+  isHtmlPath,
   isMarkdownPath,
+  isOpenablePath,
   MARKDOWN_FILE_EXTENSIONS,
 } from '../../src/core/model';
 import { LEVEL_COLORS, LEVEL_SEVERITY } from '../../src/core/renderer';
@@ -42,5 +45,17 @@ describe('外置规则配置驱动 core', () => {
     expect(isMarkdownPath('readme.txt')).toBe(true);
     expect(isMarkdownPath('notes.markdown')).toBe(true);
     expect(isMarkdownPath('image.png')).toBe(false);
+  });
+
+  test('HTML 只读文档扩展名与可打开判定', () => {
+    expect(HTML_FILE_EXTENSIONS).toEqual(schema.htmlExtensions);
+    expect(isHtmlPath('page.html')).toBe(true);
+    expect(isHtmlPath('page.HTM')).toBe(true);
+    expect(isHtmlPath('doc.md')).toBe(false);
+    expect(isOpenablePath('doc.md')).toBe(true);
+    expect(isOpenablePath('page.html')).toBe(true);
+    expect(isOpenablePath('image.png')).toBe(false);
+    // HTML 不能混进 Markdown 扩展名，否则 CLI scan 会把网页当批注文档扫描
+    expect(isMarkdownPath('page.html')).toBe(false);
   });
 });
