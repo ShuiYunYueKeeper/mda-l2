@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
+const { app, BrowserWindow, dialog, Menu, ipcMain, shell, clipboard, screen, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -49,6 +49,8 @@ app.commandLine.appendSwitch('disable-features', 'PartitionAllocBackupRefPtr,Par
 
 const schema = require(path.join(__dirname, '..', 'config', 'annotation-schema.json'));
 const MD_EXTENSIONS = schema.fileExtensions || ['md', 'markdown', 'txt', 'mdc'];
+const HTML_EXTENSIONS = schema.htmlExtensions || ['html', 'htm'];
+const OPENABLE_EXTENSIONS = MD_EXTENSIONS.concat(HTML_EXTENSIONS);
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
 const APP_ICON_PATH = path.join(__dirname, 'icon.png');
 
@@ -64,6 +66,15 @@ function resolveAppIconPath() {
 function isMarkdownPath(filePath) {
   const ext = path.extname(filePath).slice(1).toLowerCase();
   return MD_EXTENSIONS.includes(ext);
+}
+
+function isHtmlPath(filePath) {
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  return HTML_EXTENSIONS.includes(ext);
+}
+
+function isOpenablePath(filePath) {
+  return isMarkdownPath(filePath) || isHtmlPath(filePath);
 }
 
 /** 购买说明在仓库 docs/ 下，尚未推到 GitHub 时远程链接会 404；优先打开本地文件。 */
@@ -226,7 +237,7 @@ function buildMenuTemplate(recents) {
             if (!mainWindow) return;
             const result = await dialog.showOpenDialog(mainWindow, {
               title: t('openMdTitle'),
-              filters: [{ name: t('filterMarkdown'), extensions: MD_EXTENSIONS }],
+              filters: [{ name: t('filterDoc'), extensions: OPENABLE_EXTENSIONS }],
               properties: ['openFile'],
             });
             if (!result.canceled && result.filePaths.length > 0) {
@@ -640,7 +651,7 @@ function registerIpcHandlers() {
     const win = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showOpenDialog(win || mainWindow, {
       title: t('openMdTitle'),
-      filters: [{ name: t('filterMarkdown'), extensions: MD_EXTENSIONS }],
+      filters: [{ name: t('filterDoc'), extensions: OPENABLE_EXTENSIONS }],
       properties: ['openFile'],
     });
     if (result.canceled || !result.filePaths.length) {
@@ -911,7 +922,7 @@ function registerIpcHandlers() {
   ipcMain.handle('list-markdown-tree', async (_event, folderPath) => {
     try {
       if (!folderPath) return { success: false, error: '路径为空' };
-      const tree = listMarkdownTree(folderPath, MD_EXTENSIONS);
+      const tree = listMarkdownTree(folderPath, OPENABLE_EXTENSIONS);
       return { success: true, tree };
     } catch (err) {
       return { success: false, error: err.message };
@@ -1262,7 +1273,7 @@ if (!gotSingleInstanceLock) {
     // 关窗半途（已 hide）或幽灵进程：取消关闭并强制显示，否则 focus 对隐藏窗无效
     abortAppClose();
     focusOrCreateMainWindow();
-    const argFile = argv.find((a) => !a.startsWith('-') && isMarkdownPath(a));
+    const argFile = argv.find((a) => !a.startsWith('-') && isOpenablePath(a));
     if (argFile) {
       sendToRenderer('file-opened', path.resolve(argFile));
     }
@@ -1277,7 +1288,7 @@ if (!gotSingleInstanceLock) {
     }
     registerIpcHandlers();
     autoUpdaterApi = setupAutoUpdater(app, () => mainWindow);
-    const argFile = process.argv.find((a) => !a.startsWith('-') && isMarkdownPath(a));
+    const argFile = process.argv.find((a) => !a.startsWith('-') && isOpenablePath(a));
     const initialFile = argFile ? path.resolve(argFile) : undefined;
     createWindow(initialFile);
   });

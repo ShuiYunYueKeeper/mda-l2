@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file: https:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file: https:; frame-src 'self' file:;" />
   <title>MDA</title>
   <link rel="stylesheet" href="./katex.min.css" />
   <style>
@@ -359,6 +359,32 @@
     #preview-content {
       overflow: visible; padding: 16px; max-width: 800px; margin: 0 auto; width: 100%; line-height: 1.7;
       box-sizing: border-box;
+    }
+    /* ================= HTML 只读文档视图 =================
+       与 CM6 host 并列放进 #preview-scroll：文档模式隐藏正文/编辑面/大纲，只留 iframe 通栏。
+       iframe 用 sandbox（不授权 allow-scripts）加载 file://，保留文档自带样式与相对资源。 */
+    #html-doc-view {
+      display: none;
+      flex: 1 1 auto;
+      min-height: 0;
+      width: 100%;
+    }
+    #html-doc-view.hidden { display: none !important; }
+    body.mda-html-doc #html-doc-view { display: flex; }
+    body.mda-html-doc #preview-scroll {
+      overflow: hidden; display: flex; flex-direction: column;
+      align-items: stretch; flex: 1 1 auto; min-height: 0;
+    }
+    body.mda-html-doc #preview-content,
+    body.mda-html-doc #cm-editor-host { display: none !important; }
+    body.mda-html-doc #editor-pane,
+    body.mda-html-doc #split-left { display: none !important; }
+    body.mda-html-doc #outline-host,
+    body.mda-html-doc #split-outline,
+    body.mda-html-doc #outline-expand-rail { display: none !important; }
+    #html-doc-frame {
+      flex: 1 1 auto; display: block; width: 100%; height: 100%;
+      border: 0; background: #fff;
     }
     #panel-pane { flex: 0 0 320px; display: flex; flex-direction: column; overflow: hidden; min-width: 240px; background: var(--bg-secondary); }
     #panel-pane.hidden { display: none; }
@@ -3831,6 +3857,7 @@
   <script src="./katex-export.js"></script>
   <script src="./wechat-article.js"></script>
   <script src="./settings-ai.js"></script>
+  <script src="./html-view.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

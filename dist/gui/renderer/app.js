@@ -5,6 +5,8 @@
   var api = window.mdaAPI;
   var currentFilePath = null;
   var currentText = '';           // 当前文件磁盘内容（编辑模式下预览的兜底源）
+  var htmlDoc = false;            // 当前文档是否为 HTML 只读预览
+  var htmlDocView = null;         // 只读 HTML iframe 视图（window.MDAHtmlView）
   var annotations = [];
   var paragraphs = [];
   var selectedAnnotationId = null;
@@ -131,6 +133,7 @@
   }
 
   function syncDirtyFromEditor() {
+    if (htmlDoc) return; // HTML 只读，文档面没有可编辑内容
     setDirtyState(
       normalizeEditorCompareText(getEditorTextValue()) !==
         normalizeEditorCompareText(currentText)
@@ -279,6 +282,23 @@
   }
 
   function applyCm6DocumentUi() {
+    var htmlOpen = !!htmlDoc && (docState === 'open' || docState === 'untitled');
+    document.body.classList.toggle('mda-html-doc', htmlOpen);
+    if (htmlOpen) {
+      // HTML 只读：保留 CM6 的 mda-cm6-active（用于隐藏 2.0 编辑栏），但不许出现 doc-open，
+      // 否则 #preview-scroll 会按编辑器布局把 iframe 挤掉。
+      if (isCm6Enabled()) {
+        if (!cm6Editor) initCm6Editor();
+        document.body.classList.add('mda-cm6-active');
+        document.body.classList.remove('mda-cm6-doc-open');
+        document.body.classList.remove('mda-cm6-mode-preview', 'mda-cm6-mode-source');
+      } else {
+        clearCm6DocumentUi();
+      }
+      if (cm6HostEl) cm6HostEl.classList.add('hidden');
+      if (cmEditToolbarSlotEl) cmEditToolbarSlotEl.classList.add('hidden');
+      return;
+    }
     if (!isCm6Enabled()) {
       clearCm6DocumentUi();
       return;
@@ -1151,6 +1171,10 @@
   // ---- 初始化 ----
   function init() {
     buildLayout();
+    if (window.MDAHtmlView && previewScrollEl) {
+      htmlDocView = window.MDAHtmlView.mount(previewScrollEl);
+      if (htmlDocView) htmlDocView.setLinkHandler(handleLinkClick);
+    }
     initTheme();
     initMermaid();
     initUiLang();
@@ -1392,6 +1416,7 @@
   }
 
   function openFindReplace(mode) {
+    if (htmlDoc) { showToast(uiT('htmlReadonly')); return; }
     if (docState === 'welcome' || !findReplaceUi) return;
     if (!isCm6Ready() && !editorVisible) showEditorPane(true);
     var seed = getFindSeedFromSelection();
@@ -1487,6 +1512,7 @@
   /** 菜单「AI」各项：设置直开面板；其余交 CM6 编辑器里的 AI 控制器（2.0 源码模式不支持）。 */
   function runAiMenuAction(action) {
     if (action === 'settings') { showSettingsDialog('ai'); return; }
+    if (htmlDoc) { showToast(uiT('htmlReadonly')); return; }
     if (document.querySelector('.modal-overlay')) return;
     if (!isCm6Ready() || !cm6Editor || typeof cm6Editor.aiCommand !== 'function') {
       showToast(uiT('aiNeedCm6'));
@@ -2266,6 +2292,7 @@
   }
 
   function showGotoLineDialog() {
+    if (htmlDoc) { showToast(uiT('htmlReadonly')); return; }
     if (docState === 'welcome') { uiAlert(uiT('alertOpenDocFirst')); return; }
     var overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
@@ -2460,6 +2487,8 @@
   function newDocument() {
     guardDiscard().then(function (ok) {
       if (!ok) return;
+      htmlDoc = false;
+      if (htmlDocView) htmlDocView.hide();
       currentFilePath = null;
       currentText = '';
       refreshDocCoords(''); // 新文档尚未落盘，按 writeRawFile 的新文件默认 LF
@@ -2482,6 +2511,7 @@
   }
 
   function showEditorPane(visible) {
+    if (htmlDoc) return;
     if (isCm6Ready() && window.MDAEditor) {
       editorVisible = !!visible;
       cm6Editor.setMode(editorVisible
@@ -2837,6 +2867,8 @@
   }
 
   function clearOpenDocument() {
+    htmlDoc = false;
+    if (htmlDocView) htmlDocView.hide();
     currentFilePath = null;
     currentText = '';
     refreshDocCoords('');
@@ -3222,6 +3254,10 @@
   }
 
   function saveAs(onSuccess) {
+    if (htmlDoc) {
+      showToast(uiT('htmlReadonly'));
+      return;
+    }
     var suggestedName = uiT('untitled');
     if (currentFilePath) {
       suggestedName = currentFilePath.replace(/\\/g, '/').split('/').pop() || suggestedName;
@@ -4146,6 +4182,7 @@
   }
 
   function toggleEditor() {
+    if (htmlDoc) { showToast(uiT('htmlReadonly')); return; }
     if (docState === 'welcome') { uiAlert(uiT('alertNewOrOpen')); return; }
     if (isCm6Ready() && window.MDAEditor) {
       editorVisible = !editorVisible;
@@ -6173,6 +6210,10 @@
   function saveFile(onSuccess, opts) {
     opts = opts || {};
     if (docState === 'welcome') return;
+    if (htmlDoc) {
+      showToast(uiT('htmlReadonly'));
+      return;
+    }
     // 必须在判脏之前 flush：表格格内编辑只改 widget 的 DOM，不经 CM6 事务，文档因此还是「干净」的，
     // 直接走到 `if (!dirty) return` 会把这次编辑整个跳过（保存无声失败）。
     flushActiveWidgetEditsBeforeSave();
@@ -6205,6 +6246,7 @@
   function tryAutosave() {
     if (autosaveSaving) return;
     if (autosavePref === 'off') return;
+    if (htmlDoc) return;
     if (docState !== 'open' || !currentFilePath || !editorEl) return;
     flushActiveWidgetEditsBeforeSave();
     if (!dirty) return;
@@ -6352,6 +6394,7 @@
   }
 
   function triggerAddAnnotation() {
+    if (htmlDoc) { showToast(uiT('htmlReadonly')); return; }
     if (docState !== 'open' || !currentFilePath) return;
     if (isCm6Ready() && cm6Editor && cm6Editor.view && window.MDAEditor) {
       var intent = resolveCm6AddAnnoIntent();
@@ -6378,11 +6421,12 @@
 
   function updateAnnoAddButton() {
     if (!addBtn) return;
-    var baseDisabled = docState !== 'open' || !currentFilePath;
+    var baseDisabled = docState !== 'open' || !currentFilePath || htmlDoc;
     if (baseDisabled) {
       addBtn.disabled = true;
       addBtn.textContent = uiT('btnAddAnno');
-      addBtn.removeAttribute('title');
+      if (htmlDoc) addBtn.title = uiT('htmlReadonly');
+      else addBtn.removeAttribute('title');
       return;
     }
     if (isCm6Ready() && window.MDAEditor && typeof window.MDAEditor.resolveAnnoPanelContext === 'function') {
@@ -6432,8 +6476,8 @@
       tbFilesBtn.classList.toggle('active', filesReady && fileSidebar && !fileSidebar.isCollapsed());
     }
     if (tbEditBtn) {
-      tbEditBtn.classList.toggle('active', editorVisible);
-      tbEditBtn.disabled = docState === 'welcome';
+      tbEditBtn.classList.toggle('active', editorVisible && !htmlDoc);
+      tbEditBtn.disabled = docState === 'welcome' || htmlDoc;
     }
     if (tbPanelBtn) tbPanelBtn.classList.toggle('active', panelVisible);
     if (tbFileNameEl) {
@@ -6451,7 +6495,7 @@
     }
     if (addBtn) updateAnnoAddButton();
     if (clearAllBtn) {
-      clearAllBtn.disabled = docState !== 'open' || !currentFilePath || !annotations.length;
+      clearAllBtn.disabled = docState !== 'open' || !currentFilePath || !annotations.length || htmlDoc;
     }
     if (isCm6Ready() && cm6Editor && typeof cm6Editor.refreshToolbar === 'function') {
       cm6Editor.refreshToolbar();
@@ -6470,7 +6514,7 @@
       if (!files || !files.length) return;
       var p = files[0].path;
       if (!p) return;
-      if (api.isMarkdownPath && api.isMarkdownPath(p)) requestOpen(p);
+      if (api.isOpenablePath && api.isOpenablePath(p)) requestOpen(p);
       else uiAlert(uiT('alertMdOnly'));
     });
   }
@@ -6488,7 +6532,7 @@
     var clean = openHref.split('#')[0].split('?')[0];
     try { clean = decodeURIComponent(clean); } catch (e) { /* keep */ }
     if (!clean) return;
-    if (api.isMarkdownPath && api.isMarkdownPath(clean)) {
+    if (api.isOpenablePath && api.isOpenablePath(clean)) {
       var target = currentFilePath ? api.resolvePath(currentFilePath, clean) : clean;
       if (target) requestOpen(target);
       return;
@@ -6682,6 +6726,38 @@
   }
 
   // ---- 文件操作 ----
+  /**
+   * 打开 HTML 文档：只读整页渲染，不进入 Markdown 解析/批注/编辑链路。
+   * 文档内容交给 sandbox iframe，父页面只保留链接拦截与文档态（dirty 恒 false）。
+   */
+  function openHtmlDocument(filePath, content, opts) {
+    opts = opts || {};
+    htmlDoc = true;
+    currentFilePath = filePath;
+    currentText = content || '';
+    refreshDocCoords(currentText);
+    annotations = [];
+    paragraphs = [];
+    selectedAnnotationId = null;
+    cursorLine = null;
+    expandedAnnoIds = {};
+    if (previewEl) previewEl.innerHTML = '';
+    updateOutline('');
+    renderPanel();
+    resetFindUiForNewDocument();
+    setEditorTextValue('', { resetHistory: true });
+    setDirtyState(false);
+    setDocState('open');
+    if (htmlDocView) htmlDocView.show(filePath);
+    if (previewScrollEl) previewScrollEl.scrollTop = 0;
+    updateToolbar();
+    setTitle(filePath);
+    if (api.addRecentFile && allowAddRecent) {
+      api.addRecentFile(filePath).then(function () { refreshWelcomeRecents(); });
+    }
+    if (fileSidebar) fileSidebar.setActive(filePath);
+  }
+
   async function openFile(filePath, opts) {
     opts = opts || {};
     var scrollToTop = !!opts.scrollToTop;
@@ -6703,6 +6779,12 @@
     }
     var result = await api.readFile(filePath);
     if (!result.success) { uiAlert(uiT('alertOpenFail', { error: result.error })); return; }
+    if (api.isHtmlPath && api.isHtmlPath(filePath)) {
+      openHtmlDocument(filePath, result.content, opts);
+      return;
+    }
+    htmlDoc = false;
+    if (htmlDocView) htmlDocView.hide();
     if (scrollToTop) resetFindUiForNewDocument();
     currentFilePath = filePath;
     refreshDocCoords(result.content);
@@ -7950,6 +8032,7 @@
   }
 
   async function copyPreviewForArticle() {
+    if (htmlDoc) { showToast(uiT('htmlReadonly')); return; }
     var ready = await ensurePreviewHtmlForExport();
     if (!ready) {
       uiAlert(uiT('alertPreviewEmpty'));
@@ -8156,6 +8239,7 @@
   }
 
   async function exportPreviewHtml() {
+    if (htmlDoc) { showToast(uiT('htmlReadonly')); return; }
     var ready = await ensurePreviewHtmlForExport();
     if (!ready) {
       uiAlert(uiT('alertPreviewEmpty'));
@@ -8188,6 +8272,7 @@
   }
 
   async function exportPreviewPdf() {
+    if (htmlDoc) { showToast(uiT('htmlReadonly')); return; }
     var ready = await ensurePreviewHtmlForExport();
     if (!ready) {
       uiAlert(uiT('alertPreviewEmpty'));
@@ -8220,6 +8305,7 @@
   }
 
   async function exportPreviewDocx() {
+    if (htmlDoc) { showToast(uiT('htmlReadonly')); return; }
     var ready = await ensurePreviewHtmlForExport();
     if (!ready) {
       uiAlert(uiT('alertPreviewEmpty'));
@@ -9222,7 +9308,9 @@
         '</div></div>';
     }
 
-    if (filtered.length === 0) html = '<div class="anno-empty">' + uiT('annoEmpty') + '</div>';
+    if (filtered.length === 0) {
+      html = '<div class="anno-empty">' + uiT(htmlDoc ? 'htmlReadonly' : 'annoEmpty') + '</div>';
+    }
 
     annoListEl.innerHTML = html;
     if (addBtn) updateAnnoAddButton();
@@ -9329,6 +9417,7 @@
   }
 
   function clearAllAnnotationsInFile() {
+    if (htmlDoc) { showToast(uiT('htmlReadonly')); return; }
     if (!currentFilePath || !annotations.length) return;
     uiConfirm(uiT('alertClearAllAnnos'), {
       preferCancel: true,
@@ -9832,7 +9921,7 @@
 
   function showHelpDialog() {
     if (document.getElementById('help-dialog')) return;
-    var exts = (api.markdownExtensions || ['md', 'markdown', 'txt', 'mdc']).map(function (e) {
+    var exts = (api.openableExtensions || api.markdownExtensions || ['md', 'markdown', 'txt', 'mdc']).map(function (e) {
       return '.' + e;
     }).join(' / ');
     var overlay = document.createElement('div');

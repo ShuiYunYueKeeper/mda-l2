@@ -262,7 +262,11 @@ contextBridge.exposeInMainWorld('mdaAPI', {
   levelColors: core.LEVEL_COLORS,
   levelSeverity: core.LEVEL_SEVERITY,
   markdownExtensions: core.MARKDOWN_FILE_EXTENSIONS,
+  htmlExtensions: core.HTML_FILE_EXTENSIONS,
+  openableExtensions: core.MARKDOWN_FILE_EXTENSIONS.concat(core.HTML_FILE_EXTENSIONS),
   isMarkdownPath: (filePath) => core.isMarkdownPath(filePath),
+  isHtmlPath: (filePath) => core.isHtmlPath(filePath),
+  isOpenablePath: (filePath) => core.isOpenablePath(filePath),
   buildCodeFenceMask: (lines) => core.buildCodeFenceMask(lines),
   extractHeadings: (text) => core.extractHeadings(text),
 

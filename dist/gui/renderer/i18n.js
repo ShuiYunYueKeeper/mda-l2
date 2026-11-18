@@ -105,7 +105,7 @@
       fsRefresh: '刷新',
       fsClearList: '清空文件列表（不删除磁盘文件）',
       fsClearListConfirm: '清空文件列表？将关闭侧栏工作区，不会删除磁盘上的任何文件。',
-      fsEmpty: '此文件夹中没有 Markdown 文件',
+      fsEmpty: '此文件夹中没有 Markdown / HTML 文件',
       fsNavHint: '↑↓ 切换 · Ctrl+C/X/V/Z/R · Delete',
       fsCopyName: '拷贝文件名',
       fsShowInFolder: '打开文件所在目录',
@@ -501,7 +501,8 @@
       tipAnnoDisabledInWidget: '代码块内、表格单元格或流程图源码内无法从此添加批注，请通过块手柄添加块级批注',
       alertBadSelection: '无法识别选区',
       alertBadSelectionEditor: '无法识别选区，请尝试在源码编辑区选择',
-      alertMdOnly: '仅支持打开 .md / .markdown / .txt / .mdc 文件',
+      alertMdOnly: '仅支持打开 .md / .markdown / .txt / .mdc / .html / .htm 文件',
+      htmlReadonly: 'HTML 文档为只读预览，此操作不可用',
       alertListFolderFail: '读取文件夹失败: {error}',
       alertSaveFail: '保存失败: {error}',
       alertOpenFail: '无法打开文件: {error}',
@@ -697,7 +698,7 @@
       fsRefresh: 'Refresh',
       fsClearList: 'Clear file list (does not delete files)',
       fsClearListConfirm: 'Clear the file list? The sidebar workspace will close; no files on disk will be deleted.',
-      fsEmpty: 'No Markdown files in this folder',
+      fsEmpty: 'No Markdown / HTML files in this folder',
       fsNavHint: '↑↓ switch · Ctrl+C/X/V/Z/R · Delete',
       fsCopyName: 'Copy filename',
       fsShowInFolder: 'Show in Folder',
@@ -1093,7 +1094,8 @@
       tipAnnoDisabledInWidget: 'Cannot add from inside a code block, table cell, or diagram source — use the block handle to add a block annotation',
       alertBadSelection: 'Could not resolve selection',
       alertBadSelectionEditor: 'Could not resolve selection; try selecting in the source editor',
-      alertMdOnly: 'Only .md / .markdown / .txt / .mdc files are supported',
+      alertMdOnly: 'Only .md / .markdown / .txt / .mdc / .html / .htm files are supported',
+      htmlReadonly: 'HTML documents are read-only previews; this action is unavailable',
       alertListFolderFail: 'Failed to read folder: {error}',
       alertSaveFail: 'Save failed: {error}',
       alertOpenFail: 'Cannot open file: {error}',
@@ -1220,7 +1222,7 @@
       return (
         '<p class="mda-help-lead">MDA is a local-first Markdown workspace: open .md natively, preview and lightly edit, keep structured annotations in git, with export and Agent (MCP) hooks.</p>' +
         '<h3>Supported files</h3>' +
-        '<p>Open ' + exts + '; drag onto the window, use File → Open, the welcome page, or <code>mda path/to/file</code>.</p>' +
+        '<p>Open ' + exts + '; HTML documents render read-only (scripts disabled, embedded styles preserved). In-page links to .md / .html open in this app, other links go to the system browser. Drag onto the window, use File → Open, the welcome page, or <code>mda path/to/file</code>.</p>' +
         '<h3>Files</h3>' +
         '<ul class="mda-help-list">' +
           '<li><kbd>Ctrl+N</kbd> new untitled document; first save opens Save As</li>' +
@@ -1297,11 +1299,11 @@
     return (
       '<p class="mda-help-lead">MDA 是本地优先的 Markdown 工作台：原生打开 .md，预览与轻量编辑，结构化批注可进 git，并支持导出与 Agent（MCP）。</p>' +
       '<h3>支持的文件</h3>' +
-      '<p>可打开 ' + exts + '；拖拽文件到窗口、菜单「文件 → 打开」、欢迎页或命令行 <code>mda path/to/file</code>。</p>' +
+      '<p>可打开 ' + exts + '；HTML 文档以只读方式渲染（禁用脚本，保留内嵌样式），页内链接中 .md / .html 在本应用内打开，其余交给系统浏览器。拖拽文件到窗口、菜单「文件 → 打开」、欢迎页或命令行 <code>mda path/to/file</code>。</p>' +
       '<h3>文件管理</h3>' +
       '<ul class="mda-help-list">' +
         '<li><kbd>Ctrl+N</kbd> 新建未命名文档；首次保存弹出另存为对话框</li>' +
-        '<li><kbd>Ctrl+Alt+O</kbd> 打开文件夹，左侧<strong>文件列表</strong>列出 Markdown；标题栏 <kbd>✕</kbd> 清空列表（关闭工作区，不删磁盘文件）；右缘拖动手柄可调宽、双击复位；工具栏「文件列表」/ ‹ / <kbd>Ctrl+\\</kbd> 可收起；悬停显示全名；列表获焦后 <kbd>↑</kbd><kbd>↓</kbd> 切换文档；<kbd>Ctrl+C/X/V/Z/R</kbd> 复制/剪切/粘贴/撤销/重命名；<kbd>Delete</kbd> 删除文件</li>' +
+        '<li><kbd>Ctrl+Alt+O</kbd> 打开文件夹，左侧<strong>文件列表</strong>列出 Markdown / HTML；标题栏 <kbd>✕</kbd> 清空列表（关闭工作区，不删磁盘文件）；右缘拖动手柄可调宽、双击复位；工具栏「文件列表」/ ‹ / <kbd>Ctrl+\\</kbd> 可收起；悬停显示全名；列表获焦后 <kbd>↑</kbd><kbd>↓</kbd> 切换文档；<kbd>Ctrl+C/X/V/Z/R</kbd> 复制/剪切/粘贴/撤销/重命名；<kbd>Delete</kbd> 删除文件</li>' +
         '<li>菜单「最近文件」记录最近打开的 20 个文件</li>' +
       '</ul>' +
       '<h3>批注</h3>' +

@@ -1,4 +1,4 @@
-﻿// Copy non-TS assets to dist/（GUI 资源 + 外置配置 JSON）。
+// Copy non-TS assets to dist/（GUI 资源 + 外置配置 JSON）。
 // tsc 不会把被 import 的 .json 输出到 outDir，故需在此显式复制配置文件，
 // 否则 dist/core/*.js 运行时 require('../config/annotation-schema.json') 会找不到。
 const fs = require('fs');
@@ -41,6 +41,7 @@ const files = [
   ['src/gui/renderer/katex-export.js', 'dist/gui/renderer/katex-export.js'],
   ['src/gui/renderer/wechat-article.js', 'dist/gui/renderer/wechat-article.js'],
   ['src/gui/renderer/settings-ai.js', 'dist/gui/renderer/settings-ai.js'],
+  ['src/gui/renderer/html-view.js', 'dist/gui/renderer/html-view.js'],
   ['src/pro/license.js', 'dist/pro/license.js'],
   ['src/pro/feature-gate.js', 'dist/pro/feature-gate.js'],
   ['src/pro/ai/settings.js', 'dist/pro/ai/settings.js'],
