@@ -1,4 +1,4 @@
-﻿# AGENTS.md — MDA（Markdown 工作台）AI 协作指南
+# AGENTS.md — MDA（Markdown 工作台）AI 协作指南
 
 > 本文件是面向 AI 协作者的项目级资产。任何在本仓库工作的 AI/人，**动手前必须读完本文件**，
 > 并严格遵守「禁止事项」与「隐性规范」。本文件与代码同步维护，发现不一致以代码为准并回头更新本文件。
@@ -21,7 +21,7 @@ MDA（Markdown 工作台）面向「被 Markdown 文件触达」的研发与办�
 
 | 能力轴 | MDA 现状侧重 |
 |--------|----------------|
-| 打开与预览 | 工作区文件树、欢迎页、最近打开、CommonMark + GFM / Mermaid / KaTeX |
+| 打开与预览 | 工作区文件树、欢迎页、最近打开、CommonMark + GFM / Mermaid / KaTeX；`.html` / `.htm` 以 sandbox iframe 只读整页渲染（禁用脚本，保留内嵌样式） |
 | 轻量编辑 | 源码高亮、查找替换、大纲、分屏预览 |
 | 批注协作 | 段落/选区批注、色条互定位、源文件保护写入 |
 | 导出与 AI | HTML/PDF、微信公众号复制、MCP 工具供 Agent 扫描与改批注 |
@@ -144,6 +144,7 @@ validateAnchor(text, anchor): boolean             // 锚点是否仍有效（quo
 shiftAnchorForInsert(anchor, insertLineIndex, insertedLineCount, text): AnnotationAnchor | null
 extractHeadings(text): HeadingNode[]              // 大纲标题树（outline.ts）
 sanitizeHtml(html: string): string                 // 原生 HTML 白名单重建（html.ts，见 §9 4b2）
+HTML_FILE_EXTENSIONS / isHtmlPath(filePath) / isOpenablePath(filePath)  // GUI 打开范围（HTML 只读，见 §9 4r）
 ```
 
 ### 5.3 批注行语法（唯一合法形态）
@@ -183,7 +184,7 @@ onFileOpened(cb) / onReload(cb) / onMenuShowInFolder(cb)
 onMenuToggleTheme(cb) / onMenuToggleEdit(cb) / onMenuTogglePanel(cb) / onMenuSave(cb) / onMenuShowHelp(cb) / onMenuCopyArticle(cb) / onAppCloseRequest(cb)
 onMenuExportDocx(cb) / onMenuAutosave(cb)
 setDirty(dirty) / confirmClose()
-levelColors / levelSeverity / markdownExtensions / isMarkdownPath(filePath)   // 来自 annotation-schema.json（扩展名）与 core
+levelColors / levelSeverity / markdownExtensions / htmlExtensions / openableExtensions / isMarkdownPath / isHtmlPath / isOpenablePath(filePath)   // 来自 annotation-schema.json（扩展名）与 core
 parseAnnotations(text) -> ScanResult
 renderMarkdown(text) -> {success, html} | {success:false,error}   // 内部先容错隐藏疑似批注行
 addAnnotation(filePath, line, input) -> {success, value:Annotation} | {success:false,error}
@@ -362,6 +363,7 @@ npm test               # jest（含覆盖率）
  - **单会话**：命令条 / 生成 / 卡片共用一个浮层，新入口先取消旧请求；main 侧按 `requestId` 路由，同 id 被顶替后旧请求事件一律丢弃（`pro/ai/session.js`）。
  - **入口**：顶层菜单「AI」（`Ctrl+J` 命令条、`Ctrl+Shift+Enter` 续写、`Ctrl+Shift+M` 润色）经 `menu-ai-action` → `cm6Editor.aiCommand`；工具栏 AI 钮、右键「AI 帮我改 / 问问 AI / AI 帮我写」、块手柄 AI 子菜单经 `mount.js` 注入的 `opts.onAiEntry` / `opts.onBlockMenuAi`。快捷键**只**靠菜单 accelerator，别在 CM6 keymap 再绑一遍（会双触发）。表格/代码等块内容只允许「解释」，其余置灰。2.0 源码模式不支持 AI（toast 提示）。
  - e2e：`tests/e2e/gui/ai-command.spec.ts` 用本地假 OpenAI SSE 服务，向临时 userData 写入本机密钥签发的激活码，并预置 `ai-settings.json` 跑全链路。没有跳过激活的开关。
+4r. **【GUI HTML 文档】只读整页预览，不进 Markdown 链路**：`.html` / `.htm` 由 `annotation-schema.json` 的 `htmlExtensions` 声明，core 暴露 `HTML_FILE_EXTENSIONS` / `isHtmlPath` / `isOpenablePath`；GUI 打开对话框、文件树、拖拽、链接与命令行启动参数统一用 `isOpenablePath`，**CLI/MCP 仍只认 Markdown**。渲染用 `src/gui/renderer/html-view.js` 的 `<iframe sandbox="allow-same-origin">`（**不带 `allow-scripts`**，脚本被阻止；`src` 直接给 `file://`，相对图片/样式自然解析），CSP 需 `frame-src 'self' file:`。文档态由 `htmlDoc` 标记 + body `mda-html-doc` 驱动：隐藏 `#preview-content` / `#cm-editor-host` / 大纲 / 编辑栏，显示 iframe；保存、另存、编辑切换、查找、跳行、加/清批注、导出 HTML/PDF/DOCX、复制公众号、AI 编辑入口一律守卫为禁用或 `htmlReadonly` toast（**入口保留，勿删**）。HTML 不解析批注、不建大纲、`dirty` 恒 false、不自动保存；切回 Markdown 时必须 `htmlDoc=false` + `htmlDocView.hide()`。新增渲染脚本须加进 `scripts/copy-gui.js` 显式清单并在 `index.html` 中先于 `app.js` 引入。回归：`tests/e2e/gui/html-doc.spec.ts`。
 5. **【GUI·Electron】data-line 映射**：preload 仅对 `level===0` 的块级 token 注入 `data-line = map[0]+1`，其值等于段落 `startLine`，GUI 据此做「段落↔批注」双向定位与色条。
 6. **【GUI·Electron】运行前提**：preload `require('../core')` 需 `sandbox:false`；GUI 运行前必须 `npm run build`（否则 `dist/core` 不存在）。CM6 编辑器是**打包产物** `dist/gui/renderer/editor.bundle.js`，改 `src/gui/renderer/editor/**` 后只 `copy-gui` 无效，必须走 `npm run build`（含 `build:editor` → `scripts/bundle-editor.js`）。
 6b. **【GUI·Electron】单实例锁会让「重启」变成假重启**：`main.js` 有 `requestSingleInstanceLock()`，已开着 MDA 时再 `npm run gui` 会让**新进程直接退出**，仅把旧窗口（旧代码）激活并打开文件——改了代码却「问题依旧」多半是这个。验证改动生效须**先关掉所有 MDA 窗口**再启动，或 `Ctrl+R` 重载渲染进程。Playwright e2e 同理：`electron.launch` 必须带独立 `--user-data-dir=<临时目录>`，否则本机开着的 MDA 会让被测实例秒退（报 `Target page, context or browser has been closed`）。

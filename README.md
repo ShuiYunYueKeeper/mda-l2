@@ -259,7 +259,7 @@ Electron 应用启动时需要与 `MDA.exe` **同目录**下的多个运行时�
 - **流程图渲染**：` ```mermaid ` 代码块渲染为图形（flowchart/sequence/class/state 等），离线打包无需联网；解析失败降级为错误提示。
 - **批注管理**：增 / 删 / 改 / 筛选（按状态、级别、标签），写操作复用 core writer（原子写入 + 源文件保护）；支持**选区级批注**（预览/源码拖选 + 右键，含代码块/表格内映射）；批注栏状态筛选**默认仅 open**；支持**一键清空当前文件全部批注**（确认后执行，dirty 时禁用）。
 - **段落 ↔ 批注双向定位**：含批注段落显示级别色条，点击段落定位批注、点击批注滚动到段落；选区批注点击面板项可定位到高亮选区。
-- **拖拽打开**：将 `.md` / `.markdown` / `.txt` / `.mdc` 拖入窗口即可打开；文件菜单提供「打开文件所在目录」（`Ctrl+Shift+O`）。
+- **拖拽打开**：将 `.md` / `.markdown` / `.txt` / `.mdc` 拖入窗口即可打开；`.html` / `.htm` 拖入以只读方式渲染（禁用脚本，保留内嵌样式）。文件菜单提供「打开文件所在目录」（`Ctrl+Shift+O`）。
 - **代码块增强**：语法高亮 + 行号、右上角悬浮「复制」按钮、右键菜单与快捷键（`Ctrl+C` 拷贝选区 / `Ctrl+A` 全选）；复制内容不含行号。
 - **复制预览（微信公众号）**：菜单或 `Ctrl+Shift+C`，将预览转为带内联样式的富文本（本地图、Mermaid 与 KaTeX 公式均内嵌为 PNG），可直接粘贴到公众号编辑器；公式通过离屏栅格化导出，复制过程不滚动、不改布局。
 - **导出 HTML / PDF / Word**：菜单「文件 → 导出 HTML / PDF / Word」，单文件离线分发。
@@ -386,13 +386,15 @@ npm run coverage
   "statuses": ["open", "resolved", "wontfix"],           // 调整状态枚举
   "levelColors": { "critical": "#e74c3c", "...": "..." }, // 调整级别配色
   "annotationPattern": "^\\[comment\\]:\\s*<>\\s*\\(@anno\\s+(\\{.+?\\})\\)\\s*$",
-  "fileExtensions": ["md", "markdown", "txt", "mdc"]   // GUI 打开/拖拽与 scan -r 识别的扩展名
+  "fileExtensions": ["md", "markdown", "txt", "mdc"],   // GUI 打开/拖拽与 scan -r 识别的扩展名
+  "htmlExtensions": ["html", "htm"]                     // GUI 只读渲染打开（不参与批注/编辑）
 }
 ```
 
 > 修改后执行 `npm run build`（配置会被复制到 `dist/config/`）。注意：`levels`/`statuses` 同时受
 > `model.ts` 的 TS 字面联合类型约束，新增枚举值需同步该类型。`fileExtensions` 由 core 暴露
-> `MARKDOWN_FILE_EXTENSIONS` / `isMarkdownPath`，GUI preload 同步暴露给渲染层。
+> `MARKDOWN_FILE_EXTENSIONS` / `isMarkdownPath`，GUI preload 同步暴露给渲染层；`htmlExtensions`
+> 对应 `HTML_FILE_EXTENSIONS` / `isHtmlPath`，GUI 另以 `isOpenablePath` 统一判定可打开文档。
 
 ## 质量与协作资产
 

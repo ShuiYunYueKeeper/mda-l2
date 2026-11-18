@@ -1,4 +1,4 @@
-﻿# 质量保障说明（Quality Assurance）
+# 质量保障说明（Quality Assurance）
 
 本文件汇总 MDA 项目的质量保障策略，便于评审快速清点：测试体系、覆盖率、数据校验、
 源文件安全、人工审核点、Code Review 痕迹与协作资产。
@@ -14,14 +14,14 @@
 | renderer 单元测试 | `tests/core/renderer.test.ts` | 批注不可见性、含括号批注、BOM 标题、围栏样例、伪子条目硬换行、图片 fallback |
 | anchor 单元测试 | `tests/core/anchor.test.ts` | UTF-16 偏移、`shiftAnchorForInsert`、锚点校验 |
 | outline 单元测试 | `tests/core/outline.test.ts` | `extractHeadings` 标题树 |
-| 配置一致性测试 | `tests/core/config.test.ts` | 锁定外置规则（枚举/配色/严重度/正则）与 core 派生值一致，防止漂移 |
+| 配置一致性测试 | `tests/core/config.test.ts` | 锁定外置规则（枚举/配色/严重度/正则/HTML 扩展名）与 core 派生值一致，防止漂移 |
 | CLI 集成测试 | `tests/cli/commands.test.ts` | 四命令端到端；**`add --anchor` JSON 校验** |
 | GUI 辅助单测 | `tests/gui/*.test.ts` | 选区/编辑辅助、文件操作边界、KaTeX 行内/块级/围栏/安全渲染、2× foreignObject 导出纯函数 |
 | 坐标换算单测 | `tests/gui/doc-coords.test.ts` | 磁盘（CRLF/BOM）↔ CM6 文档（LF）偏移互转，覆盖 anchor 双向映射 |
 | CM6 默认模式单测 | `tests/gui/editor/pref.test.ts` | `mda-cm6` 未设置/空串/显式关时的默认值判定 |
 | CM6 编辑器单测 | `tests/gui/editor/*.test.ts` | 行内定界符融合/拆分/清理、待输入格式、查找高亮的 DOM 偏移映射 |
 | MCP 集成测试 | `tests/mcp/handlers.test.ts` | 六 tools 与 CLI scan 对齐、真实路径工作区边界、空字段编辑 |
-| GUI e2e（Playwright） | `tests/e2e/gui/*.spec.ts` | 真实 Electron 下的定界符编辑、表格格内取消样式、IME 拼音上屏等 |
+| GUI e2e（Playwright） | `tests/e2e/gui/*.spec.ts` | 真实 Electron 下的定界符编辑、表格格内取消样式、IME 拼音上屏、HTML 只读整页预览等 |
 | 文档截图采集 | `tests/e2e/capture/docs-screenshots.spec.ts` | 驱动真实实例逐场景落图到 `docs/screenshots/v3/`，使文档截图可随版本重跑刷新 |
 
 运行：
@@ -32,7 +32,7 @@ npx playwright test tests/e2e/gui                       # GUI 行为 e2e
 npx playwright test tests/e2e/capture/docs-screenshots.spec.ts   # 刷新文档截图
 ```
 
-**当前状态：581 用例全部通过（79 套件）。**
+**当前状态：742 用例全部通过（90 套件）。**
 
 ---
 
@@ -40,12 +40,12 @@ npx playwright test tests/e2e/capture/docs-screenshots.spec.ts   # 刷新文档�
 
 | 指标 | 数值 |
 |------|------|
-| Statements | 88.80% |
-| Lines | 91.70% |
-| Functions | 95.91% |
-| Branches | 70.89% |
+| Statements | 88.63% |
+| Lines | 91.72% |
+| Functions | 95.28% |
+| Branches | 71.39% |
 
-> 以 `npm test`（jest --coverage）实测为准；core 行覆盖率 95.98%，renderer 行覆盖率 100%。
+> 以 `npm test`（jest --coverage）实测为准；core 行覆盖率 95.21%，renderer 行覆盖率 96.36%。
 > 当前 Jest 统计仅收集 `src/**/*.ts`；主要 GUI JS 与打包脚本不在上述百分比内，仍以实机验收和后续 GUI 集成测试补足。
 
 ---
@@ -96,6 +96,7 @@ npx playwright test tests/e2e/capture/docs-screenshots.spec.ts   # 刷新文档�
 | **工作区文件侧栏** | 改动 `file-sidebar.js` / `file-ops.js` / 文件 IPC | 打开文件夹后树展示；拖宽/双击复位；标题栏 ✕ **清空列表**（关侧栏、不删磁盘文件）；↑↓ 换文档；复制/剪切/粘贴/拖动移动；重命名（仅主文件名）/删除；重名冲突；`Ctrl+Z` 撤销；**拖动**须拖到文件夹行或目标目录内文件行验证 |
 | **预览左侧大纲** | 改动 `outline-panel.js` / 预览布局 / 大纲同步 | 左侧可收起；hover 才显示边线；点击跳转；滚动预览与点击编辑/预览时高亮应对准当前节（勿偏上一节）；收起按钮不挡正文；收放正文不跳动 |
 | **最近打开 / 启动** | 改动 `recent-files` / 启动 `did-finish-load` / `refreshWorkspaceTree` | 清空最近列表不关当前文档；列表为空时重启应为起始页；恢复工作区不得自动打开首个 md |
+| **HTML 文档只读预览** | 改动 `html-view.js` / `openHtmlDocument` / `mda-html-doc` 样式 / 打开范围 | 打开含内嵌 `<style>` 与相对图片的 `.html`：整页铺满预览区、样式与图片保留、页面脚本不执行；保存/编辑/查找/批注/导出/AI 入口禁用且不误报；页内 `.md` / `.html` 链接回到本应用、外链交系统浏览器；切回 Markdown 后编辑面、大纲、批注栏恢复，iframe 收起 |
 | **GUI i18n** | 改动 `i18n.js` 或新增用户可见文案 | 视图→界面语言切换 zh/en；弹窗/toast/菜单无硬编码；`uiT(key, vars)` 插值生效（勿原样显示 `{name}`） |
 | **CM6 块选中 / 撤销** | 改动块 widget 删除、选中态、`*-selection.js` / `block-selection.js` | 选中→Delete→Ctrl+Z：蓝框与光标回到块；单击表格单元格无整格蓝底（未拖选文字时） |
 | **CM6 hide-mark 点击/剪贴板** | 改动 `caret-syntax-adjust` / `syntax-clipboard` / `click-collapse` | 点击标题/粗体/code 左缘→开定界符左侧、右缘→闭定界符右侧；拖选单侧定界符粘贴无 `**`/`` ` ``；完整选中保留 Markdown；**加粗段内只选可见字拷贝须带定界符**（`wrapClipboardWithCoveringMarks`） |
