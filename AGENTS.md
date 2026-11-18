@@ -88,6 +88,7 @@ flowchart TD
 | parser | `src/core/parser.ts` | 解析批注、构建段落、计算归属（只读，不碰文件） | 不写文件、不校验行号 |
 | writer | `src/core/writer.ts` | `addAnnotation/editAnnotation/removeAnnotation/clearAllAnnotations`，含原子写入、源文件保护、空行压缩、换行保留 | 不负责渲染/CLI 输出 |
 | renderer | `src/core/renderer.ts` | `createMarkdownIt()` + `renderMarkdown()`，保持纯净 | **不得注入 data-line**（破坏渲染等价性与测试） |
+| html | `src/core/html.ts` | `sanitizeHtml()`：原生 HTML 白名单重建（见 §9 4b2） | 不得改成黑名单过滤；不得补闭合标签 |
 | CLI | `src/cli/**` | 参数解析、输入校验、stdout/stderr 输出 | 不重写 core 逻辑 |
 | GUI main | `src/gui/main.js` | 窗口、菜单、`read-file` 等 IPC | 不直接做批注写入逻辑 |
 | GUI preload | `src/gui/preload.js` | `require('../core')`，经 contextBridge 暴露 core 能力；叠加 GUI 专用 data-line 注入 | 不暴露 `fs`/`require` 给渲染层 |
@@ -142,6 +143,7 @@ buildCodeFenceMask(lines: string[]): boolean[]    // 围栏遮罩，parser/rende
 validateAnchor(text, anchor): boolean             // 锚点是否仍有效（quote 匹配）
 shiftAnchorForInsert(anchor, insertLineIndex, insertedLineCount, text): AnnotationAnchor | null
 extractHeadings(text): HeadingNode[]              // 大纲标题树（outline.ts）
+sanitizeHtml(html: string): string                 // 原生 HTML 白名单重建（html.ts，见 §9 4b2）
 ```
 
 ### 5.3 批注行语法（唯一合法形态）
@@ -284,7 +286,9 @@ npm test               # jest（含覆盖率）
 2. **【写入安全】换行保留**：写回前 `detectEol(rawText)`，只要原文出现过 `\r\n` 就按 CRLF 回写，否则 LF；禁止把 CRLF 文件静默转 LF。
 3. **【写入安全】原子写入**：临时文件（`.<name>.<uuid>.tmp`）+ `fs.rename`；失败需清理临时文件。绝不直接覆盖原文件。
 4. **【渲染】不可见性是硬指标**：渲染输出的 HTML 中不得出现 `@anno` 或任何批注字段值；`renderer.test.ts` 用「去批注后渲染等价」断言守护，改渲染时勿破坏。
-4b. **【渲染】渲染前预处理**：`renderMarkdown` 先 `preprocessForRender` —— ① 去掉起始 BOM（否则首行 `# 标题` 被 BOM 抢占行首而当成普通段落）；② 用 `buildCodeFenceMask` 把**围栏外**的批注行清空为空行（保留行数 → `data-line` 不变）；③ 对 `4b.` / `4e、` / `4f)` 等伪子条目在上一行末补硬换行，避免与父列表项并成一段；④ 非空段落后紧跟 `---`/`___` 改写为 `***`，避免 CommonMark Setext 下划线把分割线显示成源码（图片后的 `===` 同样改写；须在 front matter 清空之后）；⑤ 围栏外 `<!-- -->` 清空为同等换行（**不**开 `html:true`）。不能依赖 markdown-it 的链接引用定义来隐藏批注：内容含括号（如 `n(n-1)/2`）会破坏该语法导致批注泄漏。
+4b. **【渲染】渲染前预处理**：`renderMarkdown` 先 `preprocessForRender` —— ① 去掉起始 BOM（否则首行 `# 标题` 被 BOM 抢占行首而当成普通段落）；② 用 `buildCodeFenceMask` 把**围栏外**的批注行清空为空行（保留行数 → `data-line` 不变）；③ 对 `4b.` / `4e、` / `4f)` 等伪子条目在上一行末补硬换行，避免与父列表项并成一段；④ 非空段落后紧跟 `---`/`___` 改写为 `***`，避免 CommonMark Setext 下划线把分割线显示成源码（图片后的 `===` 同样改写；须在 front matter 清空之后）；⑤ 围栏外 `<!-- -->` 清空为同等换行（注释在预处理阶段即清空，不依赖 `html:true` 的表现）。不能依赖 markdown-it 的链接引用定义来隐藏批注：内容含括号（如 `n(n-1)/2`）会破坏该语法导致批注泄漏。
+4b2. **【渲染】原生 HTML 白名单放行**：markdown-it 以 `html: true` 构造，`html_block` / `html_inline` 两条 renderer 规则一律走 `src/core/html.ts` 的 `sanitizeHtml`（**白名单重建**，非黑名单过滤；无三方依赖）。硬约束：① **不得在末尾补闭合标签**——`<details>` 的开标签与 `</details>` 常分属两个 HTMLBlock token，补齐会把 README 里「HTML 开标签 + 空行 + Markdown + `</details>`」的跨块嵌套打断（浏览器允许 details 容纳流内容，天然就嵌套上了）；② 结束标签即使栈空也**原样输出**，否则闭合标签被吞、未闭合容器会把后续全文当内联内容；③ 属性转义 `&` 需跳过既有实体（`&amp;` 不能变成 `&amp;amp;`，否则 shields.io 徽章参数全废）；④ 协议只放行 `http/https/mailto/tel` + 相对路径/锚点，`data:` 仅 `img`/`source`，`file:` 拒绝；`script/style/iframe/svg/form` 等整块丢弃，未知标签「丢壳留文」。GUI 侧 CSP 相应对图片放行 `https:`（`src/gui/renderer/index.html` 的 `img-src 'self' data: file: https:`），否则远程徽章加载不出来。
+4b3. **【GUI CM6】HTML 块 widget**：`src/gui/renderer/editor/widgets/html-block.js`（`HtmlBlockWidget extends BlockReplaceWidget`）把整个 HTML 块换成卡片，内部用 `createMdSurface` + `renderMarkdown` 渲染，于是块内 Markdown（`<details>` 里的标题/表格/图片）也照常排版。四个易踩点：① **整块区间**由 `model/html-block.js` 的 `htmlBlockRegion` 算（沿行扫容器标签深度、围栏内不计、`MAX_EXTEND_LINES=400` 内不闭合则退回语法树那一块，避免脏文档吞掉整篇）；② `collectSyntaxNodes` 的 HTMLBlock 分支必须用**函数级 `lastHtmlNode`**（不能用 `nodes` 末尾：块内夹着标题/表格节点）做「只隔空行则合并」与「裁剪到上一块尾部」，否则 `</details>` 同属前后两块会造出重叠区间，live-preview 丢弃后者 → 源码整段漏成纯文本；③ `live-preview.js` 里块 widget 列表、`isBlockWidgetSpec`、`overlapsHide` 豁免三处都要带上 `'html-block'`（块内含批注行时不能被 hide-line 判成隐藏区），`config.js` 的 `WIDGET_MIN_PHASE` 也要有 `'html-block'`；④ 样式上 `.mda-cm-html-frame` 需**提权覆盖** `.mda-cm-media-block`（后者 `display:inline-block; width:fit-content; overflow:hidden` 写在其后，会把卡片压成内容宽并裁掉框外手柄），渲染区必须 `white-space: normal`（继承 `.cm-content` 的 `pre-wrap` 会让 HTML 源码换行变成硬换行，徽章一行一个）。块内链接点击只走 `opts.onOpenLink`（`#` 锚点不处理），故不会触发导航白屏。
 4c. **【解析/渲染】围栏感知**：`buildCodeFenceMask` 为 parser 与 renderer 共用；```` ``` ````/`~~~` 围栏内的 `@anno` 样例是字面文本，**不识别为批注、也不清空**，三处行为必须一致。
 4d. **【GUI 渲染】疑似批注容错隐藏**：GUI 源码编辑时批注可能被改坏（如缺 `]`、坏 JSON），此时严格正则不匹配 → 既不入面板又会泄漏进预览。preload 用**宽松识别** `ANNO_ISH`（只认 `<> (@anno` 标记，容忍方括号缺失/JSON 残缺，围栏外）在渲染前清空这些行，保证坏批注不泄漏；同一识别用于 `findMalformedAnnotations`，**保存时**对「疑似批注但不满足严格格式」的行号弹窗提示。此为 GUI 层能力，不改 core 严格解析。
 4e. **【写入安全】整篇写回**：GUI 源码编辑保存走 `writeRawFile`（原子写入 + `detectEol` 保留原换行风格），是对正文的**全量编辑**，**不做**源文件保护校验（区别于批注增删改）。存在未保存编辑（dirty）时，批注增删改须走 `withFreshDisk`：**先**自动保存正文（`saveFile` + 原子写入），**再**调 core writer；保存失败则中止批注；连续批注须排队（`annoWriteQueue`），同批次 toast 一次。

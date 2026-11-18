@@ -104,6 +104,13 @@ function refreshBlockToolbars(root, t) {
           ? 'widgetMermaidPreview'
           : 'widgetCodeSource';
     }
+    if (btn.getAttribute('data-i18n-toggle') === 'html-source') {
+      const frame = btn.closest('.mda-cm-html-frame');
+      key =
+        frame && frame.classList.contains('mda-cm-html-source-mode')
+          ? 'widgetCodePreview'
+          : 'widgetCodeSource';
+    }
     if (btn.getAttribute('data-i18n-toggle') === 'math-source') {
       const frame = btn.closest('.mda-cm-math-frame');
       key =

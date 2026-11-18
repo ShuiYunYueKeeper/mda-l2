@@ -8,6 +8,7 @@ exports.createMarkdownIt = createMarkdownIt;
 exports.renderMarkdown = renderMarkdown;
 const markdown_it_1 = __importDefault(require("markdown-it"));
 const parser_1 = require("./parser");
+const html_1 = require("./html");
 const annotation_schema_json_1 = __importDefault(require("../config/annotation-schema.json"));
 // 级别配色 / 严重度优先级来源于外置配置（src/config/annotation-schema.json）
 const LEVEL_COLORS = annotation_schema_json_1.default.levelColors;
@@ -19,12 +20,18 @@ function escapeAttr(s) {
 }
 function createMarkdownIt() {
     const md = new markdown_it_1.default('commonmark', {
-        html: false,
+        // README / 公众号文章大量使用居中 HTML 头部（<p align="center"> + 徽章 <img>）：
+        // 关闭 html 会把这些标签当正文转义显示成源码。开启后一律经 sanitizeHtml 白名单重建，
+        // 不保留原始标签/属性，故 `onerror=`、`javascript:` 等不可能进入 DOM。
+        html: true,
         linkify: false,
         typographer: false,
     });
     // GFM 表格: commonmark preset 不含表格，手动启用
     md.enable('table');
+    // 原生 HTML：块级与行内都必须过白名单（renderer 规则内清洗，调用方无需再处理）
+    md.renderer.rules.html_block = (tokens, idx) => (0, html_1.sanitizeHtml)(tokens[idx].content);
+    md.renderer.rules.html_inline = (tokens, idx) => (0, html_1.sanitizeHtml)(tokens[idx].content);
     // 产品约定：单 `~text~` → <u>（不与 `~~删除线~~` 冲突；后者本仓库未开 strikethrough 规则）
     md.inline.ruler.after('emphasis', 'mda_underline', (state, silent) => {
         const start = state.pos;

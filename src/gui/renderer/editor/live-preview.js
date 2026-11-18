@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-B/C 实时预览视图层：语法隐藏（D15 = hide-mark 零宽 replace widget + atomicRanges）。
  */
 'use strict';
@@ -34,6 +34,7 @@ const { ImageWidget } = require('./widgets/image');
 const { CodeFenceWidget } = require('./widgets/code');
 const { MermaidWidget } = require('./widgets/mermaid');
 const { InlineMathWidget, BlockMathWidget } = require('./widgets/math');
+const { HtmlBlockWidget } = require('./widgets/html-block');
 const { createAnnoMalformedGutter, appendAnnoLineDecorations } = require('./anno-gutter');
 const { createAnnoParagraphSyncExtension } = require('./anno-paragraph-sync');
 const { createClickCollapseExtension } = require('./click-collapse');
@@ -422,6 +423,9 @@ function buildLayerDecos(specs, text, liveOpts) {
     onMoveMermaidBlock: liveOpts.onMoveMermaidBlock,
     onEditCodeBlock: liveOpts.onEditCodeBlock,
     onEditMathBlock: liveOpts.onEditMathBlock,
+    onEditHtmlBlock: liveOpts.onEditHtmlBlock,
+    onMoveHtmlBlock: liveOpts.onMoveHtmlBlock,
+    onOpenLink: liveOpts.onOpenLink,
     onScaleCodeBlock: liveOpts.onScaleCodeBlock,
     onScaleTableBlock: liveOpts.onScaleTableBlock,
     onDeleteCodeBlock: liveOpts.onDeleteCodeBlock,
@@ -464,7 +468,8 @@ function buildLayerDecos(specs, text, liveOpts) {
       s.widget === 'table' ||
       s.widget === 'code' ||
       s.widget === 'image' ||
-      s.widget === 'math-block'
+      s.widget === 'math-block' ||
+      s.widget === 'html-block'
     ) {
       const br =
         s.widget === 'table'
@@ -497,7 +502,12 @@ function buildLayerDecos(specs, text, liveOpts) {
       continue;
     }
 
-    if (overlapsHide(s.from, s.to === s.from ? s.from + 1 : s.to, hideRanges)) {
+    // html-block 区域可能整段盖住批注行 / 注释行（区域是按容器标签吞行的），
+    // 但块内渲染由 renderMarkdown 统一隐藏批注，故这里不能因为 hide-line 就丢掉整块。
+    if (
+      s.widget !== 'html-block' &&
+      overlapsHide(s.from, s.to === s.from ? s.from + 1 : s.to, hideRanges)
+    ) {
       continue;
     }
 
@@ -507,7 +517,8 @@ function buildLayerDecos(specs, text, liveOpts) {
         s.widget === 'table' ||
         s.widget === 'code' ||
         s.widget === 'image' ||
-        s.widget === 'math-block');
+        s.widget === 'math-block' ||
+        s.widget === 'html-block');
     if (
       blockWidgetRanges.length > 0 &&
       !isBlockWidgetSpec &&
@@ -662,6 +673,20 @@ function buildLayerDecos(specs, text, liveOpts) {
           to: br.to,
           deco: blockReplaceDeco(
             new BlockMathWidget(s.source || text.slice(br.from, br.to), Object.assign({}, widgetOpts, {
+              from: br.from,
+              to: br.to,
+            }))
+          ),
+        });
+        continue;
+      } else if (s.widget === 'html-block') {
+        if (!blockWidgetEnabled('html-block')) continue;
+        const br = expandBlockRange(text, s.from, s.to);
+        blockWidgets.push({
+          from: br.from,
+          to: br.to,
+          deco: blockReplaceDeco(
+            new HtmlBlockWidget(s.source || text.slice(br.from, br.to), Object.assign({}, widgetOpts, {
               from: br.from,
               to: br.to,
             }))

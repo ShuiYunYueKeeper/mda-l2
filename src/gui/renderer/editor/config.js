@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 编辑面运行时配置：功能闸门 + 开发调试开关（发布时统一关闭）。
  *
  * 分阶段交付（代码已签收，开发默认 math）：
@@ -58,6 +58,7 @@ var WIDGET_MIN_PHASE = {
   'quote-handle': 'text',
   'heading-handle': 'text',
   hr: 'math',
+  'html-block': 'math',
 };
 
 /**

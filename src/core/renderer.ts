@@ -1,6 +1,7 @@
 import MarkdownIt from 'markdown-it';
 import { AnnotationLevel } from './model';
 import { ANNO_REGEX, buildCodeFenceMask } from './parser';
+import { sanitizeHtml } from './html';
 import schema from '../config/annotation-schema.json';
 
 // 级别配色 / 严重度优先级来源于外置配置（src/config/annotation-schema.json）
@@ -13,13 +14,22 @@ function escapeAttr(s: string): string {
 
 export function createMarkdownIt(): MarkdownIt {
   const md = new MarkdownIt('commonmark', {
-    html: false,
+    // README / 公众号文章大量使用居中 HTML 头部（<p align="center"> + 徽章 <img>）：
+    // 关闭 html 会把这些标签当正文转义显示成源码。开启后一律经 sanitizeHtml 白名单重建，
+    // 不保留原始标签/属性，故 `onerror=`、`javascript:` 等不可能进入 DOM。
+    html: true,
     linkify: false,
     typographer: false,
   }) as MarkdownIt & { renderer: { rules: Record<string, unknown> } };
 
   // GFM 表格: commonmark preset 不含表格，手动启用
   md.enable('table');
+
+  // 原生 HTML：块级与行内都必须过白名单（renderer 规则内清洗，调用方无需再处理）
+  (md.renderer.rules as Record<string, MarkdownIt.Renderer.RenderRule>).html_block = (tokens, idx) =>
+    sanitizeHtml(tokens[idx].content);
+  (md.renderer.rules as Record<string, MarkdownIt.Renderer.RenderRule>).html_inline = (tokens, idx) =>
+    sanitizeHtml(tokens[idx].content);
 
   // 产品约定：单 `~text~` → <u>（不与 `~~删除线~~` 冲突；后者本仓库未开 strikethrough 规则）
   md.inline.ruler.after('emphasis', 'mda_underline', (state, silent) => {

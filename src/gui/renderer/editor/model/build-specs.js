@@ -8,6 +8,7 @@ const { findAnnotationHideRanges, findHtmlCommentHideRanges } = require('./anno-
 const { detectFrontMatter } = require('./readonly-blocks');
 const { findMathRanges } = require('./parse-math');
 const { findUnderlineRanges, findTripleTildeRanges, overlapsExclude } = require('./underline');
+const { htmlBlockRegion } = require('./html-block');
 
 const PRIORITY = {
   'hide-line': 100,
@@ -164,6 +165,22 @@ function buildDecorationSpecs(text, nodes, opts) {
     }
 
     const rule = SYNTAX_RULES[node.type];
+
+    // 原生 HTML 块：整块交给 html-block widget（内部用 renderMarkdown 渲染），
+    // 这样块内的 Markdown（如 <details> 里的正文）也能正常排版。
+    if (node.type === 'HTMLBlock') {
+      if (!widgetEnabled('html-block')) continue;
+      specs.push({
+        kind: 'widget',
+        widget: 'html-block',
+        from: node.from,
+        to: node.to,
+        source: text.slice(node.from, node.to),
+        priority: PRIORITY.widget,
+      });
+      continue;
+    }
+
     if (!rule) continue;
 
     // —— Widget 类 ——
@@ -449,6 +466,8 @@ function collectSyntaxNodes(tree, text) {
   const nodes = [];
   const stack = [];
   let fenceDepth = 0;
+  // 最近一个已入列的 HTML 块（不能只看 nodes 末尾：块内可能夹着标题/表格等节点）
+  let lastHtmlNode = null;
   tree.iterate({
     enter(node) {
       if (node.name === 'FencedCode' || node.name === 'CodeBlock') {
@@ -496,6 +515,45 @@ function collectSyntaxNodes(tree, text) {
           return;
         }
         nodes.push({ from: node.from, to: node.to, type: node.name });
+        return;
+      }
+
+      // 原生 HTML 块（README 居中头部 / <details> 折叠块）：语法树里没有对应 SYNTAX_RULES，
+      // 必须在此显式入列，否则会被下面的 `if (!SYNTAX_RULES[node.name]) return;` 丢掉。
+      // 表格 / 引用 / 列表内的 HTML 不做整块替换：会拆掉那些块自身的排版与交互。
+      if (node.name === 'HTMLBlock') {
+        if (
+          stack.indexOf('Table') >= 0 ||
+          stack.indexOf('TableCell') >= 0 ||
+          stack.indexOf('Blockquote') >= 0 ||
+          stack.indexOf('BulletList') >= 0 ||
+          stack.indexOf('OrderedList') >= 0
+        ) {
+          return;
+        }
+        const region = doc ? htmlBlockRegion(doc, node.from, node.to) : null;
+        let from = region ? region.from : node.from;
+        const to = region ? region.to : node.to;
+        // 只隔空行的连续 HTML 块合并成一块：README 的居中头部是 <p>/<h1>/<p> 多个
+        // HTMLBlock 拼的，逐块替换会变成一叠卡片，且 heading 与副标题不再同处居中。
+        const prev = lastHtmlNode;
+        if (prev) {
+          // 闭合标签常被算进上一个块（如 </details> 既结束上一个 region、又是下一个
+          // HTMLBlock 的首行）。若新块起点落在上一块的 region 内，裁剪到块尾，否则两
+          // 个 widget 区间重叠 —— live-preview 会丢弃后者，那块源码就漏成纯文本。
+          if (from < prev.to) from = prev.to;
+          if (/^\s*$/.test(doc.slice(prev.to, from))) {
+            prev.to = to;
+            return;
+          }
+        }
+        const item = {
+          from: from,
+          to: to,
+          type: 'HTMLBlock',
+        };
+        nodes.push(item);
+        lastHtmlNode = item;
         return;
       }
 

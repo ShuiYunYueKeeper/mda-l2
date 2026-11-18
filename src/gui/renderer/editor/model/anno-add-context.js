@@ -23,6 +23,7 @@ const BLOCK_ONLY_KINDS = {
   hr: true,
   table: true,
   math: true,
+  html: true,
 };
 
 /**

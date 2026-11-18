@@ -19,5 +19,6 @@ __exportStar(require("./anchor"), exports);
 __exportStar(require("./outline"), exports);
 __exportStar(require("./parser"), exports);
 __exportStar(require("./renderer"), exports);
+__exportStar(require("./html"), exports);
 __exportStar(require("./writer"), exports);
 //# sourceMappingURL=index.js.map

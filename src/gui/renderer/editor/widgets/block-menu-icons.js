@@ -36,6 +36,8 @@ const BLOCK_KIND_ICON = {
   quote: 'quote',
   heading: 'heading',
   hr: 'hr',
+  // lucide 无 html 专用图标，复用 code 图形
+  html: 'code',
 };
 
 /**

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file: https:;" />
   <title>MDA</title>
   <link rel="stylesheet" href="./katex.min.css" />
   <style>
@@ -2409,7 +2409,8 @@
     /* 手柄 hover：整块浅蓝底（代码/流程图/图片除外，与空白行 + 号一致） */
     .mda-cm6-host .cm-line.mda-cm-block-handle-highlight,
     .mda-cm6-host .mda-cm-table-block.mda-cm-block-handle-highlight,
-    .mda-cm6-host .mda-cm-math-block.mda-cm-block-handle-highlight {
+    .mda-cm6-host .mda-cm-math-block.mda-cm-block-handle-highlight,
+    .mda-cm6-host .mda-cm-html-block.mda-cm-block-handle-highlight {
       background: color-mix(in srgb, var(--accent) 10%, transparent);
       border-radius: 2px;
     }
@@ -2438,6 +2439,8 @@
     .mda-cm6-host .mda-cm-mermaid-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-math-block.mda-cm-block-handle-show .mda-cm-math-frame > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-math-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-html-block.mda-cm-block-handle-show .mda-cm-html-frame > .mda-cm-block-drag-handle,
+    .mda-cm6-host .mda-cm-html-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-code-block.mda-cm-block-handle-show .mda-cm-code-frame > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-code-frame.mda-cm-media-selected > .mda-cm-block-drag-handle,
     .mda-cm6-host .mda-cm-table-block.mda-cm-block-handle-show .mda-cm-table-stage > .mda-cm-block-drag-handle,
@@ -2977,6 +2980,146 @@
       background: transparent !important;
     }
     [data-theme="dark"] .mda-cm6-host .mda-cm-math-frame {
+      background: var(--bg-tertiary);
+    }
+    /* HTML 块 widget：原生 HTML 片段按 Markdown 渲染（README 居中头部/徽章/details） */
+    .mda-cm6-host .cm-line:has(.mda-cm-html-block-line) {
+      overflow: visible;
+      display: block;
+      width: 100%;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-html-block-line) .cm-widget,
+    .mda-cm6-host .cm-line:has(.mda-cm-html-block-line) .cm-widgetBuffer {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-html-block-line) .cm-selectionBackground {
+      background: transparent !important;
+    }
+    .mda-cm6-host .mda-cm-html-block {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      padding: 6px 0 10px;
+      margin: 0;
+      overflow: visible;
+      position: relative;
+    }
+    /* 与 .mda-cm-media-block（display:inline-block; width:fit-content; overflow:hidden，
+       见本文件后段）同择权重但写在其前，故这里叠一个 .mda-cm-media-block 提权：
+       HTML 块应当是通栏容器，且拖拽手柄挂在框外需要 overflow 可见。 */
+    .mda-cm6-host .mda-cm-html-frame.mda-cm-media-block {
+      position: relative;
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg-secondary);
+      overflow: visible;
+    }
+    .mda-cm6-host .mda-cm-html-frame > .mda-cm-block-toolbar {
+      border-radius: 7px 7px 0 0;
+      overflow: hidden;
+    }
+    .mda-cm6-host .mda-cm-html-frame.mda-cm-media-selected > .mda-cm-block-toolbar {
+      border-radius: 6px 6px 0 0;
+    }
+    .mda-cm6-host .mda-cm-html-render {
+      padding: 10px 14px;
+      overflow-wrap: break-word;
+      box-sizing: border-box;
+      /* CM6 的 .cm-content 是 pre-wrap，widget 内容会继承：HTML 源码里的换行会变成
+         硬换行（徽章一行一个）。这里恢复 normal，围栏/代码由内层 pre 规则接管。 */
+      white-space: normal;
+      line-height: 1.6;
+    }
+    .mda-cm6-host .mda-cm-html-render .mda-md-surface {
+      overflow: visible;
+    }
+    .mda-cm6-host .mda-cm-html-render p {
+      margin: 0 0 8px;
+    }
+    .mda-cm6-host .mda-cm-html-render h1,
+    .mda-cm6-host .mda-cm-html-render h2,
+    .mda-cm6-host .mda-cm-html-render h3,
+    .mda-cm6-host .mda-cm-html-render h4,
+    .mda-cm6-host .mda-cm-html-render h5,
+    .mda-cm6-host .mda-cm-html-render h6 {
+      margin: 12px 0 8px;
+      line-height: 1.4;
+    }
+    .mda-cm6-host .mda-cm-html-render .mda-md-surface > *:first-child {
+      margin-top: 0;
+    }
+    .mda-cm6-host .mda-cm-html-render .mda-md-surface > *:last-child {
+      margin-bottom: 0;
+    }
+    .mda-cm6-host .mda-cm-html-render img {
+      max-width: 100%;
+      height: auto;
+    }
+    .mda-cm6-host .mda-cm-html-render .md-image-wrapper {
+      display: inline-block;
+      max-width: 100%;
+    }
+    .mda-cm6-host .mda-cm-html-render .mda-cm-html-img-broken {
+      display: none;
+    }
+    .mda-cm6-host .mda-cm-html-render a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .mda-cm6-host .mda-cm-html-render table {
+      border-collapse: collapse;
+      max-width: 100%;
+    }
+    .mda-cm6-host .mda-cm-html-render details {
+      margin: 4px 0;
+    }
+    .mda-cm6-host .mda-cm-html-render summary {
+      cursor: pointer;
+    }
+    .mda-cm6-host .mda-cm-html-source {
+      display: none;
+      border-top: 1px solid var(--border);
+      padding: 8px 12px 12px;
+    }
+    .mda-cm6-host .mda-cm-html-source-input {
+      min-height: 90px;
+      max-height: 420px;
+      overflow: auto;
+      padding: 8px 10px;
+      font-family: var(--font-mono, 'Cascadia Code', Consolas, monospace);
+      font-size: 13px;
+      line-height: 21px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-primary);
+      color: var(--text);
+      outline: none;
+    }
+    .mda-cm6-host .mda-cm-html-frame.mda-cm-html-source-mode .mda-cm-html-render {
+      display: none;
+    }
+    .mda-cm6-host .mda-cm-html-frame.mda-cm-html-source-mode .mda-cm-html-source {
+      display: block;
+    }
+    .mda-cm6-host .cm-editor:has(.mda-cm-html-source-input:focus) .cm-cursor,
+    .mda-cm6-host .cm-editor:has(.mda-cm-html-source-input:focus) .cm-dropCursor {
+      display: none !important;
+    }
+    .mda-cm6-host .cm-line:has(.mda-cm-html-frame.mda-cm-html-source-mode) .cm-selectionBackground {
+      background: transparent !important;
+    }
+    [data-theme="dark"] .mda-cm6-host .mda-cm-html-frame {
       background: var(--bg-tertiary);
     }
     .mda-cm6-host .cm-line:has(.mda-cm-table-block-line) {
