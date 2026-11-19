@@ -22,6 +22,8 @@ const INSERT_SNIPPETS = {
   table: '| 列1 | 列2 |\n| --- | --- |\n|  |  |',
   hr: '---',
   image: '![](path/to/image.png)',
+  // 居中容器是最常见的原生 HTML 用法（README 式头部）；块内留空行，光标落在其中
+  html: '<div align="center">\n\n</div>',
 };
 
 /** 块后补空白行，光标落在该空白行行首 */
@@ -37,6 +39,7 @@ const INSIDE_TRAILING_BLANK_INSERT_TYPES = {
   table: true,
   quote: true,
   link: true,
+  html: true,
 };
 
 /**
@@ -92,6 +95,11 @@ function caretOffsetInSnippet(type, snippet) {
   }
   if (type === 'ordered') {
     return 3; // "1. "
+  }
+  if (type === 'html') {
+    // <div align="center">\n| \n</div>：落在开标签之后的空行
+    const nl = s.indexOf('\n');
+    return nl >= 0 ? nl + 1 : s.length;
   }
   if (type === 'task') {
     return 6; // "- [ ] "

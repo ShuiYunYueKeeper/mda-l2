@@ -236,14 +236,8 @@ class HtmlBlockWidget extends BlockReplaceWidget {
       selectBlock();
     });
 
-    frame.addEventListener('dblclick', function (e) {
-      if (e.target.closest('.mda-cm-block-toolbar')) return;
-      if (e.target.closest('.mda-cm-html-source-input')) return;
-      e.preventDefault();
-      e.stopPropagation();
-      selectBlock();
-      setSourceMode(true);
-    });
+    // 双击不切源码态：块内双击是用户想选词/看内容，突然变成源码框属于打断
+    // （源码态只由工具栏「代码」按钮进入）。
 
     attachBlockDragHandle(
       frame,

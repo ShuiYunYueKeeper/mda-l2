@@ -66,6 +66,7 @@ const ICON_MAP = {
   quote: 'Quote',
   mermaid: 'Workflow',
   math: 'Sigma',
+  html: 'FileCode',
   hr: 'Minus',
   heading: 'Heading',
   link: 'Link',

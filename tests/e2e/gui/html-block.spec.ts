@@ -133,3 +133,44 @@ test('「代码」按钮切源码态，Esc 回到渲染态', async () => {
   await expect(input).toBeHidden();
   await expect(block.locator('h1[align="center"]')).toHaveText('测试标题');
 });
+
+test('块内双击不切源码态（仍是预览渲染）', async () => {
+  await resetDoc(DOC);
+  const block = win.locator('.mda-cm-html-block').first();
+  const title = block.locator('h1[align="center"]');
+  await title.dblclick();
+  await win.waitForTimeout(400);
+  // 源码框不出现、渲染元素仍在、整篇仍是预览模式
+  await expect(block.locator('.mda-cm-html-source-input')).toBeHidden();
+  await expect(title).toBeVisible();
+  expect(await win.evaluate(() => document.body.className)).toContain('mda-cm6-mode-preview');
+  // 双击后仍可经「代码」按钮进源码态
+  await block.locator('[data-action="source"]').click();
+  await expect(block.locator('.mda-cm-html-source-input')).toBeVisible();
+});
+
+test('插入菜单可新建 HTML 块，落点直接进源码态', async () => {
+  await resetDoc('第一段。\n\n');
+  await win.locator('.cm-content').click();
+  await win.keyboard.press('Control+End');
+  await win.waitForTimeout(200);
+  // 空白行按 / 打开插入菜单
+  await win.keyboard.press('/');
+  const menu = win.locator('#mda-empty-line-insert-menu');
+  await menu.waitFor({ state: 'visible', timeout: 5000 });
+  await menu.locator('[data-act="html"]').click();
+  const block = win.locator('.mda-cm-html-block').first();
+  await block.waitFor({ state: 'visible', timeout: 8000 });
+  await win.waitForTimeout(400);
+  const input = block.locator('.mda-cm-html-source-input');
+  await expect(input).toBeVisible();
+  // 焦点直接在源码框，用户可立即输入
+  expect(await input.evaluate((el) => document.activeElement === el)).toBe(true);
+  // 改成真内容后失焦 → 渲染出 strong
+  await input.evaluate((el) => {
+    el.textContent = '<div align="center">\n\n**插入测试**\n\n</div>';
+  });
+  await win.locator('.cm-content').click({ position: { x: 5, y: 5 } });
+  await win.waitForTimeout(600);
+  await expect(block.locator('.mda-cm-html-render strong')).toHaveText('插入测试');
+});

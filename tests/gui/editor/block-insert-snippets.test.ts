@@ -125,6 +125,28 @@ describe('block-insert-snippets', () => {
     expect(planned.caretOffset).toBe(link.length);
   });
 
+  test('formatBlankLineInsert：HTML 块后补空白行，光标落在块内空行', () => {
+    const doc = {
+      line: function () {
+        return { number: 1, from: 0, to: 0, text: '' };
+      },
+      lineAt: function () {
+        return { number: 1, from: 0, to: 0, text: '' };
+      },
+    };
+    const html = getInsertSnippet('html')!;
+    expect(html.indexOf('\n')).toBeGreaterThan(0);
+    expect(html.trim().startsWith('<')).toBe(true);
+    expect(html.trim().endsWith('>')).toBe(true);
+    // 光标在开标签后的空行，不在块后空白行
+    expect(caretOffsetInSnippet('html', html)).toBe(html.indexOf('\n') + 1);
+
+    const planned = formatBlankLineInsert('html', html, doc, { number: 1, from: 0 });
+    expect(planned.insert).toBe(html + '\n');
+    expect(planned.caretOffset).toBe(html.indexOf('\n') + 1);
+    expect(planned.caretOffset).toBeLessThan(planned.insert.length);
+  });
+
   test('planMermaidInsert：近旁插入也保证围栏后空白行', () => {
     const { planMermaidInsert } = require(path.join(
       __dirname,

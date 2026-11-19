@@ -47062,7 +47062,9 @@ var MDAEditorBundle = (() => {
         quote: "> ",
         table: "| \u52171 | \u52172 |\n| --- | --- |\n|  |  |",
         hr: "---",
-        image: "![](path/to/image.png)"
+        image: "![](path/to/image.png)",
+        // 居中容器是最常见的原生 HTML 用法（README 式头部）；块内留空行，光标落在其中
+        html: '<div align="center">\n\n</div>'
       };
       var AFTER_BLANK_INSERT_TYPES = {
         mermaid: true,
@@ -47073,7 +47075,8 @@ var MDAEditorBundle = (() => {
         code: true,
         table: true,
         quote: true,
-        link: true
+        link: true,
+        html: true
       };
       function isAfterBlankInsertType(type) {
         return !!AFTER_BLANK_INSERT_TYPES[type];
@@ -47100,6 +47103,10 @@ var MDAEditorBundle = (() => {
         }
         if (type === "ordered") {
           return 3;
+        }
+        if (type === "html") {
+          const nl = s.indexOf("\n");
+          return nl >= 0 ? nl + 1 : s.length;
         }
         if (type === "task") {
           return 6;
@@ -47977,6 +47984,7 @@ var MDAEditorBundle = (() => {
         "quote",
         "mermaid",
         "math",
+        "html",
         "hr",
         "heading",
         "link",
@@ -48071,6 +48079,7 @@ var MDAEditorBundle = (() => {
         quote: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/></svg>',
         mermaid: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>',
         math: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 7V5a1 1 0 0 0-1-1H6.5a.5.5 0 0 0-.4.8l4.5 6a2 2 0 0 1 0 2.4l-4.5 6a.5.5 0 0 0 .4.8H17a1 1 0 0 0 1-1v-2"/></svg>',
+        html: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 12.5 8 15l2 2.5"/><path d="m14 12.5 2 2.5-2 2.5"/></svg>',
         hr: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg>',
         heading: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h12"/><path d="M6 20V4"/><path d="M18 20V4"/></svg>',
         link: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
@@ -48121,8 +48130,7 @@ var MDAEditorBundle = (() => {
         quote: "quote",
         heading: "heading",
         hr: "hr",
-        // lucide 无 html 专用图标，复用 code 图形
-        html: "code"
+        html: "html"
       };
       function menuIconHtml(name) {
         const svg = ICONS[name] || "";
@@ -48673,6 +48681,7 @@ var MDAEditorBundle = (() => {
         { id: "image", key: "blockMenuInsertImage", icon: "image" },
         { id: "table", key: "blockMenuInsertTable", icon: "table" },
         { id: "code", key: "blockMenuInsertCode", icon: "code" },
+        { id: "html", key: "insertMenuHtml", icon: "html" },
         { id: "quote", key: "blockMenuInsertQuote", icon: "quote" },
         { id: "link", key: "insertMenuLink", icon: "link" },
         { id: "hr", key: "blockMenuInsertHr", icon: "hr" }
@@ -62031,14 +62040,6 @@ var MDAEditorBundle = (() => {
             e.stopPropagation();
             selectBlock();
           });
-          frame.addEventListener("dblclick", function(e) {
-            if (e.target.closest(".mda-cm-block-toolbar")) return;
-            if (e.target.closest(".mda-cm-html-source-input")) return;
-            e.preventDefault();
-            e.stopPropagation();
-            selectBlock();
-            setSourceMode(true);
-          });
           attachBlockDragHandle(
             frame,
             view,
@@ -64498,7 +64499,7 @@ var MDAEditorBundle = (() => {
         ) : null;
       }
       function scheduleFocusInsertedBlockEdit(view, type, blockFrom) {
-        if (type !== "table" && type !== "code") return;
+        if (type !== "table" && type !== "code" && type !== "html") return;
         const run = function() {
           if (!view || !view.dom) return;
           try {
@@ -64518,6 +64519,13 @@ var MDAEditorBundle = (() => {
             } catch (_) {
             }
             setCellVisibleSelection(cell, 0, 0);
+            return;
+          }
+          if (type === "html") {
+            const htmlRoot = findInsertedBlockRoot(view, ".mda-cm-html-block", blockFrom);
+            if (!htmlRoot) return;
+            const srcBtn = htmlRoot.querySelector('.mda-cm-html-frame [data-action="source"]');
+            if (srcBtn && typeof srcBtn.click === "function") srcBtn.click();
             return;
           }
           const root = findInsertedBlockRoot(view, ".mda-cm-code-block", blockFrom);

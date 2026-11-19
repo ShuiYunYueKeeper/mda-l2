@@ -63,13 +63,13 @@ function findFirstEmptyTableCell(root) {
 }
 
 /**
- * 表格/代码是块 widget：文档光标落在源码偏移看不见，须把焦点送进格内 / 代码框。
+ * 表格/代码/HTML 是块 widget：文档光标落在源码偏移看不见，须把焦点送进格内 / 代码框 / 源码框。
  * @param {import('@codemirror/view').EditorView} view
  * @param {string} type
  * @param {number} blockFrom
  */
 function scheduleFocusInsertedBlockEdit(view, type, blockFrom) {
-  if (type !== 'table' && type !== 'code') return;
+  if (type !== 'table' && type !== 'code' && type !== 'html') return;
   const run = function () {
     if (!view || !view.dom) return;
     try {
@@ -91,6 +91,14 @@ function scheduleFocusInsertedBlockEdit(view, type, blockFrom) {
         /* ignore */
       }
       setCellVisibleSelection(cell, 0, 0);
+      return;
+    }
+    if (type === 'html') {
+      // 新插入的 HTML 块默认是空容器，直接进源码态，用户可立刻敲标签/正文
+      const htmlRoot = findInsertedBlockRoot(view, '.mda-cm-html-block', blockFrom);
+      if (!htmlRoot) return;
+      const srcBtn = htmlRoot.querySelector('.mda-cm-html-frame [data-action="source"]');
+      if (srcBtn && typeof srcBtn.click === 'function') srcBtn.click();
       return;
     }
     const root = findInsertedBlockRoot(view, '.mda-cm-code-block', blockFrom);

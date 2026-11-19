@@ -30,6 +30,7 @@ const INSERT_GENERAL_ITEMS = [
   { id: 'image', key: 'blockMenuInsertImage', icon: 'image' },
   { id: 'table', key: 'blockMenuInsertTable', icon: 'table' },
   { id: 'code', key: 'blockMenuInsertCode', icon: 'code' },
+  { id: 'html', key: 'insertMenuHtml', icon: 'html' },
   { id: 'quote', key: 'blockMenuInsertQuote', icon: 'quote' },
   { id: 'link', key: 'insertMenuLink', icon: 'link' },
   { id: 'hr', key: 'blockMenuInsertHr', icon: 'hr' },
