@@ -47,7 +47,8 @@ const TABLE_CHROME_SEL =
   '.mda-cm-table-col-gutter, .mda-cm-table-row-gutter, .mda-cm-table-chrome, .mda-cm-table-col-bar, .mda-cm-table-row-bar, .mda-cm-table-col-gutter-clip, .mda-cm-table-col-resize-handle, .mda-cm-table-row-resize-handle';
 
 const WIDGET_EDIT_SEL =
-  '.mda-cm-code-input, .mda-cm-mermaid-source-input, th[contenteditable], td[contenteditable]';
+  '.mda-cm-code-input, .mda-cm-mermaid-source-input, .mda-cm-math-source-input,' +
+  '.mda-cm-html-source-input, th[contenteditable], td[contenteditable]';
 
 /** @type {HTMLElement | null} */
 let activeMenu = null;

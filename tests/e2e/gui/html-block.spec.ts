@@ -85,6 +85,15 @@ async function resetDoc(text: string) {
   await win.waitForTimeout(600);
 }
 
+/** 进入源码态：widget 可能因 eq() 复用而保留上次的源码态，先看是否已可见 */
+async function openSource(block: import('@playwright/test').Locator) {
+  const input = block.locator('.mda-cm-html-source-input');
+  if (!(await input.isVisible())) await block.locator('[data-action="source"]').click();
+  await expect(input).toBeVisible();
+  await win.waitForTimeout(200);
+  return input;
+}
+
 test('居中头部渲染成真元素且图标加载成功', async () => {
   const header = win.locator('.mda-cm-html-block').first();
   await expect(header.locator('h1[align="center"]')).toHaveText('测试标题');
@@ -147,6 +156,81 @@ test('块内双击不切源码态（仍是预览渲染）', async () => {
   // 双击后仍可经「代码」按钮进源码态
   await block.locator('[data-action="source"]').click();
   await expect(block.locator('.mda-cm-html-source-input')).toBeVisible();
+});
+
+test('源码态可拖选文字，选区可见（不被预览模式透明化）', async () => {
+  await resetDoc(DOC);
+  const block = win.locator('.mda-cm-html-block').first();
+  const input = await openSource(block);
+
+  const box = await input.boundingBox();
+  expect(box).toBeTruthy();
+  await win.mouse.move(box!.x + 10, box!.y + 12);
+  await win.mouse.down();
+  await win.mouse.move(box!.x + 260, box!.y + 12, { steps: 10 });
+  const picked = await win.evaluate(() => String(window.getSelection() || ''));
+  await win.mouse.up();
+  // 拖选真的选中了源码文字
+  expect(picked.length).toBeGreaterThan(0);
+  expect(picked).not.toContain('测试标题'); // 选的是源码框里的行，不是正文渲染内容
+  // ::selection 不是透明（预览模式默认把 cm-content 内的选区刷成透明）
+  const bg = await input.evaluate((el) => getComputedStyle(el, '::selection').backgroundColor);
+  expect(bg).not.toBe('rgba(0, 0, 0, 0)');
+  expect(bg).not.toBe('transparent');
+});
+
+test('源码框内 Ctrl+A 只框选源码，不触发整篇全选', async () => {
+  await resetDoc(DOC);
+  const block = win.locator('.mda-cm-html-block').first();
+  const input = await openSource(block);
+  await input.click();
+  await win.keyboard.press('Control+a');
+  await win.waitForTimeout(150);
+  const picked = await win.evaluate(() => String(window.getSelection() || ''));
+  expect(picked).toContain('<h1 align="center">');
+  expect(picked).toContain('副标题一行');
+  // 只框住本块源码，没把后面 details 块也圈进来
+  expect(picked).not.toContain('</details>');
+  // 文档选区没有被拉成整篇（CM6 文档选区仍应是折叠的）
+  expect(
+    await win.evaluate(() => {
+      const view = (window as any).MDAEditor.findEditorView();
+      const sel = view.state.selection.main;
+      return sel.empty;
+    })
+  ).toBe(true);
+});
+
+test('源码态选区右键：复制/剪切可用（不置灰）', async () => {
+  await resetDoc(DOC);
+  const block = win.locator('.mda-cm-html-block').first();
+  const input = await openSource(block);
+  await input.click();
+  await win.keyboard.press('Control+a');
+  await win.waitForTimeout(150);
+  const box = await input.boundingBox();
+  expect(box).toBeTruthy();
+  await win.mouse.click(box!.x + 80, box!.y + 14, { button: 'right' });
+  const menu = win.locator('.mda-cm-context-menu');
+  await menu.waitFor({ state: 'visible', timeout: 5000 });
+  const rowDisabled = (label: string) =>
+    menu
+      .locator('.mda-menu-item')
+      .filter({ hasText: label })
+      .first()
+      .evaluate(
+        (el) => el.classList.contains('disabled') || el.classList.contains('mda-menu-item-disabled')
+      );
+  expect(await rowDisabled('复制')).toBe(false);
+  expect(await rowDisabled('剪切')).toBe(false);
+  // 真的能复制（弹「拷贝成功」）
+  await menu.locator('.mda-menu-item').filter({ hasText: '复制' }).first().click();
+  await win.waitForTimeout(300);
+  const toast = await win.evaluate(() => {
+    const el = document.querySelector('.mda-toast, #mda-toast');
+    return el ? el.textContent || '' : '';
+  });
+  expect(toast).toContain('拷贝');
 });
 
 test('插入菜单可新建 HTML 块，落点直接进源码态', async () => {

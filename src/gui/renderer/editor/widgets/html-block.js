@@ -28,6 +28,23 @@ const { clearSelectedInlineMath, clearInlineMathSelectedClass } = require('./inl
 
 const MIN_HEIGHT = 44;
 
+/**
+ * 源码框内全选：只选中框内容，别让它变成整篇文档全选。
+ * @param {HTMLElement} el
+ */
+function selectSourceContent(el) {
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    if (!sel) return;
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 class HtmlBlockWidget extends BlockReplaceWidget {
   /**
    * @param {string} source
@@ -223,7 +240,36 @@ class HtmlBlockWidget extends BlockReplaceWidget {
         e.stopPropagation();
         setSourceMode(false);
         selectBlock();
+        return;
       }
+      const mod = e.ctrlKey || e.metaKey;
+      // Ctrl/Cmd+F、H 放行查找替换
+      if (mod && !e.altKey && !e.shiftKey) {
+        const fk = (e.key || '').toLowerCase();
+        if (fk === 'f' || fk === 'h') return;
+      }
+      // 其余按键不冒泡到 CM6：否则 Backspace/方向键会改正文，Ctrl+A 会变成整篇全选
+      e.stopPropagation();
+      if (mod && !e.altKey && !e.shiftKey && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        selectSourceContent(sourceEditor);
+        return;
+      }
+      if (mod && !e.altKey && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+        const sel = window.getSelection && window.getSelection();
+        if (sel && !sel.isCollapsed && String(sel.toString() || '').length > 0) return;
+        // 无选区：复制整块源码（与其它块 widget 一致）
+        e.preventDefault();
+        copyText(showingSource ? readSourceText() : self.source, opts.copyText);
+      }
+    });
+    sourceEditor.addEventListener('paste', function (e) {
+      // 只接纯文本：让浏览器按富文本贴入 HTML 会把样式/标签结构一并塞进来
+      e.preventDefault();
+      e.stopPropagation();
+      const text = e.clipboardData && e.clipboardData.getData('text/plain');
+      if (text == null) return;
+      document.execCommand('insertText', false, text);
     });
 
     root.addEventListener('mousedown', function (e) {

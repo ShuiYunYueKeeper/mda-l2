@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 块 widget 内 contenteditable（表格格 / 代码 / 流程图源码等）：
  * 文字拖选走 DOM ::selection；CM6 文档选区用 transactionFilter 坍缩，勿用 domEventHandlers
  * 返回 true（会 preventDefault，拖选失效）。
@@ -20,7 +20,8 @@ const WIDGET_EDIT_SELECTOR =
   '.mda-cm-table th[contenteditable="true"], .mda-cm-table td[contenteditable="true"],' +
   '.mda-cm-code-input[contenteditable="true"],' +
   '.mda-cm-mermaid-source-input[contenteditable="true"],' +
-  '.mda-cm-math-source-input[contenteditable="true"]';
+  '.mda-cm-math-source-input[contenteditable="true"],' +
+  '.mda-cm-html-source-input[contenteditable="true"]';
 
 /**
  * @param {EventTarget | null} target
@@ -82,7 +83,7 @@ function snapshotCellSelection(cell) {
 
 /**
  * @param {EventTarget | null} target
- * @returns {{ kind: 'table-cell' | 'code' | 'mermaid' | 'math', el: HTMLElement } | null}
+ * @returns {{ kind: 'table-cell' | 'code' | 'mermaid' | 'math' | 'html', el: HTMLElement } | null}
  */
 function classifyWidgetEditable(target) {
   if (target && target.closest) {
@@ -93,6 +94,8 @@ function classifyWidgetEditable(target) {
     if (mermaid) return { kind: 'mermaid', el: /** @type {HTMLElement} */ (mermaid) };
     const math = el.closest('.mda-cm-math-source-input[contenteditable="true"]');
     if (math) return { kind: 'math', el: /** @type {HTMLElement} */ (math) };
+    const html = el.closest('.mda-cm-html-source-input[contenteditable="true"]');
+    if (html) return { kind: 'html', el: /** @type {HTMLElement} */ (html) };
     const cell = tableCellFromNode(el);
     if (cell) return { kind: 'table-cell', el: cell };
   }

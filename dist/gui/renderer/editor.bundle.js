@@ -48165,7 +48165,7 @@ var MDAEditorBundle = (() => {
       var docMouseUpBound = false;
       var docFocusBound = false;
       var lastWidgetEdit = null;
-      var WIDGET_EDIT_SELECTOR = '.mda-cm-table th[contenteditable="true"], .mda-cm-table td[contenteditable="true"],.mda-cm-code-input[contenteditable="true"],.mda-cm-mermaid-source-input[contenteditable="true"],.mda-cm-math-source-input[contenteditable="true"]';
+      var WIDGET_EDIT_SELECTOR = '.mda-cm-table th[contenteditable="true"], .mda-cm-table td[contenteditable="true"],.mda-cm-code-input[contenteditable="true"],.mda-cm-mermaid-source-input[contenteditable="true"],.mda-cm-math-source-input[contenteditable="true"],.mda-cm-html-source-input[contenteditable="true"]';
       function isWidgetInlineEditableTarget(target) {
         if (!target || !target.closest) return false;
         return !!target.closest(WIDGET_EDIT_SELECTOR);
@@ -48231,6 +48231,11 @@ var MDAEditorBundle = (() => {
           if (math) return { kind: "math", el: (
             /** @type {HTMLElement} */
             math
+          ) };
+          const html = el.closest('.mda-cm-html-source-input[contenteditable="true"]');
+          if (html) return { kind: "html", el: (
+            /** @type {HTMLElement} */
+            html
           ) };
           const cell = tableCellFromNode(el);
           if (cell) return { kind: "table-cell", el: cell };
@@ -61858,6 +61863,17 @@ var MDAEditorBundle = (() => {
       var { clearSelectedMathBlock } = require_math_selection();
       var { clearSelectedInlineMath, clearInlineMathSelectedClass } = require_inline_math_selection();
       var MIN_HEIGHT = 44;
+      function selectSourceContent(el) {
+        try {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const sel = window.getSelection();
+          if (!sel) return;
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch (_) {
+        }
+      }
       var HtmlBlockWidget = class _HtmlBlockWidget extends BlockReplaceWidget {
         /**
          * @param {string} source
@@ -62029,7 +62045,32 @@ var MDAEditorBundle = (() => {
               e.stopPropagation();
               setSourceMode(false);
               selectBlock();
+              return;
             }
+            const mod = e.ctrlKey || e.metaKey;
+            if (mod && !e.altKey && !e.shiftKey) {
+              const fk = (e.key || "").toLowerCase();
+              if (fk === "f" || fk === "h") return;
+            }
+            e.stopPropagation();
+            if (mod && !e.altKey && !e.shiftKey && (e.key === "a" || e.key === "A")) {
+              e.preventDefault();
+              selectSourceContent(sourceEditor);
+              return;
+            }
+            if (mod && !e.altKey && !e.shiftKey && (e.key === "c" || e.key === "C")) {
+              const sel = window.getSelection && window.getSelection();
+              if (sel && !sel.isCollapsed && String(sel.toString() || "").length > 0) return;
+              e.preventDefault();
+              copyText(showingSource ? readSourceText() : self2.source, opts.copyText);
+            }
+          });
+          sourceEditor.addEventListener("paste", function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const text = e.clipboardData && e.clipboardData.getData("text/plain");
+            if (text == null) return;
+            document.execCommand("insertText", false, text);
           });
           root.addEventListener("mousedown", function(e) {
             if (e.button !== 0) return;
@@ -63396,7 +63437,7 @@ var MDAEditorBundle = (() => {
         { id: "image", key: "blockMenuCopyAsImage", icon: "copyAsImage" }
       ];
       var TABLE_CHROME_SEL = ".mda-cm-table-col-gutter, .mda-cm-table-row-gutter, .mda-cm-table-chrome, .mda-cm-table-col-bar, .mda-cm-table-row-bar, .mda-cm-table-col-gutter-clip, .mda-cm-table-col-resize-handle, .mda-cm-table-row-resize-handle";
-      var WIDGET_EDIT_SEL = ".mda-cm-code-input, .mda-cm-mermaid-source-input, th[contenteditable], td[contenteditable]";
+      var WIDGET_EDIT_SEL = ".mda-cm-code-input, .mda-cm-mermaid-source-input, .mda-cm-math-source-input,.mda-cm-html-source-input, th[contenteditable], td[contenteditable]";
       var activeMenu = null;
       var activeSubmenu = null;
       var subOpenTimer = 0;
