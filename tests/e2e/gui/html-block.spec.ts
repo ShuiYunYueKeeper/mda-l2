@@ -233,6 +233,54 @@ test('源码态选区右键：复制/剪切可用（不置灰）', async () => {
   expect(toast).toContain('拷贝');
 });
 
+test('块手柄「复制为图片」导出成功（不再报复制失败）', async () => {
+  await resetDoc(DOC);
+  const block = win.locator('.mda-cm-html-block').first();
+  const frame = block.locator('.mda-cm-html-frame');
+  await frame.scrollIntoViewIfNeeded();
+  const fb = await frame.boundingBox();
+  expect(fb).toBeTruthy();
+  await win.mouse.move(fb!.x + fb!.width / 2, fb!.y + 20);
+  await win.waitForTimeout(300);
+  const handle = frame.locator('.mda-cm-block-drag-handle').first();
+  const hb = await handle.boundingBox();
+  expect(hb).toBeTruthy();
+  await win.mouse.move(hb!.x + hb!.width / 2, hb!.y + hb!.height / 2);
+  await win.mouse.down();
+  await win.mouse.up();
+  const menu = win.locator('#mda-block-handle-menu');
+  await menu.waitFor({ state: 'visible', timeout: 5000 });
+  await menu.locator('.mda-menu-has-sub').filter({ hasText: '复制为' }).first().hover();
+  const item = win.locator('.mda-block-handle-submenu [data-act="image"]').first();
+  await item.waitFor({ state: 'visible', timeout: 5000 });
+
+  const readToast = async () =>
+    win.evaluate(() => {
+      const el = document.querySelector('.mda-toast, #mda-toast');
+      return el ? el.textContent || '' : '';
+    });
+  // 上一个用例可能留下旧 toast，按「文字变化」判断新提示
+  const beforeToast = await readToast();
+  await item.click({ force: true });
+
+  // 成功 toast（失败会弹「复制失败: ...」对话框）
+  let toast = beforeToast;
+  for (let i = 0; i < 50; i++) {
+    await win.waitForTimeout(100);
+    const next = await readToast();
+    if (next && next !== beforeToast) {
+      toast = next;
+      break;
+    }
+  }
+  const modal = await win.evaluate(() => {
+    const el = document.querySelector('.modal-overlay');
+    return el ? (el as HTMLElement).innerText || '' : '';
+  });
+  expect(modal).not.toContain('复制失败');
+  expect(toast).toContain('已复制图片');
+});
+
 test('插入菜单可新建 HTML 块，落点直接进源码态', async () => {
   await resetDoc('第一段。\n\n');
   // 光标放到文末空行（用编辑器状态直接定位，避免依赖窗口键盘焦点）

@@ -4611,7 +4611,7 @@
   function stripBlockExportChrome(root) {
     if (!root) return;
     root.querySelectorAll(
-      '.mda-cm-block-toolbar,.mda-cm-block-drag-handle,.mda-cm-image-handles,.mda-cm-mermaid-handles,.mda-cm-code-lang-picker,.mda-cm-block-type-icon'
+      '.mda-cm-block-toolbar,.mda-cm-block-drag-handle,.mda-cm-image-handles,.mda-cm-mermaid-handles,.mda-cm-code-lang-picker,.mda-cm-block-type-icon,.mda-cm-html-source'
     ).forEach(function (n) {
       if (n.parentNode) n.parentNode.removeChild(n);
     });
@@ -4621,6 +4621,41 @@
       'mda-cm-code-editing',
       'mda-cm-mermaid-source-mode'
     );
+    dropMarkupCarryingAttrs(root);
+  }
+
+  /**
+   * HTML 块的回退导出要保留顶栏：实时截图那条路本来就连顶栏一起截，
+   * 这里剥掉顶栏会得到两张观感不同的图。只去掉手柄、源码面板与选中态类名。
+   */
+  function stripHtmlBlockExportChrome(root) {
+    if (!root) return;
+    root.querySelectorAll(
+      '.mda-cm-block-drag-handle,.mda-cm-html-source,.mda-cm-block-type-icon'
+    ).forEach(function (n) {
+      if (n.parentNode) n.parentNode.removeChild(n);
+    });
+    root.classList.remove('mda-cm-media-selected', 'mda-cm-block-selected', 'mda-cm-html-source-mode');
+    dropMarkupCarryingAttrs(root);
+  }
+
+  /**
+   * 导出走「DOM 克隆 → SVG foreignObject」的 XML 解析，而 HTML 序列化器**不转义属性值里的 `<`**
+   * （HTML5 允许，XML 禁止）：`data-mda-block-source="<div align=...>"` 这类「源码存在属性里」的块
+   * 会让整段 SVG 解析失败，表现为复制为图片报 formula export failed。导出前把这些属性摘掉——
+   * 它们只是定位/调试元数据，不参与渲染。
+   */
+  function dropMarkupCarryingAttrs(root) {
+    var nodes = [root].concat(Array.prototype.slice.call(root.querySelectorAll('*')));
+    nodes.forEach(function (node) {
+      if (!node.attributes || !node.attributes.length) return;
+      var names = [];
+      for (var i = 0; i < node.attributes.length; i++) {
+        var attr = node.attributes[i];
+        if (attr.name === 'data-mda-block-source' || attr.value.indexOf('<') >= 0) names.push(attr.name);
+      }
+      for (var j = 0; j < names.length; j++) node.removeAttribute(names[j]);
+    });
   }
 
   function expandBlockExportClone(clone) {
@@ -5515,6 +5550,7 @@
       image: '.mda-cm-image-block[data-mda-block-from="' + from + '"] .mda-cm-image-frame',
       mermaid: '.mda-cm-mermaid-block[data-mda-block-from="' + from + '"] .mda-cm-mermaid-frame',
       math: '.mda-cm-math-block[data-mda-block-from="' + from + '"]',
+      html: '.mda-cm-html-block[data-mda-block-from="' + from + '"] .mda-cm-html-frame',
       code: '.mda-cm-code-block[data-mda-block-from="' + from + '"] .mda-cm-code-frame',
       table: '.mda-cm-table-block[data-mda-block-from="' + from + '"]',
       hr: '.mda-cm-hr-block[data-mda-block-from="' + from + '"]',
@@ -5838,6 +5874,138 @@
     return exportMeasuredHtmlToPng(html, w, h, layoutCss, { edgePad: 0, measureBuffer: 0 });
   }
 
+  /** 内联克隆时要抄的 computed style 长名（用长名：computed style 里没有 margin/border 简写）。 */
+  var EXPORT_INLINE_PROPS = [
+    'display',
+    'flex-direction',
+    'flex-wrap',
+    'align-items',
+    'justify-content',
+    'gap',
+    'width',
+    'height',
+    'min-width',
+    'max-width',
+    'min-height',
+    'margin-top',
+    'margin-right',
+    'margin-bottom',
+    'margin-left',
+    'padding-top',
+    'padding-right',
+    'padding-bottom',
+    'padding-left',
+    'border-top-width',
+    'border-right-width',
+    'border-bottom-width',
+    'border-left-width',
+    'border-top-style',
+    'border-right-style',
+    'border-bottom-style',
+    'border-left-style',
+    'border-top-color',
+    'border-right-color',
+    'border-bottom-color',
+    'border-left-color',
+    'border-radius',
+    'box-sizing',
+    'background-color',
+    'color',
+    'font-family',
+    'font-size',
+    'font-weight',
+    'font-style',
+    'line-height',
+    'letter-spacing',
+    'text-align',
+    'text-decoration-line',
+    'text-transform',
+    'text-shadow',
+    'white-space',
+    'word-break',
+    'overflow-wrap',
+    'vertical-align',
+    'list-style-type',
+    'list-style-position',
+    'border-collapse',
+    'border-spacing',
+    'object-fit',
+    'opacity',
+  ];
+
+  /**
+   * 把 live 子树的 computed style 逐节点写到 clone 上。
+   * 导出走 SVG foreignObject，宿主文档的样式表不参与渲染，不同步就只能得到无排版的裸文本。
+   */
+  function inlineComputedStylesDeep(live, clone) {
+    if (!live || !clone || live.nodeType !== clone.nodeType) return;
+    if (live.nodeType === 1) {
+      var cs = window.getComputedStyle(live);
+      var decl = '';
+      for (var i = 0; i < EXPORT_INLINE_PROPS.length; i++) {
+        var name = EXPORT_INLINE_PROPS[i];
+        var value = cs.getPropertyValue(name);
+        if (!value) continue;
+        decl += name + ':' + value + ';';
+      }
+      if (decl) {
+        var existing = clone.getAttribute('style') || '';
+        clone.setAttribute('style', decl + existing);
+      }
+    }
+    var liveKids = live.childNodes || [];
+    var cloneKids = clone.childNodes || [];
+    for (var j = 0; j < liveKids.length && j < cloneKids.length; j++) {
+      inlineComputedStylesDeep(liveKids[j], cloneKids[j]);
+    }
+  }
+
+  /**
+   * HTML 块导出：先取屏幕上真实渲染（字体、主题色、徽章位图一次到位）；
+   * 块高于视口装不下时退回「克隆渲染区 + 内联 computed style」。
+   */
+  async function exportHtmlBlockToPng(frameEl) {
+    if (!frameEl) throw new Error(uiT('unknownError'));
+    frameEl.scrollIntoView({ block: 'center', inline: 'nearest' });
+    await awaitExportFrames();
+    var rect = frameEl.getBoundingClientRect();
+    if (!(rect.width > 0) || !(rect.height > 0)) throw new Error(uiT('unknownError'));
+    var fitsViewport =
+      rect.top >= 0 &&
+      rect.left >= 0 &&
+      rect.bottom <= window.innerHeight &&
+      rect.right <= window.innerWidth;
+    if (fitsViewport) {
+      var liveCaptured = await capturePageRegion({
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      });
+      if (liveCaptured) return liveCaptured;
+    }
+
+    var clone = frameEl.cloneNode(true);
+    // 先按 live/clone 同构的子树内联样式，再剥 UI 装饰：
+    // 顺序反了会因子树结构错位把样式贴到错误的节点上（表现为正文被压成一字一行）。
+    inlineComputedStylesDeep(frameEl, clone);
+    stripHtmlBlockExportChrome(clone);
+    var w = Math.max(1, Math.ceil(rect.width));
+    var h = Math.max(1, Math.ceil(rect.height));
+    clone.style.width = w + 'px';
+    clone.style.height = 'auto';
+    var wrap = document.createElement('div');
+    wrap.className = 'mda-export-htmlblock';
+    wrap.appendChild(clone);
+    var layoutCss =
+      '.mda-export-htmlblock{box-sizing:border-box;overflow:visible;}' +
+      '.mda-export-htmlblock,.mda-export-htmlblock *{box-sizing:border-box;}';
+    return exportMeasuredHtmlToPng(wrap.innerHTML, w, h, layoutCss, {
+      edgePad: 0,
+      measureBuffer: 0,
+    });
+  }
+
   function copyCm6BlockAsImage(block, kind) {
     if (!block) {
       showToast(uiT('toastNoCopy'));
@@ -5877,6 +6045,21 @@
         .then(function (png) {
           rememberFormulaClipboardExport(png);
           var dataUrl = png && typeof png === 'object' ? png.dataUrl : png;
+          return copyPngDataUrlToClipboard(dataUrl);
+        })
+        .catch(function (e) {
+          uiAlert(uiT('alertZoomCopyFail', { error: e && e.message ? e.message : String(e) }));
+        });
+      return;
+    }
+    if (kind === 'html') {
+      var htmlFrame = findCm6BlockElement(block, 'html');
+      if (!htmlFrame) {
+        showToast(uiT('toastNoCopy'));
+        return;
+      }
+      exportHtmlBlockToPng(htmlFrame)
+        .then(function (dataUrl) {
           return copyPngDataUrlToClipboard(dataUrl);
         })
         .catch(function (e) {
