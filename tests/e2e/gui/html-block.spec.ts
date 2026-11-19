@@ -151,12 +151,16 @@ test('块内双击不切源码态（仍是预览渲染）', async () => {
 
 test('插入菜单可新建 HTML 块，落点直接进源码态', async () => {
   await resetDoc('第一段。\n\n');
-  await win.locator('.cm-content').click();
-  await win.keyboard.press('Control+End');
+  // 光标放到文末空行（用编辑器状态直接定位，避免依赖窗口键盘焦点）
+  await win.evaluate(() => {
+    const view = (window as any).MDAEditor.findEditorView();
+    const pos = view.state.doc.length;
+    view.dispatch({ selection: { anchor: pos, head: pos } });
+  });
   await win.waitForTimeout(200);
-  // 空白行按 / 打开插入菜单
-  await win.keyboard.press('/');
-  const menu = win.locator('#mda-empty-line-insert-menu');
+  // 工具栏「插入」→「HTML 块」
+  await win.locator('[data-cmd="insert-open"]').click();
+  const menu = win.locator('#mda-toolbar-insert-menu');
   await menu.waitFor({ state: 'visible', timeout: 5000 });
   await menu.locator('[data-act="html"]').click();
   const block = win.locator('.mda-cm-html-block').first();
