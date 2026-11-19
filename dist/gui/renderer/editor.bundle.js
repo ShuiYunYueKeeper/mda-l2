@@ -31196,6 +31196,11 @@ var MDAEditorBundle = (() => {
       };
       var TAG_RE = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<![^>]*>|<\?[\s\S]*?\?>|<\/?([a-zA-Z][a-zA-Z0-9:-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>/g;
       var MAX_EXTEND_LINES = 400;
+      function looksLikeHtmlLine(trimmed) {
+        if (trimmed.charAt(0) !== "<") return false;
+        if (/^<[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return false;
+        return /^<\/?[a-zA-Z!?]/.test(trimmed);
+      }
       function lineStartsOf(text) {
         const starts = [0];
         for (let i = 0; i < text.length; i++) {
@@ -31242,15 +31247,14 @@ var MDAEditorBundle = (() => {
         const limit = Math.min(lines.length, startLine + MAX_EXTEND_LINES);
         for (let li = startLine; li < limit; li++) {
           const line = lines[li];
+          const trimmed = line.trim();
+          if (li > startLine && depth <= 0 && !looksLikeHtmlLine(trimmed)) break;
           let lineEnd = starts[li] + line.length;
           if (li < lines.length - 1) lineEnd += 1;
           if (!mask[li]) depth += depthDeltaOfLine(line);
-          if (depth <= 0 && lineEnd >= nodeEnd) {
-            end = lineEnd;
-            break;
-          }
+          end = lineEnd;
         }
-        if (end < 0) {
+        if (end < 0 || depth > 0) {
           const nodeLine = lineIndexOf(starts, Math.max(start, nodeEnd - 1));
           let lineEnd = starts[nodeLine] + lines[nodeLine].length;
           if (nodeLine < lines.length - 1) lineEnd += 1;
@@ -31283,6 +31287,13 @@ var MDAEditorBundle = (() => {
       var { findMathRanges } = require_parse_math();
       var { findUnderlineRanges, findTripleTildeRanges, overlapsExclude } = require_underline();
       var { htmlBlockRegion } = require_html_block();
+      var { parser: lezerMarkdownParser, GFM } = require_dist10();
+      var htmlTailParser = null;
+      function tailParser() {
+        if (!htmlTailParser) htmlTailParser = lezerMarkdownParser.configure([GFM]);
+        return htmlTailParser;
+      }
+      var HTML_TAIL_MAX_CHARS = 2e4;
       var PRIORITY = {
         "hide-line": 100,
         "readonly-block": 80,
@@ -31625,6 +31636,7 @@ var MDAEditorBundle = (() => {
         const stack = [];
         let fenceDepth = 0;
         let lastHtmlNode = null;
+        const htmlTails = [];
         tree.iterate({
           enter(node) {
             if (node.name === "FencedCode" || node.name === "CodeBlock") {
@@ -31665,11 +31677,16 @@ var MDAEditorBundle = (() => {
               const region = doc ? htmlBlockRegion(doc, node.from, node.to) : null;
               let from = region ? region.from : node.from;
               const to = region ? region.to : node.to;
+              if (region && to < node.to) htmlTails.push({ from: to, to: node.to });
               const prev = lastHtmlNode;
               if (prev) {
                 if (from < prev.to) from = prev.to;
+                if (to <= from) {
+                  if (to > prev.to) prev.to = to;
+                  return;
+                }
                 if (/^\s*$/.test(doc.slice(prev.to, from))) {
-                  prev.to = to;
+                  if (to > prev.to) prev.to = to;
                   return;
                 }
               }
@@ -31705,6 +31722,23 @@ var MDAEditorBundle = (() => {
             }
           }
         });
+        for (let t = 0; t < htmlTails.length; t++) {
+          const tail = htmlTails[t];
+          const src = doc.slice(tail.from, tail.to);
+          if (!src.trim() || src.length > HTML_TAIL_MAX_CHARS) continue;
+          const parsed = collectSyntaxNodes(tailParser().parse(src), src);
+          for (let k = 0; k < parsed.length; k++) {
+            const tailNode = parsed[k];
+            const item = Object.assign({}, tailNode, {
+              from: tailNode.from + tail.from,
+              to: tailNode.to + tail.from
+            });
+            if (item.to <= item.from) continue;
+            nodes.push(item);
+            if (item.type === "HTMLBlock") lastHtmlNode = item;
+          }
+        }
+        nodes.sort((a, b) => a.from - b.from);
         if (doc) {
           const triples = findTripleTildeRanges(doc);
           if (triples.length) {
@@ -64674,7 +64708,11 @@ var MDAEditorBundle = (() => {
           if (pos > 0 && doc.charAt(pos - 1) !== "\n") insert = "\n" + insert;
           insert += "\n";
         } else {
-          if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
+          if (pos < doc.length) {
+            if (doc.charAt(pos) !== "\n") insert = "\n" + insert;
+          } else if (pos > 0 && doc.charAt(pos - 1) !== "\n") {
+            insert = "\n" + insert;
+          }
           if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
         }
         let plannedCaret = null;
@@ -64744,7 +64782,11 @@ var MDAEditorBundle = (() => {
           if (pos > 0 && doc.charAt(pos - 1) !== "\n") insert = "\n" + insert;
           insert += "\n";
         } else {
-          if (pos < doc.length && doc.charAt(pos) !== "\n") insert = "\n" + insert;
+          if (pos < doc.length) {
+            if (doc.charAt(pos) !== "\n") insert = "\n" + insert;
+          } else if (pos > 0 && doc.charAt(pos - 1) !== "\n") {
+            insert = "\n" + insert;
+          }
           if (pos >= doc.length || doc.charAt(pos) !== "\n") insert += "\n";
         }
         const planned = planBlockTrailingBlank(pos, insert, snippet, kind);

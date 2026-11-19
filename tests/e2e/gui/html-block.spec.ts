@@ -66,8 +66,23 @@ test.beforeAll(async () => {
   await win.waitForTimeout(800);
 });
 
+// 用例会把文档改脏（源码态编辑 / 插入块），关窗时主进程会挂「未保存」确认框，
+// 直接 await app.close() 可能一直等到 worker teardown 超时 —— 改为主进程直接 exit(0)。
 test.afterAll(async () => {
-  if (app) await app.close();
+  if (app) {
+    try {
+      await app.evaluate(({ app: electronApp }) => {
+        electronApp.exit(0);
+      });
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      app.process().kill();
+    } catch (_) {
+      /* ignore */
+    }
+  }
   if (dir) {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -309,4 +324,71 @@ test('插入菜单可新建 HTML 块，落点直接进源码态', async () => {
   await win.locator('.cm-content').click({ position: { x: 5, y: 5 } });
   await win.waitForTimeout(600);
   await expect(block.locator('.mda-cm-html-render strong')).toHaveText('插入测试');
+});
+
+test('紧贴卡片下方的文字与代码块不被卡片吞掉', async () => {
+  // 卡片闭合标签后只有一个换行（没有空行）——CommonMark 仍把后面几行算进同一个
+  // HTMLBlock，若整块替换会把这些内容吞进卡片（文字跑到卡片末尾、代码块被吃掉）
+  await resetDoc(
+    [
+      '<div align="center">',
+      '',
+      '# 居中标题',
+      '',
+      '</div>',
+      // 紧贴闭合标签、没有空行
+      '后面的文字',
+      '',
+      '```',
+      'code-line',
+      '```',
+      '',
+    ].join('\n')
+  );
+  const block = win.locator('.mda-cm-html-block').first();
+  await expect(block.locator('h1')).toHaveText('居中标题');
+  await expect(block).not.toContainText('后面的文字');
+  await expect(block).not.toContainText('code-line');
+  // 文字仍是正文、围栏仍是独立的代码块 widget
+  await expect(win.locator('.cm-content')).toContainText('后面的文字');
+  const code = win.locator('.mda-cm-code-block').first();
+  await code.waitFor({ state: 'visible', timeout: 8000 });
+  await expect(code.locator('.mda-cm-code-input')).toContainText('code-line');
+});
+
+test('文末没有换行时，卡片下方插入代码块不会粘在同一行', async () => {
+  // 文档末端没有换行：插入点正好在文档末尾，若不先补 '\n'，围栏会粘在 `</div>` 同一行，
+  // 结果既不是块（被卡片吞掉）也显示不出代码块。
+  await resetDoc('<div align="center">\n\n# 居中标题\n\n</div>');
+  const frame = win.locator('.mda-cm-html-frame').first();
+  await frame.scrollIntoViewIfNeeded();
+  const fb = await frame.boundingBox();
+  expect(fb).toBeTruthy();
+  await win.mouse.move(fb!.x + fb!.width / 2, fb!.y + 20);
+  await win.waitForTimeout(300);
+  const handle = frame.locator('.mda-cm-block-drag-handle').first();
+  const hb = await handle.boundingBox();
+  expect(hb).toBeTruthy();
+  await win.mouse.move(hb!.x + hb!.width / 2, hb!.y + hb!.height / 2);
+  await win.mouse.down();
+  await win.mouse.up();
+  const menu = win.locator('#mda-block-handle-menu');
+  await menu.waitFor({ state: 'visible', timeout: 5000 });
+  await menu.locator('.mda-menu-has-sub').filter({ hasText: '下方插入' }).first().hover();
+  const item = win.locator('.mda-block-handle-submenu [data-act="code"]').first();
+  await item.waitFor({ state: 'visible', timeout: 5000 });
+  await item.click({ force: true });
+  await win.waitForTimeout(600);
+
+  const doc = await win.evaluate(() => {
+    const view = (window as any).MDAEditor.findEditorView();
+    return view ? view.state.doc.toString() : '';
+  });
+  // 围栏另起一行，且卡片只到 `</div>` 为止
+  expect(doc).toContain('</div>\n```');
+  expect(doc).not.toContain('</div>```');
+  const block = win.locator('.mda-cm-html-block').first();
+  await expect(block).not.toContainText('```');
+  const code = win.locator('.mda-cm-code-block').first();
+  await code.waitFor({ state: 'visible', timeout: 8000 });
 });

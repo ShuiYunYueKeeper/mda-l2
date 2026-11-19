@@ -76,6 +76,19 @@ const TAG_RE =
 const MAX_EXTEND_LINES = 400;
 
 /**
+ * 这一行是不是「又一个 HTML 标签行」（GitHub 风格头部是 `<p>` / `<h1>` / `<p>` 逐行堆叠，
+ * 行间没有空行，必须并进同一张卡片）。
+ * 排除 `<https://…>` 这类自动链接：它们看着像标签，其实是正文。
+ * @param {string} trimmed
+ * @returns {boolean}
+ */
+function looksLikeHtmlLine(trimmed) {
+  if (trimmed.charAt(0) !== '<') return false;
+  if (/^<[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return false;
+  return /^<\/?[a-zA-Z!?]/.test(trimmed);
+}
+
+/**
  * @param {string} text
  * @returns {number[]}
  */
@@ -147,17 +160,21 @@ function htmlBlockRegion(text, from, to) {
 
   for (let li = startLine; li < limit; li++) {
     const line = lines[li];
+    const trimmed = line.trim();
+    // 标签已配平后，只有「下一行又是一个 HTML 标签行」才继续并入（GitHub 风格头部是
+    // `<p>`/`<h1>`/`<p>` 逐行堆叠、行间没有空行）。若这行是正文/标题/围栏等非 HTML 内容，
+    // 说明用户紧贴卡片写了东西（CommonMark 的 HTML 块要到空行才结束，语法树仍把它算进
+    // 这个 HTMLBlock），此时必须收尾 —— 否则这些内容会被卡片吞掉（文字跑到卡片末尾、
+    // 插入的代码块被吃掉）。尾行交给 build-specs 重新解析成正常块。
+    if (li > startLine && depth <= 0 && !looksLikeHtmlLine(trimmed)) break;
     let lineEnd = starts[li] + line.length;
     if (li < lines.length - 1) lineEnd += 1;
     if (!mask[li]) depth += depthDeltaOfLine(line);
-    if (depth <= 0 && lineEnd >= nodeEnd) {
-      end = lineEnd;
-      break;
-    }
+    end = lineEnd;
   }
 
   // 未在限内闭合（作者漏写闭合标签）：退回只覆盖语法树那一块，避免整篇被吞
-  if (end < 0) {
+  if (end < 0 || depth > 0) {
     const nodeLine = lineIndexOf(starts, Math.max(start, nodeEnd - 1));
     let lineEnd = starts[nodeLine] + lines[nodeLine].length;
     if (nodeLine < lines.length - 1) lineEnd += 1;

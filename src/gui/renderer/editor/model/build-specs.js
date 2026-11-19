@@ -9,6 +9,18 @@ const { detectFrontMatter } = require('./readonly-blocks');
 const { findMathRanges } = require('./parse-math');
 const { findUnderlineRanges, findTripleTildeRanges, overlapsExclude } = require('./underline');
 const { htmlBlockRegion } = require('./html-block');
+const { parser: lezerMarkdownParser, GFM } = require('@lezer/markdown');
+
+// HTML 块尾段再解析用的解析器（惰性创建：只有真的出现尾段才会 build）
+let htmlTailParser = null;
+function tailParser() {
+  if (!htmlTailParser) htmlTailParser = lezerMarkdownParser.configure([GFM]);
+  return htmlTailParser;
+}
+
+// 尾段再解析的体积上限：尾段本应只有几行（HTML 块到空行就结束），设上限只是防止
+// 脏文档（整篇紧贴闭合标签）把整篇文档再解析一遍。
+const HTML_TAIL_MAX_CHARS = 20000;
 
 const PRIORITY = {
   'hide-line': 100,
@@ -468,6 +480,8 @@ function collectSyntaxNodes(tree, text) {
   let fenceDepth = 0;
   // 最近一个已入列的 HTML 块（不能只看 nodes 末尾：块内可能夹着标题/表格等节点）
   let lastHtmlNode = null;
+  // HTML 块 region 收尾之后仍在同一语法节点里的尾行（见 html-block.js 的收尾条件）
+  const htmlTails = [];
   tree.iterate({
     enter(node) {
       if (node.name === 'FencedCode' || node.name === 'CodeBlock') {
@@ -534,6 +548,9 @@ function collectSyntaxNodes(tree, text) {
         const region = doc ? htmlBlockRegion(doc, node.from, node.to) : null;
         let from = region ? region.from : node.from;
         const to = region ? region.to : node.to;
+        // 标签配平后、仍在同一 HTMLBlock 节点里的尾行（CommonMark 要遇空行才结束块）：
+        // 这些行不属于卡片，稍后重新解析成正常块，否则会以裸源码露在卡片外面。
+        if (region && to < node.to) htmlTails.push({ from: to, to: node.to });
         // 只隔空行的连续 HTML 块合并成一块：README 的居中头部是 <p>/<h1>/<p> 多个
         // HTMLBlock 拼的，逐块替换会变成一叠卡片，且 heading 与副标题不再同处居中。
         const prev = lastHtmlNode;
@@ -542,8 +559,14 @@ function collectSyntaxNodes(tree, text) {
           // HTMLBlock 的首行）。若新块起点落在上一块的 region 内，裁剪到块尾，否则两
           // 个 widget 区间重叠 —— live-preview 会丢弃后者，那块源码就漏成纯文本。
           if (from < prev.to) from = prev.to;
+          // 整块都落在上一块里（同一起止行被重复报出）就直接丢掉，别把区间缩成空
+          if (to <= from) {
+            if (to > prev.to) prev.to = to;
+            return;
+          }
           if (/^\s*$/.test(doc.slice(prev.to, from))) {
-            prev.to = to;
+            // 合并只会变长：region 可能比语法节点短（尾行留给再解析），不能用它缩上一块
+            if (to > prev.to) prev.to = to;
             return;
           }
         }
@@ -581,6 +604,28 @@ function collectSyntaxNodes(tree, text) {
       }
     },
   });
+  // HTML 块尾段重新解析：让「紧贴卡片闭合标签」键入/粘贴的文字、插入的代码围栏恢复成
+  // 普通 Markdown 块（段落 / 代码块 / 表格…），而不是被卡片吞掉或漏成裸源码。
+  for (let t = 0; t < htmlTails.length; t++) {
+    const tail = htmlTails[t];
+    const src = doc.slice(tail.from, tail.to);
+    if (!src.trim() || src.length > HTML_TAIL_MAX_CHARS) continue;
+    const parsed = collectSyntaxNodes(tailParser().parse(src), src);
+    for (let k = 0; k < parsed.length; k++) {
+      const tailNode = parsed[k];
+      const item = Object.assign({}, tailNode, {
+        from: tailNode.from + tail.from,
+        to: tailNode.to + tail.from,
+      });
+      // 尾段节点不参与「只隔空行就合并」：此时 lastHtmlNode 可能已推进到更靠后的块，
+      // 拿它裁剪会把区间裁成 from > to 的非法值。
+      if (item.to <= item.from) continue;
+      nodes.push(item);
+      if (item.type === 'HTMLBlock') lastHtmlNode = item;
+    }
+  }
+  // 尾段节点是按节点顺序补到末尾的，统一按位置稳定排序，保持「节点按文档顺序」不变式
+  nodes.sort((a, b) => a.from - b.from);
   if (doc) {
     // `~~~text~~~` 会被 Lezer 误当成单行 FencedCode；拆成下划线+删除线。
     // 只清掉「落在叠套段内」或整段误认的围栏，外层加粗/斜体等包裹必须保留。

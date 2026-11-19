@@ -247,7 +247,13 @@ function insertSnippetNearBlock(view, block, where, type) {
     if (pos > 0 && doc.charAt(pos - 1) !== '\n') insert = '\n' + insert;
     insert += '\n';
   } else {
-    if (pos < doc.length && doc.charAt(pos) !== '\n') insert = '\n' + insert;
+    if (pos < doc.length) {
+      if (doc.charAt(pos) !== '\n') insert = '\n' + insert;
+    } else if (pos > 0 && doc.charAt(pos - 1) !== '\n') {
+      // 文末没有换行：不先补一个，新块会粘在上一块最后一行上（`</div>``` `），
+      // 围栏/表格就不再被识别成独立块，而是被上一块吞掉或显示成源码。
+      insert = '\n' + insert;
+    }
     if (pos >= doc.length || doc.charAt(pos) !== '\n') insert += '\n';
   }
 
@@ -342,7 +348,13 @@ function insertMarkdownNearBlock(view, block, where, markdownLine, type) {
     if (pos > 0 && doc.charAt(pos - 1) !== '\n') insert = '\n' + insert;
     insert += '\n';
   } else {
-    if (pos < doc.length && doc.charAt(pos) !== '\n') insert = '\n' + insert;
+    if (pos < doc.length) {
+      if (doc.charAt(pos) !== '\n') insert = '\n' + insert;
+    } else if (pos > 0 && doc.charAt(pos - 1) !== '\n') {
+      // 文末没有换行：不先补一个，新块会粘在上一块最后一行上（`</div>``` `），
+      // 围栏/表格就不再被识别成独立块，而是被上一块吞掉或显示成源码。
+      insert = '\n' + insert;
+    }
     if (pos >= doc.length || doc.charAt(pos) !== '\n') insert += '\n';
   }
   const planned = planBlockTrailingBlank(pos, insert, snippet, kind);

@@ -146,6 +146,36 @@ describe('collectSyntaxNodes: HTMLBlock', () => {
   });
 });
 
+describe('HTML 块不吞后续内容（紧贴闭合标签、中间没有空行）', () => {
+  // CommonMark 的 HTML 块要遇到空行才结束：用户紧贴 `</div>` 下一行键入/粘贴的文字、
+  // 或者插入的代码围栏，语法树里仍属于同一个 HTMLBlock 节点。region 只收到标签配平的行，
+  // 剩下的尾行重新解析成正常块 —— 否则它们会被卡片吃掉（文字跑到卡片末尾、代码块被吞）。
+  const head = ['<div align="center">', '# 居中标题', '</div>'];
+
+  test('文字紧贴闭合标签时，卡片止于闭合行', () => {
+    const text = head.concat(['后面的文字', '']).join('\n');
+    const nodes = collect(text);
+    expect(nodes).toHaveLength(1);
+    const textAt = text.indexOf('后面的文字');
+    expect(nodes[0].to).toBeLessThanOrEqual(textAt);
+    expect(text.slice(nodes[0].to)).toContain('后面的文字');
+  });
+
+  test('代码围栏紧贴闭合标签时，围栏重新解析成代码块 widget', () => {
+    const text = head.concat(['```', 'code', '```', '']).join('\n');
+    const tree = parser.parse(text);
+    const nodes = collectSyntaxNodes(tree, text);
+    const specs = buildDecorationSpecs(text, nodes, { widgetEnabled: () => true });
+    const html = specs.find((s: { widget?: string }) => s.widget === 'html-block');
+    const code = specs.find((s: { widget?: string }) => s.widget === 'code');
+    expect(html).toBeTruthy();
+    expect(code).toBeTruthy();
+    expect(code.source).toBe('```\ncode\n```');
+    // 围栏必须落在卡片之外，否则它既被卡片吞掉、又没机会成为代码块
+    expect(html.to).toBeLessThanOrEqual(code.from);
+  });
+});
+
 describe('buildDecorationSpecs: html-block', () => {
   test('产出整块 widget spec，源码取自节点区间', () => {
     const text = '<div align="center">标题</div>';
