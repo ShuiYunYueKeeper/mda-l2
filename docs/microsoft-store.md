@@ -249,6 +249,8 @@ Xbox 用的 16:9 主视觉、箱图、9:16 海报和预告片可以留空。
 **页面说必须签署程序包，但已经打包了？**  
 商店提交包**不要**自己签名：`AppxSignature.p7x`、`AppxMetadata/CodeIntegrity.cat` 存在就说明被 signtool 签过，而合作伙伴中心不接受不是它加的签名（自签根不受信，校验报 `0x800B0109`）。重新跑一次 appx 打包，确认 `Get-AuthenticodeSignature` 是 `NotSigned` 再传，并先删掉上一份失败的包。
 
+**上传后一直卡在 `null Bytes` / `Paused`，说包正在处理？**
+先排除传输层再怀疑包本身。3.1.0 的 appx 是 114.1 MB（`mermaid` 移到 `devDependencies` 之后，之前 146.7 MB）：本地三项校验都过——`MakeAppx unpack`→`pack` 往返、按 `AppxBlockMap.xml` 逐块重算 SHA256 全匹配、`[Content_Types].xml` 扩展名覆盖全包。若同样的报错重复出现，按顺序试：① 先 Delete 掉 `Paused` 那条，确认没有残留草稿；② 用 Edge/Chrome 无痕窗口、关掉 VPN/代理；③ 从本地磁盘拖入（不要网络盘/OneDrive）；④ 观察上传进度条是否走满 100%，走不满就是浏览器到服务端的传输问题，换网络（手机热点）或换机器最有效；⑤ 仍失败就开工单，附「本地校验通过 + 已删除重传 + 换浏览器/网络」。
 **定价填 0 为什么不行？**  
 `$ 0` 不是有效价格。选免费。
 
