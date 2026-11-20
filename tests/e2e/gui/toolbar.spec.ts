@@ -1,4 +1,4 @@
-﻿import { test, expect, _electron as electron } from '@playwright/test';
+import { test, expect, _electron as electron } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -17,10 +17,12 @@ const EXPECTED_CMDS = [
   'find',
   'save',
   'insert-open',
-  'ai',
   'copy-preview',
   'export-open',
 ];
+// 免费版（src/gui/edition.js 的 ai=false）不渲染 AI 按钮，故这里反向断言：
+// 入口必须缺席，恢复 AI 能力后再把 'ai' 加回 EXPECTED_CMDS 并删掉下面的断言。
+const ABSENT_CMDS = ['ai'];
 
 test.describe('GUI edit toolbar', () => {
   test('opens sample doc and renders Lucide toolbar', async () => {
@@ -51,11 +53,15 @@ test.describe('GUI edit toolbar', () => {
       for (const cmd of EXPECTED_CMDS) {
         expect(cmds).toContain(cmd);
       }
+      for (const cmd of ABSENT_CMDS) {
+        expect(cmds).not.toContain(cmd);
+      }
 
       // 除「插入」按钮用 + 字形外，其余按钮都是 Lucide svg：
-      // undo/redo/clear-format + 五个行内 + 三个列表 + save/copy-preview/export/find/comment + ai
+      // undo/redo/clear-format + 五个行内 + 三个列表 + save/copy-preview/export/find/comment
+      // （免费版没有 AI 按钮，故是 16 而非 17）
       const iconCount = await toolbar.locator('.mda-cm-tb-icon svg').count();
-      expect(iconCount).toBe(17);
+      expect(iconCount).toBe(16);
 
       const firstSvg = toolbar.locator('.mda-cm-tb-icon svg').first();
       await expect(firstSvg).toHaveAttribute('viewBox', '0 0 24 24');

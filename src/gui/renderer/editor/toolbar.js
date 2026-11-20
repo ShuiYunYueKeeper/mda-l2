@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M8-E1 常驻编辑工具栏（F11-6，布局对齐竞品）。
  */
 'use strict';
@@ -290,6 +290,13 @@ function createEditorToolbar(host, view, opts) {
     '<button type="button" class="mda-cm-tb-scroll mda-cm-tb-scroll-next" hidden aria-hidden="true" tabindex="-1">›</button>';
 
   host.appendChild(bar);
+
+  // 免费版没有 AI 能力（mount.js 不会传 onAi）：整颗按钮直接移除，避免留下点了只弹
+  // 「敬请期待」的死入口 —— data-soon="1" 的兜底会把它降级成提示，而不是隐藏。
+  if (typeof opts.onAi !== 'function') {
+    const aiBtn = bar.querySelector('.mda-cm-tb-ai');
+    if (aiBtn) aiBtn.remove();
+  }
 
   const tbMain = /** @type {HTMLElement} */ (bar.querySelector('.mda-cm-tb-main'));
   const scrollPrevBtn = /** @type {HTMLButtonElement} */ (

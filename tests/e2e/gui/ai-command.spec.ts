@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AI 全链路（M9）：本地假 OpenAI 兼容服务 + 临时用户目录里的激活码。
  * - 请求里不得出现批注（@anno）
  * - 润色 → 审阅 → 采纳：只替换正文，批注行逐字节保留；一次撤销完整回退
@@ -25,6 +25,9 @@ let file: string;
 let server: http.Server;
 const requests: any[] = [];
 
+// 免费版（src/gui/edition.js 的 ai=false）：主进程不注册 AI IPC、preload 不暴露 AI 桥接，
+// 这组用例无从运行，故整体跳过。恢复 AI 能力时把下面 test.describe 改回、并去掉 .skip 即可。
+test.describe.skip('AI 全链路（免费版关闭）', () => {
 test.describe.configure({ mode: 'serial' });
 
 function ensureLicenseSecret() {
@@ -217,4 +220,5 @@ test('命令条：Ctrl+J 菜单打开，输入框获焦', async () => {
   await expect(panel.locator('[data-role="instruction"]')).toBeFocused();
   await win.keyboard.press('Escape');
   await expect(win.locator('.mda-ai-panel')).toBeHidden();
+});
 });

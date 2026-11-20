@@ -24,6 +24,7 @@ const { copyFileToDir, moveFileToDir, fileExists, renameFileConflict } = require
 const { listMarkdownTree } = require('./main/markdown-tree');
 const { setupAutoUpdater } = require('./main/updater');
 const { initI18n, t, getLang, getLangPref, setLangPref } = require('./main/i18n');
+const EDITION = require('./edition');
 const { initPastePrefs, getPasteAssetsPref, setPasteAssetsPref } = require('./main/paste-prefs');
 
 // Electron 31.x / Chromium 在 Windows 上偶发 PartitionAlloc dangling raw_ptr 致命崩溃（框架层问题）。
@@ -377,7 +378,8 @@ function buildMenuTemplate(recents) {
         },
       ],
     },
-    {
+    // 免费版：不出现「AI」菜单（含 Ctrl+J / 续写 / 润色 / 解释 / 总结 / AI 设置）
+    ...(EDITION.ai ? [{
       label: t('menuAi'),
       submenu: [
         {
@@ -410,7 +412,7 @@ function buildMenuTemplate(recents) {
           click: () => sendToRenderer('menu-ai-action', 'settings'),
         },
       ],
-    },
+    }] : []),
     {
       label: t('menuHelp'),
       submenu: [
@@ -419,10 +421,11 @@ function buildMenuTemplate(recents) {
           accelerator: 'F1',
           click: () => sendToRenderer('menu-show-help'),
         },
-        {
+        // 免费版：不出现「Pro 购买与激活」入口
+        ...(EDITION.pro ? [{
           label: t('menuProActivation'),
           click: () => { openProActivationDoc(); },
-        },
+        }] : []),
         {
           label: t('menuCheckUpdate'),
           click: () => {
@@ -464,10 +467,12 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.handle('open-pro-activation', async () => {
-    openProActivationDoc();
-    return { success: true };
-  });
+  if (EDITION.pro) {
+    ipcMain.handle('open-pro-activation', async () => {
+      openProActivationDoc();
+      return { success: true };
+    });
+  }
 
   ipcMain.handle('open-external', async (_event, url) => {
     if (typeof url !== 'string' || !/^(https?:|mailto:|file:)/i.test(url)) {
@@ -782,84 +787,33 @@ function registerIpcHandlers() {
   });
 
   // ---- Pro License / AI (Phase B M7) ----
-  ipcMain.handle('get-license-status', async () => {
-    try {
-      return { success: true, value: getLicenseStatus(userData()) };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
+  // 免费版：整组 IPC 不注册。preload 也已摘掉对应桥接，渲染层无从调用；
+  // 这里再关一道，避免 devtools / 其他窗口绕过 preload 直调 IPC。
+  if (EDITION.pro) {
+    ipcMain.handle('get-license-status', async () => {
+      try {
+        return { success: true, value: getLicenseStatus(userData()) };
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    });
 
-  ipcMain.handle('activate-license', async (_event, key) => {
-    try {
-      return activateLicense(userData(), key);
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
+    ipcMain.handle('activate-license', async (_event, key) => {
+      try {
+        return activateLicense(userData(), key);
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    });
 
-  ipcMain.handle('clear-license', async () => {
-    try {
-      return clearLicense(userData());
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('get-ai-settings', async () => {
-    try {
-      return { success: true, value: getAiStore().getPublicSettings() };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('save-ai-settings', async (_event, patch) => {
-    try {
-      return getAiStore().saveSettings(patch || {});
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('check-ai-access', async () => {
-    try {
-      return { success: true, value: currentAiAccess() };
-    } catch (err) {
-      return aiErrorResult(err);
-    }
-  });
-
-  // 门禁不通过时直接返回 gate 原因，不发任何网络请求（AC-30）
-  ipcMain.handle('ai-run', async (event, req) => {
-    try {
-      const r = req && typeof req === 'object' ? req : {};
-      const access = currentAiAccess();
-      if (!access.allowed) return { success: false, gate: access.reason };
-      const cfg = getAiStore().resolveRequestConfig({ modelId: r.modelId });
-      if (!cfg.apiKey) return { success: false, gate: 'need_key' };
-      if (!cfg.modelAllowed) return { success: false, code: 'E_MODEL', detail: '' };
-      const prefs = getAiStore().getPublicSettings().prefs;
-      const built = buildActionRequest(r.action, r.payload, prefs);
-      aiSessions.start(event.sender, r.requestId, (signal, onChunk) => streamChat({
-        baseUrl: cfg.baseUrl,
-        apiKey: cfg.apiKey,
-        model: cfg.model,
-        messages: built.messages,
-        temperature: built.temperature,
-        signal,
-        onChunk,
-      }));
-      return { success: true, value: { requestId: r.requestId, kind: built.kind, model: cfg.model } };
-    } catch (err) {
-      return aiErrorResult(err);
-    }
-  });
-
-  ipcMain.handle('ai-cancel', async (_event, requestId) => {
-    if (typeof requestId === 'string' && requestId) aiSessions.cancel(requestId);
-    return { success: true };
-  });
+    ipcMain.handle('clear-license', async () => {
+      try {
+        return clearLicense(userData());
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    });
+  }
 
   /**
    * 设置页探测：允许用未保存的表单值（provider / baseUrl / apiKey）覆盖已存配置。
@@ -897,15 +851,72 @@ function registerIpcHandlers() {
     }
   }
 
-  ipcMain.handle('fetch-ai-models', async (_event, o) => runProbe(o, async (cfg) => ({
-    models: await listModels({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey }),
-  })));
+  if (EDITION.ai) {
+    ipcMain.handle('get-ai-settings', async () => {
+      try {
+        return { success: true, value: getAiStore().getPublicSettings() };
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    });
 
-  ipcMain.handle('test-ai-model', async (_event, o) => runProbe(o, async (cfg) => {
-    if (!cfg.model) throw new AiError('E_MODEL', '');
-    const r = await testChat({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model });
-    return { model: cfg.model, latencyMs: r.latencyMs };
-  }));
+    ipcMain.handle('save-ai-settings', async (_event, patch) => {
+      try {
+        return getAiStore().saveSettings(patch || {});
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    });
+
+    ipcMain.handle('check-ai-access', async () => {
+      try {
+        return { success: true, value: currentAiAccess() };
+      } catch (err) {
+        return aiErrorResult(err);
+      }
+    });
+
+    // 门禁不通过时直接返回 gate 原因，不发任何网络请求（AC-30）
+    ipcMain.handle('ai-run', async (event, req) => {
+      try {
+        const r = req && typeof req === 'object' ? req : {};
+        const access = currentAiAccess();
+        if (!access.allowed) return { success: false, gate: access.reason };
+        const cfg = getAiStore().resolveRequestConfig({ modelId: r.modelId });
+        if (!cfg.apiKey) return { success: false, gate: 'need_key' };
+        if (!cfg.modelAllowed) return { success: false, code: 'E_MODEL', detail: '' };
+        const prefs = getAiStore().getPublicSettings().prefs;
+        const built = buildActionRequest(r.action, r.payload, prefs);
+        aiSessions.start(event.sender, r.requestId, (signal, onChunk) => streamChat({
+          baseUrl: cfg.baseUrl,
+          apiKey: cfg.apiKey,
+          model: cfg.model,
+          messages: built.messages,
+          temperature: built.temperature,
+          signal,
+          onChunk,
+        }));
+        return { success: true, value: { requestId: r.requestId, kind: built.kind, model: cfg.model } };
+      } catch (err) {
+        return aiErrorResult(err);
+      }
+    });
+
+    ipcMain.handle('ai-cancel', async (_event, requestId) => {
+      if (typeof requestId === 'string' && requestId) aiSessions.cancel(requestId);
+      return { success: true };
+    });
+
+    ipcMain.handle('fetch-ai-models', async (_event, o) => runProbe(o, async (cfg) => ({
+      models: await listModels({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey }),
+    })));
+
+    ipcMain.handle('test-ai-model', async (_event, o) => runProbe(o, async (cfg) => {
+      if (!cfg.model) throw new AiError('E_MODEL', '');
+      const r = await testChat({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model });
+      return { model: cfg.model, latencyMs: r.latencyMs };
+    }));
+  }
 
   ipcMain.handle('show-open-folder-dialog', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);

@@ -371,17 +371,20 @@ function showBlockHandleMenu(ctx) {
     menu.appendChild(row);
   }
 
-  addSubRow(menu, t, 'blockMenuAiEdit', 'ai', function () {
-    return buildSubmenu(t, aiItemsForBlock(ctx.blockKind), function (id, soon) {
-      if (soon) {
-        if (typeof handlers.onSoon === 'function') handlers.onSoon('ai', id);
-        return;
-      }
-      if (typeof handlers.onAi === 'function') {
-        handlers.onAi(id, ctx.block, ctx.blockKind);
-      }
+  // 免费版没有 AI 能力（mount.js 不传 onAi）：整行不渲染，避免留下点了无反应的入口。
+  if (typeof handlers.onAi === 'function') {
+    addSubRow(menu, t, 'blockMenuAiEdit', 'ai', function () {
+      return buildSubmenu(t, aiItemsForBlock(ctx.blockKind), function (id, soon) {
+        if (soon) {
+          if (typeof handlers.onSoon === 'function') handlers.onSoon('ai', id);
+          return;
+        }
+        if (typeof handlers.onAi === 'function') {
+          handlers.onAi(id, ctx.block, ctx.blockKind);
+        }
+      });
     });
-  });
+  }
 
   addMenuSeparator(menu);
 

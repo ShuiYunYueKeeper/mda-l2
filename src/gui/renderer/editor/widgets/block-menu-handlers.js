@@ -176,7 +176,9 @@ function createBlockMenuHandlers(liveOpts) {
     onDelete: onDelete,
     onInsert: onInsert,
     onBlankInsert: onBlankInsert,
-    onAi: onAi,
+    // 免费版没有 AI 能力（opts.onAiAction 缺席）：这一项直接为 null，
+    // 手柄菜单据此整行不渲染，避免留下点了只弹「敬请期待」的死入口。
+    onAi: typeof opts.onAiAction === 'function' ? onAi : null,
     onSoon: onSoon,
     onAddBlockAnnotation: onAddBlockAnnotation,
     onAddLineAnnotation: onAddLineAnnotation,

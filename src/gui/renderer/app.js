@@ -3,6 +3,9 @@
 
 (function () {
   var api = window.mdaAPI;
+  // 发行版能力开关（preload 从 src/gui/edition.js 透出）：免费版 ai/pro 均为 false，
+  // 据此隐藏 AI 指令条、块改写、AI 设置面板与 Pro 激活面板等全部入口。
+  var FEATURES = (api && api.features) || { ai: !!(api && api.aiRun), pro: !!(api && api.getLicenseStatus) };
   var currentFilePath = null;
   var currentText = '';           // 当前文件磁盘内容（编辑模式下预览的兜底源）
   var htmlDoc = false;            // 当前文档是否为 HTML 只读预览
@@ -481,11 +484,11 @@
           updateToolbar();
         },
         t: uiT,
-        ai: api.aiRun ? {
+        ai: FEATURES.ai && api.aiRun ? {
           api: api,
           toast: showToast,
           confirm: uiConfirm,
-          openSettings: function () { showSettingsDialog('ai'); },
+          openSettings: function () { showSettingsDialog(FEATURES.ai ? 'ai' : 'general'); },
           getFileName: aiFileName,
           renderMarkdown: function (text) { return api.renderMarkdown(text); },
           canAnnotate: function () { return !!currentFilePath; },
@@ -1511,7 +1514,8 @@
 
   /** 菜单「AI」各项：设置直开面板；其余交 CM6 编辑器里的 AI 控制器（2.0 源码模式不支持）。 */
   function runAiMenuAction(action) {
-    if (action === 'settings') { showSettingsDialog('ai'); return; }
+    if (action === 'settings') { showSettingsDialog(FEATURES.ai ? 'ai' : 'general'); return; }
+    if (!FEATURES.ai) return;
     if (htmlDoc) { showToast(uiT('htmlReadonly')); return; }
     if (document.querySelector('.modal-overlay')) return;
     if (!isCm6Ready() || !cm6Editor || typeof cm6Editor.aiCommand !== 'function') {
@@ -9779,10 +9783,11 @@
       var pasteCustomRowStyle = pasteMode === 'custom' ? '' : 'display:none;';
       var pasteTargetHint = formatPasteAssetsTargetHint(pasteMode, pasteCustom);
 
-      var proHtml = (window.MDASettingsAi && window.MDASettingsAi.buildProPaneHtml)
+      // 免费版：AI 与 Pro 两个面板整体不出现（preload 已摘掉对应桥接，这里再挡一次 UI）
+      var proHtml = (FEATURES.pro && window.MDASettingsAi && window.MDASettingsAi.buildProPaneHtml)
         ? window.MDASettingsAi.buildProPaneHtml({ license: lic })
         : '';
-      var aiHtml = (window.MDASettingsAi && window.MDASettingsAi.buildAiPaneHtml)
+      var aiHtml = (FEATURES.ai && window.MDASettingsAi && window.MDASettingsAi.buildAiPaneHtml)
         ? window.MDASettingsAi.buildAiPaneHtml({ license: lic, ai: ai })
         : '';
 
@@ -9805,9 +9810,11 @@
                   escHtml(uiT('settingsNavAi')) +
                 '</button>'
               : '') +
-            '<button type="button" class="mda-settings-nav-item" data-pane="pro">' +
-              escHtml(uiT('settingsNavPro')) +
-            '</button>' +
+            (proHtml
+              ? '<button type="button" class="mda-settings-nav-item" data-pane="pro">' +
+                  escHtml(uiT('settingsNavPro')) +
+                '</button>'
+              : '') +
           '</aside>' +
           '<div class="mda-settings-main">' +
             '<div class="mda-settings-body" data-pane-panel="general">' +
@@ -9909,7 +9916,7 @@
           switchSettingsPane(overlay, btn.getAttribute('data-pane') || 'general');
         });
       });
-      if (window.MDASettingsAi && window.MDASettingsAi.wireProPane) {
+      if ((FEATURES.ai || FEATURES.pro) && window.MDASettingsAi && window.MDASettingsAi.wireProPane) {
         window.MDASettingsAi.wireProPane(overlay, {
           api: api,
           ai: ai,

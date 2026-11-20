@@ -10,6 +10,7 @@ fs.mkdirSync(path.join(__dirname, '..', 'dist', 'config'), { recursive: true });
 
 const files = [
   ['src/gui/launcher.js', 'dist/gui/launcher.js'],
+  ['src/gui/edition.js', 'dist/gui/edition.js'],
   ['src/gui/main.js', 'dist/gui/main.js'],
   ['src/gui/icon.png', 'dist/gui/icon.png'],
   ['src/gui/icon.ico', 'dist/gui/icon.ico'],

@@ -5,6 +5,7 @@ const { decodePathHref } = require('./main/image-path');
 // 需 sandbox: false 才能在 preload 中 require 第三方/本地模块。
 const core = require('../core');
 const hljs = require('highlight.js');
+const EDITION = require('./edition');
 
 // markdown-it 实例直接复用 core 的配置（CommonMark + GFM + 图片 fallback），
 // 仅在此叠加 GUI 专用的源码行号注入（data-line）与代码高亮，供点击定位段落
@@ -94,9 +95,11 @@ function findMalformedAnnotations(text) {
   return bad;
 }
 
-contextBridge.exposeInMainWorld('mdaAPI', {
+const bridge = {
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  /** 免费版：AI / Pro 能力开关（渲染层据此隐藏全部相关入口） */
+  features: { free: EDITION.free, ai: EDITION.ai, pro: EDITION.pro },
   openProActivation: () => ipcRenderer.invoke('open-pro-activation'),
   showItemInFolder: (filePath) => ipcRenderer.invoke('show-item-in-folder', filePath),
   renameFile: (oldPath, newPath, opts) =>
@@ -308,7 +311,31 @@ contextBridge.exposeInMainWorld('mdaAPI', {
       return escHtml(code);
     }
   },
-});
+};
+
+// 免费版：把 AI / Pro 相关桥接整个摘掉。
+// 渲染层大量分支本就以「API 是否存在」判定能力（如 mount.js 的 aiEnabled、右键菜单的
+// onAiEntry），因此删掉这些键即可让 AI 面板、块改写、许可激活彻底不可达，
+// 而不是留着按钮只在点击时报错。
+if (!EDITION.pro) {
+  delete bridge.openProActivation;
+  delete bridge.getLicenseStatus;
+  delete bridge.activateLicense;
+  delete bridge.clearLicense;
+}
+if (!EDITION.ai) {
+  delete bridge.onMenuAiAction;
+  delete bridge.getAiSettings;
+  delete bridge.saveAiSettings;
+  delete bridge.checkAiAccess;
+  delete bridge.fetchAiModels;
+  delete bridge.testAiModel;
+  delete bridge.aiRun;
+  delete bridge.aiCancel;
+  delete bridge.onAiEvent;
+}
+
+contextBridge.exposeInMainWorld('mdaAPI', bridge);
 
 function escHtml(s) {
   return String(s)

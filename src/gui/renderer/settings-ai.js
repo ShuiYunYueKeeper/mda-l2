@@ -30,6 +30,18 @@
 
   const MODEL_ID_RE = /^[\x21-\x7e]{1,128}$/;
 
+  /**
+   * 发行版能力开关：免费版（src/gui/edition.js 的 ai/pro 均为 false）不构建也不接线这两个面板。
+   * 兜底读「桥接方法是否存在」，与 app.js 的 FEATURES 同一判据。
+   * @param {'ai'|'pro'} name
+   */
+  function featureOn(name) {
+    const api = global.mdaAPI || {};
+    const f = api.features;
+    if (f && typeof f[name] === 'boolean') return f[name];
+    return name === 'ai' ? !!api.aiRun : !!api.getLicenseStatus;
+  }
+
   function row(title, desc, ctrlHtml, opts) {
     const o = opts || {};
     return (
@@ -45,6 +57,7 @@
 
   /** @param {{ license?: object }} data */
   function buildProPaneHtml(data) {
+    if (!featureOn('pro')) return '';
     const lic = data.license || {};
     const isPro = !!(lic.isPro && lic.valid);
     const statusText = isPro
@@ -87,6 +100,7 @@
 
   /** @param {{ license?: object, ai?: object }} data */
   function buildAiPaneHtml(data) {
+    if (!featureOn('ai')) return '';
     const lic = data.license || {};
     const ai = data.ai || {};
     const isPro = !!(lic.isPro && lic.valid);
@@ -478,8 +492,8 @@
    * @param {{ api: any, ai?: object, toast?: Function, alert?: Function, confirm?: Function, switchPane?: (id: string) => void }} ctx
    */
   function wireProPane(overlay, ctx) {
-    wireLicense(overlay, ctx);
-    if (overlay.querySelector('[data-pane-panel="ai"]')) wireAiPane(overlay, ctx, ctx.ai || {});
+    if (featureOn('pro')) wireLicense(overlay, ctx);
+    if (featureOn('ai') && overlay.querySelector('[data-pane-panel="ai"]')) wireAiPane(overlay, ctx, ctx.ai || {});
   }
 
   /**
