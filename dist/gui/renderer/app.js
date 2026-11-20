@@ -4640,6 +4640,87 @@
   }
 
   /**
+   * 导出走「DOM 克隆 → SVG foreignObject」的 XML 解析，但 HTML 序列化器会写出
+   * **未自闭合的空元素**（`<img src=...>`、`<br>`）：插进 SVG 后整段 XML 解析失败，
+   * `img.onerror` 直接报「复制失败」。XMLSerializer 会自闭合并按 XML 规则转义，
+   * 属性里含 `<`/换行也不会再破坏解析。
+   */
+  function serializeMarkupForSvg(node) {
+    try {
+      return new XMLSerializer().serializeToString(node);
+    } catch (e) {
+      return node.outerHTML;
+    }
+  }
+
+  /**
+   * SVG 以 `<img>` 方式加载时**不会加载外部资源**：`file://` 与 `https://` 图片都是空白。
+   * 回退导出必须把每张图内联成 data URL（本地图优先直接读盘，远程图走 canvas / fetch）。
+   */
+  async function inlineCloneImages(liveRoot, cloneRoot) {
+    if (!cloneRoot) return;
+    var liveImgs = liveRoot ? liveRoot.querySelectorAll('img') : [];
+    var cloneImgs = cloneRoot.querySelectorAll('img');
+    for (var i = 0; i < cloneImgs.length; i++) {
+      var img = cloneImgs[i];
+      var src = img.getAttribute('src') || '';
+      img.removeAttribute('srcset');
+      img.removeAttribute('loading');
+      if (!src || /^data:/i.test(src)) continue;
+      var dataUrl = null;
+      var live = liveImgs[i];
+      if (live && live.complete && live.naturalWidth) {
+        try {
+          dataUrl = await imgElementToDataUrl(live);
+        } catch (e) {
+          dataUrl = null; // 跨域图会让 canvas 变脏，落到下面的读盘 / fetch
+        }
+      }
+      if (!dataUrl) {
+        var filePath = fileUrlToPath(src);
+        if (!filePath && !/^[a-z][a-z0-9+.-]*:/i.test(src) && currentFilePath) {
+          filePath = api.resolvePath(currentFilePath, src);
+        }
+        if (filePath && api.readFileAsDataUrl) {
+          try {
+            var r = await api.readFileAsDataUrl(filePath);
+            if (r && r.success && r.dataUrl) dataUrl = r.dataUrl;
+          } catch (e) {
+            /* keep original */
+          }
+        }
+      }
+      if (!dataUrl && /^https?:/i.test(src)) {
+        dataUrl = await fetchImageAsDataUrl(src);
+      }
+      if (dataUrl) img.setAttribute('src', dataUrl);
+    }
+  }
+
+  function fetchImageAsDataUrl(url) {
+    return fetch(url, { mode: 'cors', credentials: 'omit' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('fetch failed');
+        return res.blob();
+      })
+      .then(function (blob) {
+        return new Promise(function (resolve, reject) {
+          var reader = new FileReader();
+          reader.onload = function () {
+            resolve(typeof reader.result === 'string' ? reader.result : null);
+          };
+          reader.onerror = function () {
+            reject(new Error('read failed'));
+          };
+          reader.readAsDataURL(blob);
+        });
+      })
+      .catch(function () {
+        return null;
+      });
+  }
+
+  /**
    * 导出走「DOM 克隆 → SVG foreignObject」的 XML 解析，而 HTML 序列化器**不转义属性值里的 `<`**
    * （HTML5 允许，XML 禁止）：`data-mda-block-source="<div align=...>"` 这类「源码存在属性里」的块
    * 会让整段 SVG 解析失败，表现为复制为图片报 formula export failed。导出前把这些属性摘掉——
@@ -5989,18 +6070,20 @@
     // 先按 live/clone 同构的子树内联样式，再剥 UI 装饰：
     // 顺序反了会因子树结构错位把样式贴到错误的节点上（表现为正文被压成一字一行）。
     inlineComputedStylesDeep(frameEl, clone);
+    await inlineCloneImages(frameEl, clone);
     stripHtmlBlockExportChrome(clone);
     var w = Math.max(1, Math.ceil(rect.width));
     var h = Math.max(1, Math.ceil(rect.height));
     clone.style.width = w + 'px';
     clone.style.height = 'auto';
-    var wrap = document.createElement('div');
-    wrap.className = 'mda-export-htmlblock';
-    wrap.appendChild(clone);
+    // 卡片里可能有刚展开的 <details> 或补加载完的图片：live rect 可能还是旧高度，
+    // 直接用它截会把底部内容裁掉。离屏实测克隆高度，取两者较大值。
+    var measured = measureOffscreenBlock(clone);
+    h = Math.max(h, measured.h);
     var layoutCss =
       '.mda-export-htmlblock{box-sizing:border-box;overflow:visible;}' +
       '.mda-export-htmlblock,.mda-export-htmlblock *{box-sizing:border-box;}';
-    return exportMeasuredHtmlToPng(wrap.innerHTML, w, h, layoutCss, {
+    return exportMeasuredHtmlToPng(serializeMarkupForSvg(clone), w, h, layoutCss, {
       edgePad: 0,
       measureBuffer: 0,
     });

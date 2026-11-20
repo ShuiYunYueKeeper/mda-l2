@@ -44,6 +44,64 @@ const DOC = [
 
 const DANGER_DOC = ['<div>前置<script>window.__mdaX = 1</script>可见文字</div>', ''].join('\n');
 
+// 高过视口的卡片（走「克隆 + 内联样式 + 图片内联」回退导出），带一张图：
+// HTML 序列化器会把 <img> 写成未闭合标签，SVG 解析会直接失败（「复制失败」回归）。
+function tallDoc(): string {
+  const parts = ['<div align="center">', '', `![示意图](${ICON})`, ''];
+  for (let i = 1; i <= 40; i++) {
+    parts.push(`## 第 ${i} 节`);
+    parts.push('');
+    parts.push(`正文段落 ${i}，含**加粗**与 \`代码\`。`);
+    parts.push('');
+  }
+  parts.push('</div>', '', '后续正文。', '');
+  return parts.join('\n');
+}
+
+/** 手柄 →「复制为」→「复制为图片」，返回成功 toast 文案（失败会弹「复制失败」对话框） */
+async function copyBlockAsImage(page: Page, blockIndex = 0): Promise<{ toast: string; modal: string }> {
+  const block = page.locator('.mda-cm-html-block').nth(blockIndex);
+  const frame = block.locator('.mda-cm-html-frame');
+  await frame.scrollIntoViewIfNeeded();
+  const fb = await frame.boundingBox();
+  expect(fb).toBeTruthy();
+  await page.mouse.move(fb!.x + fb!.width / 2, fb!.y + 20);
+  await page.waitForTimeout(300);
+  const hb = await frame.locator('.mda-cm-block-drag-handle').first().boundingBox();
+  expect(hb).toBeTruthy();
+  await page.mouse.move(hb!.x + hb!.width / 2, hb!.y + hb!.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
+  const menu = page.locator('#mda-block-handle-menu');
+  await menu.waitFor({ state: 'visible', timeout: 5000 });
+  await menu.locator('.mda-menu-has-sub').filter({ hasText: '复制为' }).first().hover();
+  const item = page.locator('.mda-block-handle-submenu [data-act="image"]').first();
+  await item.waitFor({ state: 'visible', timeout: 5000 });
+
+  const readToast = async () =>
+    page.evaluate(() => {
+      const el = document.querySelector('.mda-toast, #mda-toast');
+      return el ? el.textContent || '' : '';
+    });
+  const beforeToast = await readToast();
+  await item.click({ force: true });
+
+  let toast = beforeToast;
+  for (let i = 0; i < 120; i++) {
+    await page.waitForTimeout(100);
+    const next = await readToast();
+    if (next && next !== beforeToast) {
+      toast = next;
+      break;
+    }
+  }
+  const modal = await page.evaluate(() => {
+    const el = document.querySelector('.modal-overlay');
+    return el ? (el as HTMLElement).innerText || '' : '';
+  });
+  return { toast, modal };
+}
+
 let app: ElectronApplication;
 let win: Page;
 let dir: string;
@@ -250,48 +308,20 @@ test('源码态选区右键：复制/剪切可用（不置灰）', async () => {
 
 test('块手柄「复制为图片」导出成功（不再报复制失败）', async () => {
   await resetDoc(DOC);
+  const { toast, modal } = await copyBlockAsImage(win);
+  expect(modal).not.toContain('复制失败');
+  expect(toast).toContain('已复制图片');
+});
+
+test('高过视口的卡片（走回退导出）带图片也能复制为图片', async () => {
+  await resetDoc(tallDoc());
   const block = win.locator('.mda-cm-html-block').first();
-  const frame = block.locator('.mda-cm-html-frame');
-  await frame.scrollIntoViewIfNeeded();
-  const fb = await frame.boundingBox();
-  expect(fb).toBeTruthy();
-  await win.mouse.move(fb!.x + fb!.width / 2, fb!.y + 20);
-  await win.waitForTimeout(300);
-  const handle = frame.locator('.mda-cm-block-drag-handle').first();
-  const hb = await handle.boundingBox();
-  expect(hb).toBeTruthy();
-  await win.mouse.move(hb!.x + hb!.width / 2, hb!.y + hb!.height / 2);
-  await win.mouse.down();
-  await win.mouse.up();
-  const menu = win.locator('#mda-block-handle-menu');
-  await menu.waitFor({ state: 'visible', timeout: 5000 });
-  await menu.locator('.mda-menu-has-sub').filter({ hasText: '复制为' }).first().hover();
-  const item = win.locator('.mda-block-handle-submenu [data-act="image"]').first();
-  await item.waitFor({ state: 'visible', timeout: 5000 });
-
-  const readToast = async () =>
-    win.evaluate(() => {
-      const el = document.querySelector('.mda-toast, #mda-toast');
-      return el ? el.textContent || '' : '';
-    });
-  // 上一个用例可能留下旧 toast，按「文字变化」判断新提示
-  const beforeToast = await readToast();
-  await item.click({ force: true });
-
-  // 成功 toast（失败会弹「复制失败: ...」对话框）
-  let toast = beforeToast;
-  for (let i = 0; i < 50; i++) {
-    await win.waitForTimeout(100);
-    const next = await readToast();
-    if (next && next !== beforeToast) {
-      toast = next;
-      break;
-    }
-  }
-  const modal = await win.evaluate(() => {
-    const el = document.querySelector('.modal-overlay');
-    return el ? (el as HTMLElement).innerText || '' : '';
-  });
+  await block.waitFor({ state: 'visible', timeout: 8000 });
+  // 确认这次确实超出视口（否则跑的是实时截图路径，覆盖不到回退分支）
+  const box = await block.locator('.mda-cm-html-frame').boundingBox();
+  const vh = await win.evaluate(() => window.innerHeight);
+  expect(box!.height).toBeGreaterThan(vh);
+  const { toast, modal } = await copyBlockAsImage(win);
   expect(modal).not.toContain('复制失败');
   expect(toast).toContain('已复制图片');
 });
