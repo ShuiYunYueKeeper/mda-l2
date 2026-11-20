@@ -1,4 +1,4 @@
-﻿# Windows 打包说明：签名 · 语言 · 自动更新
+# Windows 打包说明：签名 · 语言 · 自动更新
 
 ## 1. 数字签名为空
 
@@ -44,21 +44,10 @@ npm run dist:win
 
 ## 3. 检查更新与 `latest.yml`
 
-报错 `Cannot find latest.yml` / HTTP 404 表示：对应 GitHub Release **没有**上传 electron-builder 生成的更新清单与安装包。
+完整的打包和上传步骤见 [github-release.md](github-release.md)。本节只说明清单为什么会 404。
 
-正确发版（需 `GH_TOKEN`，权限含 `repo`）：
+报错 `Cannot find latest.yml` / HTTP 404 表示：对应 GitHub Release 没有 `latest.yml`，或该 Release 仍是预发布。版本号不含 alpha / beta / rc 时，更新器只请求 `/releases/latest/download/latest.yml`。
 
-```bat
-set GH_TOKEN=ghp_xxxx
-npm run dist:win -- --publish always
-```
+只上传源码 zip，或只拖 exe、不带 yml，检查更新都会失败。应用侧给出可读提示，不再弹出整段 HTTP 堆栈。
 
-发布后 Release 资产中应可见例如：
-
-- `MDA-2.0.0-alpha-win-x64.exe`（或 nsis 名）
-- `latest.yml`（稳定通道）或 `alpha.yml`（预发布通道）
-
-仅上传源码 zip、手工拖 exe 而未带 `*.yml`，检查更新会失败。  
-应用侧已改为友好提示，不再弹出整段 HTTP 堆栈。
-
-`build.publish.releaseType` 对 alpha 已设为 `prerelease`；运行时 `allowPrerelease` 在版本号含 alpha/beta/rc 时自动开启。
+`build.publish.releaseType` 从 3.1.0 起已改为 `release`，新版本可以直接 `--publish always` 建 Release 并上传；若某个 Release 已被标成预发布，到网页上取消勾选。步骤见 [github-release.md](github-release.md)。

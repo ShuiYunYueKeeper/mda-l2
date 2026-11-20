@@ -2,6 +2,8 @@
 
 > 本目录存放 MDA GUI 交付截图，供 `README.md` 与软著说明书引用。
 > **`v3/` 由自动化采集，不要手工替换旧文件顶替。**
+>
+> `microsoft-store/`、`github-release/` 是上架和发版过程截图，随 [microsoft-store.md](../microsoft-store.md)、[github-release.md](../github-release.md) 使用，不由采集脚本覆盖。
 
 ---
 

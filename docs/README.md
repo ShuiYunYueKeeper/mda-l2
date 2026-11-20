@@ -57,6 +57,8 @@
 | [`templates/`](templates/) | 阶段模板（各含版本号、适用档位与退出门禁）：[需求](templates/requirement.template.md) / [架构](templates/design.template.md) / [详细设计](templates/detailed-design.template.md) / [实施计划](templates/dev-plan.template.md) |
 | [`screenshots/README.md`](screenshots/README.md) | GUI 截图与录屏清单；**v3 预览编辑截图**由 `tests/e2e/capture/docs-screenshots.spec.ts` 自动采集 |
 | [`packaging-windows.md`](packaging-windows.md) | Windows 签名、界面语言、自动更新与 `latest.yml` |
+| [`microsoft-store.md`](microsoft-store.md) | Microsoft Store 上架：身份、商店包、文案、提交与问答 |
+| [`github-release.md`](github-release.md) | 打包并上传 GitHub Release：Windows / macOS / Linux、令牌与检查更新 |
 | `demo/软著材料/` | 软著一般交存材料（操作说明书 + 代表性源程序）；`node scripts/generate-soft-copyright-materials.js` 生成 PDF |
 | [`prompts/prompt-11-gui-file-sidebar-i18n.md`](prompts/prompt-11-gui-file-sidebar-i18n.md) | P4：文件侧栏、i18n、拖动修复协作记录 |
 | [`prompts/prompt-12-outline-welcome-clear-list.md`](prompts/prompt-12-outline-welcome-clear-list.md) | P4：预览左侧大纲、启动欢迎页、清空文件列表 |

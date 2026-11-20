@@ -1,6 +1,6 @@
 {
   "name": "mda",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Markdown 工作台 — 预览 · 编辑 · 批注 · 文件管理（CLI / GUI / MCP）",
   "author": "MDA <mda.markdown@gmail.com>",
   "desktopName": "mda.desktop",
@@ -157,6 +157,17 @@
       "artifactName": "${productName}-${version}-portable-${os}-${arch}.${ext}",
       "useZip": true
     },
+    "appx": {
+      "identityName": "ShuiYunYueKeeper.Markdown",
+      "publisher": "CN=E74AF55B-DEC8-4E12-9D12-FF587E356B53",
+      "publisherDisplayName": "ShuiYunYueKeeper",
+      "applicationId": "Markdown",
+      "displayName": "Markdown工作台",
+      "languages": [
+        "zh-CN",
+        "en-US"
+      ]
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
@@ -191,7 +202,7 @@
       "provider": "github",
       "owner": "ShuiYunYueKeeper",
       "repo": "mda-l2",
-      "releaseType": "prerelease"
+      "releaseType": "release"
     }
   }
 }
