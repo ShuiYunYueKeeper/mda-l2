@@ -83,6 +83,25 @@ $$
 \sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}
 $$
 
+## 原生 HTML 块
+
+<div align="center">
+
+**居中卡片**：这一段由 Markdown 渲染，卡片止于闭合标签
+
+</div>
+
+紧跟卡片下方的正文（不应被卡片吞掉，可正常加粗）。
+
+<details>
+<summary><strong>展开：折叠区</strong></summary>
+
+### 折叠区内的 Markdown
+
+折叠区里也能渲染 Markdown：**加粗**、`行内代码`。
+
+</details>
+
 ## 分割线
 
 下面是一条分割线（点击选中后，特殊/字符/段落格式按钮应置灰）：
