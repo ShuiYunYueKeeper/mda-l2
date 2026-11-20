@@ -1,0 +1,10 @@
+{
+  "session_id": "feature-261118-html-block",
+  "conductor": "feature",
+  "task_dir": "workspace/tasks/feature-261118-html-block",
+  "current_phase": 7,
+  "status": "completed",
+  "started_at": "2026-11-18T08:34:00.000Z",
+  "completed_at": "2026-11-18T09:05:00.000Z",
+  "workflow": "iteration-6step T3"
+}

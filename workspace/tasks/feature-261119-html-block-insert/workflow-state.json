@@ -1,0 +1,10 @@
+{
+  "session_id": "feature-261119-html-block-insert",
+  "conductor": "feature",
+  "task_dir": "workspace/tasks/feature-261119-html-block-insert",
+  "current_phase": 7,
+  "status": "completed",
+  "started_at": "2026-11-19T08:45:00.000Z",
+  "completed_at": "2026-11-19T09:50:00.000Z",
+  "workflow": "iteration-6step T3"
+}
