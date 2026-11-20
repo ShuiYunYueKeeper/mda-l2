@@ -1,0 +1,9 @@
+{
+  "session_id": "bugfix-261120-html-export-details",
+  "conductor": "bugfix",
+  "task_dir": "workspace/tasks/bugfix-261120-html-export-details",
+  "current_phase": 7,
+  "status": "completed",
+  "started_at": "2026-11-20T03:35:55.000Z",
+  "completed_at": "2026-11-20T03:58:00.000Z"
+}

@@ -1,9 +1,9 @@
 {
-  "session_id": "bugfix-261119-html-swallow",
+  "session_id": "bugfix-261120-html-export-details",
   "conductor": "bugfix",
-  "task_dir": "workspace/tasks/bugfix-261119-html-swallow",
+  "task_dir": "workspace/tasks/bugfix-261120-html-export-details",
   "current_phase": 7,
   "status": "verified",
-  "verified_at": "2026-11-20T09:30:00+08:00",
+  "verified_at": "2026-11-20T11:58:27+08:00",
   "workflow": "iteration-6step T1"
 }
