@@ -61,7 +61,7 @@
 1. 注册合作伙伴中心，保留名称「Markdown工作台」（「MDA」已被占用）。
 2. 确认产品身份四项：名称、发布者、发布者显示名、包系列名。把发布者整串抄进 `build.appx.publisher`，不要手改其中任何一位。
 3. 隐私说明放在仓库 `docs/privacy.md` 并推到 `master`。商店「隐私政策 URL」填该文件的 GitHub 地址。
-4. 打 `.appx`，用主题等于发布者字符串的证书签名。
+4. 打 `.appx`（保持未签名，商店认证通过后自己签）。
 5. 在提交里删掉上次失败的包，再上传新包。
 6. 填定价、属性、年龄分级、商店一览（中文和英语美国）、提交选项里的 `runFullTrust` 说明。
 7. 保存并提交认证。发布选项保持「认证通过后立即发布」。
@@ -110,23 +110,37 @@ npx electron-builder --win appx '--config.artifactName=ShuiYunYueKeeper.Markdown
 
 ![上传了发布者不匹配的 appx 之后的报错](screenshots/microsoft-store/package-error.png)
 
-### 3.5 签名
+### 3.5 签名：商店包保持未签名
 
-没有证书时，electron-builder 会写 `AppX is not signed reason=Windows Store only build`。这种包合作伙伴中心不收。日志里出现 `signing with signtool.exe` 也不等于包里已经有 `AppxSignature.p7x`，上传前要自己查。
+`electron-builder` 打出的 appx 本身是**未签名**的，日志写 `AppX is not signed reason=Windows Store only build`。这正是商店要的形态：认证通过后由微软用自己的证书签名（electron-builder 的 AppX 文档原话「Store distribution — no manual signing needed」）。自己签过的包反而会被合作伙伴中心拒——它不接受不是自己加的签名。
 
-证书主题必须等于发布者字符串。这是给商店上传用的自签名证书，不是购买的代码签名证书，也不是其他公司钥匙串里的证书。
-
-```powershell
-New-SelfSignedCertificate -Type Custom -Subject "CN=E74AF55B-DEC8-4E12-9D12-FF587E356B53" -KeyUsage DigitalSignature -FriendlyName "MDA Store signing" -CertStoreLocation "Cert:\CurrentUser\My" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
-```
-
-在 `Cert:\CurrentUser\My` 里看该证书的指纹，然后：
+**不要**用自签证书给商店包签名。自签证书的根不受信，`signtool verify /pa` 与 `Add-AppxPackage` 都会报 `0x800B0109`（根证书必须是受信任的证书），商店侧同样过不了校验。上传前先确认包里没有签名残留：
 
 ```powershell
-& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\signtool.exe" sign /fd SHA256 /sha1 <指纹> "D:\mda-l2\release\ShuiYunYueKeeper.Markdown-3.1.0.appx"
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$appx = "D:\mda-l2\release\upload-store-3.1.0\ShuiYunYueKeeper.Markdown-3.1.0.appx"
+$z = [System.IO.Compression.ZipFile]::OpenRead($appx)
+$z.Entries | Where-Object { $_.FullName -notlike 'app/*' } | Select-Object FullName, Length
+$z.Dispose()
 ```
 
-`signtool verify /pa` 会因为根证书不受信任而失败。这是自签名的预期结果。商店认的是清单里的发布者字符串，以及包确实带了签名；认证通过后微软会重新签名。若页面仍提示「必须签署所有程序包组证书链」，先确认包内有 `AppxSignature.p7x`，并已删除上一份失败的包。
+应当只看到 `AppxManifest.xml`、`AppxBlockMap.xml`、`[Content_Types].xml` 和 4 个 `assets/*.png`；出现 `AppxSignature.p7x` 或 `AppxMetadata/CodeIntegrity.cat` 就说明被 signtool 签过，换回未签名的那份。
+
+自查包结构（清单 schema、文件与 blockmap 是否一致）用 MakeAppx 往返一次即可，报错才是真问题：
+
+```powershell
+& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\MakeAppx.exe" unpack /p <appx> /d <空目录> /o
+& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\MakeAppx.exe" pack /d <空目录> /p <新appx> /o
+```
+
+只有**本机试装**（排查用，别上传这份）才需要签名，且证书必须装进「受信任的根证书颁发机构」，否则 `Add-AppxPackage` 报 `0x800B0109`：
+
+```powershell
+New-SelfSignedCertificate -Type Custom -Subject "CN=E74AF55B-DEC8-4E12-9D-12-FF587E356B53" -KeyUsage DigitalSignature -FriendlyName "MDA local test" -CertStoreLocation "Cert:\CurrentUser\My" -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
+Import-Certificate -FilePath <导出的.cer> -CertStoreLocation Cert:\CurrentUser\Root
+& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\signtool.exe" sign /fd SHA256 /sha1 <指纹> <副本.appx>
+Add-AppxPackage -Path <副本.appx>
+```
 
 ### 3.6 商店一览里要上传的图
 
@@ -233,7 +247,7 @@ Xbox 用的 16:9 主视觉、箱图、9:16 海报和预告片可以留空。
 清单里的 `Publisher` 必须等于合作伙伴中心上的那一串。先删掉失败的包再保存，然后上传 `release\ShuiYunYueKeeper.Markdown-3.1.0.appx`。不要改发布者字符串去凑某一次错误信息里的另一种写法。
 
 **页面说必须签署程序包，但已经打包了？**  
-未签名的 appx 没有 `AppxSignature.p7x`。按第 3.5 节用主题相同的证书签过再传。`Get-AuthenticodeSignature` 显示 `NotSigned` 就是还没签。
+商店提交包**不要**自己签名：`AppxSignature.p7x`、`AppxMetadata/CodeIntegrity.cat` 存在就说明被 signtool 签过，而合作伙伴中心不接受不是它加的签名（自签根不受信，校验报 `0x800B0109`）。重新跑一次 appx 打包，确认 `Get-AuthenticodeSignature` 是 `NotSigned` 再传，并先删掉上一份失败的包。
 
 **定价填 0 为什么不行？**  
 `$ 0` 不是有效价格。选免费。
