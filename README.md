@@ -1,13 +1,51 @@
 # MDA — Markdown 工作台
 
-> **当前发版**：tag [`v3.0.0`](docs/RELEASE-3.0.0.md)（2026-09-24）— CM6 预览编辑基础能力稳定版  
-> 历史：Phase A Free · [`v2.0.0-alpha`](docs/RELEASE-2.0.0-alpha.md)（2026-07-15）
+**Markdown 编辑器 × 批注工具 × 导出 × MCP，一个本地应用搞定。**
+打开、预览、直接改、划词批注、导出 Word / PDF / 公众号，或者把文件交给 AI Agent 处理。
+
+[English](README.en.md) · [下载安装包](https://github.com/ShuiYunYueKeeper/mda-l2/releases/latest) · [在线介绍](https://shuiyunyuekeeper.github.io/mda-l2/) · [快速开始](#快速开始) · [常见问题](#常见问题)
+
+![release](https://img.shields.io/github/v/release/ShuiYunYueKeeper/mda-l2?style=flat-square&label=release&color=2ea44f)
+![license](https://img.shields.io/github/license/ShuiYunYueKeeper/mda-l2?style=flat-square)
+![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4c8bf5?style=flat-square)
+![MCP](https://img.shields.io/badge/MCP-stdio-8a63d2?style=flat-square)
+![free](https://img.shields.io/badge/price-free%20%C2%B7%20no%20account-2ea44f?style=flat-square)
 
 生成式 AI 普及后，Markdown 已成为人机协作的「通用中介语言」。办公套件往往把 `.md` 转成私有格式，专业编辑器又偏重；用户真正需要的是：**能打开、能看懂、能改几句、能批注、能导出，并能交给 Agent**。
 
 **MDA** 是本地优先的 Markdown **工作台**（预览 · 编辑 · 批注 · 文件管理），用标准注释在 `.md` 中嵌入结构化批注（渲染不可见、可进 git），并提供 **CLI**（`mda-cli`）、**GUI**（`mda`）、**MCP**（`mda-mcp`）三种一致入口，共享 `@mda/core`。
 
+![MDA 预览编辑界面：文件列表、大纲、Markdown 预览与批注面板](docs/screenshots/v3/01-preview-edit.png)
+
+> **当前版本 [`v3.1.0`](https://github.com/ShuiYunYueKeeper/mda-l2/releases/tag/v3.1.0)**（2026）— 完全免费版  
+> 历史：CM6 预览编辑基础能力 [`v3.0.0`](docs/RELEASE-3.0.0.md)（2026-09-24）· [`v2.0.0-alpha`](docs/RELEASE-2.0.0-alpha.md)（2026-07-15）
+
 > **完全免费**：本版本不含任何 AI 功能与 Pro（许可证）入口——菜单、工具栏、块手柄菜单、右键菜单与设置面板都不会出现相关项，也不需要联网或激活。所有能力（打开/预览/编辑/批注/导出/MCP）都直接可用。发行开关见 `src/gui/edition.js`（`ai: false` / `pro: false`）。
+
+## 为什么是 MDA
+
+- **批注属于文件本身**：一条 `[comment]: <> (@anno {JSON})` 就是一段标准 Markdown 注释。GitHub、Typora、Obsidian 渲染时都看不见它，但 `git diff` 看得见——意见跟着文件走，换工具不丢。
+- **预览里直接改，保存的仍是干净源码**：在渲染结果上点进去就能输入，`**`、`~~`、`` ` `` 等定界符自动隐藏；表格、代码块、Mermaid 源码也能就地编辑，落盘仍是原始 Markdown。
+- **交付链路完整**：HTML / PDF / Word 单文件导出，微信公众号富文本一键复制；本地图片、KaTeX 公式、Mermaid 流程图都会内嵌，不依赖网络。
+- **Agent 能接手**：内置 stdio MCP Server，六个工具覆盖「扫描 / 添加 / 编辑 / 删除批注、读文件、导出审阅 prompt」，Claude Desktop、Cursor 等客户端可直接调用。
+
+## 快速开始
+
+**桌面端（推荐）**：到 [Releases](https://github.com/ShuiYunYueKeeper/mda-l2/releases/latest) 下载。当前提供 Windows x64 的 `MDA-3.1.0-win-x64.exe`（NSIS 安装包）、`MDA-3.1.0-portable-win-x64.exe`（便携版）与 `*-win-x64.zip`（解压即用）；macOS / Linux 请从源码运行或自行构建，electron-builder 配置已在仓库内。
+
+**从源码运行**（Node.js ≥ 18）：
+
+```bash
+npm install
+npm run build
+npm run gui                 # 打开 GUI
+npm run gui -- samples/demo.md
+npm run cli -- scan samples/demo.md --format json
+```
+
+**给 Agent 用**：构建后把 `dist/mcp/server.js` 配进 MCP 客户端即可，详见 [MCP Server](#mcp-serverai-工作流)。
+
+**谁适合用**：审阅 AI 生成的方案与代码说明；给同事的 `.md` 留具体到段落的意见；把 Markdown 交付成 Word / PDF / 公众号文章；让 Agent 批量读取与修改批注。
 
 ## 目录结构
 
@@ -250,7 +288,7 @@ Electron 应用启动时需要与 `MDA.exe` **同目录**下的多个运行时�
 
 若打包报 **`EBUSY: resource busy or locked, unlink ... app.asar`**：说明上次构建产物仍被占用。请先**关闭所有 MDA 窗口**，关闭资源管理器中打开的 `release` 文件夹，再执行 `npm run dist:win`（脚本会自动 `pre-dist` 清理并重试）。仍失败时重启终端或暂时排除杀毒对 `release/` 的实时扫描。
 
-### GUI 功能
+## GUI 功能
 
 - **预览编辑（默认模式）**：启动即在渲染结果上直接编辑，`**`、`~~`、`` ` `` 等定界符在预览中隐藏，磁盘保存的仍是原始 Markdown。行内样式由定界符「融合 / 拆分」规划器改写源码：相邻同类样式段合并为一对定界符，部分取消时拆成左右两段并经渲染探针确认残段仍能独立成立，避免出现裸露的 `****`。表格单元格、代码块、流程图源码均可就地编辑，与正文共用同一套规划器。工具栏「源码编辑」随时切回源码模式；如需长期回退，可在开发者工具执行 `localStorage.setItem('mda-cm6','0')`。
 - **三栏布局**：工具栏「编辑」「批注」两个独立开关，中间预览常驻；两者可同时展开为 **源码 ｜ 预览 ｜ 批注** 三栏平铺。栏间可拖拽调宽，**双击手柄复位**默认宽度。
@@ -406,8 +444,33 @@ npm run coverage
 - [`docs/few-shot-examples.md`](docs/few-shot-examples.md) — 易错点的 ✅ 正确 / ❌ 错误 成对示例（含 GUI：dirty/坏批注/编辑器对齐/缩放遮罩）。
 - [`samples/`](samples/) — 演示与验收样本，可直接用 CLI/GUI 体验。
 
-## 开发约定
+## 常见问题
 
-参与本项目开发（含 AI 协作）前，请阅读 [`AGENTS.md`](AGENTS.md)，其中定义了架构分层、核心
+**批注会破坏 Markdown 兼容性吗？**
+不会。批注是 CommonMark 的 link reference definition（`[comment]: <> (...)`），渲染时不产生可见输出；不认识该写法的工具最多把它当成一行普通注释文本。批注行可以随时用 CLI 或 GUI 清除，正文逐字节不变。
+
+**和 Typora、Obsidian、VS Code 有什么不同？**
+它们分别是写作工具、笔记库、通用编辑器。MDA 不抢「长期写作」场景，而是处理「收到一个 `.md` 之后」的链路：看懂、改几句、留下结构化意见、导出成对方要的格式、再交给 Agent。批注与源文件同体、MCP 是一等入口，是两者最大的差别。
+
+**支持哪些平台？**
+Windows（NSIS 安装包 / 便携版 / zip）、macOS（dmg / zip）、Linux（AppImage / deb）。macOS 与 Linux 包需在对应平台构建，仓库已含 electron-builder 配置；Windows 安装包见 [Releases](https://github.com/ShuiYunYueKeeper/mda-l2/releases/latest)。
+
+**真的免费吗？**
+是。代码 MIT，v3.1.0 全部功能可用，无账号、无激活、无 AI 付费墙；也不含任何需要联网的隐藏能力。
+
+**我的文档会被上传吗？**
+不会。应用只读写你打开的本地文件，预览、导出、公众号复制都在本机完成；MCP Server 也只允许访问 `--workspace` 指定目录下的路径。
+
+**在 GitHub 上能看见批注吗？**
+GitHub 的文件视图渲染时看不到批注；在源码或 PR diff 里能看到 `@anno` JSON，正好适合评审留痕——意见和代码改动在同一个 diff 里。
+
+**遇到问题或想提需求？**
+请开 [Issue](https://github.com/ShuiYunYueKeeper/mda-l2/issues)；提交前可先跑 `npm test` 确认不是环境问题。
+
+## 参与贡献
+
+如果 MDA 帮你省下了在几个工具之间倒腾的时间，**点一个 ⭐ Star** 就是最实在的支持；也欢迎把项目分享给同样经常收到 `.md` 的人。
+
+参与开发（含 AI 协作）前，请阅读 [`AGENTS.md`](AGENTS.md)，其中定义了架构分层、核心
 接口、编码规范、**禁止事项**（如源文件保护、CLI stdout 纯净、GUI 禁用原生 alert/confirm 等）
 与项目沉淀的隐性规范。

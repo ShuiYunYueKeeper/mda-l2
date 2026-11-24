@@ -58,6 +58,7 @@
 | [`screenshots/README.md`](screenshots/README.md) | GUI 截图与录屏清单；**v3 预览编辑截图**由 `tests/e2e/capture/docs-screenshots.spec.ts` 自动采集 |
 | [`packaging-windows.md`](packaging-windows.md) | Windows 签名、界面语言、自动更新与 `latest.yml` |
 | [`microsoft-store.md`](microsoft-store.md) | Microsoft Store 上架：身份、商店包、文案、提交与问答 |
+| [`discoverability/`](discoverability/) | 搜索与分发：关键词矩阵、90 天计划、awesome list 提交底稿、商店文案、发布渠道成稿 |
 | [`github-release.md`](github-release.md) | 打包并上传 GitHub Release：Windows / macOS / Linux、令牌与检查更新 |
 | `demo/软著材料/` | 软著一般交存材料（操作说明书 + 代表性源程序）；`node scripts/generate-soft-copyright-materials.js` 生成 PDF |
 | [`prompts/prompt-11-gui-file-sidebar-i18n.md`](prompts/prompt-11-gui-file-sidebar-i18n.md) | P4：文件侧栏、i18n、拖动修复协作记录 |

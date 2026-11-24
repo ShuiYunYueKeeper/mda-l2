@@ -42,14 +42,38 @@
   },
   "keywords": [
     "markdown",
+    "markdown-editor",
+    "markdown-viewer",
+    "markdown-preview",
+    "markdown-annotation",
     "annotation",
     "comment",
-    "review"
+    "comments",
+    "code-review",
+    "document-review",
+    "electron",
+    "desktop-app",
+    "typescript",
+    "cli",
+    "mcp",
+    "model-context-protocol",
+    "commonmark",
+    "gfm",
+    "katex",
+    "mermaid",
+    "pdf",
+    "docx",
+    "wechat",
+    "local-first"
   ],
   "license": "MIT",
+  "homepage": "https://shuiyunyuekeeper.github.io/mda-l2/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ShuiYunYueKeeper/mda-l2.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ShuiYunYueKeeper/mda-l2/issues"
   },
   "dependencies": {
     "@codemirror/commands": "^6.7.1",

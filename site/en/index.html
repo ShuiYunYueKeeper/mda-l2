@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MDA — Markdown Workbench: editor, inline comments and export</title>
+<meta name="description" content="MDA is a local-first Markdown workbench: edit directly in the rendered view, keep structured comments inside the .md file (invisible when rendered, visible in git diff), export to Word / PDF / WeChat, and let AI agents read or update comments through a built-in MCP server. Free and open source; Windows installer, macOS/Linux from source.">
+<meta name="keywords" content="Markdown,Markdown editor,Markdown comments,Markdown annotation,Markdown preview,Markdown to Word,Markdown to PDF,local-first,Electron,MCP,Claude,Cursor">
+<meta name="author" content="MDA">
+<meta name="theme-color" content="#0f1115">
+<link rel="canonical" href="https://shuiyunyuekeeper.github.io/mda-l2/en/">
+<link rel="alternate" hreflang="zh-CN" href="https://shuiyunyuekeeper.github.io/mda-l2/">
+<link rel="alternate" hreflang="en" href="https://shuiyunyuekeeper.github.io/mda-l2/en/">
+<link rel="alternate" hreflang="x-default" href="https://shuiyunyuekeeper.github.io/mda-l2/">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/site.css">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MDA — Markdown Workbench">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="zh_CN">
+<meta property="og:url" content="https://shuiyunyuekeeper.github.io/mda-l2/en/">
+<meta property="og:title" content="MDA — Markdown Workbench">
+<meta property="og:description" content="Edit Markdown in the rendered view. Keep comments inside the file, invisible when rendered and visible in git diff. Export to Word / PDF / WeChat. CLI and MCP included.">
+<meta property="og:image" content="https://shuiyunyuekeeper.github.io/mda-l2/assets/og.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="MDA — the local-first Markdown workbench">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MDA — Markdown Workbench">
+<meta name="twitter:description" content="Comments live inside the .md, invisible when rendered, visible in git diff. Edit in preview; export Word / PDF; CLI + MCP.">
+<meta name="twitter:image" content="https://shuiyunyuekeeper.github.io/mda-l2/assets/og.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "MDA — Markdown Workbench",
+      "applicationCategory": "ProductivityApplication",
+      "applicationSubCategory": "Markdown editor",
+      "operatingSystem": "Windows, macOS, Linux",
+      "softwareVersion": "3.1.0",
+      "license": "https://opensource.org/licenses/MIT",
+      "url": "https://shuiyunyuekeeper.github.io/mda-l2/en/",
+      "downloadUrl": "https://github.com/ShuiYunYueKeeper/mda-l2/releases/latest",
+      "codeRepository": "https://github.com/ShuiYunYueKeeper/mda-l2",
+      "screenshot": "https://shuiyunyuekeeper.github.io/mda-l2/assets/screenshot-preview.png",
+      "description": "Local-first Markdown workbench: edit in the rendered view, keep structured comments inside the .md as standard Markdown, export to Word / PDF / WeChat, with CLI and MCP.",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "featureList": [
+        "Edit Markdown directly in the rendered view",
+        "Comments stored in the source file, invisible when rendered",
+        "Export HTML / PDF / Word",
+        "Rich text copy for WeChat articles",
+        "CLI and MCP server"
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "name": "MDA — Markdown Workbench",
+      "url": "https://shuiyunyuekeeper.github.io/mda-l2/en/",
+      "inLanguage": "en"
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Do comments break Markdown compatibility?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. A comment is a CommonMark link reference definition ([comment]: <> (@anno {...})) and produces no visible output. Tools that do not understand the payload see an ordinary reference line. Body text is never modified." }
+        },
+        {
+          "@type": "Question",
+          "name": "How is MDA different from Typora, Obsidian or VS Code?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Those are a writing tool, a knowledge base and a general editor. MDA covers the step after you receive a .md: understand it, change a few lines, leave structured feedback, export what the other side needs, then hand it to an agent. Comments living in the file and MCP being a first-class entry point are the practical differences." }
+        },
+        {
+          "@type": "Question",
+          "name": "Which platforms are supported?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Windows, macOS and Linux. Windows builds include an installer, a portable exe and a zip; macOS and Linux packages must be built on their own platform, and the electron-builder config ships in the repo." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is it free, and are my documents uploaded?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Free and open source under MIT, with no account or activation. The app only reads and writes the files you open; preview, export and WeChat copy run locally. The MCP server is restricted to paths under its --workspace." }
+        }
+      ]
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="./" aria-label="MDA home">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="8"/><path d="M8 22V10l8 7 8-7v12"/></svg>
+      <span>MDA</span>
+    </a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="#why">Why</a>
+      <a href="#comments">Comments</a>
+      <a href="#features">Features</a>
+      <a href="#download">Download</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="lang" href="../" hreflang="zh-CN" lang="zh-CN">中文</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/ShuiYunYueKeeper/mda-l2" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="wrap hero-inner">
+      <p class="eyebrow"><span class="dot"></span> Local-first · MIT · Free</p>
+      <h1>Markdown Workbench</h1>
+      <p class="lede">Open a <code>.md</code>, edit it right in the rendered view, keep review comments inside the file itself — invisible when rendered, visible in <code>git diff</code> — export to Word / PDF / WeChat, or hand it to an AI agent over MCP.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/ShuiYunYueKeeper/mda-l2/releases/latest" rel="noopener">Download for Windows</a>
+        <a class="btn btn-ghost" href="https://github.com/ShuiYunYueKeeper/mda-l2" rel="noopener">View source</a>
+      </div>
+      <ul class="meta-row" aria-label="Product facts">
+        <li>Windows installer · macOS / Linux from source</li>
+        <li>GUI / CLI / MCP</li>
+        <li>v3.1.0</li>
+      </ul>
+
+      <figure class="shot">
+        <div class="shot-bar" aria-hidden="true"><i></i><i></i><i></i><span>MDA — samples/demo.md</span></div>
+        <img src="../assets/screenshot-preview.png" width="1440" height="900" alt="MDA UI: file tree and document outline on the left, rendered Markdown in the middle, comment panel with severity bars on the right." fetchpriority="high">
+      </figure>
+    </div>
+  </section>
+
+  <section id="why" class="section">
+    <div class="wrap">
+      <p class="kicker">Why MDA</p>
+      <h2>Not another Markdown editor —<br>the part after the file arrives.</h2>
+      <div class="grid grid-4">
+        <article class="card">
+          <div class="icon" aria-hidden="true">✎</div>
+          <h3>Comments in the file</h3>
+          <p>A standard Markdown comment carries the structured comment. GitHub, Typora and Obsidian render nothing; <code>git diff</code> shows everything. Change tools and nothing is lost.</p>
+        </article>
+        <article class="card">
+          <div class="icon" aria-hidden="true">◧</div>
+          <h3>Preview is the editor</h3>
+          <p>Click into rendered text and type. <code>**</code>, <code>~~</code> and backticks stay hidden; tables, code blocks and Mermaid are editable in place, and the file on disk stays clean source.</p>
+        </article>
+        <article class="card">
+          <div class="icon" aria-hidden="true">↗</div>
+          <h3>Delivery without conversion</h3>
+          <p>Single-file HTML / PDF / Word export and one-click rich text for WeChat. Local images, KaTeX formulas and diagrams are embedded — no network required.</p>
+        </article>
+        <article class="card">
+          <div class="icon" aria-hidden="true">⌘</div>
+          <h3>Agents can take over</h3>
+          <p>A built-in stdio MCP server exposes six tools: scan, add, edit and remove comments, read a file, export a review prompt. Works with Claude Desktop, Cursor and other clients.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="comments" class="section section-alt">
+    <div class="wrap split">
+      <div>
+        <p class="kicker">Comments in the file</p>
+        <h2>Feedback travels with the file,<br>not with a system.</h2>
+        <p class="prose">A comment is not a database row or a sidecar file. It is a valid Markdown link reference definition placed above the paragraph it reviews. It is copied, committed and merged with the document; removing it never touches a body line.</p>
+        <ul class="checks">
+          <li>Paragraph- and selection-level anchors, with two-way navigation</li>
+          <li>critical / major / minor / info severity, open / resolved / wontfix status</li>
+          <li>Source protection and atomic writes; CRLF / LF preserved</li>
+        </ul>
+      </div>
+      <div class="code-card">
+        <div class="code-card-head"><span>samples/demo.md</span><span class="pill">source</span></div>
+<pre><code><span class="c">[comment]: &lt;&gt; (@anno {"id":"…","content":"This conclusion needs supporting data","tags":["evidence"],"level":"major","status":"open"})</span>
+Local-first means the document stays on your machine
+until you choose to share it.</code></pre>
+        <div class="code-card-foot">
+          <span class="ok">✓</span> Rendered: one ordinary paragraph, the comment is invisible
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="section">
+    <div class="wrap">
+      <p class="kicker">Features</p>
+      <h2>Everything you need,<br>nothing that gets in the way.</h2>
+      <div class="grid grid-3">
+        <article class="card card-sm">
+          <h3>Three-pane workbench</h3>
+          <p>Independent edit and comment toggles around a permanent preview; all three panes can sit side by side, resizable and double-click to reset.</p>
+        </article>
+        <article class="card card-sm">
+          <h3>Selection comments</h3>
+          <p>Select a sentence in preview or source, leave a comment on exactly that range; highlight and panel entry locate each other.</p>
+        </article>
+        <article class="card card-sm">
+          <h3>Tables and code in place</h3>
+          <p>Edit table cells, fenced code and Mermaid source directly in the rendered layer, with the same inline-style rules as body text.</p>
+        </article>
+        <article class="card card-sm">
+          <h3>Mermaid · KaTeX · HTML blocks</h3>
+          <p>Offline diagrams, typeset formulas, and README-style HTML badges or <code>&lt;details&gt;</code> rendered as cards.</p>
+        </article>
+        <article class="card card-sm">
+          <h3>Export and WeChat</h3>
+          <p>Single-file HTML / PDF / Word; copying for WeChat embeds images, formulas and diagrams as PNG automatically.</p>
+        </article>
+        <article class="card card-sm">
+          <h3>File tree · outline · sessions</h3>
+          <p>Drag, rename, copy/move (undoable) and delete with confirmation inside a workspace tree; outline follows the caret; last session and window layout are remembered.</p>
+        </article>
+        <article class="card card-sm">
+          <h3>Dark mode · Chinese and English UI</h3>
+          <p>Follow the system or switch manually; syntax colors and diagrams follow the theme, and the UI language changes instantly.</p>
+        </article>
+        <article class="card card-sm">
+          <h3>Three entry points, one core</h3>
+          <p>GUI, <code>mda-cli</code> and <code>mda-mcp</code> share <code>@mda/core</code>, so automation behaves exactly like the app.</p>
+        </article>
+        <article class="card card-sm">
+          <h3>Works offline</h3>
+          <p>No login, no activation, no network. Every rendering asset ships with the installer.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap">
+      <p class="kicker">Workflow</p>
+      <h2>Four steps from inbox to hand-off.</h2>
+      <ol class="steps">
+        <li><span>01</span><h3>Open</h3><p>Drop in a <code>.md</code> or pick a workspace folder; the Markdown tree, outline and recent files are ready.</p></li>
+        <li><span>02</span><h3>Read and edit</h3><p>Change a few lines in the preview or switch to source. Saving is atomic and keeps the original line endings.</p></li>
+        <li><span>03</span><h3>Comment</h3><p>Comment on a paragraph or a selection with severity and tags. Mark it resolved and it still stays in the diff.</p></li>
+        <li><span>04</span><h3>Deliver</h3><p>Export Word / PDF, copy into WeChat, or let an MCP client pick up the comments and continue.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="download" class="section">
+    <div class="wrap download">
+      <div>
+        <p class="kicker">Download</p>
+        <h2>Get MDA</h2>
+        <p class="prose">v3.1.0 · free · no account. Windows installer, portable exe and zip are on Releases; macOS and Linux builds run from source or your own packaging pipeline.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/ShuiYunYueKeeper/mda-l2/releases/latest" rel="noopener">Go to Releases</a>
+          <a class="btn btn-ghost" href="https://github.com/ShuiYunYueKeeper/mda-l2/blob/master/README.en.md#quick-start" rel="noopener">Build from source</a>
+        </div>
+      </div>
+      <div class="terminal" aria-label="Commands to run from source">
+        <div class="terminal-head"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code><span class="p">$</span> git clone https://github.com/ShuiYunYueKeeper/mda-l2.git
+<span class="p">$</span> cd mda-l2 &amp;&amp; npm install
+<span class="p">$</span> npm run build
+<span class="p">$</span> npm run gui -- samples/demo.md
+
+<span class="p">$</span> npm run cli -- scan samples/demo.md --format json
+<span class="p">$</span> node dist/mcp/server.js --workspace ./docs</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq" class="section section-alt">
+    <div class="wrap narrow">
+      <p class="kicker">FAQ</p>
+      <h2>Common questions</h2>
+      <details open>
+        <summary>Do comments break Markdown compatibility?</summary>
+        <p>No. A comment is a CommonMark link reference definition (<code>[comment]: &lt;&gt; (@anno {…})</code>) and produces no visible output. Tools that do not understand the payload see an ordinary reference line. Body text is never modified.</p>
+      </details>
+      <details>
+        <summary>How is MDA different from Typora, Obsidian or VS Code?</summary>
+        <p>Those are a writing tool, a knowledge base and a general editor. MDA covers the step after you receive a <code>.md</code>: understand it, change a few lines, leave structured feedback, export what the other side needs, then hand it to an agent. Comments living in the file and MCP being a first-class entry point are the practical differences.</p>
+      </details>
+      <details>
+        <summary>Which platforms are supported?</summary>
+        <p>Windows, macOS and Linux. Windows builds include an installer, a portable exe and a zip; macOS and Linux packages must be built on their own platform, and the electron-builder config ships in the repo.</p>
+      </details>
+      <details>
+        <summary>Is it free, and are my documents uploaded?</summary>
+        <p>Free and open source under MIT, with no account or activation. The app only reads and writes the files you open; preview, export and WeChat copy run locally. The MCP server is restricted to paths under <code>--workspace</code>.</p>
+      </details>
+      <details>
+        <summary>How do I connect an agent?</summary>
+        <p>Point your MCP client at <code>dist/mcp/server.js</code>, optionally with <code>--workspace</code> to limit accessible paths. Six tools: scan, add, edit and remove comments, read a file, and export a review prompt.</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="section cta-final">
+    <div class="wrap">
+      <h2>Spend less time switching tools,<br>more time on the content.</h2>
+      <p class="prose">If MDA saves you a format conversion or a round of screenshot-and-chat review, a star is the most useful way to say so.</p>
+      <div class="cta-row center">
+        <a class="btn btn-primary" href="https://github.com/ShuiYunYueKeeper/mda-l2" rel="noopener">★ Star on GitHub</a>
+        <a class="btn btn-ghost" href="https://github.com/ShuiYunYueKeeper/mda-l2/issues" rel="noopener">Report an issue</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div>
+      <span class="brand brand-sm">MDA</span>
+      <p>The local-first Markdown workbench.<br>Your documents stay on your machine.</p>
+    </div>
+    <nav aria-label="Footer navigation">
+      <a href="https://github.com/ShuiYunYueKeeper/mda-l2">GitHub</a>
+      <a href="https://github.com/ShuiYunYueKeeper/mda-l2/releases">Releases</a>
+      <a href="https://github.com/ShuiYunYueKeeper/mda-l2/issues">Issues</a>
+      <a href="https://github.com/ShuiYunYueKeeper/mda-l2/blob/master/README.en.md">Documentation</a>
+      <a href="../" hreflang="zh-CN" lang="zh-CN">中文</a>
+    </nav>
+    <p class="copy">© 2026 MDA · MIT License · Maintained by the project authors</p>
+  </div>
+</footer>
+</body>
+</html>

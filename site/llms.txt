@@ -1,0 +1,35 @@
+# MDA — Markdown 工作台
+
+> 本地优先的开源 Markdown 工作台：预览内直接编辑、把结构化批注写进 `.md` 文件本身（渲染不可见、可进 git）、导出 Word / PDF / 公众号，并提供 CLI 与 MCP，让 AI Agent 直接读写批注。免费、MIT、Windows / macOS / Linux。
+
+MDA 面向「收到一个 Markdown 文件之后」的链路：打开、看懂、改几句、留下段落级或选区级意见、导出成对方要的格式，或者交给 Agent 继续处理。批注以 CommonMark 的 link reference definition 形式存在（`[comment]: <> (@anno {JSON})`），不污染渲染结果，也不需要额外的批注数据库或 sidecar 文件。
+
+## 核心事实
+
+- 最新版本：v3.1.0（完全免费，无账号、无激活、无 AI 付费入口）
+- 许可证：MIT
+- 平台：Windows（安装包 / 便携版 / zip）、macOS（dmg / zip）、Linux（AppImage / deb）
+- 技术栈：Electron、TypeScript、CodeMirror 6、markdown-it（CommonMark 0.31 + GFM）、Mermaid、KaTeX
+- 入口：GUI `mda`、CLI `mda-cli`、MCP `mda-mcp`，共享 `@mda/core`
+- 批注语法：`[comment]: <> (@anno {"id":…,"content":…,"tags":[…],"level":…,"status":…,"created_at":…})`
+- MCP 工具：`mda_scan`、`mda_add`、`mda_edit`、`mda_remove`、`mda_read_file`、`mda_export_review_prompt`
+- 数据去向：只读写本地文件；预览、导出、公众号复制均在本机完成；MCP 访问受 `--workspace` 限制
+
+## 页面
+
+- [中文首页](https://shuiyunyuekeeper.github.io/mda-l2/)：产品介绍、功能、下载与常见问题
+- [English](https://shuiyunyuekeeper.github.io/mda-l2/en/)：English overview
+
+## 文档与源码
+
+- [GitHub 仓库](https://github.com/ShuiYunYueKeeper/mda-l2)
+- [中文 README](https://github.com/ShuiYunYueKeeper/mda-l2/blob/master/README.md)
+- [English README](https://github.com/ShuiYunYueKeeper/mda-l2/blob/master/README.en.md)
+- [Releases / 下载](https://github.com/ShuiYunYueKeeper/mda-l2/releases/latest)
+- [Issues](https://github.com/ShuiYunYueKeeper/mda-l2/issues)
+
+## 适用与不适用
+
+适合：审阅 AI 生成的方案与说明、给同事的 `.md` 留具体意见、把 Markdown 交付成 Word / PDF / 公众号、让 Agent 批量读取或修改批注。
+
+不适合：作为长期笔记库（请用 Obsidian 等）、多人实时协同编辑、云端文档托管。

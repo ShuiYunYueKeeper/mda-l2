@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MDA — Markdown 工作台｜Markdown 批注、预览编辑与导出工具</title>
+<meta name="description" content="MDA 是本地优先的 Markdown 工作台：在渲染结果上直接编辑，批注写进 .md 文件本身（渲染不可见、可进 git），一键导出 Word / PDF / 公众号，并提供 CLI 与 MCP，让 AI Agent 直接读写批注。免费开源，Windows 提供安装包，macOS / Linux 可源码构建。">
+<meta name="keywords" content="Markdown,Markdown 编辑器,Markdown 批注,Markdown 预览,Markdown 导出 Word,Markdown 转 PDF,本地 Markdown 工具,MCP,Markdown annotation">
+<meta name="author" content="MDA">
+<meta name="theme-color" content="#0f1115">
+<link rel="canonical" href="https://shuiyunyuekeeper.github.io/mda-l2/">
+<link rel="alternate" hreflang="zh-CN" href="https://shuiyunyuekeeper.github.io/mda-l2/">
+<link rel="alternate" hreflang="en" href="https://shuiyunyuekeeper.github.io/mda-l2/en/">
+<link rel="alternate" hreflang="x-default" href="https://shuiyunyuekeeper.github.io/mda-l2/">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MDA — Markdown 工作台">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:url" content="https://shuiyunyuekeeper.github.io/mda-l2/">
+<meta property="og:title" content="MDA — Markdown 工作台｜批注、预览编辑与导出">
+<meta property="og:description" content="在渲染结果上直接编辑 Markdown；批注写进文件本身，渲染不可见、可进 git；导出 Word / PDF / 公众号；CLI 与 MCP 让 Agent 接手。免费开源。">
+<meta property="og:image" content="https://shuiyunyuekeeper.github.io/mda-l2/assets/og.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="MDA — 本地优先的 Markdown 工作台">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MDA — Markdown 工作台">
+<meta name="twitter:description" content="批注写进 .md 本身，渲染不可见、可进 git；预览内直接编辑；导出 Word / PDF；CLI + MCP。">
+<meta name="twitter:image" content="https://shuiyunyuekeeper.github.io/mda-l2/assets/og.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "MDA — Markdown 工作台",
+      "alternateName": "MDA Markdown Workbench",
+      "applicationCategory": "ProductivityApplication",
+      "applicationSubCategory": "Markdown editor",
+      "operatingSystem": "Windows, macOS, Linux",
+      "softwareVersion": "3.1.0",
+      "license": "https://opensource.org/licenses/MIT",
+      "url": "https://shuiyunyuekeeper.github.io/mda-l2/",
+      "downloadUrl": "https://github.com/ShuiYunYueKeeper/mda-l2/releases/latest",
+      "codeRepository": "https://github.com/ShuiYunYueKeeper/mda-l2",
+      "screenshot": "https://shuiyunyuekeeper.github.io/mda-l2/assets/screenshot-preview.png",
+      "description": "本地优先的 Markdown 工作台：预览内直接编辑、把结构化批注写入 .md 标准注释、导出 Word / PDF / 公众号，并提供 CLI 与 MCP。",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" },
+      "featureList": [
+        "预览内直接编辑 Markdown",
+        "批注写入源文件，渲染不可见",
+        "导出 HTML / PDF / Word",
+        "微信公众号富文本复制",
+        "CLI 与 MCP Server"
+      ]
+    },
+    {
+      "@type": "WebSite",
+      "name": "MDA — Markdown 工作台",
+      "url": "https://shuiyunyuekeeper.github.io/mda-l2/",
+      "inLanguage": "zh-CN"
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "批注会破坏 Markdown 兼容性吗？",
+          "acceptedAnswer": { "@type": "Answer", "text": "不会。批注是 CommonMark 的链接引用定义（[comment]: <> (@anno {...})），渲染时不产生可见输出；不认识该写法的工具最多把它当成一行普通注释。正文不会被改动。" }
+        },
+        {
+          "@type": "Question",
+          "name": "MDA 和 Typora、Obsidian、VS Code 有什么不同？",
+          "acceptedAnswer": { "@type": "Answer", "text": "它们分别是写作工具、笔记库和通用编辑器。MDA 处理的是收到一个 .md 之后的链路：看懂、改几句、留下结构化意见、导出成对方要的格式、再交给 Agent。批注与源文件同体、MCP 是一等入口，是最大差别。" }
+        },
+        {
+          "@type": "Question",
+          "name": "支持哪些平台？",
+          "acceptedAnswer": { "@type": "Answer", "text": "Windows、macOS、Linux。Windows 提供安装包、便携版与 zip；macOS 与 Linux 包需在对应平台构建，仓库含 electron-builder 配置。" }
+        },
+        {
+          "@type": "Question",
+          "name": "真的免费吗？会上传我的文档吗？",
+          "acceptedAnswer": { "@type": "Answer", "text": "免费且开源（MIT），无账号、无激活。应用只读写你打开的本地文件，预览、导出与公众号复制都在本机完成；MCP Server 只允许访问 --workspace 指定目录。" }
+        }
+      ]
+    }
+  ]
+}
+</script>
+</head>
+<body>
+<a class="skip-link" href="#main">跳到正文</a>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="./" aria-label="MDA 首页">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="1" y="1" width="30" height="30" rx="8"/><path d="M8 22V10l8 7 8-7v12"/></svg>
+      <span>MDA</span>
+    </a>
+    <nav class="nav-links" aria-label="主导航">
+      <a href="#why">为什么</a>
+      <a href="#comments">批注</a>
+      <a href="#features">功能</a>
+      <a href="#download">下载</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="lang" href="./en/" hreflang="en" lang="en">EN</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/ShuiYunYueKeeper/mda-l2" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="wrap hero-inner">
+      <p class="eyebrow"><span class="dot"></span> 本地优先 · 开源 MIT · 完全免费</p>
+      <h1>Markdown 工作台</h1>
+      <p class="lede">打开 <code>.md</code>，直接在渲染结果上改；批注写进文件本身，渲染不可见、可随 git 评审；一键导出 Word / PDF / 公众号，或用 MCP 交给 AI Agent。</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/ShuiYunYueKeeper/mda-l2/releases/latest" rel="noopener">下载 Windows 版</a>
+        <a class="btn btn-ghost" href="https://github.com/ShuiYunYueKeeper/mda-l2" rel="noopener">查看源码</a>
+      </div>
+      <ul class="meta-row" aria-label="产品信息">
+        <li>Windows 安装包 · macOS / Linux 源码构建</li>
+        <li>GUI / CLI / MCP</li>
+        <li>v3.1.0</li>
+      </ul>
+
+      <figure class="shot">
+        <div class="shot-bar" aria-hidden="true"><i></i><i></i><i></i><span>MDA — samples/demo.md</span></div>
+        <img src="assets/screenshot-preview.png" width="1440" height="900" alt="MDA 界面：左侧文件树与文档大纲，中间是渲染后的 Markdown 正文，右侧是带级别色条的批注面板。" fetchpriority="high">
+      </figure>
+    </div>
+  </section>
+
+  <section id="why" class="section">
+    <div class="wrap">
+      <p class="kicker">Why MDA</p>
+      <h2>不是又一个 Markdown 编辑器，<br>而是「收到文件之后」的那一段。</h2>
+      <div class="grid grid-4">
+        <article class="card">
+          <div class="icon" aria-hidden="true">✎</div>
+          <h3>批注在文件里</h3>
+          <p>一条标准 Markdown 注释承载结构化批注。GitHub、Typora、Obsidian 都看不见它，<code>git diff</code> 却看得一清二楚——换工具不丢。</p>
+        </article>
+        <article class="card">
+          <div class="icon" aria-hidden="true">◧</div>
+          <h3>预览就是编辑器</h3>
+          <p>点一下文字就能改，<code>**</code>、<code>~~</code>、反引号自动隐藏；表格、代码块、Mermaid 都能就地编辑，落盘仍是干净源码。</p>
+        </article>
+        <article class="card">
+          <div class="icon" aria-hidden="true">↗</div>
+          <h3>交付格式不用再转</h3>
+          <p>HTML / PDF / Word 单文件导出，公众号富文本一键复制；本地图片、KaTeX 公式、流程图一并内嵌，不依赖网络。</p>
+        </article>
+        <article class="card">
+          <div class="icon" aria-hidden="true">⌘</div>
+          <h3>Agent 能接手</h3>
+          <p>内置 stdio MCP Server，六个工具覆盖扫描、增删改批注、读文件、导出审阅 prompt。Claude Desktop、Cursor 直接调用。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="comments" class="section section-alt">
+    <div class="wrap split">
+      <div>
+        <p class="kicker">Comments in the file</p>
+        <h2>意见跟着文件走，<br>而不是留在某个系统里。</h2>
+        <p class="prose">批注不是数据库记录，也不是 Sidecar 文件，而是一行合法的 Markdown 注释，放在被批注段落的上方。它随文件复制、提交、合并；清除批注时正文逐字节不变。</p>
+        <ul class="checks">
+          <li>段落级 / 选区级定位，正文与批注面板双向跳转</li>
+          <li>critical / major / minor / info 四级色条，open / resolved / wontfix 状态</li>
+          <li>源码保护 + 原子写入，CRLF / LF 原样保留</li>
+        </ul>
+      </div>
+      <div class="code-card">
+        <div class="code-card-head"><span>samples/demo.md</span><span class="pill">源码</span></div>
+<pre><code><span class="c">[comment]: &lt;&gt; (@anno {"id":"…","content":"这一段的结论需要数据支撑","tags":["evidence"],"level":"major","status":"open"})</span>
+本地优先意味着文档默认留在你的电脑上，
+只有你主动分享时才会离开。</code></pre>
+        <div class="code-card-foot">
+          <span class="ok">✓</span> 渲染后：一段普通文字，批注不可见
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="section">
+    <div class="wrap">
+      <p class="kicker">Features</p>
+      <h2>该有的都有，<br>不该打扰的都不出现。</h2>
+      <div class="grid grid-3">
+        <article class="card card-sm">
+          <h3>三栏工作台</h3>
+          <p>编辑、预览、批注各自独立开关，可并排成三栏；栏宽可拖，双击复位。</p>
+        </article>
+        <article class="card card-sm">
+          <h3>选区批注</h3>
+          <p>在预览或源码里选中一句话留意见，高亮与面板条目互相定位。</p>
+        </article>
+        <article class="card card-sm">
+          <h3>表格 / 代码就地编辑</h3>
+          <p>单元格、代码块、Mermaid 源码直接在渲染层编辑，共用同一套行内样式规则。</p>
+        </article>
+        <article class="card card-sm">
+          <h3>Mermaid · KaTeX · HTML 块</h3>
+          <p>流程图离线渲染，公式按排版输出，README 式 HTML 徽章与 <code>&lt;details&gt;</code> 渲染成卡片。</p>
+        </article>
+        <article class="card card-sm">
+          <h3>导出与公众号</h3>
+          <p>HTML / PDF / Word 单文件；复制到公众号时图片、公式、流程图自动内嵌为 PNG。</p>
+        </article>
+        <article class="card card-sm">
+          <h3>文件树 · 大纲 · 会话</h3>
+          <p>工作区文件树支持拖拽、重命名、复制移动（可撤销）与删除确认；大纲跟随光标；记住上次会话与窗口布局。</p>
+        </article>
+        <article class="card card-sm">
+          <h3>深色模式 · 中英界面</h3>
+          <p>跟随系统或手动切换，代码高亮与流程图联动；界面语言即时切换。</p>
+        </article>
+        <article class="card card-sm">
+          <h3>三个入口同一内核</h3>
+          <p>GUI、<code>mda-cli</code>、<code>mda-mcp</code> 共享 <code>@mda/core</code>，行为一致，脚本化不改语义。</p>
+        </article>
+        <article class="card card-sm">
+          <h3>离线可用</h3>
+          <p>不登录、不激活、不需要网络；所有渲染资源随安装包分发。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="wrap">
+      <p class="kicker">Workflow</p>
+      <h2>四步，从收到文件到交出去。</h2>
+      <ol class="steps">
+        <li><span>01</span><h3>打开</h3><p>拖入 <code>.md</code>，或指定一个工作区文件夹；Markdown 树、大纲与最近文件就位。</p></li>
+        <li><span>02</span><h3>读与改</h3><p>在预览里直接改几句，或切到源码模式；保存走原子写入，原有换行风格不变。</p></li>
+        <li><span>03</span><h3>批注</h3><p>对段落或选区留意见，选级别与标签；改成 resolved 后仍然留在 diff 里。</p></li>
+        <li><span>04</span><h3>交付</h3><p>导出 Word / PDF，复制到公众号，或让 MCP 客户端读取批注继续处理。</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="download" class="section">
+    <div class="wrap download">
+      <div>
+        <p class="kicker">Download</p>
+        <h2>下载 MDA</h2>
+        <p class="prose">v3.1.0 · 完全免费 · 无需账号。Windows 安装包、便携版与 zip 见 Releases；macOS / Linux 可从源码构建。</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/ShuiYunYueKeeper/mda-l2/releases/latest" rel="noopener">前往 Releases</a>
+          <a class="btn btn-ghost" href="https://github.com/ShuiYunYueKeeper/mda-l2#快速开始" rel="noopener">从源码运行</a>
+        </div>
+      </div>
+      <div class="terminal" aria-label="从源码运行的命令">
+        <div class="terminal-head"><i></i><i></i><i></i><span>terminal</span></div>
+<pre><code><span class="p">$</span> git clone https://github.com/ShuiYunYueKeeper/mda-l2.git
+<span class="p">$</span> cd mda-l2 &amp;&amp; npm install
+<span class="p">$</span> npm run build
+<span class="p">$</span> npm run gui -- samples/demo.md
+
+<span class="p">$</span> npm run cli -- scan samples/demo.md --format json
+<span class="p">$</span> node dist/mcp/server.js --workspace ./docs</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq" class="section section-alt">
+    <div class="wrap narrow">
+      <p class="kicker">FAQ</p>
+      <h2>常见问题</h2>
+      <details open>
+        <summary>批注会破坏 Markdown 兼容性吗？</summary>
+        <p>不会。批注是 CommonMark 的链接引用定义（<code>[comment]: &lt;&gt; (@anno {…})</code>），渲染时不产生可见输出；不认识该写法的工具最多把它当成一行普通注释。正文不会被改动。</p>
+      </details>
+      <details>
+        <summary>和 Typora、Obsidian、VS Code 有什么不同？</summary>
+        <p>它们分别是写作工具、笔记库和通用编辑器。MDA 处理的是收到一个 <code>.md</code> 之后的链路：看懂、改几句、留下结构化意见、导出成对方要的格式、再交给 Agent。批注与源文件同体、MCP 是一等入口，是最大差别。</p>
+      </details>
+      <details>
+        <summary>支持哪些平台？</summary>
+        <p>Windows、macOS、Linux。Windows 提供安装包、便携版与 zip；macOS 与 Linux 包需在对应平台构建，仓库已含 electron-builder 配置。</p>
+      </details>
+      <details>
+        <summary>真的免费吗？会上传我的文档吗？</summary>
+        <p>免费且开源（MIT），无账号、无激活。应用只读写你打开的本地文件，预览、导出与公众号复制都在本机完成；MCP Server 只允许访问 <code>--workspace</code> 指定目录。</p>
+      </details>
+      <details>
+        <summary>Agent 怎么接入？</summary>
+        <p>把 <code>dist/mcp/server.js</code> 配进 MCP 客户端即可，可用 <code>--workspace</code> 限制可访问目录。六个工具：扫描、添加、编辑、删除批注，读文件，导出审阅 prompt。</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="section cta-final">
+    <div class="wrap">
+      <h2>少切换几个工具，<br>把时间留给内容。</h2>
+      <p class="prose">如果 MDA 帮你省下了一次格式转换或一轮「截图 + 聊天」的评审，点个 Star 就是最实在的支持。</p>
+      <div class="cta-row center">
+        <a class="btn btn-primary" href="https://github.com/ShuiYunYueKeeper/mda-l2" rel="noopener">★ Star on GitHub</a>
+        <a class="btn btn-ghost" href="https://github.com/ShuiYunYueKeeper/mda-l2/issues" rel="noopener">反馈问题</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-inner">
+    <div>
+      <span class="brand brand-sm">MDA</span>
+      <p>本地优先的 Markdown 工作台。<br>文档不离开你的电脑。</p>
+    </div>
+    <nav aria-label="页脚导航">
+      <a href="https://github.com/ShuiYunYueKeeper/mda-l2">GitHub</a>
+      <a href="https://github.com/ShuiYunYueKeeper/mda-l2/releases">Releases</a>
+      <a href="https://github.com/ShuiYunYueKeeper/mda-l2/issues">Issues</a>
+      <a href="https://github.com/ShuiYunYueKeeper/mda-l2/blob/master/README.md">文档</a>
+      <a href="./en/" hreflang="en" lang="en">English</a>
+    </nav>
+    <p class="copy">© 2026 MDA · MIT License · 本页由项目维护者维护</p>
+  </div>
+</footer>
+</body>
+</html>

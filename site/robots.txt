@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://shuiyunyuekeeper.github.io/mda-l2/sitemap.xml
